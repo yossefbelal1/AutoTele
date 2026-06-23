@@ -2153,3 +2153,12 @@ input[type="range"]::-webkit-slider-thumb:hover {
   }
 }
 
+@keyframes pulse-text {
+  0% { opacity: 0.6; }
+  50% { opacity: 1; }
+  100% { opacity: 0.6; }
+}
+.pulse-text-animation {
+  animation: pulse-text 1.5s infinite;
+}
+
