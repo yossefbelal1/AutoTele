@@ -2400,7 +2400,6 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
 
     async def handle_اضافة_صيغة(message: Message):
         try:
-            from pyrogram.parser.html import HTML
             logger.info(f"[handle_اضافة_صيغة] Debug Info:")
             logger.info(f"  - message.text: {repr(message.text)}")
             logger.info(f"  - message.entities: {repr(message.entities)}")
@@ -2413,28 +2412,25 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 logger.info(f"  - replied.caption_entities: {repr(replied.caption_entities)}")
                 logger.info(f"  - type(replied.text): {type(replied.text)}")
                 if replied.text:
-                    replied_html = HTML.unparse(replied.text, replied.entities or [])
-                    logger.info(f"  - replied.text HTML parsed: {repr(replied_html)}")
+                    logger.info(f"  - hasattr(replied.text, 'html'): {hasattr(replied.text, 'html')}")
+                    if hasattr(replied.text, 'html'):
+                        logger.info(f"  - replied.text.html: {repr(replied.text.html)}")
                 if replied.caption:
-                    replied_caption_html = HTML.unparse(replied.caption, replied.caption_entities or [])
-                    logger.info(f"  - replied.caption HTML parsed: {repr(replied_caption_html)}")
+                    logger.info(f"  - hasattr(replied.caption, 'html'): {hasattr(replied.caption, 'html')}")
+                    if hasattr(replied.caption, 'html'):
+                        logger.info(f"  - replied.caption.html: {repr(replied.caption.html)}")
 
             raw_text = None
             if message.reply_to_message:
                 replied = message.reply_to_message
-                # استخدام HTML.unparse لحفظ الإيموجيات المتحركة المميزة والتنسيقات
+                # استخدام .html بدلاً من .markdown لحفظ الإيموجيات المتحركة المميزة
                 # Pyrogram يُحوّل custom_emoji entities إلى <emoji id="...">char</emoji>
                 if replied.text:
-                    raw_text = HTML.unparse(replied.text, replied.entities or [])
+                    raw_text = replied.text.html
                 elif replied.caption:
-                    raw_text = HTML.unparse(replied.caption, replied.caption_entities or [])
+                    raw_text = replied.caption.html
             else:
-                full_html = ""
-                if message.text:
-                    full_html = HTML.unparse(message.text, message.entities or [])
-                elif message.caption:
-                    full_html = HTML.unparse(message.caption, message.caption_entities or [])
-                
+                full_html = message.text.html if message.text else (message.caption.html if message.caption else "")
                 match = re.match(r"^(\s*[\./\\]\s*(صيغة|صيغه|اضافة_صيغة|اضافه_صيغة|صيغة_جديدة|صيغه_جديده|template|add_template|add-template))\s*", message.text or message.caption or "")
                 if match:
                     prefix = match.group(0)

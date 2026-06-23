@@ -18,6 +18,7 @@ function escapeHtml(str) {
 let currentUser = null;
 let currentTelegramAccountId = null;
 let currentSlideIndex = 0;
+let triggerImmediatePoll = null;
 
 // ==========================================
 // 1. TOAST NOTIFICATION SYSTEM
@@ -816,6 +817,8 @@ async function handleWebCampaignSubmit(e) {
       if (campaignTypeSelect) {
         campaignTypeSelect.dispatchEvent(new Event("change"));
       }
+      if (typeof triggerImmediatePoll === "function") triggerImmediatePoll();
+      scrollToProgress();
     }
   } catch (error) {
     console.error("Web Campaign Submission Error:", error);
@@ -924,6 +927,18 @@ async function loadTemplatesList() {
   }
 }
 
+function formatTelegramText(text) {
+  if (!text) return "";
+  let html = escapeHtml(text);
+  // Replace double asterisks with bold tags
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  // Replace single asterisks with italic tags
+  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  // Replace code ticks
+  html = html.replace(/`(.*?)`/g, '<code style="background: rgba(255,255,255,0.15); padding: 2px 4px; border-radius: 4px; font-family: monospace; font-size: 11.5px; color: #f43f5e;">$1</code>');
+  return html;
+}
+
 async function loadScheduledJobs() {
   try {
     const data = await apiRequest("/user/scheduled-jobs");
@@ -953,20 +968,47 @@ async function loadScheduledJobs() {
             } else {
               remainingStr = ` <span style="color: #34d399; font-weight: 500; font-size: 11px; margin-right: 4px;">(متبقي ${mins} د)</span>`;
             }
-          } else {
-            remainingStr = ` <span style="color: #fbbf24; font-weight: 500; font-size: 11px; margin-right: 4px;">(جاري التنفيذ...)</span>`;
           }
         } catch(e) {
           dateStr = job.start_time;
         }
+
+        let statusBadge = "";
+        let cardStyle = "";
+        
+        if (job.status === "processing") {
+          statusBadge = `<span class="pulse-text-animation" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">🔄 جاري التنفيذ...</span>`;
+          cardStyle = "background: rgba(59, 130, 246, 0.04); border: 1px solid rgba(59, 130, 246, 0.35); box-shadow: 0 4px 20px rgba(59, 130, 246, 0.1);";
+        } else if (job.status === "completed") {
+          statusBadge = `<span style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">✅ مكتمل</span>`;
+          cardStyle = "background: rgba(16, 185, 129, 0.02); border: 1px solid rgba(16, 185, 129, 0.25);";
+        } else if (job.status === "failed") {
+          statusBadge = `<span style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">❌ متوقف / ملغي</span>`;
+          cardStyle = "background: rgba(239, 68, 68, 0.02); border: 1px solid rgba(239, 68, 68, 0.25);";
+        } else {
+          // pending
+          statusBadge = `<span style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">⏳ مجدول</span>`;
+          cardStyle = "background: rgba(255, 255, 255, 0.015); border: 1px solid rgba(255, 255, 255, 0.06);";
+        }
+
+        let progressHtml = "";
+        if (job.result_summary) {
+          progressHtml = `
+            <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.05); padding: 12px; border-radius: 8px; margin-top: 8px; color: #e2e8f0; font-family: system-ui, -apple-system, sans-serif; font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; direction: rtl; text-align: right;">${formatTelegramText(job.result_summary)}</div>
+          `;
+        }
         
         html += `
-          <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; display: flex; flex-direction: column; gap: 6px;">
-            <div style="display: flex; align-items: center; justify-content: space-between;">
-              <span style="font-weight: 600; color: #fff; font-size: 13px;">${escapeHtml(job.type)}</span>
-              <span style="color: #60a5fa; font-size: 12px; display: flex; align-items: center;">⏳ ${escapeHtml(dateStr)}${remainingStr}</span>
+          <div style="padding: 16px; border-radius: 12px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; transition: all 0.3s; ${cardStyle}">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+              <span style="font-weight: 700; color: #fff; font-size: 14px; display: flex; align-items: center; gap: 6px;">🚀 ${escapeHtml(job.type)}</span>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                ${statusBadge}
+                <span style="color: #94a3b8; font-size: 12px; display: flex; align-items: center; gap: 4px;">📅 ${escapeHtml(dateStr)}${remainingStr}</span>
+              </div>
             </div>
-            <div style="color: #94a3b8; font-size: 12px; line-height: 1.4;">${escapeHtml(job.details)}</div>
+            <div style="color: #94a3b8; font-size: 12px; line-height: 1.5; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 8px;">${escapeHtml(job.details)}</div>
+            ${progressHtml}
           </div>
         `;
       });
@@ -1145,6 +1187,8 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         if (data.status === "success") {
           showToast(data.message || "تم تقديم طلب مسح الإعلانات بنجاح!", "success");
+          if (typeof triggerImmediatePoll === "function") triggerImmediatePoll();
+          scrollToProgress();
         }
       } catch (error) {
         console.error("Clear Error:", error);
@@ -1174,6 +1218,8 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         if (data.status === "success") {
           showToast(data.message || "تم تقديم طلب المسح العميق بنجاح!", "success");
+          if (typeof triggerImmediatePoll === "function") triggerImmediatePoll();
+          scrollToProgress();
         }
       } catch (error) {
         console.error("Deep Clear Error:", error);
@@ -1204,11 +1250,40 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         if (data.status === "success") {
           showToast(data.message || "تم تقديم طلب تحديث الكاش والمزامنة بنجاح!", "success");
+          if (typeof triggerImmediatePoll === "function") triggerImmediatePoll();
+          scrollToProgress();
         }
       } catch (error) {
         console.error("Update Cache Error:", error);
       } finally {
         setButtonLoading("btn-update-web", false);
+      }
+    });
+  }
+
+  const btnStopEverythingWeb = document.getElementById("btn-stop-everything-web");
+  if (btnStopEverythingWeb) {
+    btnStopEverythingWeb.addEventListener("click", async () => {
+      if (!confirm("🚨 تحذير هام جداً: هل أنت متأكد من رغبتك في إيقاف جميع العمليات والحملات والنشر التبادلي النشطة والمجدولة فوراً؟")) {
+        return;
+      }
+      setButtonLoading("btn-stop-everything-web", true);
+      try {
+        const data = await apiRequest("/user/stop-everything", {
+          method: "POST"
+        });
+        if (data.status === "success") {
+          showToast(data.message || "تم إيقاف جميع العمليات بنجاح!", "success");
+          if (typeof triggerImmediatePoll === "function") triggerImmediatePoll();
+          scrollToProgress();
+        } else {
+          showToast(data.message || "فشل إيقاف العمليات.", "error");
+        }
+      } catch (error) {
+        console.error("Stop Everything Error:", error);
+        showToast("حدث خطأ أثناء الاتصال بالخادم لإيقاف العمليات.", "error");
+      } finally {
+        setButtonLoading("btn-stop-everything-web", false);
       }
     });
   }
@@ -1384,15 +1459,59 @@ document.addEventListener("DOMContentLoaded", () => {
     loadActiveAds();
   }
 
-  // Periodic polling (every 10 seconds if dashboard is active)
-  setInterval(() => {
-    const dashboardVisible = !document.getElementById("dashboard-view").classList.contains("hidden");
-    if (dashboardVisible) {
-      loadScheduledJobs();
-      loadEventLogs();
-      loadActiveAds();
+  // Dynamic live polling
+  let pollingTimer = null;
+  
+  triggerImmediatePoll = async function() {
+    if (pollingTimer) clearTimeout(pollingTimer);
+    try {
+      await Promise.all([
+        loadScheduledJobs(),
+        loadEventLogs(),
+        loadActiveAds()
+      ]);
+    } catch (e) {
+      console.error("Immediate poll failed:", e);
     }
-  }, 10000);
+    scheduleNextPoll();
+  };
+
+  function scheduleNextPoll() {
+    if (pollingTimer) clearTimeout(pollingTimer);
+    
+    const dashboardVisible = !document.getElementById("dashboard-view").classList.contains("hidden");
+    if (!dashboardVisible) {
+      pollingTimer = setTimeout(scheduleNextPoll, 5000);
+      return;
+    }
+    
+    // Check if there are active tasks on screen to decide polling frequency
+    const jobsList = document.getElementById("scheduled-jobs-list");
+    const hasActiveJobs = jobsList && (
+      jobsList.innerHTML.includes("🔄 جاري التنفيذ...") || 
+      jobsList.innerHTML.includes("⏳ مجدول") ||
+      jobsList.innerHTML.includes("processing") ||
+      jobsList.innerHTML.includes("pending")
+    );
+    
+    const delay = hasActiveJobs ? 2000 : 5000;
+    
+    pollingTimer = setTimeout(async () => {
+      try {
+        await Promise.all([
+          loadScheduledJobs(),
+          loadEventLogs(),
+          loadActiveAds()
+        ]);
+      } catch (e) {
+        console.error("Scheduled poll failed:", e);
+      }
+      scheduleNextPoll();
+    }, delay);
+  }
+
+  // Start dynamic polling
+  scheduleNextPoll();
 
   // H. Periodic Dashboard Sync (refresh data every 30 seconds if dashboard is open)
   setInterval(() => {
@@ -1406,91 +1525,10 @@ document.addEventListener("DOMContentLoaded", () => {
 // ==========================================
 // CAMPAIGN WIZARD ENGINE & CALCULATORS
 // ==========================================
-let currentPreset = "safe";
-
 function initCampaignWizard() {
-  const presetBtns = document.querySelectorAll(".preset-btn");
-  const customDelayBlock = document.getElementById("custom-delay-settings");
-  
-  const delayStartInput = document.getElementById("web-delay-start");
-  const delayBetweenInput = document.getElementById("web-delay-between");
-  const adLifespanInput = document.getElementById("web-ad-lifespan");
   const customTextInput = document.getElementById("web-custom-text");
-  
-  const labelDelayStart = document.getElementById("label-delay-start");
-  const labelDelayBetween = document.getElementById("label-delay-between");
-  const labelAdLifespan = document.getElementById("label-ad-lifespan");
-  
-  const campaignTypeSelect = document.getElementById("web-campaign-type");
 
-  // A. Preset switching
-  presetBtns.forEach(btn => {
-    btn.addEventListener("click", () => {
-      presetBtns.forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      
-      const preset = btn.getAttribute("data-preset");
-      currentPreset = preset;
-      
-      if (preset === "custom") {
-        customDelayBlock.classList.remove("hidden");
-      } else {
-        customDelayBlock.classList.add("hidden");
-        
-        // Safe vs Fast defaults
-        if (preset === "safe") {
-          delayStartInput.value = 0;
-          delayBetweenInput.value = 15;
-        } else if (preset === "fast") {
-          delayStartInput.value = 0;
-          delayBetweenInput.value = 5;
-        }
-      }
-      
-      updateWizardCalculations();
-    });
-  });
-
-  // B. Sliders label updates
-  if (delayStartInput) {
-    delayStartInput.addEventListener("input", () => {
-      const val = parseInt(delayStartInput.value);
-      labelDelayStart.textContent = val === 0 ? "فوري (0 دقيقة)" : `بعد ${val} دقيقة`;
-      updateWizardCalculations();
-    });
-  }
-
-  if (delayBetweenInput) {
-    delayBetweenInput.addEventListener("input", () => {
-      const val = parseInt(delayBetweenInput.value);
-      labelDelayBetween.textContent = val === 0 ? "تلقائي (0 دقيقة)" : `كل ${val} دقيقة`;
-      updateWizardCalculations();
-    });
-  }
-
-  if (adLifespanInput) {
-    adLifespanInput.addEventListener("input", () => {
-      const val = parseInt(adLifespanInput.value);
-      
-      let displayVal = `${val} دقيقة`;
-      if (val >= 60) {
-        const hrs = Math.floor(val / 60);
-        const mins = val % 60;
-        displayVal = `${hrs} ساعة` + (mins > 0 ? ` و ${mins} دقيقة` : "");
-      }
-      labelAdLifespan.textContent = displayVal;
-      updateWizardCalculations();
-    });
-  }
-
-  // C. Campaign type listener updates
-  if (campaignTypeSelect) {
-    campaignTypeSelect.addEventListener("change", () => {
-      updateWizardCalculations();
-    });
-  }
-
-  // D. Live Preview Sync
+  // Live Preview Sync
   if (customTextInput) {
     customTextInput.addEventListener("input", () => {
       const previewEl = document.getElementById("sim-msg-content");
@@ -1508,60 +1546,10 @@ function initCampaignWizard() {
       simTimeEl.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     });
   }
-
-  // Initial update
-  updateWizardCalculations();
 }
 
 function updateWizardCalculations() {
-  const campaignType = document.getElementById("web-campaign-type")?.value || "wave";
-  const delayStart = parseInt(document.getElementById("web-delay-start")?.value) || 0;
-  const delayBetween = parseInt(document.getElementById("web-delay-between")?.value) || 0;
-  const adLifespan = parseInt(document.getElementById("web-ad-lifespan")?.value) || 15;
-  
-  // 1. Calculate Live Expiry Date
-  const expiryDate = new Date(Date.now() + (delayStart + adLifespan) * 60 * 1000);
-  const expiryStr = expiryDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + " - " + expiryDate.toLocaleDateString();
-  const expiryDisplay = document.getElementById("live-expiry-time-display");
-  if (expiryDisplay) expiryDisplay.textContent = expiryStr;
-
-  // 2. Estimate channels & duration
-  let channelCount = 1;
-  if (campaignType === "bulk" || campaignType === "wave") {
-    channelCount = 15; // standard average reference for folder/exchange
-  } else if (campaignType === "single") {
-    const inputs = document.querySelectorAll(".web-target-link");
-    channelCount = Math.max(1, Array.from(inputs).map(inp => inp.value.trim()).filter(val => val !== "").length);
-  }
-
-  const totalMins = delayStart + (channelCount * delayBetween) + adLifespan;
-  const totalHrs = Math.floor(totalMins / 60);
-  const totalMinsRem = totalMins % 60;
-  
-  let durationStr = `${totalMinsRem} دقيقة`;
-  if (totalHrs > 0) {
-    durationStr = `${totalHrs} ساعة و ` + durationStr;
-  }
-  
-  const durationDisplay = document.getElementById("live-estimated-duration");
-  if (durationDisplay) durationDisplay.textContent = durationStr;
-
-  // 3. Credits cost calculator
-  let cost = 0;
-  if (campaignType === "single") {
-    cost = channelCount * 10;
-  } else if (campaignType === "wave") {
-    cost = 25; // wave flat rate
-  } else if (campaignType === "bulk") {
-    cost = channelCount * 5;
-  } else if (campaignType === "timed_post") {
-    cost = 50; // timed post flat rate
-  } else if (campaignType === "deep_clear") {
-    cost = 15;
-  }
-
-  const costDisplay = document.getElementById("live-credits-cost");
-  if (costDisplay) costDisplay.textContent = cost;
+  // Calculations removed as per user request
 }
 
 // ==========================================
@@ -1595,6 +1583,10 @@ async function loadActiveAds() {
     const data = await apiRequest("/user/active-ads");
     if (data.status === "success") {
       loadedActiveAds = data.active_ads || [];
+      const totalCountEl = document.getElementById("active-ads-total-count");
+      if (totalCountEl) {
+        totalCountEl.textContent = `${loadedActiveAds.length} إعلان`;
+      }
       renderActiveAds();
       updateCampaignProgressBar();
     }
@@ -1613,11 +1605,10 @@ function renderActiveAds() {
   });
 
   if (filtered.length === 0) {
-    container.innerHTML = `<p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; padding: 20px; grid-column: 1 / -1;">لا توجد إعلانات نشطة مطابقة حالياً.</p>`;
+    container.innerHTML = `<p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; padding: 20px; font-family: sans-serif;">لا توجد إعلانات نشطة مطابقة حالياً.</p>`;
     return;
   }
 
-  // Keep track of active timer elements
   const now = Date.now();
   let html = "";
   
@@ -1626,26 +1617,21 @@ function renderActiveAds() {
     const diffSecs = Math.max(0, Math.floor((expiresMs - now) / 1000));
     
     let typeLabel = "تلقائي";
-    let badgeClass = "badge-auto";
-    if (ad.campaign_type === "wave") { typeLabel = "تبادل"; badgeClass = "badge-wave"; }
-    else if (ad.campaign_type === "single") { typeLabel = "حملة"; badgeClass = "badge-single"; }
-    else if (ad.campaign_type === "bulk") { typeLabel = "مجلد"; badgeClass = "badge-bulk"; }
+    let badgeColor = "#94a3b8";
+    if (ad.campaign_type === "wave") { typeLabel = "تبادل"; badgeColor = "#3b82f6"; }
+    else if (ad.campaign_type === "single") { typeLabel = "حملة"; badgeColor = "#10b981"; }
+    else if (ad.campaign_type === "bulk") { typeLabel = "مجلد"; badgeColor = "#a855f7"; }
     
     const formattedTimer = formatCountdownTime(diffSecs);
 
     html += `
-      <div class="active-ad-card" id="ad-card-${ad.id}" data-expiry="${expiresMs}" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.05); padding: 16px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; transition: all 0.3s ease; position: relative; overflow: hidden;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span class="badge ${badgeClass}" style="font-size: 10px; font-weight: 700; padding: 4px 8px; border-radius: 6px;">${typeLabel}</span>
-          <span class="countdown-timer" id="timer-${ad.id}" style="color: #10b981; font-weight: bold; font-family: monospace; font-size: 14px;">${formattedTimer}</span>
+      <div class="active-ad-card" id="ad-card-${ad.id}" data-expiry="${expiresMs}" style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; transition: all 0.3s ease; font-size: 12px; min-height: 38px;">
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <span style="background: ${badgeColor}20; color: ${badgeColor}; padding: 1.5px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${typeLabel}</span>
+          <span style="color: #cbd5e1; font-weight: 500; font-family: monospace;">قناة: ${ad.chat_id}</span>
+          <span style="color: #64748b; font-size: 11px;">(منشور #${ad.msg_id})</span>
         </div>
-        <div style="color: #fff; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
-          <span>📢</span>
-          <span>المعرف: Channel [${ad.chat_id}]</span>
-        </div>
-        <div style="color: #94a3b8; font-size: 11px;">
-          معرف الرسالة المفتوحة: #${ad.msg_id}
-        </div>
+        <span class="countdown-timer" id="timer-${ad.id}" style="color: #10b981; font-weight: bold; font-family: monospace; font-size: 12.5px;">${formattedTimer}</span>
       </div>
     `;
   });
@@ -1690,6 +1676,14 @@ function formatCountdownTime(totalSecs) {
   return `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
 }
 
+// Smoothly scroll to the progress section
+function scrollToProgress() {
+  const el = document.querySelector(".active-ads-stream-card");
+  if (el) {
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+}
+
 // ==========================================
 // LIVE PROGRESS BAR LOGIC
 // ==========================================
@@ -1698,29 +1692,75 @@ function updateCampaignProgressBar() {
   const progressText = document.getElementById("live-progress-text");
   const progressFill = document.getElementById("live-progress-fill");
   const nextHint = document.getElementById("live-next-channel-hint");
+  const progressTitle = progressSection ? progressSection.querySelector("span[style*='color'] span:last-child") : null;
   
-  // We can infer a running campaign if there are pending/processing jobs in scheduled jobs
-  const runningJobs = document.querySelectorAll("#scheduled-jobs-list div");
-  let hasRunningTask = false;
+  const jobsList = document.getElementById("scheduled-jobs-list");
+  if (!jobsList || !progressSection) return;
   
-  runningJobs.forEach(job => {
-    if (job.textContent.includes("جاري التنفيذ") || job.textContent.includes("processing")) {
-      hasRunningTask = true;
+  const cards = jobsList.querySelectorAll("div[style*='padding']");
+  let activeTask = null;
+  
+  cards.forEach(card => {
+    if (card.innerHTML.includes("🔄 جاري التنفيذ...")) {
+      activeTask = card;
     }
   });
 
-  if (hasRunningTask) {
+  if (activeTask) {
     progressSection.classList.remove("hidden");
     
-    // Simulate real-time progress for visual feedback
-    // In production, parse actual counts from publish logs
-    const totalCount = loadedActiveAds.length || 15;
-    const publishedCount = Math.min(totalCount, Math.floor(totalCount * 0.4) + 1); 
-    const pct = Math.floor((publishedCount / totalCount) * 100);
+    const typeSpan = activeTask.querySelector("span[style*='font-weight: 700']");
+    const typeText = typeSpan ? typeSpan.textContent.replace("🚀", "").trim() : "المهمة";
     
-    progressText.textContent = `${pct}% (${publishedCount}/${totalCount} قناة)`;
+    const summaryDiv = activeTask.querySelector("div[style*='background']");
+    const summaryText = summaryDiv ? summaryDiv.textContent : "";
+    
+    let publishedCount = 0;
+    let totalCount = 100;
+    let pct = 0;
+    let titleStr = `جاري تنفيذ [${typeText}] حالياً...`;
+    let hintStr = "البوت يقوم بتنفيذ الإجراء وتحديث الإحصائيات لحظياً...";
+    
+    if (summaryText) {
+      const matchOf = summaryText.match(/(?:النشر بنجاح في|تم النشر في|تم نشر|مكتملة|التقدم الحالي:)\s*`?(\d+)`?\s*من\s*`?(\d+)`?/);
+      if (matchOf) {
+        publishedCount = parseInt(matchOf[1]);
+        totalCount = parseInt(matchOf[2]);
+        pct = Math.round((publishedCount / totalCount) * 100);
+        titleStr = `جاري النشر التبادلي والتلقائي...`;
+        hintStr = `تم النشر بنجاح في ${publishedCount} من أصل ${totalCount} قناة مستهدفة.`;
+      } else {
+        const matchCrawl = summaryText.match(/تم فحص\s*`?(\d+)`?\s*قناة/);
+        if (matchCrawl) {
+          publishedCount = parseInt(matchCrawl[1]);
+          totalCount = 19; 
+          pct = Math.min(100, Math.round((publishedCount / totalCount) * 100));
+          titleStr = `جاري فحص وتحديث كاش القنوات والمجلدات...`;
+          hintStr = `تم فحص ومزامنة ${publishedCount} قنوات حتى الآن وتجديد المجموعات.`;
+        } else {
+          const matchDelete = summaryText.match(/تم حذف\s*`?(\d+)`?\s*(?:إعلان|رسالة)/);
+          if (matchDelete) {
+            publishedCount = parseInt(matchDelete[1]);
+            totalCount = 12;
+            pct = Math.min(100, Math.round((publishedCount / totalCount) * 100));
+            titleStr = `جاري إطلاق مكنسة التنظيف وإلغاء الحملات...`;
+            hintStr = `تم حذف وتطهير ${publishedCount} إعلانات نشطة من القنوات.`;
+          }
+        }
+      }
+    }
+    
+    if (progressTitle) {
+      progressTitle.textContent = titleStr;
+    }
+    
+    pct = Math.max(0, Math.min(100, pct));
+    
+    progressText.textContent = `${pct}% (${publishedCount}/${totalCount})`;
     progressFill.style.width = `${pct}%`;
-    nextHint.textContent = "القناة القادمة يتم تجهيز النشر إليها الآن...";
+    if (nextHint) {
+      nextHint.textContent = hintStr;
+    }
   } else {
     progressSection.classList.add("hidden");
   }
