@@ -1,0 +1,44 @@
+Act as a world-class Senior Frontend Engineer and UI/UX Designer specializing in pixel-perfect web clones and high-trust SaaS platforms. I want you to build a premium, ultra-clean responsive single-page application (SPA) that acts as the Frontend UI for my Telegram Ad Exchange SaaS. 
+
+The entire layout, animations, and typography MUST look exactly like official Telegram Web (Telegram design language).
+
+Telegram UI Specifications:
+- Theme: Premium Dark Mode.
+- Background Color: #17212b (Official Telegram dark blue chat background).
+- Cards/Container Background: #1e2c3a or #24303f.
+- Accent/Button Color: #2481cc (Official Telegram blue) with smooth hover effects.
+- Fonts: Clean modern Arabic/English sans-serif (Cairo/Tajawal via Google Fonts) configured for full RTL layout.
+
+Build the web application with the following 4 integrated views/modules:
+
+1. Auth Screen (Telegram Login Web Style):
+   - A centralized modern modal mimicking the Telegram authentication interface.
+   - Traditional login fields: Email, Password with dynamic validation toggles.
+   - A prominent, stylish "تسجيل الدخول بواسطة جوجل / Sign in with Google" button with the official Google G-logo.
+   - On successful traditional auth, parse the JWT token and save it to the browser's `localStorage` as 'access_token'.
+
+2. Premium Pricing & Plans Screen:
+   - Present a beautiful grid of subscription tiers styled exactly like Telegram Premium cards (smooth gradients and badges):
+     * تجربة مجانية: لمدة يومين (2 Days Free Trial - 0$)
+     * اشتراك أسبوعي: 50$
+     * اشتراك شهري: 150$
+     * اشتراك 6 شهور: 600$ (بدل 900$ - وفر شهرين مجاناً)
+     * اشتراك سنوي: 1200$ (بدل 1800$ - وفر 4 شهور مجاناً)
+   - Clicking on any non-free card opens the Subscription Manager/Payment system.
+
+3. Subscription & High-Trust Payment Manager:
+   - A clean sub-panel showing current membership status metrics: Subscription Plan, Status Badge ("نشط" / "منتهي"), and Days Remaining countdown timer.
+   - Upgrade/Renewal Area containing a Telegram-style tabbed view for manual high-trust payments:
+     * Tab A (InstaPay): Displays the Admin's InstaPay address with a click-to-copy button. Input field for "رقم حساب أو هاتف المحول" and a drag-and-drop file uploader for "صورة تحويل المعاملة (Screenshot)".
+     * Tab B (Crypto Payments): Displays a secure USDT (Network: TRC20) wallet destination string alongside an auto-generated static QR Code image and copy button. Input field for the "الـ Transaction ID (TxID)".
+   - Submit button "تأكيد وإرسال للمراجعة" that fires a JSON payload to the future endpoint.
+
+4. Secure Telegram Connection Wizard (The 2-Step Handshake):
+   - A critical interface designed to look exactly like the official Telegram security challenge wizard to maximize user confidence and ensure zero trust barriers.
+   - STEP 1 (Stateless Trigger): Input fields for Phone Number (with international prefix like +20...), Telegram API ID (integer), and Telegram API Hash (string). A button "إرسال كود التحقق الآمن" that triggers an async JavaScript fetch request to: `${API_BASE_URL}/telegram/send-code?token=${token}` passing the payload.
+   - STEP 2 (Handshake Resolution): Automatically hides Step 1 via transition if successful, exposing a validation layer that requests: "كود التأكيد المرسل لحسابك" (5-digit code) and an optional input for "باسورد التحقق بخطوتين (2FA Password)". A final button "تفعيل وتأكيد ربط المحرك الآمن" that fires an async fetch request to: `${API_BASE_URL}/telegram/verify-code?token=${token}`.
+   - Handles HTTP 420 (FloodWait), 400 (Invalid Code), and 429 via native Telegram-style sliding notification toasts.
+
+Technical Setup:
+- Define `const API_BASE_URL = "http://localhost:8000";` globally at the very top of the script so it can be re-routed later.
+- Ensure loading state spinners activate on all buttons during fetch lifecycles to prevent multiple form submissions.

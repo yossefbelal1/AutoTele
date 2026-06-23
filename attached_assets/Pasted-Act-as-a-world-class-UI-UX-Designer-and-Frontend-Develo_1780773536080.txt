@@ -1,0 +1,27 @@
+Act as a world-class UI/UX Designer and Frontend Developer. I want you to update the "Telegram Secure Connection Wizard" (معالج ربط تليجرام) screen in my frontend application to add an interactive step-by-step guide for fetching the Telegram API ID and API Hash.
+
+Please implement the following features strictly following the Telegram design language (#17212b, #24303f, #2481cc):
+
+1. UI Elements Update:
+   - Next to or directly above the "API ID" and "API Hash" input fields, add a styled text link or a button with an information icon that says: "💡 كيف يمكنني الحصول على الـ API ID والـ API Hash؟".
+   - This button must look elegant and integrated seamlessly into the Telegram-styled interface.
+
+2. Interactive Step-by-Step Slides Modal (شاشة الخطوات المنبثقة):
+   - When the user clicks that button, it must trigger a beautiful, modern Modal overlay (Popup window) titled "دليل استخراج بيانات التليجرام الآمنة".
+   - Inside this modal, implement a responsive "Slideshow/Carousel" component with "السابق (Previous)" and "التالي (Next)" buttons, and slide dot indicators at the bottom.
+   - The modal must contain exactly 4 educational slides written in clear, professional Arabic:
+
+     * Slide 1: "الخطوة الأولى: الدخول للموقع الرسمي"
+       - Text: "اضغط على الرابط الرسمي لتهيئة مطوري تليجرام وسجل دخولك برقم هاتفك الذي تريد تشغيل البوت عليه."
+       - Include a prominent, clickable styled button/link: "my.telegram.org" pointing to `https://my.telegram.org` (opens in a new tab).
+
+     * Slide 2: "الخطوة الثانية: كود التحقق"
+       - Text: "سيصلك كود تحقق (Confirmation Code) مباشرة داخل تطبيق تليجرام الخاص بك (وليس كرسالة SMS). قم بنسخه وكتابته في الموقع لتأكيد تسجيل الدخول."
+
+     * Slide 3: "الخطوة الثالثة: أدوات التطوير"
+       - Text: "بعد الدخول، اضغط على خيار 'API development tools'. سيظهر لك نموذج صغير، قم بكتابة أي اسم عشوائي في خانة 'App title' وخانة 'Short name'، واختيار 'Web' في نوع المنصة، ثم اضغط Create."
+
+     * Slide 4: "الخطوة الرابعة: نسخ البيانات الآمنة"
+       - Text: "مبروك! سيظهر لك الآن الـ App api_id والـ App api_hash الخاصين بحسابك. قم بنسخهم بالكامل والصقهم في لوحة تحكم موقعنا لتفعيل المحرك فوراً. تحذير: لا تشارك هذه البيانات مع أي شخص آخر!"
+
+3

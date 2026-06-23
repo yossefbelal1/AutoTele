@@ -1,0 +1,3 @@
+Testing mixed markdown/HTML with ParseMode.DEFAULT (None):
+Result message: 'bold and 💎'
+Result entities: [pyrogram.raw.types.MessageEntityBold(offset=0, length=4), pyrogram.raw.types.MessageEntityCustomEmoji(offset=9, length=2, document_id=5310129635848103696)]

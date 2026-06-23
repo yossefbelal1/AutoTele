@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>لوحة التحكم الإدارية المؤمّنة | 2FA Admin</title>
+  
+  <!-- Google Fonts: Cairo & Tajawal -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
+  
+  <!-- CSS Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="admin-body">
+
+  <!-- Toast Alerts -->
+  <div id="toast-container"></div>
+
+  <!-- ==========================================
+       1. VIEW: 2FA Authentication Screen
+       ========================================== -->
+  <div id="auth-view" class="view-container">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <svg viewBox="0 0 24 24" width="60" height="60" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="12" cy="12" r="12" fill="#e11d48"/>
+          <path d="M12 7v5l3 3" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <h2 class="auth-title">بوابة المشرفين المؤمّنة</h2>
+      <p class="auth-subtitle">المصادقة الثنائية 2FA مطلوبة للوصول إلى خادم النظام</p>
+
+      <!-- Step A: Email & Password -->
+      <form id="admin-login-form">
+        <div class="input-group">
+          <label for="login-email">البريد الإلكتروني للمشرف</label>
+          <input type="email" id="login-email" required placeholder="admin@domain.com" autocomplete="email">
+        </div>
+        <div class="input-group">
+          <label for="login-password">كلمة المرور</label>
+          <input type="password" id="login-password" required placeholder="••••••••" autocomplete="current-password">
+        </div>
+
+        <!-- Step B: 2FA Input (Shown conditionally) -->
+        <div class="input-group hidden" id="group-otp">
+          <label for="login-otp">كود التحقق المرسل عبر تليجرام</label>
+          <input type="text" id="login-otp" placeholder="أدخل الـ 6 أرقام المرسلة إليك..." maxlength="6" pattern="[0-9]*" inputmode="numeric" autocomplete="one-time-code">
+          <p class="input-hint">تم إرسال كود التحقق الثنائي إلى حساب التليجرام الخاص بك (+201225721082 / +201062576181).</p>
+        </div>
+        
+        <button type="submit" id="btn-login" class="btn btn-primary" style="background: linear-gradient(135deg, #e11d48 0%, #be123c 100%); box-shadow: 0 4px 12px rgba(225, 29, 72, 0.25);">
+          <span class="btn-text">تأكيد ومتابعة</span>
+          <span class="spinner hidden"></span>
+        </button>
+      </form>
+      <div class="auth-switch-mode" style="margin-top: 16px; border-top: 1px dashed rgba(255,255,255,0.06); padding-top: 12px; width: 100%; text-align: center;">
+        <a href="index.html" style="color: #708499; font-weight: normal; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; text-decoration: none;">
+          <span>← العودة للرئيسية / Back to Landing</span>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       3. VIEW: Admin Dashboard Panel
+       ========================================== -->
+  <div id="dashboard-view" class="view-container hidden">
+    <div class="dashboard-layout">
+      
+      <!-- Sidebar Panel -->
+      <aside class="sidebar" style="border-left: 1px solid rgba(225, 29, 72, 0.1);">
+        <div class="sidebar-header" style="border-bottom: 1px solid rgba(255, 255, 255, 0.04);">
+          <div class="user-info">
+            <div class="user-avatar" style="background: #e11d48;">ADMIN</div>
+            <div class="user-meta">
+              <h4 id="admin-email-display" class="user-email">admin@domain.com</h4>
+              <span class="badge" style="background: rgba(225, 29, 72, 0.12); color: #e11d48; border-color: rgba(225, 29, 72, 0.2);">مشرف النظام</span>
+            </div>
+          </div>
+        </div>
+
+        <nav class="sidebar-nav">
+          <button class="nav-tab active" data-tab="tab-stats">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="9" y1="9" x2="21" y2="9"/><line x1="9" y1="15" x2="21" y2="15"/></svg>
+            <span>لوحة التحكم والإحصائيات</span>
+          </button>
+          <button class="nav-tab" data-tab="tab-payments">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            <span>إيصالات التحويل بالكريبتو</span>
+          </button>
+          <button class="nav-tab" data-tab="tab-users">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <span>إدارة المشتركين</span>
+          </button>
+          <button class="nav-tab" data-tab="tab-broadcast">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <span>بث إشعار عام</span>
+          </button>
+          <button class="nav-tab" data-tab="tab-logs">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            <span>مراقبة السجلات الحية</span>
+          </button>
+          <button class="nav-tab" data-tab="tab-health">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            <span>صحة وأداء النظام</span>
+          </button>
+          <button class="nav-tab" data-tab="tab-subscriptions">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            <span>إدارة الاشتراكات والتنبيهات</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer" style="border-top: 1px solid rgba(255, 255, 255, 0.04);">
+          <button id="btn-logout" class="btn-logout">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            <span>تسجيل الخروج الأمن</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- Content Panels -->
+      <main class="content-area">
+        
+        <!-- Tab A: Stats & Dashboard Home -->
+        <section id="tab-stats" class="tab-panel">
+          <div class="panel-header">
+            <h1 class="panel-title">نظرة عامة وإحصائيات النظام الحية</h1>
+            <p class="panel-subtitle">مؤشرات الأداء للمشتركين والعمليات المالية والربط السحابي</p>
+          </div>
+
+          <!-- Stats Counters Grid -->
+          <div class="admin-stats-grid">
+            <div class="card stat-mini-card">
+              <span class="stat-label">إجمالي المستخدمين</span>
+              <h3 id="admin-stat-total-users" class="stat-val">--</h3>
+            </div>
+            <div class="card stat-mini-card">
+              <span class="stat-label">الاشتراكات النشطة</span>
+              <h3 id="admin-stat-active-subs" class="stat-val green-text">--</h3>
+            </div>
+            <div class="card stat-mini-card">
+              <span class="stat-label">الاشتراكات المنتهية</span>
+              <h3 id="admin-stat-expired-subs" class="stat-val red-text">--</h3>
+            </div>
+            <div class="card stat-mini-card">
+              <span class="stat-label">المحركات المربوطة</span>
+              <h3 id="admin-stat-total-tg" class="stat-val blue-text">--</h3>
+            </div>
+            <div class="card stat-mini-card">
+              <span class="stat-label">إيصالات الدفع المعلقة</span>
+              <h3 id="admin-stat-pending-payments" class="stat-val gold-text">--</h3>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top: 30px; border-right: 4px solid #e11d48;">
+            <h3 class="card-title" style="border-bottom: none; margin-bottom: 0px; padding-bottom: 0px;">بوابة الإدارة الخلفية للمشروع</h3>
+            <p style="font-size: 13px; color: #708499; margin-top: 10px; line-height: 1.6;">
+              مرحباً بك في لوحة الإدارة المنفصلة والمحميّة. هنا يمكنك فحص وموافقة معاملات الدفع التي يرسلها المشتركون مباشرة لتفعيل حساباتهم فورياً. يمكنك أيضاً تعديل الباقات وتمديد الفترات الزمنية للمستخدمين في أي وقت.
+            </p>
+          </div>
+        </section>
+
+        <!-- Tab B: Crypto Payments List -->
+        <section id="tab-payments" class="tab-panel hidden">
+          <div class="panel-header">
+            <h1 class="panel-title">إيصالات دفع العملات الرقمية (Crypto Payments)</h1>
+            <p class="panel-subtitle">راجع معاملات الـ USDT المرسلة وقم بقبولها لتفعيل باقة العميل فورياً</p>
+          </div>
+
+          <div class="card table-card">
+            <h3 class="card-title">قائمة المعاملات المالية الحالية والسابقة</h3>
+            <div class="table-responsive">
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th>ID الدفع</th>
+                    <th>البريد الإلكتروني</th>
+                    <th>الباقة المطلوبة</th>
+                    <th>رقم المعاملة (TxID)</th>
+                    <th>تاريخ الإرسال</th>
+                    <th>الحالة</th>
+                    <th>الإجراءات</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-payments-table-body">
+                  <tr>
+                    <td colspan="7" class="text-center">جاري تحميل البيانات...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Tab C: Users List -->
+        <section id="tab-users" class="tab-panel hidden">
+          <div class="panel-header">
+            <h1 class="panel-title">إدارة حسابات المشتركين وتراخيصهم</h1>
+            <p class="panel-subtitle">إحصاءات الحسابات وتفاصيل التراخيص وتعديل الاشتراك يدوياً</p>
+          </div>
+
+          <div class="card table-card">
+            <h3 class="card-title">قائمة المشتركين المسجلين في النظام</h3>
+            <div class="table-responsive">
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th>ID المستخدم</th>
+                    <th>البريد الإلكتروني</th>
+                    <th>النوع</th>
+                    <th>الباقة</th>
+                    <th>الحالة</th>
+                    <th>تاريخ الانتهاء</th>
+                    <th>حسابات التليجرام</th>
+                    <th>الإجراءات</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-users-table-body">
+                  <tr>
+                    <td colspan="8" class="text-center">جاري تحميل البيانات...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Tab D: Broadcast Message -->
+        <section id="tab-broadcast" class="tab-panel hidden">
+          <div class="panel-header">
+            <h1 class="panel-title">بث رسالة جماعية للمشتركين</h1>
+            <p class="panel-subtitle">أرسل رسالة تحذيرية أو إشعار تحديث إلى شات الرسائل المحفوظة لكافة حسابات المشتركين النشطة</p>
+          </div>
+
+          <div class="card" style="max-width: 800px;">
+            <h3 class="card-title" style="margin-bottom: 20px;">صياغة وإرسال رسالة البث الجماعي</h3>
+            <form id="admin-broadcast-form">
+              <div class="input-group" style="margin-bottom: 20px;">
+                <label for="broadcast-message" style="margin-bottom: 8px; display: block; font-weight: 600;">نص الرسالة (يدعم ماركداون تليجرام):</label>
+                <textarea id="broadcast-message" rows="8" required placeholder="مثال:&#10;⚠️ **تنبيه هام:**&#10;سيتم إيقاف الخدمة لإجراء صيانة دورية لمدة ساعتين تبدأ من الساعة 10:00 مساءً بتوقيت مصر." style="width: 100%; border: 1px solid rgba(255, 255, 255, 0.08); background-color: rgba(0, 0, 0, 0.2); color: #fff; padding: 12px; border-radius: 8px; font-family: inherit; font-size: 14px; line-height: 1.6; resize: vertical; box-sizing: border-box;"></textarea>
+              </div>
+
+              <button type="submit" id="btn-send-broadcast" class="btn btn-primary" style="background: linear-gradient(135deg, #e11d48 0%, #be123c 100%); box-shadow: 0 4px 12px rgba(225, 29, 72, 0.25);">
+                <span class="btn-text">إطلاق البث الجماعي 🚀</span>
+                <span class="spinner hidden"></span>
+              </button>
+            </form>
+          </div>
+        </section>
+
+        <!-- Tab E: Live Log Stream -->
+        <section id="tab-logs" class="tab-panel hidden">
+          <div class="panel-header">
+            <h1 class="panel-title">
+              <span class="hidden-mobile">مراقبة السجلات الحية (Live Logs Stream)</span>
+              <span class="show-mobile">السجلات الحية</span>
+            </h1>
+            <p class="panel-subtitle">مراقبة أداء السيرفر واستجابة الـ API وحالة البوت والـ Security في الوقت الفعلي</p>
+          </div>
+
+          <div class="card terminal-card" style="display: flex; flex-direction: column; height: calc(100vh - 220px); min-height: 450px; padding: 0; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.08); background-color: #0b0f19;">
+            <div class="terminal-toolbar" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; background-color: #17212b; border-bottom: 1px solid rgba(255,255,255,0.08);">
+              <div class="terminal-dots" style="display: flex; gap: 6px;">
+                <span style="width: 12px; height: 12px; border-radius: 50%; background-color: #ff5f56; display: inline-block;"></span>
+                <span style="width: 12px; height: 12px; border-radius: 50%; background-color: #ffbd2e; display: inline-block;"></span>
+                <span style="width: 12px; height: 12px; border-radius: 50%; background-color: #27c93f; display: inline-block;"></span>
+              </div>
+              <div class="terminal-controls" style="display: flex; align-items: center; gap: 12px;">
+                <!-- Tenant Filter Dropdown -->
+                <select id="log-filter-tenant" style="background-color: #1a2430; border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-family: inherit; cursor: pointer; outline: none; min-width: 160px;">
+                  <option value="ALL">👥 كل المشتركين</option>
+                </select>
+                <!-- Level Filter Dropdown -->
+                <select id="log-filter-level" style="background-color: #1a2430; border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-family: inherit; cursor: pointer; outline: none;">
+                  <option value="ALL">جميع المستويات</option>
+                  <option value="INFO">INFO (معلومات)</option>
+                  <option value="WARNING">WARNING (تحذيرات)</option>
+                  <option value="ERROR">ERROR (أخطاء)</option>
+                </select>
+                <!-- Play/Pause Button -->
+                <button id="btn-toggle-log-stream" class="btn btn-secondary" style="padding: 6px 12px; font-size: 13px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid rgba(255,255,255,0.15); background-color: rgba(255,255,255,0.05); color: #fff; border-radius: 6px; cursor: pointer; height: auto;">
+                  <span id="log-stream-status-dot" style="width: 8px; height: 8px; border-radius: 50%; background-color: #27c93f; display: inline-block;"></span>
+                  <span id="btn-toggle-log-stream-text">إيقاف مؤقت</span>
+                </button>
+                <!-- Clear Button -->
+                <button id="btn-clear-logs" class="btn btn-secondary" style="padding: 6px 12px; font-size: 13px; border: 1px solid rgba(255,255,255,0.15); background-color: rgba(255,255,255,0.05); color: #fff; border-radius: 6px; cursor: pointer; height: auto;">
+                  مسح الشاشة
+                </button>
+              </div>
+            </div>
+            
+            <div id="terminal-output" style="flex: 1; background-color: #0b0f19; color: #a9b7c6; font-family: 'Courier New', Courier, monospace; font-size: 13px; padding: 15px 20px; overflow-y: auto; line-height: 1.6; white-space: pre-wrap; direction: ltr; text-align: left; scroll-behavior: smooth;">
+              <div class="log-row" style="color: #27c93f; margin-bottom: 4px;">[SYSTEM] Terminal initialized. Waiting for log stream...</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Tab F: Health Dashboard -->
+        <section id="tab-health" class="tab-panel hidden">
+          <div class="panel-header">
+            <h1 class="panel-title">صحة وأداء خادم النظام (System Health)</h1>
+            <p class="panel-subtitle">مراقبة موارد السيرفر (VPS) وحالة قواعد البيانات ومحركات المشتركين النشطة</p>
+          </div>
+
+          <!-- Services Health Badges -->
+          <div class="services-health-grid">
+            <div class="card" style="display: flex; align-items: center; justify-content: space-between; padding: 15px 20px; border-right: 4px solid #27c93f;">
+              <div>
+                <span style="font-size: 12px; color: #708499; display: block; margin-bottom: 4px;">قاعدة بيانات PostgreSQL</span>
+                <span id="health-db-status" class="badge" style="background: rgba(39, 201, 63, 0.12); color: #27c93f; border-color: rgba(39, 201, 63, 0.2);">متصلة ونشطة</span>
+              </div>
+            </div>
+            <div class="card" style="display: flex; align-items: center; justify-content: space-between; padding: 15px 20px; border-right: 4px solid #27c93f;">
+              <div>
+                <span style="font-size: 12px; color: #708499; display: block; margin-bottom: 4px;">خادم التخزين المؤقت Redis</span>
+                <span id="health-redis-status" class="badge" style="background: rgba(39, 201, 63, 0.12); color: #27c93f; border-color: rgba(39, 201, 63, 0.2);">متصل ونشط</span>
+              </div>
+            </div>
+            <div class="card" style="display: flex; align-items: center; justify-content: space-between; padding: 15px 20px; border-right: 4px solid #3b82f6;">
+              <div>
+                <span style="font-size: 12px; color: #708499; display: block; margin-bottom: 4px;">محركات اليوزربوت النشطة</span>
+                <span id="health-userbots-status" style="font-weight: bold; color: #3b82f6;">--</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- VPS Performance Grid -->
+          <div class="vps-perf-grid">
+            <!-- CPU, RAM, Disk Resources -->
+            <div class="card">
+              <h3 class="card-title">استهلاك موارد السيرفر (VPS Stats)</h3>
+              
+              <!-- CPU -->
+              <div style="margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 13px;">
+                  <span>استهلاك المعالج (CPU Usage)</span>
+                  <span id="health-cpu-val" style="font-weight: bold; color: #e11d48;">--%</span>
+                </div>
+                <div style="width: 100%; height: 8px; background-color: #17212b; border-radius: 4px; overflow: hidden;">
+                  <div id="health-cpu-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3b82f6 0%, #e11d48 100%); transition: width 0.5s ease-in-out;"></div>
+                </div>
+              </div>
+
+              <!-- RAM -->
+              <div style="margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 13px;">
+                  <span>استهلاك الذاكرة العشوائية (RAM Usage)</span>
+                  <span id="health-ram-val" style="font-weight: bold; color: #a5b4fc;">-- MB / -- MB (--%)</span>
+                </div>
+                <div style="width: 100%; height: 8px; background-color: #17212b; border-radius: 4px; overflow: hidden;">
+                  <div id="health-ram-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3b82f6 0%, #a5b4fc 100%); transition: width 0.5s ease-in-out;"></div>
+                </div>
+              </div>
+
+              <!-- Disk Space -->
+              <div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 13px;">
+                  <span>المساحة التخزينية المستخدمة (Disk Space)</span>
+                  <span id="health-disk-val" style="font-weight: bold; color: #10b981;">-- GB / -- GB (--%)</span>
+                </div>
+                <div style="width: 100%; height: 8px; background-color: #17212b; border-radius: 4px; overflow: hidden;">
+                  <div id="health-disk-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3b82f6 0%, #10b981 100%); transition: width 0.5s ease-in-out;"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Userbot Status Breakdown -->
+            <div class="card">
+              <h3 class="card-title">حالة محركات المشتركين (Userbots Status)</h3>
+              <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 15px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 8px;">
+                  <span style="font-size: 13px; color: #708499;">🟢 يوزربوت يعمل بنشاط (Active)</span>
+                  <span id="health-bot-active" class="badge" style="background: rgba(39, 201, 63, 0.12); color: #27c93f;">0</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 8px;">
+                  <span style="font-size: 13px; color: #708499;">🟡 متوقف مؤقتاً بسبب قيود تيليجرام (Paused)</span>
+                  <span id="health-bot-paused" class="badge" style="background: rgba(245, 158, 11, 0.12); color: #f59e0b;">0</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 8px;">
+                  <span style="font-size: 13px; color: #708499;">⚪ متوقف يدوياً أو معطل (Stopped)</span>
+                  <span id="health-bot-stopped" class="badge" style="background: rgba(255, 255, 255, 0.08); color: #ccc;">0</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px;">
+                  <span style="font-size: 13px; color: #708499;">🔴 يوزربوت به خطأ أو محظور (Banned/Error)</span>
+                  <span id="health-bot-error" class="badge" style="background: rgba(225, 29, 72, 0.12); color: #e11d48;">0</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Tab G: Subscriptions Lifecycle Dashboard -->
+        <section id="tab-subscriptions" class="tab-panel hidden">
+          <div class="panel-header">
+            <h1 class="panel-title">إدارة دورة حياة الاشتراكات والتنبيهات (Subscriptions Lifecycle)</h1>
+            <p class="panel-subtitle">مراقبة تواريخ انتهاء الخدمة للمشتركين وسجلات الإشعارات والتحكم في حالة الإيقاف التلقائي</p>
+          </div>
+
+          <!-- Alert Counters Cards -->
+          <div class="admin-alerts-grid">
+            <div class="card" style="border-right: 4px solid #f59e0b;">
+              <span style="font-size: 13px; color: #708499; display: block; margin-bottom: 6px;">تنبيه الانتهاء خلال يومين (48 ساعة)</span>
+              <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                <span id="sub-counter-2d" style="font-size: 32px; font-weight: bold; color: #f59e0b;">0</span>
+                <span style="font-size: 13px; color: #708499;">مشترك</span>
+              </div>
+            </div>
+            <div class="card" style="border-right: 4px solid #ef4444;">
+              <span style="font-size: 13px; color: #708499; display: block; margin-bottom: 6px;">تنبيه الانتهاء خلال 24 ساعة</span>
+              <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                <span id="sub-counter-24h" style="font-size: 32px; font-weight: bold; color: #ef4444;">0</span>
+                <span style="font-size: 13px; color: #708499;">مشترك</span>
+              </div>
+            </div>
+            <div class="card" style="border-right: 4px solid #e11d48;">
+              <span style="font-size: 13px; color: #708499; display: block; margin-bottom: 6px;">الاشتراكات المنتهية (Expired)</span>
+              <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                <span id="sub-counter-expired" style="font-size: 32px; font-weight: bold; color: #e11d48;">0</span>
+                <span style="font-size: 13px; color: #708499;">مشترك</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Subscription Expiry Status Table -->
+          <div class="card" style="margin-bottom: 25px;">
+            <h3 class="card-title" style="margin-bottom: 15px;">حالة اشتراكات المستخدمين وتفاصيل التنبيهات</h3>
+            <div class="table-container" style="overflow-x: auto;">
+              <table class="table" style="width: 100%; border-collapse: collapse; text-align: right;">
+                <thead>
+                  <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.08); color: #708499; font-size: 13px;">
+                    <th style="padding: 12px 10px;">المستخدم (Email)</th>
+                    <th style="padding: 12px 10px;">الباقة الحالية</th>
+                    <th style="padding: 12px 10px;">حالة الاشتراك</th>
+                    <th style="padding: 12px 10px;">تاريخ الانتهاء</th>
+                    <th style="padding: 12px 10px; text-align: center;">تنبيه 2 يوم</th>
+                    <th style="padding: 12px 10px; text-align: center;">تنبيه 24 ساعة</th>
+                    <th style="padding: 12px 10px; text-align: center;">تنبيه الانتهاء</th>
+                    <th style="padding: 12px 10px; text-align: center;">إجراء الإيقاف</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-subs-table-body">
+                  <tr><td colspan="8" style="text-align: center; padding: 20px; color: #708499;">جاري تحميل البيانات...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Subscription Alerts History Logs -->
+          <div class="card">
+            <h3 class="card-title" style="margin-bottom: 15px;">سجل الإشعارات المرسلة (Audit Logs)</h3>
+            <div class="table-container" style="overflow-x: auto;">
+              <table class="table" style="width: 100%; border-collapse: collapse; text-align: right;">
+                <thead>
+                  <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.08); color: #708499; font-size: 13px;">
+                    <th style="padding: 12px 10px;">المستخدم (Email)</th>
+                    <th style="padding: 12px 10px;">نوع التنبيه</th>
+                    <th style="padding: 12px 10px;">القناة</th>
+                    <th style="padding: 12px 10px;">تاريخ الإرسال</th>
+                    <th style="padding: 12px 10px; text-align: center;">الحالة</th>
+                    <th style="padding: 12px 10px;">التفاصيل</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-sub-logs-table-body">
+                  <tr><td colspan="6" style="text-align: center; padding: 20px; color: #708499;">جاري تحميل سجل التنبيهات...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       4. MODAL: Admin Edit User Subscription
+       ========================================== -->
+  <div id="admin-edit-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>تعديل اشتراك وصلاحيات المستخدم</h3>
+        <button id="btn-close-admin-modal" class="close-btn">&times;</button>
+      </div>
+      
+      <div class="modal-body">
+        <form id="admin-edit-form">
+          <input type="hidden" id="edit-user-id">
+          
+          <div class="input-group">
+            <label>البريد الإلكتروني للمستخدم:</label>
+            <input type="text" id="edit-user-email" readonly class="readonly-input">
+          </div>
+
+          <div class="input-group">
+            <label for="edit-user-plan">باقة الاشتراك</label>
+            <select id="edit-user-plan" required>
+              <option value="trial">تجربة مجانية (trial)</option>
+              <option value="weekly">اشتراك أسبوعي (weekly)</option>
+              <option value="monthly">اشتراك شهري (monthly)</option>
+              <option value="half_year">اشتراك 6 شهور (half_year)</option>
+              <option value="yearly">اشتراك سنوي (yearly)</option>
+            </select>
+          </div>
+
+          <div class="input-group">
+            <label for="edit-user-status">حالة الاشتراك</label>
+            <select id="edit-user-status" required>
+              <option value="active">نشط (active)</option>
+              <option value="expired">منتهي (expired)</option>
+            </select>
+          </div>
+
+          <div class="input-group">
+            <label for="edit-user-end-date">تاريخ انتهاء الاشتراك (YYYY-MM-DD)</label>
+            <input type="date" id="edit-user-end-date" required>
+          </div>
+
+          <!-- SOCKS5 Proxy Details -->
+          <div style="border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 15px; margin-top: 15px; margin-bottom: 15px; text-align: right;">
+            <h4 style="font-size: 13px; color: #a5b4fc; margin-bottom: 10px;">بيانات البروكسي (SOCKS5) المخصص للمستخدم:</h4>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+              <div class="input-group" style="margin-bottom: 0;">
+                <label for="edit-user-proxy-host" style="font-size: 11px;">Host (الخادم)</label>
+                <input type="text" id="edit-user-proxy-host" placeholder="مثال: 12.34.56.78" dir="ltr" style="padding: 8px 12px; font-size: 13px; background-color: #17212b; border: 1px solid rgba(255,255,255,0.08); color: #fff; border-radius: 6px;">
+              </div>
+              <div class="input-group" style="margin-bottom: 0;">
+                <label for="edit-user-proxy-port" style="font-size: 11px;">Port (المنفذ)</label>
+                <input type="number" id="edit-user-proxy-port" placeholder="1080" dir="ltr" style="padding: 8px 12px; font-size: 13px; background-color: #17212b; border: 1px solid rgba(255,255,255,0.08); color: #fff; border-radius: 6px;">
+              </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              <div class="input-group" style="margin-bottom: 0;">
+                <label for="edit-user-proxy-user" style="font-size: 11px;">User (المستخدم)</label>
+                <input type="text" id="edit-user-proxy-user" placeholder="User" dir="ltr" style="padding: 8px 12px; font-size: 13px; background-color: #17212b; border: 1px solid rgba(255,255,255,0.08); color: #fff; border-radius: 6px;">
+              </div>
+              <div class="input-group" style="margin-bottom: 0;">
+                <label for="edit-user-proxy-pass" style="font-size: 11px;">Pass (الرمز)</label>
+                <input type="password" id="edit-user-proxy-pass" placeholder="Password" dir="ltr" style="padding: 8px 12px; font-size: 13px; background-color: #17212b; border: 1px solid rgba(255,255,255,0.08); color: #fff; border-radius: 6px;">
+              </div>
+            </div>
+          </div>
+
+          <div class="input-group checkbox-group">
+            <input type="checkbox" id="edit-user-is-admin">
+            <label for="edit-user-is-admin">صلاحيات مدير النظام (Admin)</label>
+          </div>
+
+          <button type="submit" id="btn-save-admin-edit" class="btn btn-primary" style="background-color: #e11d48;">
+            <span class="btn-text">حفظ التغييرات</span>
+            <span class="spinner hidden"></span>
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- JavaScript Admin Script -->
+  <script src="admin.js"></script>
+</body>
+</html>

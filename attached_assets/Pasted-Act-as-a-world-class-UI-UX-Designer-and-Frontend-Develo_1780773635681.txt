@@ -1,0 +1,17 @@
+Act as a world-class UI/UX Designer and Frontend Developer. I want you to modify the recently created "Interactive Step-by-Step Slides Modal" (شاشة دليل استخراج بيانات التليجرام) to include a dedicated media placeholder section in EVERY single slide. 
+
+This media section will host a video, a screenshot image, or an animated GIF in the future to visually demonstrate each step to the user.
+
+Structural & Layout Requirements (Following Telegram Dark Web Style):
+1. For each of the 4 slides, split the layout or stack it vertically/horizontally so that there is a clean, centered, and padded Media Container right above or alongside the descriptive text.
+2. Inside each Media Container, add a clean HTML structure with a placeholder image or a commented HTML5 <video>/<img> tag pointing to a dummy link (e.g., a Telegram logo or a wireframe block). Add a descriptive overlay text like "[مكان مخصص للفيديو التوضيحي أو الـ GIF الخاص بهذه الخطوة]" so I can easily identify and replace it in the code.
+3. Keep the styling beautifully aligned with Telegram's dark mode language (#17212b background, #24303f cards, #2481cc blue accents).
+4. Maintain perfect responsive styling so the text, media container (video/image frame), and pagination dots scale perfectly on mobile screens without breaking the layout.
+
+The Content Structure for the Slides with Media Blocks:
+- Slide 1: Media Container (Placeholder for Step 1 Video/GIF) + Title "الخطوة الأولى: الدخول للموقع الرسمي" + Official link button to "my.telegram.org".
+- Slide 2: Media Container (Placeholder for Step 2 Video/GIF) + Title "الخطوة الثانية: كود التحقق" + Explanation text.
+- Slide 3: Media Container (Placeholder for Step 3 Video/GIF) + Title "الخطوة الثالثة: أدوات التطوير" + Explanation text.
+- Slide 4: Media Container (Placeholder for Step 4 Video/GIF) + Title "الخطوة الرابعة: نسخ البيانات الآمنة" + Warning text.
+
+Ensure the transitions between slides remain ultra-smooth and that adding these media placeholders doesn't break the navigation logic (Next/Previous/Dots).

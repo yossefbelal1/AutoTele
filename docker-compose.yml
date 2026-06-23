@@ -1,0 +1,145 @@
+# Optimized for ultra-cheap VPS (1GB - 2GB RAM) - tuned for up to 15 tenants × 300 channels
+
+services:
+  # 1. مكعب قاعدة البيانات (PostgreSQL) - optimized for low memory footprint
+  postgres_db:
+    image: postgres:15-alpine
+    container_name: saas_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: local_secure_password_2026
+      POSTGRES_DB: ad_exchange
+      # Tune PostgreSQL for very small memory footprint
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    command: >
+      postgres
+      -c shared_buffers=32MB
+      -c effective_cache_size=64MB
+      -c work_mem=2MB
+      -c maintenance_work_mem=16MB
+      -c max_connections=30
+      -c wal_buffers=2MB
+      -c checkpoint_completion_target=0.9
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c synchronous_commit=off
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    restart: always
+    mem_limit: 128m
+    mem_reservation: 64m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. مكعب الكاش والـ Rate Limiter (Redis) - capped at 64MB with LRU eviction
+  redis_cache:
+    image: redis:7-alpine
+    container_name: saas_redis
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 64mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: always
+    mem_limit: 128m
+    mem_reservation: 64m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 3. مكعب الباك إند والـ APIs (FastAPI)
+  fastapi_api:
+    build: .
+    container_name: saas_fastapi_api
+    command: uvicorn main_api:app --host 0.0.0.0 --port 8000 --workers 1 --loop asyncio
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:local_secure_password_2026@postgres_db:5432/ad_exchange
+      - REDIS_URL=redis://redis_cache:6379/0
+      - JWT_SECRET=LOCAL_LAB_TESTING_SECRET_KEY
+      - PYTHONUNBUFFERED=1
+      - STATUS_BOT_TOKEN=${STATUS_BOT_TOKEN:-}
+      - STATUS_BOT_USERNAME=${STATUS_BOT_USERNAME:-AutoTeleStatusBot}
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+      redis_cache:
+        condition: service_started
+    restart: always
+    mem_limit: 160m
+    mem_reservation: 80m
+    tmpfs:
+      - /tmp
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 4. مكعب المحرك والمشرف المركزي (Core Worker) - optimized for low RAM
+  core_worker:
+    build: .
+    container_name: saas_core_worker
+    command: python worker.py
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:local_secure_password_2026@postgres_db:5432/ad_exchange
+      - REDIS_URL=redis://redis_cache:6379/0
+      - PYTHONUNBUFFERED=1
+      - STATUS_BOT_TOKEN=${STATUS_BOT_TOKEN:-}
+      - STATUS_BOT_USERNAME=${STATUS_BOT_USERNAME:-AutoTeleStatusBot}
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+      redis_cache:
+        condition: service_started
+    restart: always
+    mem_limit: 1024m
+    mem_reservation: 192m
+    tmpfs:
+      - /tmp
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 5. مكعب الشاشة والواجهة (Frontend Nginx UI)
+  frontend_ui:
+    image: nginx:alpine
+    container_name: saas_frontend
+    ports:
+      - "127.0.0.1:3000:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html
+      - ./frontend/default.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: always
+    mem_limit: 32m
+    mem_reservation: 16m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  postgres_data:
+  redis_data:

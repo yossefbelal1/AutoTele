@@ -1,0 +1,1801 @@
+// ==========================================
+// JAVASCRIPT: Frontend Controller Layer
+// ==========================================
+
+const API_BASE_URL = window.location.origin + "/api";
+
+function escapeHtml(str) {
+  if (typeof str !== 'string') return str;
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+// Global Application State
+let currentUser = null;
+let currentTelegramAccountId = null;
+let currentSlideIndex = 0;
+
+// ==========================================
+// 1. TOAST NOTIFICATION SYSTEM
+// ==========================================
+function showToast(message, type = "info", duration = 5000) {
+  const container = document.getElementById("toast-container");
+  if (!container) return;
+
+  const toast = document.createElement("div");
+  toast.className = `toast-alert ${type}`;
+  toast.textContent = message;
+
+  container.appendChild(toast);
+
+  // Force reflow to trigger slide-in animation
+  toast.offsetHeight;
+  toast.classList.add("show");
+
+  // Auto remove toast
+  setTimeout(() => {
+    toast.classList.remove("show");
+    toast.addEventListener("transitionend", () => {
+      toast.remove();
+    });
+  }, duration);
+}
+
+// ==========================================
+// 2. CUSTOM API FETCH MIDDLEWARE (RESILIENCE)
+// ==========================================
+async function apiRequest(endpoint, options = {}) {
+  const token = localStorage.getItem("access_token");
+  
+  // Build query string or inject authorization parameters
+  let url = `${API_BASE_URL}${endpoint}`;
+  if (token) {
+    const separator = url.includes("?") ? "&" : "?";
+    url = `${url}${separator}token=${token}`;
+  }
+
+  // Set default headers if none provided
+  if (!options.headers) {
+    options.headers = {};
+  }
+  if (!(options.body instanceof FormData) && !options.headers["Content-Type"]) {
+    options.headers["Content-Type"] = "application/json";
+  }
+
+  try {
+    const response = await fetch(url, options);
+    
+    // Resilience constraint: If 401 Unauthorized
+    if (response.status === 401) {
+      const hadToken = localStorage.getItem("access_token") !== null;
+      localStorage.removeItem("access_token");
+      if (hadToken) {
+        showToast("انتهت الجلسة أو رخصة غير صالحة. يرجى تسجيل الدخول مجدداً.", "error");
+      }
+      showAuthScreen();
+      throw new Error("Unauthorized access - redirecting to login");
+    }
+
+    // Handle custom error codes
+    if (!response.ok) {
+      let errorMessage = "حدث خطأ غير متوقع في الخادم.";
+      try {
+        const errorData = await response.json();
+        if (errorData.detail) {
+          if (typeof errorData.detail === "string") {
+            errorMessage = errorData.detail;
+          } else if (Array.isArray(errorData.detail)) {
+            // Format FastAPI Pydantic validation error lists
+            errorMessage = errorData.detail.map(err => {
+              const field = err.loc ? err.loc[err.loc.length - 1] : "field";
+              return `${field}: ${err.msg}`;
+            }).join(" | ");
+          } else {
+            errorMessage = JSON.stringify(errorData.detail);
+          }
+        }
+      } catch (e) {}
+
+      // Capture HTTP 420 (FloodWait) and HTTP 400 (Bad Requests) for localized toasts
+      if (response.status === 420) {
+        showToast(errorMessage || "رقمك مقيد للفلود من تليجرام، يرجى الانتظار والمحاولة لاحقاً.", "error");
+      } else if (response.status === 400) {
+        showToast(errorMessage || "البيانات المدخلة غير صحيحة، يرجى التحقق منها.", "error");
+      } else if (response.status === 429) {
+        showToast("طلبات كثيرة جداً، يرجى التمهل والمحاولة بعد قليل.", "warning");
+      } else {
+        showToast(errorMessage, "error");
+      }
+      
+      const err = new Error(errorMessage);
+      err.status = response.status;
+      throw err;
+    }
+
+    return await response.json();
+  } catch (error) {
+    if (error.message && error.message.includes("Failed to fetch")) {
+      showToast("فشل الاتصال بالخادم. يرجى التحقق من تشغيل FastAPI.", "error");
+    }
+    throw error;
+  }
+}
+
+// ==========================================
+// 3. ROUTER / VIEW CONTROLLER
+// ==========================================
+function showAuthScreen() {
+  document.getElementById("dashboard-view").classList.add("hidden");
+  document.getElementById("signup-view").classList.add("hidden");
+  document.getElementById("auth-view").classList.remove("hidden");
+}
+
+function showSignupScreen() {
+  document.getElementById("auth-view").classList.add("hidden");
+  document.getElementById("dashboard-view").classList.add("hidden");
+  document.getElementById("signup-view").classList.remove("hidden");
+}
+
+function showDashboardScreen() {
+  document.getElementById("auth-view").classList.add("hidden");
+  document.getElementById("signup-view").classList.add("hidden");
+  document.getElementById("dashboard-view").classList.remove("hidden");
+  
+  const savedPlan = localStorage.getItem('selectedPlan');
+  if (savedPlan) {
+    localStorage.removeItem('selectedPlan');
+    if (savedPlan === 'trial') {
+      switchTab("tab-connect");
+    } else {
+      switchTab("tab-crypto", savedPlan);
+    }
+  } else {
+    // Default to first tab
+    switchTab("tab-subscription");
+  }
+  
+  // Run live sync
+  syncDashboardData();
+  
+  // Pre-load wallet address dynamically in the background
+  loadReceiveWalletAddress();
+
+  // Load scheduled jobs and event logs immediately
+  loadScheduledJobs();
+  loadEventLogs();
+}
+
+function switchTab(tabId, selectedPlan = null) {
+  // Hide all panels
+  const panels = document.querySelectorAll(".tab-panel");
+  panels.forEach(panel => panel.classList.add("hidden"));
+
+  // Deactivate all nav buttons
+  const navTabs = document.querySelectorAll(".nav-tab");
+  navTabs.forEach(tab => tab.classList.remove("active"));
+
+  // Show selected panel & activate button
+  const activePanel = document.getElementById(tabId);
+  if (activePanel) {
+    activePanel.classList.remove("hidden");
+  }
+
+  const activeNav = document.querySelector(`.nav-tab[data-tab="${tabId}"]`);
+  if (activeNav) {
+    activeNav.classList.add("active");
+  }
+
+  // Pre-select plan in payment dropdown if redirected from pricing plans
+  if (tabId === "tab-crypto") {
+    loadReceiveWalletAddress();
+    if (selectedPlan) {
+      const planSelect = document.getElementById("payment-plan-select");
+      if (planSelect) {
+        planSelect.value = selectedPlan;
+      }
+    }
+  }
+  if (tabId === "tab-templates") {
+    loadTemplatesList();
+  }
+
+}
+
+async function loadReceiveWalletAddress() {
+  try {
+    const data = await apiRequest("/payments/wallet-address");
+    const walletInput = document.getElementById("wallet-address");
+    if (walletInput && data && data.wallet_address) {
+      walletInput.value = data.wallet_address;
+    }
+  } catch (error) {
+    console.error("Failed to load wallet address:", error);
+  }
+}
+
+window.copyFolderNameToClipboard = function(elementId) {
+    const text = document.getElementById(elementId).textContent;
+    navigator.clipboard.writeText(text).then(() => {
+        showToast(`تم نسخ اسم المجلد "${text}" بنجاح! أنشئه الآن في تليجرام.`, "success");
+    }).catch(() => {
+        const dummy = document.createElement("input");
+        document.body.appendChild(dummy);
+        dummy.value = text;
+        dummy.select();
+        document.execCommand("copy");
+        document.body.removeChild(dummy);
+        showToast(`تم نسخ اسم المجلد "${text}" بنجاح!`, "success");
+    });
+};
+
+// Button loading state toggler
+function setButtonLoading(buttonId, isLoading) {
+  const button = document.getElementById(buttonId);
+  if (!button) return;
+
+  const textNode = button.querySelector(".btn-text");
+  const spinnerNode = button.querySelector(".spinner");
+
+  if (isLoading) {
+    button.disabled = true;
+    if (textNode) textNode.style.opacity = "0.5";
+    if (spinnerNode) spinnerNode.classList.remove("hidden");
+  } else {
+    button.disabled = false;
+    if (textNode) textNode.style.opacity = "1";
+    if (spinnerNode) spinnerNode.classList.add("hidden");
+  }
+}
+
+// ==========================================
+// 4. AUTH MODULE (LOGIN & SIGNUP)
+// ==========================================
+async function handleLogin(e) {
+  e.preventDefault();
+  
+  const email = document.getElementById("login-email").value.trim();
+  const password = document.getElementById("login-password").value;
+
+  setButtonLoading("btn-login", true);
+
+  try {
+    const data = await apiRequest("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password })
+    });
+
+    if (data.access_token) {
+      localStorage.setItem("access_token", data.access_token);
+      showToast("تم تسجيل الدخول بنجاح!", "success");
+      showDashboardScreen();
+    }
+  } catch (error) {
+    console.error("Login Error:", error);
+  } finally {
+    setButtonLoading("btn-login", false);
+  }
+}
+
+async function handleSignup(e) {
+  e.preventDefault();
+  
+  const email = document.getElementById("signup-email").value.trim();
+  const password = document.getElementById("signup-password").value;
+
+  setButtonLoading("btn-signup", true);
+
+  try {
+    const data = await apiRequest("/auth/signup", {
+      method: "POST",
+      body: JSON.stringify({ email, password })
+    });
+
+    if (data.status === "success") {
+      showToast(data.message || "تم إنشاء الحساب وتفعيل الفترة التجريبية بنجاح!", "success");
+      
+      // Auto-login to make flow seamless
+      try {
+        const loginData = await apiRequest("/auth/login", {
+          method: "POST",
+          body: JSON.stringify({ email, password })
+        });
+        if (loginData.access_token) {
+          localStorage.setItem("access_token", loginData.access_token);
+          showDashboardScreen();
+          return;
+        }
+      } catch (loginErr) {
+        console.error("Auto-login failed:", loginErr);
+      }
+      
+      // Fallback if auto-login fails
+      showAuthScreen();
+    }
+  } catch (error) {
+    console.error("Signup Error:", error);
+  } finally {
+    setButtonLoading("btn-signup", false);
+  }
+}
+
+window.handleGoogleLogin = async function(response) {
+  if (!response.credential) {
+    showToast("حدث خطأ أثناء الاتصال بحساب جوجل", "error");
+    return;
+  }
+  
+  showToast("جاري تسجيل الدخول عبر جوجل...", "info");
+  
+  try {
+    const data = await apiRequest("/auth/google-login", {
+      method: "POST",
+      body: JSON.stringify({ id_token: response.credential })
+    });
+    
+    if (data.access_token) {
+      localStorage.setItem("access_token", data.access_token);
+      showToast("تم تسجيل الدخول بنجاح عبر جوجل!", "success");
+      showDashboardScreen();
+    } else {
+      showToast("فشل تسجيل الدخول", "error");
+    }
+  } catch (error) {
+    console.error("Google sign in failed:", error);
+  }
+};
+
+// ==========================================
+// 5. LIVE SYNC MODULE (DASHBOARD REFRESH)
+// ==========================================
+async function syncDashboardData() {
+  const token = localStorage.getItem("access_token");
+  if (!token) {
+    showAuthScreen();
+    return;
+  }
+
+  try {
+    const response = await apiRequest("/user/subscription");
+    
+    // Check status bot link and prompt user if not linked
+    checkStatusBotLinking(response);
+    
+    // 1. Update user metadata
+    document.getElementById("user-email-display").textContent = response.email || "user@domain.com";
+    
+    // Map plan to readable Arabic tag
+    let planText = "باقة تجريبية";
+    if (response.plan === "weekly") planText = "باقة أسبوعية";
+    else if (response.plan === "monthly") planText = "باقة شهرية";
+    else if (response.plan === "half_year") planText = "باقة 6 شهور";
+    else if (response.plan === "yearly") planText = "باقة سنوية";
+    
+    document.getElementById("user-plan-badge").innerHTML = `${planText} | 💰 ${response.credits || 0} نقطة`;
+    document.getElementById("plan-duration-display").textContent = planText;
+
+    // Show/hide admin panel button based on user admin privileges
+    const adminNavTab = document.getElementById("admin-nav-tab");
+    if (adminNavTab) {
+      if (response.is_admin) {
+        adminNavTab.classList.remove("hidden");
+      } else {
+        adminNavTab.classList.add("hidden");
+      }
+    }
+
+    // 2. Set subscription status badge (Active / Expired)
+    const statusBadge = document.getElementById("sub-status-badge");
+    statusBadge.className = "status-badge"; // reset classes
+    if (response.status === "Active") {
+      statusBadge.textContent = "نشط";
+      statusBadge.classList.add("active-badge");
+    } else {
+      statusBadge.textContent = "منتهي";
+      statusBadge.classList.add("expired-badge");
+    }
+
+    // 3. Central countdown circular SVG ring calculation
+    const remainingDays = response.remaining_days || 0;
+    document.getElementById("remaining-days-count").textContent = remainingDays;
+
+    let maxDays = 30; // standard month reference
+    if (response.plan === "weekly") maxDays = 7;
+    else if (response.plan === "half_year") maxDays = 180;
+    else if (response.plan === "yearly") maxDays = 365;
+    else if (response.plan === "trial") maxDays = 2;
+
+    const pct = Math.min(Math.max(remainingDays / maxDays, 0), 1);
+    const ring = document.getElementById("countdown-ring");
+    if (ring) {
+      const offset = 440 - (440 * pct);
+      ring.style.strokeDashoffset = offset;
+    }
+
+    // 4. Update calendars
+    document.getElementById("start-date-display").textContent = response.start_date || "--";
+    document.getElementById("end-date-display").textContent = response.end_date || "--";
+
+    // 5. Core Bot Worker State
+    const botStatus = response.bot_status;
+    const botDisplay = document.getElementById("bot-status-display");
+    const botCard = document.querySelector(".engine-card");
+    
+    // Save account ID for templates view
+    currentTelegramAccountId = response.telegram_account_id;
+
+    if (botCard) {
+      botCard.className = "card engine-card"; // reset
+    }
+
+    if (botStatus === "active") {
+      botDisplay.textContent = "يعمل بنشاط / Running";
+      botDisplay.style.color = "#10b981";
+    } else if (botStatus === "banned") {
+      botDisplay.textContent = "حظر أمني / Banned";
+      botDisplay.style.color = "#f43f5e";
+    } else if (botStatus === "error") {
+      botDisplay.textContent = "خطأ بالنظام / System Error";
+      botDisplay.style.color = "#f59e0b";
+    } else if (botStatus === "inactive") {
+      botDisplay.textContent = "متوقف مؤقتاً / Inactive";
+      botDisplay.style.color = "#708499";
+    } else {
+      botDisplay.textContent = "غير متصل / Disconnected";
+      botDisplay.style.color = "#708499";
+    }
+    
+    // Update proxy/account status indicators in campaign wizard
+    const accountStatusDot = document.getElementById("account-status-dot");
+    const campaignAccountName = document.getElementById("campaign-account-name");
+    const proxyStatusDot = document.getElementById("proxy-status-dot");
+    const campaignProxyName = document.getElementById("campaign-proxy-name");
+    const submitBtn = document.getElementById("btn-submit-web-campaign");
+
+    if (currentTelegramAccountId) {
+      campaignAccountName.textContent = `الحساب: متصل`;
+      if (response.needs_reboot) {
+        accountStatusDot.style.backgroundColor = "#eab308"; // yellow
+        campaignAccountName.innerHTML = `الحساب: يحتاج إعادة تشغيل ⚠️`;
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.textContent = "⚠️ عطل: الحساب يحتاج لإعادة تشغيل";
+        }
+      } else if (botStatus === "active") {
+        accountStatusDot.style.backgroundColor = "#10b981"; // green
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = `<span>🚀 إطلاق الحملة السحابية</span><span class="spinner hidden"></span>`;
+        }
+      } else {
+        accountStatusDot.style.backgroundColor = "#ef4444"; // red
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.textContent = "⚠️ عطل: المحرك غير نشط";
+        }
+      }
+
+      if (response.proxy_host) {
+        campaignProxyName.textContent = `الوكيل: ${response.proxy_host}`;
+        proxyStatusDot.style.backgroundColor = "#10b981"; // green
+      } else {
+        campaignProxyName.textContent = "لا يوجد بروكسي مخصص";
+        proxyStatusDot.style.backgroundColor = "#ef4444"; // red
+      }
+    } else {
+      campaignAccountName.textContent = "الحساب: غير مربوط";
+      accountStatusDot.style.backgroundColor = "#ef4444";
+      campaignProxyName.textContent = "لا يوجد وكيل";
+      proxyStatusDot.style.backgroundColor = "#ef4444";
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "يرجى ربط تليجرام أولاً";
+      }
+    }
+
+  } catch (error) {
+    console.error("Dashboard Sync Error:", error);
+  }
+}
+
+// ==========================================
+// 6. CRYPTO PAYMENT MODULE
+// ==========================================
+async function handleCryptoPayment(e) {
+  e.preventDefault();
+
+  const planSelected = document.getElementById("payment-plan-select").value;
+  const txid = document.getElementById("payment-txid").value.trim();
+
+  if (!planSelected) {
+    showToast("يرجى اختيار الباقة التي قمت بتحويل قيمتها أولاً.", "warning");
+    return;
+  }
+
+  setButtonLoading("btn-submit-payment", true);
+
+  try {
+    const data = await apiRequest("/payments/crypto-submit", {
+      method: "POST",
+      body: JSON.stringify({
+        plan_selected: planSelected,
+        txid: txid
+      })
+    });
+
+    if (data.status === "success") {
+      showToast(data.message || "تم إرسال رمز المعاملة للمراجعة بنجاح!", "success");
+      document.getElementById("crypto-payment-form").reset();
+      
+      // Auto redirect to subscription panel to watch for updates
+      switchTab("tab-subscription");
+      syncDashboardData();
+    }
+  } catch (error) {
+    console.error("Crypto Payment Submission Error:", error);
+  } finally {
+    setButtonLoading("btn-submit-payment", false);
+  }
+}
+
+// ==========================================
+// 7. TELEGRAM CONNECTION HANDSHAKE WIZARD
+// ==========================================
+async function handleTelegramSendCode(e) {
+  e.preventDefault();
+
+  const phone = document.getElementById("telegram-phone").value.trim();
+  const apiId = parseInt(document.getElementById("telegram-api-id").value);
+  const apiHash = document.getElementById("telegram-api-hash").value.trim();
+
+  setButtonLoading("btn-send-code", true);
+
+  try {
+    const data = await apiRequest("/telegram/send-code", {
+      method: "POST",
+      body: JSON.stringify({
+        phone: phone,
+        api_id: apiId,
+        api_hash: apiHash
+      })
+    });
+
+    if (data.status === "code_sent") {
+      showToast("تم إرسال كود التأكيد الآمن لتطبيق تليجرام الخاص بك.", "success");
+      
+      // Update label and switch steps
+      document.getElementById("phone-display-label").textContent = `تم إرسال الكود إلى الرقم: ${phone}`;
+      document.getElementById("connect-step-1").classList.add("hidden");
+      document.getElementById("connect-step-2").classList.remove("hidden");
+    }
+  } catch (error) {
+    console.error("Telegram Send Code Error:", error);
+  } finally {
+    setButtonLoading("btn-send-code", false);
+  }
+}
+
+async function handleTelegramVerifyCode(e) {
+  e.preventDefault();
+
+  const phone = document.getElementById("telegram-phone").value.trim();
+  const code = document.getElementById("telegram-code").value.trim();
+  const password2fa = document.getElementById("telegram-2fa").value.trim() || null;
+
+  setButtonLoading("btn-verify-code", true);
+
+  try {
+    const data = await apiRequest("/telegram/verify-code", {
+      method: "POST",
+      body: JSON.stringify({
+        phone: phone,
+        code: code,
+        password_2fa: password2fa
+      })
+    });
+
+    if (data.status === "success") {
+      showToast("تم ربط وتفعيل المحرك بنجاح تام!", "success");
+      document.getElementById("connect-form-step1").reset();
+      document.getElementById("connect-form-step2").reset();
+      
+      // Reset wizard view back to step 1 for future accounts
+      document.getElementById("connect-step-2").classList.add("hidden");
+      document.getElementById("connect-step-1").classList.remove("hidden");
+
+      // Go back to dashboard stats tab
+      switchTab("tab-subscription");
+      syncDashboardData();
+
+      // Automatically launch the folders guide carousel for the user right after connection success
+      openFoldersGuideModal();
+    } else if (data.status === "password_needed") {
+      showToast("الحساب محمي بكلمة مرور التحقق بخطوتين. يرجى كتابتها في الحقل المخصص.", "warning");
+    }
+  } catch (error) {
+    console.error("Telegram Verify Code Error:", error);
+  } finally {
+    setButtonLoading("btn-verify-code", false);
+  }
+}
+
+// ==========================================
+// 8. WALKTHROUGH GUIDE CAROUSEL MODAL
+// ==========================================
+function openGuideModal() {
+  currentSlideIndex = 0;
+  updateCarouselSlides();
+  document.getElementById("guide-modal").classList.remove("hidden");
+}
+
+function closeGuideModal() {
+  document.getElementById("guide-modal").classList.add("hidden");
+}
+
+function updateCarouselSlides() {
+  const slides = document.querySelectorAll(".guide-slide");
+  const dots = document.querySelectorAll(".slide-dots .dot");
+  
+  slides.forEach((slide, i) => {
+    if (i === currentSlideIndex) {
+      slide.classList.remove("hidden");
+      slide.classList.add("active");
+    } else {
+      slide.classList.add("hidden");
+      slide.classList.remove("active");
+    }
+  });
+
+  dots.forEach((dot, i) => {
+    if (i === currentSlideIndex) {
+      dot.classList.add("active");
+    } else {
+      dot.classList.remove("active");
+    }
+  });
+
+  // Enable/disable buttons based on boundaries
+  document.getElementById("btn-prev-slide").disabled = currentSlideIndex === 0;
+  
+  const nextBtn = document.getElementById("btn-next-slide");
+  if (currentSlideIndex === slides.length - 1) {
+    nextBtn.textContent = "فهمت الخطوات";
+  } else {
+    nextBtn.textContent = "التالي";
+  }
+}
+
+function handleNextSlide() {
+  const slides = document.querySelectorAll(".guide-slide");
+  if (currentSlideIndex < slides.length - 1) {
+    currentSlideIndex++;
+    updateCarouselSlides();
+  } else {
+    closeGuideModal();
+  }
+}
+
+function handlePrevSlide() {
+  if (currentSlideIndex > 0) {
+    currentSlideIndex--;
+    updateCarouselSlides();
+  }
+}
+
+// ==========================================
+// 8B. FOLDERS GUIDE CAROUSEL MODAL
+// ==========================================
+let currentFoldersSlideIndex = 0;
+
+function openFoldersGuideModal() {
+  currentFoldersSlideIndex = 0;
+  updateFoldersCarouselSlides();
+  document.getElementById("folders-guide-modal").classList.remove("hidden");
+}
+
+function closeFoldersGuideModal() {
+  document.getElementById("folders-guide-modal").classList.add("hidden");
+}
+
+function updateFoldersCarouselSlides() {
+  const slides = document.querySelectorAll(".folders-guide-slide");
+  const dots = document.querySelectorAll(".folders-slide-dots .dot");
+  
+  slides.forEach((slide, i) => {
+    if (i === currentFoldersSlideIndex) {
+      slide.classList.remove("hidden");
+      slide.classList.add("active");
+    } else {
+      slide.classList.add("hidden");
+      slide.classList.remove("active");
+    }
+  });
+
+  dots.forEach((dot, i) => {
+    if (i === currentFoldersSlideIndex) {
+      dot.classList.add("active");
+    } else {
+      dot.classList.remove("active");
+    }
+  });
+
+  // Enable/disable buttons based on boundaries
+  document.getElementById("btn-prev-folders-slide").disabled = currentFoldersSlideIndex === 0;
+  
+  const nextBtn = document.getElementById("btn-next-folders-slide");
+  if (currentFoldersSlideIndex === slides.length - 1) {
+    nextBtn.textContent = "فهمت الخطوات";
+  } else {
+    nextBtn.textContent = "التالي";
+  }
+}
+
+function handleNextFoldersSlide() {
+  const slides = document.querySelectorAll(".folders-guide-slide");
+  if (currentFoldersSlideIndex < slides.length - 1) {
+    currentFoldersSlideIndex++;
+    updateFoldersCarouselSlides();
+  } else {
+    closeFoldersGuideModal();
+  }
+}
+
+function handlePrevFoldersSlide() {
+  if (currentFoldersSlideIndex > 0) {
+    currentFoldersSlideIndex--;
+    updateFoldersCarouselSlides();
+  }
+}
+
+function resetTargetLinkInputs() {
+  const container = document.getElementById("web-links-container");
+  if (!container) return;
+  container.innerHTML = `
+    <div class="web-link-input-wrapper" style="margin-bottom: 10px; display: flex; gap: 8px; align-items: center;">
+      <input type="text" class="web-target-link form-control" placeholder="أدخل معرف أو رابط القناة" style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; flex: 1; font-size: 14px; outline: none; transition: border-color 0.2s;">
+    </div>
+  `;
+}
+
+// ==========================================
+// 8C. WEB CAMPAIGN SUBMIT HANDLER
+// ==========================================
+async function handleWebCampaignSubmit(e) {
+  e.preventDefault();
+
+  const campaignType = document.getElementById("web-campaign-type").value;
+  const delayStart = parseInt(document.getElementById("web-delay-start").value) || 0;
+  const delayBetween = parseInt(document.getElementById("web-delay-between").value) || 0;
+  const adLifespan = parseInt(document.getElementById("web-ad-lifespan").value) || 0;
+  const customTextInput = document.getElementById("web-custom-text");
+
+  let targetLink = "";
+  if (campaignType === "timed_post") {
+    const promoLink = document.getElementById("web-pin-promo-link").value.trim();
+    const targetLinkPin = document.getElementById("web-pin-target-link").value.trim();
+    if (!promoLink || !targetLinkPin) {
+      showToast("يرجى إدخال رابط الترويج ورابط القناة الحاضنة للنشر المؤقت.", "warning");
+      return;
+    }
+    targetLink = promoLink + "|" + targetLinkPin;
+  } else {
+    const inputs = document.querySelectorAll(".web-target-link");
+    const links = Array.from(inputs).map(inp => inp.value.trim()).filter(val => val !== "");
+    targetLink = links.join("\n");
+  }
+  const customText = customTextInput.value.trim();
+
+  if (campaignType === "single" && !targetLink) {
+    showToast("يرجى إدخال رابط القناة المستهدفة للحملة الفردية.", "warning");
+    return;
+  }
+
+  setButtonLoading("btn-submit-web-campaign", true);
+
+  try {
+    const data = await apiRequest("/user/campaign-submit", {
+      method: "POST",
+      body: JSON.stringify({
+        campaign_type: campaignType,
+        delay_start: delayStart,
+        delay_between_channels: delayBetween,
+        ad_lifespan: adLifespan,
+        target_link: targetLink || null,
+        custom_text: customText || null
+      })
+    });
+
+    if (data.status === "success") {
+      showToast(data.message || "تم تقديم طلب الحملة بنجاح!", "success");
+      document.getElementById("web-campaign-form").reset();
+      resetTargetLinkInputs();
+      const campaignTypeSelect = document.getElementById("web-campaign-type");
+      if (campaignTypeSelect) {
+        campaignTypeSelect.dispatchEvent(new Event("change"));
+      }
+    }
+  } catch (error) {
+    console.error("Web Campaign Submission Error:", error);
+  } finally {
+    setButtonLoading("btn-submit-web-campaign", false);
+  }
+}
+
+// ==========================================
+// 9. AD FORMAT ENGINE MODULE
+// ==========================================
+async function handleTemplateAdd(e) {
+  e.preventDefault();
+
+  // Validate connected Telegram account state
+  if (!currentTelegramAccountId) {
+    showToast("يرجى ربط حسابك على تليجرام أولاً من علامة تبويب 'ربط المحرك' قبل إضافة صيغ الإعلانات.", "warning");
+    return;
+  }
+
+  const templateText = document.getElementById("template-text").value;
+
+
+
+  setButtonLoading("btn-add-template", true);
+
+  try {
+    const data = await apiRequest("/templates/add", {
+      method: "POST",
+      body: JSON.stringify({
+        telegram_account_id: currentTelegramAccountId,
+        template_text: templateText
+      })
+    });
+
+    if (data.status === "success") {
+      showToast(data.message || "تم إضافة صيغة إعلانك بنجاح لمكتبتك الخارجية!", "success");
+      document.getElementById("template-add-form").reset();
+      loadTemplatesList();
+    }
+  } catch (error) {
+    console.error("Add Template Error:", error);
+  } finally {
+    setButtonLoading("btn-add-template", false);
+  }
+}
+
+async function loadTemplatesList() {
+  const container = document.getElementById("templates-list-container");
+  if (!container) return;
+
+  try {
+    const data = await apiRequest("/templates");
+    if (!data || data.length === 0) {
+      container.innerHTML = `<p style="color: #94a3b8; font-size: 13px; text-align: center; padding: 20px;">لا يوجد أي صيغ إعلانية مضافة في مكتبتك حالياً.</p>`;
+      return;
+    }
+
+    let html = "";
+    data.forEach(tmpl => {
+      // Escape HTML to prevent XSS
+      const safeText = tmpl.template_text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+      
+      html += `
+        <div class="template-item" style="background: #0f172a; border: 1px solid #1e293b; padding: 16px; border-radius: 8px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;">
+          <div style="flex-grow: 1; color: #fff; font-size: 14px; white-space: pre-wrap; line-height: 1.6; font-family: Cairo, sans-serif;">${safeText}</div>
+          <button class="btn btn-delete-template" data-id="${tmpl.id}" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; transition: background-color 0.2s; white-space: nowrap;">حذف</button>
+        </div>
+      `;
+    });
+    container.innerHTML = html;
+
+    // Attach click handlers to delete buttons
+    const deleteBtns = container.querySelectorAll(".btn-delete-template");
+    deleteBtns.forEach(btn => {
+      btn.addEventListener("click", async (e) => {
+        const templateId = e.currentTarget.getAttribute("data-id");
+        if (confirm("هل أنت متأكد من رغبتك في حذف هذه الصيغة؟")) {
+          e.currentTarget.disabled = true;
+          e.currentTarget.textContent = "جاري الحذف...";
+          try {
+            const res = await apiRequest(`/templates/${templateId}`, {
+              method: "DELETE"
+            });
+            if (res.status === "success") {
+              showToast(res.message || "تم حذف الصيغة بنجاح!", "success");
+              loadTemplatesList();
+            }
+          } catch (err) {
+            console.error("Delete template error:", err);
+            e.currentTarget.disabled = false;
+            e.currentTarget.textContent = "حذف";
+          }
+        }
+      });
+    });
+
+  } catch (error) {
+    console.error("Load templates error:", error);
+    container.innerHTML = `<p style="color: #f43f5e; font-size: 13px; text-align: center; padding: 20px;">فشل تحميل الصيغ الإعلانية. يرجى المحاولة لاحقاً.</p>`;
+  }
+}
+
+async function loadScheduledJobs() {
+  try {
+    const data = await apiRequest("/user/scheduled-jobs");
+    const listEl = document.getElementById("scheduled-jobs-list");
+    if (!listEl) return;
+    if (data.status === "success") {
+      if (!data.jobs || data.jobs.length === 0) {
+        listEl.innerHTML = `<p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; padding: 12px; border: 1px dashed rgba(255,255,255,0.05); border-radius: 8px;">لا توجد حملات أو مهام مؤجلة مجدولة حالياً.</p>`;
+        return;
+      }
+      
+      let html = "";
+      data.jobs.forEach(job => {
+        let dateStr = "";
+        let remainingStr = "";
+        try {
+          const date = new Date(job.start_time);
+          dateStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + " - " + date.toLocaleDateString();
+          
+          const diffMs = date.getTime() - Date.now();
+          if (diffMs > 0) {
+            const diffMins = Math.ceil(diffMs / (1000 * 60));
+            const hours = Math.floor(diffMins / 60);
+            const mins = diffMins % 60;
+            if (hours > 0) {
+              remainingStr = ` <span style="color: #34d399; font-weight: 500; font-size: 11px; margin-right: 4px;">(متبقي ${hours} س و ${mins} د)</span>`;
+            } else {
+              remainingStr = ` <span style="color: #34d399; font-weight: 500; font-size: 11px; margin-right: 4px;">(متبقي ${mins} د)</span>`;
+            }
+          } else {
+            remainingStr = ` <span style="color: #fbbf24; font-weight: 500; font-size: 11px; margin-right: 4px;">(جاري التنفيذ...)</span>`;
+          }
+        } catch(e) {
+          dateStr = job.start_time;
+        }
+        
+        html += `
+          <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; display: flex; flex-direction: column; gap: 6px;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <span style="font-weight: 600; color: #fff; font-size: 13px;">${escapeHtml(job.type)}</span>
+              <span style="color: #60a5fa; font-size: 12px; display: flex; align-items: center;">⏳ ${escapeHtml(dateStr)}${remainingStr}</span>
+            </div>
+            <div style="color: #94a3b8; font-size: 12px; line-height: 1.4;">${escapeHtml(job.details)}</div>
+          </div>
+        `;
+      });
+      listEl.innerHTML = html;
+    }
+  } catch (error) {
+    console.error("Error loading scheduled jobs:", error);
+  }
+}
+
+async function loadEventLogs() {
+  try {
+    const data = await apiRequest("/user/logs");
+    const container = document.getElementById("logs-container");
+    if (!container) return;
+    if (data.status === "success") {
+      if (!data.logs || data.logs.length === 0) {
+        container.innerHTML = `<p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; font-family: sans-serif;">سجل الأحداث فارغ حالياً.</p>`;
+        return;
+      }
+      
+      let html = "";
+      data.logs.forEach(log => {
+        let timeStr = "";
+        try {
+          const date = new Date(log.created_at);
+          timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        } catch(e) {
+          timeStr = log.created_at;
+        }
+        
+        const textEscaped = log.text
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\n/g, "<br>");
+          
+        html += `
+          <div style="border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 8px; margin-bottom: 4px; text-align: right; direction: rtl;">
+            <span style="color: #64748b; font-weight: bold; margin-left: 6px;">[${timeStr}]</span>
+            <span style="color: #cbd5e1;">${textEscaped}</span>
+          </div>
+        `;
+      });
+      container.innerHTML = html;
+    }
+  } catch (error) {
+    console.error("Error loading event logs:", error);
+  }
+}
+
+async function clearEventLogs() {
+  if (!confirm("هل أنت متأكد من رغبتك في مسح وتفريغ سجل الأحداث بالكامل من قاعدة البيانات وتليجرام؟")) {
+    return;
+  }
+  const btnClearLogs = document.getElementById("btn-clear-logs-web");
+  if (btnClearLogs) btnClearLogs.style.opacity = "0.5";
+  try {
+    const data = await apiRequest("/user/logs/clear", { method: "POST" });
+    if (data.status === "success") {
+      showToast(data.message || "تم تقديم طلب مسح سجل الأحداث بنجاح!", "success");
+      const container = document.getElementById("logs-container");
+      if (container) {
+        container.innerHTML = `<p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; font-family: sans-serif;">سجل الأحداث فارغ حالياً.</p>`;
+      }
+    }
+  } catch (error) {
+    console.error("Error clearing logs:", error);
+  } finally {
+    if (btnClearLogs) btnClearLogs.style.opacity = "1";
+  }
+}
+
+// ==========================================
+// 10. INITIALIZATION & LISTENERS
+// ==========================================
+document.addEventListener("DOMContentLoaded", () => {
+  // Parse plan query param and store it in localStorage
+  const urlParams = new URLSearchParams(window.location.search);
+  const planParam = urlParams.get('plan');
+  if (planParam) {
+    localStorage.setItem('selectedPlan', planParam);
+    // clean up query string
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+  
+
+
+  // A. View Router Check
+  const token = localStorage.getItem("access_token");
+  if (token) {
+    showDashboardScreen();
+  } else {
+    const savedPlan = localStorage.getItem('selectedPlan');
+    if (savedPlan === 'trial') {
+      showSignupScreen();
+    } else {
+      showAuthScreen();
+    }
+  }
+
+
+
+  // B. Navigation tabs & switch events
+  document.querySelectorAll(".nav-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      const tabTarget = tab.getAttribute("data-tab");
+      switchTab(tabTarget);
+    });
+  });
+
+  // C. Switch Login/Signup screen links
+  document.getElementById("link-show-signup").addEventListener("click", (e) => {
+    e.preventDefault();
+    showSignupScreen();
+  });
+  document.getElementById("link-show-login").addEventListener("click", (e) => {
+    e.preventDefault();
+    showAuthScreen();
+  });
+
+  // D. Form Submissions
+  document.getElementById("login-form").addEventListener("submit", handleLogin);
+  document.getElementById("signup-form").addEventListener("submit", handleSignup);
+  document.getElementById("crypto-payment-form").addEventListener("submit", handleCryptoPayment);
+  document.getElementById("connect-form-step1").addEventListener("submit", handleTelegramSendCode);
+  document.getElementById("connect-form-step2").addEventListener("submit", handleTelegramVerifyCode);
+  document.getElementById("template-add-form").addEventListener("submit", handleTemplateAdd);
+
+  // Campaign form submission
+  const webCampaignForm = document.getElementById("web-campaign-form");
+  if (webCampaignForm) {
+    webCampaignForm.addEventListener("submit", handleWebCampaignSubmit);
+  }
+
+  // Telegram Status Bot Link button click event
+  const btnLinkStatusBot = document.getElementById("btn-link-status-bot");
+  if (btnLinkStatusBot) {
+    btnLinkStatusBot.addEventListener("click", async () => {
+      const newWindow = window.open("", "_blank");
+      try {
+        const response = await apiRequest("/user/status-bot-link");
+        if (response && response.link) {
+          newWindow.location.href = response.link;
+        } else {
+          newWindow.close();
+          showToast("❌ فشل توليد رابط الربط، يرجى المحاولة لاحقاً.", "error");
+        }
+      } catch (err) {
+        newWindow.close();
+        console.error("Link status bot failed:", err);
+      }
+    });
+  }
+
+  // Web Campaign Clear and Deep Clear action buttons
+  const btnClearWeb = document.getElementById("btn-clear-web");
+  const btnDeepClearWeb = document.getElementById("btn-deep-clear-web");
+  if (btnClearWeb) {
+    btnClearWeb.addEventListener("click", async () => {
+      if (!confirm("هل أنت متأكد من رغبتك في تشغيل المسح السريع للرسائل المرسلة أوتوماتيكياً؟")) {
+        return;
+      }
+      setButtonLoading("btn-clear-web", true);
+      try {
+        const data = await apiRequest("/user/campaign-submit", {
+          method: "POST",
+          body: JSON.stringify({
+            campaign_type: "clear",
+            delay_start: 0,
+            delay_between_channels: 0,
+            ad_lifespan: 0,
+            target_link: null,
+            custom_text: null
+          })
+        });
+        if (data.status === "success") {
+          showToast(data.message || "تم تقديم طلب مسح الإعلانات بنجاح!", "success");
+        }
+      } catch (error) {
+        console.error("Clear Error:", error);
+      } finally {
+        setButtonLoading("btn-clear-web", false);
+      }
+    });
+  }
+
+  if (btnDeepClearWeb) {
+    btnDeepClearWeb.addEventListener("click", async () => {
+      if (!confirm("🚨 تحذير: هل أنت متأكد من تشغيل المسح العميق لمسح جميع الرسائل أوتوماتيكياً ويدوياً وإيقاف حملات التبادل؟")) {
+        return;
+      }
+      setButtonLoading("btn-deep-clear-web", true);
+      try {
+        const data = await apiRequest("/user/campaign-submit", {
+          method: "POST",
+          body: JSON.stringify({
+            campaign_type: "deep_clear",
+            delay_start: 0,
+            delay_between_channels: 0,
+            ad_lifespan: 0,
+            target_link: null,
+            custom_text: null
+          })
+        });
+        if (data.status === "success") {
+          showToast(data.message || "تم تقديم طلب المسح العميق بنجاح!", "success");
+        }
+      } catch (error) {
+        console.error("Deep Clear Error:", error);
+      } finally {
+        setButtonLoading("btn-deep-clear-web", false);
+      }
+    });
+  }
+
+  const btnUpdateWeb = document.getElementById("btn-update-web");
+  if (btnUpdateWeb) {
+    btnUpdateWeb.addEventListener("click", async () => {
+      if (!confirm("هل أنت متأكد من رغبتك في تحديث المحرك ومزامنة المجلدات؟")) {
+        return;
+      }
+      setButtonLoading("btn-update-web", true);
+      try {
+        const data = await apiRequest("/user/campaign-submit", {
+          method: "POST",
+          body: JSON.stringify({
+            campaign_type: "update",
+            delay_start: 0,
+            delay_between_channels: 0,
+            ad_lifespan: 0,
+            target_link: null,
+            custom_text: null
+          })
+        });
+        if (data.status === "success") {
+          showToast(data.message || "تم تقديم طلب تحديث الكاش والمزامنة بنجاح!", "success");
+        }
+      } catch (error) {
+        console.error("Update Cache Error:", error);
+      } finally {
+        setButtonLoading("btn-update-web", false);
+      }
+    });
+  }
+
+  // Dynamic field toggling based on selected campaign type
+  const campaignTypeSelect = document.getElementById("web-campaign-type");
+  const groupTargetLink = document.getElementById("group-target-link");
+  const groupPinChannels = document.getElementById("group-pin-channels");
+  const groupCustomText = document.getElementById("group-custom-text");
+  const groupDelayBetween = document.getElementById("group-delay-between");
+  const groupAdLifespan = document.getElementById("group-ad-lifespan");
+  const groupDelayStart = document.getElementById("group-delay-start");
+  if (campaignTypeSelect && groupTargetLink && groupCustomText) {
+    campaignTypeSelect.addEventListener("change", () => {
+      resetTargetLinkInputs();
+      const selectedType = campaignTypeSelect.value;
+      if (selectedType === "single") {
+        groupTargetLink.style.display = "block";
+        if (groupPinChannels) groupPinChannels.style.display = "none";
+        groupCustomText.style.display = "block";
+        if (groupDelayBetween) groupDelayBetween.style.display = "none";
+        if (groupAdLifespan) groupAdLifespan.style.display = "block";
+        if (groupDelayStart) groupDelayStart.style.display = "block";
+      } else if (selectedType === "timed_post") {
+        groupTargetLink.style.display = "none";
+        if (groupPinChannels) groupPinChannels.style.display = "block";
+        groupCustomText.style.display = "block";
+        if (groupDelayBetween) groupDelayBetween.style.display = "none";
+        if (groupAdLifespan) groupAdLifespan.style.display = "block";
+        if (groupDelayStart) groupDelayStart.style.display = "none";
+      } else if (selectedType === "bulk") {
+        groupTargetLink.style.display = "none";
+        if (groupPinChannels) groupPinChannels.style.display = "none";
+        groupCustomText.style.display = "block";
+        if (groupDelayBetween) groupDelayBetween.style.display = "block";
+        if (groupAdLifespan) groupAdLifespan.style.display = "block";
+        if (groupDelayStart) groupDelayStart.style.display = "block";
+      } else if (selectedType === "deep_clear") {
+        groupTargetLink.style.display = "none";
+        if (groupPinChannels) groupPinChannels.style.display = "none";
+        groupCustomText.style.display = "none";
+        if (groupDelayBetween) groupDelayBetween.style.display = "none";
+        if (groupAdLifespan) groupAdLifespan.style.display = "none";
+        if (groupDelayStart) groupDelayStart.style.display = "block";
+      } else {
+        groupTargetLink.style.display = "none";
+        if (groupPinChannels) groupPinChannels.style.display = "none";
+        groupCustomText.style.display = "none";
+        if (groupDelayBetween) groupDelayBetween.style.display = "block";
+        if (groupAdLifespan) groupAdLifespan.style.display = "block";
+        if (groupDelayStart) groupDelayStart.style.display = "block";
+      }
+    });
+    // Trigger on load to match initial select value
+    campaignTypeSelect.dispatchEvent(new Event("change"));
+  }
+
+  // Handle dynamically adding/removing target links for campaign
+  const btnAddTargetLink = document.getElementById("btn-add-target-link");
+  const webLinksContainer = document.getElementById("web-links-container");
+  if (btnAddTargetLink && webLinksContainer) {
+    btnAddTargetLink.addEventListener("click", () => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "web-link-input-wrapper";
+      wrapper.style.cssText = "margin-bottom: 10px; display: flex; gap: 8px; align-items: center;";
+      wrapper.innerHTML = `
+        <input type="text" class="web-target-link form-control" placeholder="أدخل معرف أو رابط القناة الإضافية" style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; flex: 1; font-size: 14px; outline: none;">
+        <button type="button" class="btn-remove-target-link" style="background: transparent; border: none; color: #ef4444; font-size: 20px; cursor: pointer; padding: 0 4px; line-height: 1; outline: none;">&times;</button>
+      `;
+      webLinksContainer.appendChild(wrapper);
+      wrapper.querySelector("input").focus();
+      wrapper.querySelector(".btn-remove-target-link").addEventListener("click", () => {
+        wrapper.remove();
+      });
+    });
+  }
+
+  // E. Walkthrough Guide Modal controls
+  document.getElementById("btn-trigger-guide").addEventListener("click", openGuideModal);
+  document.getElementById("btn-close-modal").addEventListener("click", closeGuideModal);
+  document.getElementById("btn-prev-slide").addEventListener("click", handlePrevSlide);
+  document.getElementById("btn-next-slide").addEventListener("click", handleNextSlide);
+  
+  // Dot indicators clicks
+  document.querySelectorAll(".slide-dots .dot").forEach(dot => {
+    dot.addEventListener("click", () => {
+      currentSlideIndex = parseInt(dot.getAttribute("data-slide"));
+      updateCarouselSlides();
+    });
+  });
+
+  // E2. Folders Guide Modal controls
+  document.getElementById("btn-close-folders-modal").addEventListener("click", closeFoldersGuideModal);
+  document.getElementById("btn-prev-folders-slide").addEventListener("click", handlePrevFoldersSlide);
+  document.getElementById("btn-next-folders-slide").addEventListener("click", handleNextFoldersSlide);
+  
+  // Folders Dot indicators clicks
+  document.querySelectorAll(".folders-slide-dots .dot").forEach(dot => {
+    dot.addEventListener("click", () => {
+      currentFoldersSlideIndex = parseInt(dot.getAttribute("data-folders-slide"));
+      updateFoldersCarouselSlides();
+    });
+  });
+
+  // F. Copy Wallet Address button
+  document.getElementById("btn-copy-address").addEventListener("click", () => {
+    const addressInput = document.getElementById("wallet-address");
+    addressInput.select();
+    addressInput.setSelectionRange(0, 99999); // for mobile
+    
+    try {
+      navigator.clipboard.writeText(addressInput.value);
+      showToast("تم نسخ عنوان المحفظة بنجاح!", "success");
+    } catch (err) {
+      // Fallback
+      document.execCommand("copy");
+      showToast("تم نسخ عنوان المحفظة بنجاح!", "success");
+    }
+  });
+
+  // G. Logout Action
+  document.getElementById("btn-logout").addEventListener("click", () => {
+    localStorage.removeItem("access_token");
+    showToast("تم تسجيل الخروج بنجاح.", "info");
+    window.location.replace("index.html");
+  });
+
+
+  // Bind refresh and clear events
+  const btnRefreshJobs = document.getElementById("btn-refresh-jobs");
+  if (btnRefreshJobs) {
+    btnRefreshJobs.addEventListener("click", loadScheduledJobs);
+  }
+  const btnClearJobs = document.getElementById("btn-clear-jobs");
+  if (btnClearJobs) {
+    btnClearJobs.addEventListener("click", async () => {
+      if (!confirm("هل أنت متأكد من مسح جميع المهام المجدولة؟")) return;
+      try {
+        btnClearJobs.style.opacity = "0.5";
+        const data = await apiRequest("/user/scheduled-jobs", { method: "DELETE" });
+        if (data.status === "success") {
+          showToast(data.message || "تم مسح المهام المجدولة بنجاح!", "success");
+          loadScheduledJobs();
+        } else {
+          showToast(data.detail || "حدث خطأ أثناء مسح المهام.", "error");
+        }
+      } catch (error) {
+        showToast("حدث خطأ أثناء مسح المهام.", "error");
+      } finally {
+        btnClearJobs.style.opacity = "1";
+      }
+    });
+  }
+  const btnRefreshLogs = document.getElementById("btn-refresh-logs");
+  if (btnRefreshLogs) {
+    btnRefreshLogs.addEventListener("click", loadEventLogs);
+  }
+  const btnClearLogsWeb = document.getElementById("btn-clear-logs-web");
+  if (btnClearLogsWeb) {
+    btnClearLogsWeb.addEventListener("click", clearEventLogs);
+  }
+
+  // Initialize Campaign Wizard presets and sliders
+  initCampaignWizard();
+
+  // Initialize Active Ads live stream and progress
+  initActiveAdsStream();
+
+  // Load initially if token is present
+  if (localStorage.getItem("access_token")) {
+    loadScheduledJobs();
+    loadEventLogs();
+    loadActiveAds();
+  }
+
+  // Periodic polling (every 10 seconds if dashboard is active)
+  setInterval(() => {
+    const dashboardVisible = !document.getElementById("dashboard-view").classList.contains("hidden");
+    if (dashboardVisible) {
+      loadScheduledJobs();
+      loadEventLogs();
+      loadActiveAds();
+    }
+  }, 10000);
+
+  // H. Periodic Dashboard Sync (refresh data every 30 seconds if dashboard is open)
+  setInterval(() => {
+    const dashboardVisible = !document.getElementById("dashboard-view").classList.contains("hidden");
+    if (dashboardVisible) {
+      syncDashboardData();
+    }
+  }, 30000);
+});
+
+// ==========================================
+// CAMPAIGN WIZARD ENGINE & CALCULATORS
+// ==========================================
+let currentPreset = "safe";
+
+function initCampaignWizard() {
+  const presetBtns = document.querySelectorAll(".preset-btn");
+  const customDelayBlock = document.getElementById("custom-delay-settings");
+  
+  const delayStartInput = document.getElementById("web-delay-start");
+  const delayBetweenInput = document.getElementById("web-delay-between");
+  const adLifespanInput = document.getElementById("web-ad-lifespan");
+  const customTextInput = document.getElementById("web-custom-text");
+  
+  const labelDelayStart = document.getElementById("label-delay-start");
+  const labelDelayBetween = document.getElementById("label-delay-between");
+  const labelAdLifespan = document.getElementById("label-ad-lifespan");
+  
+  const campaignTypeSelect = document.getElementById("web-campaign-type");
+
+  // A. Preset switching
+  presetBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      presetBtns.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      
+      const preset = btn.getAttribute("data-preset");
+      currentPreset = preset;
+      
+      if (preset === "custom") {
+        customDelayBlock.classList.remove("hidden");
+      } else {
+        customDelayBlock.classList.add("hidden");
+        
+        // Safe vs Fast defaults
+        if (preset === "safe") {
+          delayStartInput.value = 0;
+          delayBetweenInput.value = 15;
+        } else if (preset === "fast") {
+          delayStartInput.value = 0;
+          delayBetweenInput.value = 5;
+        }
+      }
+      
+      updateWizardCalculations();
+    });
+  });
+
+  // B. Sliders label updates
+  if (delayStartInput) {
+    delayStartInput.addEventListener("input", () => {
+      const val = parseInt(delayStartInput.value);
+      labelDelayStart.textContent = val === 0 ? "فوري (0 دقيقة)" : `بعد ${val} دقيقة`;
+      updateWizardCalculations();
+    });
+  }
+
+  if (delayBetweenInput) {
+    delayBetweenInput.addEventListener("input", () => {
+      const val = parseInt(delayBetweenInput.value);
+      labelDelayBetween.textContent = val === 0 ? "تلقائي (0 دقيقة)" : `كل ${val} دقيقة`;
+      updateWizardCalculations();
+    });
+  }
+
+  if (adLifespanInput) {
+    adLifespanInput.addEventListener("input", () => {
+      const val = parseInt(adLifespanInput.value);
+      
+      let displayVal = `${val} دقيقة`;
+      if (val >= 60) {
+        const hrs = Math.floor(val / 60);
+        const mins = val % 60;
+        displayVal = `${hrs} ساعة` + (mins > 0 ? ` و ${mins} دقيقة` : "");
+      }
+      labelAdLifespan.textContent = displayVal;
+      updateWizardCalculations();
+    });
+  }
+
+  // C. Campaign type listener updates
+  if (campaignTypeSelect) {
+    campaignTypeSelect.addEventListener("change", () => {
+      updateWizardCalculations();
+    });
+  }
+
+  // D. Live Preview Sync
+  if (customTextInput) {
+    customTextInput.addEventListener("input", () => {
+      const previewEl = document.getElementById("sim-msg-content");
+      const simTimeEl = document.getElementById("sim-msg-time");
+      
+      const text = customTextInput.value.trim();
+      if (text) {
+        previewEl.textContent = text;
+      } else {
+        previewEl.textContent = "اكتب محتوى إعلانك المخصص ليظهر محاكاة حية هنا...";
+      }
+
+      // Update time badge to current time
+      const now = new Date();
+      simTimeEl.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    });
+  }
+
+  // Initial update
+  updateWizardCalculations();
+}
+
+function updateWizardCalculations() {
+  const campaignType = document.getElementById("web-campaign-type")?.value || "wave";
+  const delayStart = parseInt(document.getElementById("web-delay-start")?.value) || 0;
+  const delayBetween = parseInt(document.getElementById("web-delay-between")?.value) || 0;
+  const adLifespan = parseInt(document.getElementById("web-ad-lifespan")?.value) || 15;
+  
+  // 1. Calculate Live Expiry Date
+  const expiryDate = new Date(Date.now() + (delayStart + adLifespan) * 60 * 1000);
+  const expiryStr = expiryDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + " - " + expiryDate.toLocaleDateString();
+  const expiryDisplay = document.getElementById("live-expiry-time-display");
+  if (expiryDisplay) expiryDisplay.textContent = expiryStr;
+
+  // 2. Estimate channels & duration
+  let channelCount = 1;
+  if (campaignType === "bulk" || campaignType === "wave") {
+    channelCount = 15; // standard average reference for folder/exchange
+  } else if (campaignType === "single") {
+    const inputs = document.querySelectorAll(".web-target-link");
+    channelCount = Math.max(1, Array.from(inputs).map(inp => inp.value.trim()).filter(val => val !== "").length);
+  }
+
+  const totalMins = delayStart + (channelCount * delayBetween) + adLifespan;
+  const totalHrs = Math.floor(totalMins / 60);
+  const totalMinsRem = totalMins % 60;
+  
+  let durationStr = `${totalMinsRem} دقيقة`;
+  if (totalHrs > 0) {
+    durationStr = `${totalHrs} ساعة و ` + durationStr;
+  }
+  
+  const durationDisplay = document.getElementById("live-estimated-duration");
+  if (durationDisplay) durationDisplay.textContent = durationStr;
+
+  // 3. Credits cost calculator
+  let cost = 0;
+  if (campaignType === "single") {
+    cost = channelCount * 10;
+  } else if (campaignType === "wave") {
+    cost = 25; // wave flat rate
+  } else if (campaignType === "bulk") {
+    cost = channelCount * 5;
+  } else if (campaignType === "timed_post") {
+    cost = 50; // timed post flat rate
+  } else if (campaignType === "deep_clear") {
+    cost = 15;
+  }
+
+  const costDisplay = document.getElementById("live-credits-cost");
+  if (costDisplay) costDisplay.textContent = cost;
+}
+
+// ==========================================
+// ACTIVE ADS LIVE COUNTDOWN STREAM
+// ==========================================
+let activeAdsTimers = {};
+let currentFilter = "all";
+
+function initActiveAdsStream() {
+  const filterBtns = document.querySelectorAll(".quick-filters .filter-btn");
+  filterBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      filterBtns.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      
+      currentFilter = btn.getAttribute("data-filter");
+      renderActiveAds();
+    });
+  });
+
+  // Countdown ticking every second
+  setInterval(() => {
+    tickActiveAdsCountdowns();
+  }, 1000);
+}
+
+let loadedActiveAds = [];
+
+async function loadActiveAds() {
+  try {
+    const data = await apiRequest("/user/active-ads");
+    if (data.status === "success") {
+      loadedActiveAds = data.active_ads || [];
+      renderActiveAds();
+      updateCampaignProgressBar();
+    }
+  } catch (error) {
+    console.error("Load Active Ads Error:", error);
+  }
+}
+
+function renderActiveAds() {
+  const container = document.getElementById("active-ads-list");
+  if (!container) return;
+
+  const filtered = loadedActiveAds.filter(ad => {
+    if (currentFilter === "all") return true;
+    return ad.campaign_type === currentFilter;
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = `<p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; padding: 20px; grid-column: 1 / -1;">لا توجد إعلانات نشطة مطابقة حالياً.</p>`;
+    return;
+  }
+
+  // Keep track of active timer elements
+  const now = Date.now();
+  let html = "";
+  
+  filtered.forEach(ad => {
+    const expiresMs = new Date(ad.expires_at).getTime();
+    const diffSecs = Math.max(0, Math.floor((expiresMs - now) / 1000));
+    
+    let typeLabel = "تلقائي";
+    let badgeClass = "badge-auto";
+    if (ad.campaign_type === "wave") { typeLabel = "تبادل"; badgeClass = "badge-wave"; }
+    else if (ad.campaign_type === "single") { typeLabel = "حملة"; badgeClass = "badge-single"; }
+    else if (ad.campaign_type === "bulk") { typeLabel = "مجلد"; badgeClass = "badge-bulk"; }
+    
+    const formattedTimer = formatCountdownTime(diffSecs);
+
+    html += `
+      <div class="active-ad-card" id="ad-card-${ad.id}" data-expiry="${expiresMs}" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.05); padding: 16px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; transition: all 0.3s ease; position: relative; overflow: hidden;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span class="badge ${badgeClass}" style="font-size: 10px; font-weight: 700; padding: 4px 8px; border-radius: 6px;">${typeLabel}</span>
+          <span class="countdown-timer" id="timer-${ad.id}" style="color: #10b981; font-weight: bold; font-family: monospace; font-size: 14px;">${formattedTimer}</span>
+        </div>
+        <div style="color: #fff; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+          <span>📢</span>
+          <span>المعرف: Channel [${ad.chat_id}]</span>
+        </div>
+        <div style="color: #94a3b8; font-size: 11px;">
+          معرف الرسالة المفتوحة: #${ad.msg_id}
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+}
+
+function tickActiveAdsCountdowns() {
+  const cards = document.querySelectorAll(".active-ad-card");
+  const now = Date.now();
+  
+  cards.forEach(card => {
+    const adId = card.id.replace("ad-card-", "");
+    const expiryMs = parseInt(card.getAttribute("data-expiry"));
+    const diffSecs = Math.max(0, Math.floor((expiryMs - now) / 1000));
+    
+    const timerEl = document.getElementById(`timer-${adId}`);
+    if (timerEl) {
+      timerEl.textContent = formatCountdownTime(diffSecs);
+    }
+    
+    if (diffSecs <= 0 && !card.classList.contains("removing")) {
+      // Time up: fade out animation
+      card.classList.add("removing");
+      card.style.animation = "fadeOutShrink 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards";
+      
+      setTimeout(() => {
+        card.remove();
+        // Reload to update list integrity
+        loadActiveAds();
+      }, 600);
+    }
+  });
+}
+
+function formatCountdownTime(totalSecs) {
+  const hrs = Math.floor(totalSecs / 3600);
+  const mins = Math.floor((totalSecs % 3600) / 60);
+  const secs = totalSecs % 60;
+  
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
+}
+
+// ==========================================
+// LIVE PROGRESS BAR LOGIC
+// ==========================================
+function updateCampaignProgressBar() {
+  const progressSection = document.getElementById("live-progress-section");
+  const progressText = document.getElementById("live-progress-text");
+  const progressFill = document.getElementById("live-progress-fill");
+  const nextHint = document.getElementById("live-next-channel-hint");
+  
+  // We can infer a running campaign if there are pending/processing jobs in scheduled jobs
+  const runningJobs = document.querySelectorAll("#scheduled-jobs-list div");
+  let hasRunningTask = false;
+  
+  runningJobs.forEach(job => {
+    if (job.textContent.includes("جاري التنفيذ") || job.textContent.includes("processing")) {
+      hasRunningTask = true;
+    }
+  });
+
+  if (hasRunningTask) {
+    progressSection.classList.remove("hidden");
+    
+    // Simulate real-time progress for visual feedback
+    // In production, parse actual counts from publish logs
+    const totalCount = loadedActiveAds.length || 15;
+    const publishedCount = Math.min(totalCount, Math.floor(totalCount * 0.4) + 1); 
+    const pct = Math.floor((publishedCount / totalCount) * 100);
+    
+    progressText.textContent = `${pct}% (${publishedCount}/${totalCount} قناة)`;
+    progressFill.style.width = `${pct}%`;
+    nextHint.textContent = "القناة القادمة يتم تجهيز النشر إليها الآن...";
+  } else {
+    progressSection.classList.add("hidden");
+  }
+}
+
+// ==========================================
+// STATUS BOT ONBOARDING REDIRECT
+// ==========================================
+function checkStatusBotLinking(response) {
+  if (response.hasOwnProperty('status_bot_linked') && !response.status_bot_linked) {
+    if (!sessionStorage.getItem("status_bot_prompt_shown")) {
+      sessionStorage.setItem("status_bot_prompt_shown", "true");
+      showStatusBotLinkingModal();
+    }
+  }
+}
+
+function showStatusBotLinkingModal() {
+  const existing = document.getElementById("status-bot-prompt-modal");
+  if (existing) existing.remove();
+
+  const modalHtml = `
+    <div id="status-bot-prompt-modal" class="modal-overlay" style="display: flex; align-items: center; justify-content: center; z-index: 10000;">
+      <div class="modal-card" style="max-width: 450px; width: 90%; background: #121824; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); overflow: hidden;">
+        <div class="modal-header" style="padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center;">
+          <h3 style="margin: 0; color: #fff; font-size: 18px; font-weight: 600;">🔔 تفعيل مساعد التليجرام</h3>
+          <button id="btn-close-status-bot-prompt" style="background: none; border: none; color: #708499; cursor: pointer; font-size: 20px; line-height: 1;">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 20px; color: #b9c4cf; font-size: 14px; line-height: 1.6;">
+          <div style="text-align: center; margin-bottom: 16px;">
+            <span style="font-size: 48px;">🤖</span>
+          </div>
+          <p style="margin: 0 0 12px 0; text-align: center; font-weight: 600; color: #fff;">يرجى ربط حسابك بمساعد التليجرام المباشر لتفعيل الخدمة بالكامل.</p>
+          <p style="margin: 0;">الربط بالبوت يتيح لك:</p>
+          <ul style="margin: 8px 0 0 0; padding-left: 20px; text-align: right; direction: rtl;">
+            <li>تلقي تنبيهات فورية عند اكتمال أو توقف حملات النشر.</li>
+            <li>إطلاق الحملات والأوامر (حملة، حملات، تثبيت، تبادل، مسح) بضغطة زر.</li>
+            <li>متابعة إحصائيات المحرك وتجديد الاشتراكات مباشرة.</li>
+          </ul>
+        </div>
+        <div class="modal-footer" style="padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: flex-end; gap: 10px;">
+          <button id="btn-cancel-status-bot-prompt" class="btn" style="background: rgba(255,255,255,0.05); color: #b9c4cf; border: 1px solid rgba(255,255,255,0.08);">لاحقاً</button>
+          <button id="btn-action-status-bot-prompt" class="btn btn-primary" style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: #fff; border: none; font-weight: 600;">ربط الحساب الآن ⚡</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML("beforeend", modalHtml);
+
+  document.getElementById("btn-close-status-bot-prompt").addEventListener("click", () => {
+    document.getElementById("status-bot-prompt-modal").remove();
+  });
+  document.getElementById("btn-cancel-status-bot-prompt").addEventListener("click", () => {
+    document.getElementById("status-bot-prompt-modal").remove();
+  });
+
+  document.getElementById("btn-action-status-bot-prompt").addEventListener("click", async () => {
+    const promptModal = document.getElementById("status-bot-prompt-modal");
+    const newWindow = window.open("", "_blank");
+    try {
+      const response = await apiRequest("/user/status-bot-link");
+      if (response && response.link) {
+        newWindow.location.href = response.link;
+      } else {
+        newWindow.close();
+        showToast("❌ فشل توليد رابط الربط، يرجى المحاولة لاحقاً.", "error");
+      }
+    } catch (err) {
+      newWindow.close();
+      console.error("Link status bot failed:", err);
+    } finally {
+      if (promptModal) promptModal.remove();
+    }
+  });
+}
+
+

@@ -1,0 +1,14 @@
+fastapi==0.110.0
+uvicorn==0.28.0
+sqlalchemy==2.0.28
+asyncpg==0.29.0
+redis==5.0.3
+pyrogram==2.0.106
+tgcrypto==1.2.5
+pyjwt==2.8.0
+passlib[bcrypt]==1.7.4
+pydantic[email]==2.6.4
+pytz==2024.1
+pyotp==2.9.0
+cryptography==42.0.5
+psutil==5.9.8
