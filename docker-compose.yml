@@ -17,7 +17,7 @@ services:
       -c effective_cache_size=64MB
       -c work_mem=2MB
       -c maintenance_work_mem=16MB
-      -c max_connections=30
+      -c max_connections=80
       -c wal_buffers=2MB
       -c checkpoint_completion_target=0.9
       -c random_page_cost=1.1
