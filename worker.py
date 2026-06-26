@@ -30,7 +30,8 @@ from db_manager import (
     get_blacklist_for_tenant,
     get_setting,
     set_setting,
-    get_active_templates_for_tenant
+    get_active_templates_for_tenant,
+    apply_pyrogram_patches
 )
 from cache_manager import save_channels_cache, get_channels_cache, is_rate_limited, clear_tenant_cache
 
@@ -97,67 +98,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("saas_worker")
 
-# Monkey patch Pyrogram to disable link previews globally
-try:
-    from pyrogram import Client
-    from pyrogram.types import Message
-    import pyrogram.utils
-
-    # Patch ID limit constants for high-ID channels (Telegram expanded ID namespaces)
-    pyrogram.utils.MIN_CHANNEL_ID = -1009999999999999
-    pyrogram.utils.MAX_USER_ID = 999999999999999
-
-    # 1. Patch Client.send_message
-    orig_send_message = Client.send_message
-    async def patched_send_message(self, *args, **kwargs):
-        if "disable_web_page_preview" not in kwargs:
-            kwargs["disable_web_page_preview"] = True
-        return await orig_send_message(self, *args, **kwargs)
-    Client.send_message = patched_send_message
-
-    # 2. Patch Client.edit_message_text
-    orig_edit_message_text = Client.edit_message_text
-    async def patched_edit_message_text(self, *args, **kwargs):
-        if "disable_web_page_preview" not in kwargs:
-            kwargs["disable_web_page_preview"] = True
-        return await orig_edit_message_text(self, *args, **kwargs)
-    Client.edit_message_text = patched_edit_message_text
-
-    # 3. Patch Message.reply_text
-    orig_reply_text = Message.reply_text
-    async def patched_reply_text(self, *args, **kwargs):
-        if "disable_web_page_preview" not in kwargs:
-            kwargs["disable_web_page_preview"] = True
-        return await orig_reply_text(self, *args, **kwargs)
-    Message.reply_text = patched_reply_text
-
-    # 4. Patch Message.reply
-    orig_reply = Message.reply
-    async def patched_reply(self, *args, **kwargs):
-        if "disable_web_page_preview" not in kwargs:
-            kwargs["disable_web_page_preview"] = True
-        return await orig_reply(self, *args, **kwargs)
-    Message.reply = patched_reply
-
-    # 5. Patch Message.edit_text
-    orig_edit_text = Message.edit_text
-    async def patched_edit_text(self, *args, **kwargs):
-        if "disable_web_page_preview" not in kwargs:
-            kwargs["disable_web_page_preview"] = True
-        return await orig_edit_text(self, *args, **kwargs)
-    Message.edit_text = patched_edit_text
-
-    # 6. Patch Message.edit
-    orig_edit = Message.edit
-    async def patched_edit(self, *args, **kwargs):
-        if "disable_web_page_preview" not in kwargs:
-            kwargs["disable_web_page_preview"] = True
-        return await orig_edit(self, *args, **kwargs)
-    Message.edit = patched_edit
-
-    logger.info("Successfully applied monkey-patch to disable link previews globally and expand ID namespace limits in Pyrogram.")
-except Exception as e:
-    logger.error(f"Failed to apply Pyrogram monkey-patch: {e}")
+# Apply shared Pyrogram monkey patches to disable link previews and handle high-ID channels
+apply_pyrogram_patches()
 
 try:
     redis_handler = RedisPublishHandler()
@@ -277,20 +219,17 @@ async def get_fresh_sticker_file_id(client: Client, tenant_id: int) -> Optional[
 
 async def delete_active_ads_in_channel(session: AsyncSession, client: Client, tenant_id: int, chat_id: int):
     """
-    يقوم بالتحقق من عدد الإعلانات النشطة في القناة المحددة.
-    إذا كان العدد يساوي أو يتجاوز 2 إعلان، يقوم بحذف أقدم إعلان (تليجرام وقاعدة البيانات)
-    لضمان أن الحد الأقصى للإعلانات النشطة في القناة لا يتجاوز إعلانين (أمان مزدوج مرن).
+    Verify the number of active ads in the specified channel.
+    If the count is 2 or more, delete the oldest ad (Telegram and Database)
+    to ensure the maximum active ads in the channel does not exceed 2.
     """
     try:
         stmt = select(ActiveAd).where(ActiveAd.telegram_account_id == tenant_id, ActiveAd.chat_id == chat_id).order_by(ActiveAd.id.asc())
         ads = list((await session.execute(stmt)).scalars().all())
         
-        # إذا كان عدد الإعلانات أقل من 2، لا داعي لحذف أي شيء قبل النشر الجديد
         if len(ads) < 2:
             return
             
-        # إذا كان العدد 2 أو أكثر، نحتاج لحذف أقدم الإعلانات لنجعل المساحة شاغرة للنشر الجديد (الحد الأقصى 2)
-        # عدد الإعلانات المراد حذفها = (العدد الحالي - 1) لكي يتبقى إعلان واحد فقط نشط، وعند نشر الجديد يصبح الإجمالي 2
         num_to_delete = len(ads) - 1
         ads_to_delete = ads[:num_to_delete]
         
@@ -330,9 +269,8 @@ async def send_sticker_if_needed(client: Client, chat_id: int, tenant_id: int) -
     return None
 
 async def check_admin_rights_dynamic(client: Client, chat_id: int, tenant_id: int, require_posting_rights: bool = True) -> bool:
-    """التحقق الديناميكي من صلاحيات النشر كأدمن لتجنب استغلال الحسابات"""
+
     try:
-        # تحديد نوع القناة (قناة عامة/مجموعة) من الكاش أولاً لتوفير API calls
         is_broadcast = None
         channels = await get_channels_cache(tenant_id)
         for ch in channels:
@@ -340,13 +278,11 @@ async def check_admin_rights_dynamic(client: Client, chat_id: int, tenant_id: in
                 is_broadcast = ch.get("is_broadcast", True)
                 break
         
-        # إذا لم تكن في الكاش، جلب تفاصيل القناة
         if is_broadcast is None:
             chat = await client.get_chat(chat_id)
             from pyrogram.enums import ChatType
             is_broadcast = (chat.type == ChatType.CHANNEL)
             
-        # التحقق من رتبة وصلاحيات الحساب في القناة
         member = await client.get_chat_member(chat_id, "me")
         from pyrogram.enums import ChatMemberStatus
         if member.status == ChatMemberStatus.OWNER:
@@ -362,7 +298,7 @@ async def check_admin_rights_dynamic(client: Client, chat_id: int, tenant_id: in
     return False
 
 async def remove_channel_from_cache_on_demotion(telegram_account_id: int, chat_id: int):
-    """إزالة قناة من الكاش فوراً عند اكتشاف فقدان صلاحيات الأدمن بها"""
+
     try:
         channels = await get_channels_cache(telegram_account_id)
         updated_channels = [ch for ch in channels if ch["id"] != chat_id]
@@ -384,7 +320,7 @@ async def remove_channel_from_cache_on_demotion(telegram_account_id: int, chat_i
         logger.error(f"Error removing channel {chat_id} from cache: {ex}")
 
 async def handle_posting_error_and_clean_cache(tenant_id: int, chat_id: int, e: Exception):
-    """تحليل خطأ النشر وتحديث الكاش إذا كان بسبب الصلاحيات"""
+
     err_str = str(e).upper()
     if any(err in err_str for err in ["CHAT_ADMIN_REQUIRED", "CHAT_WRITE_FORBIDDEN", "CHANNEL_PRIVATE"]):
         await remove_channel_from_cache_on_demotion(tenant_id, chat_id)
@@ -518,11 +454,10 @@ DEFAULT_TEMPLATES = [
 ]
 
 # ==========================================
-# 0. دوال المساعدة لتهيئة وتنسيق النصوص والأرقام
 # ==========================================
 
 def normalize_digits(text: str) -> str:
-    """تحويل الأرقام العربية والفارسية إلى أرقام إنجليزية لمنع أخطاء المعالجة والداتابيز"""
+
     arabic_digits = "٠١٢٣٤٥٦٧٨٩"
     persian_digits = "۰۱۲۳۴۵۶۷۸۹"
     english_digits = "0123456789"
@@ -534,10 +469,10 @@ def normalize_digits(text: str) -> str:
 
 def format_user_template(template: str, title: str, link: str) -> str:
     """
-    تعويض الصيغة بشكل آمن مع دعم الأيموجيات المتحركة المميزة (Custom Emoji) عبر HTML.
-    - الـ template مخزن كـ HTML (ناتج message.html) ويحتوي على <emoji id="...">...</emoji>.
-    - يتم HTML-escape للعنوان والرابط قبل الإدراج لمنع حقن HTML غير مقصود.
-    - الناتج النهائي مُعدّ لإرساله بـ parse_mode=HTML ليُظهر الإيموجيات المتحركة صح.
+    Safely substitute formatting template with support for custom animated emojis via HTML.
+    - The template is stored as HTML containing custom emoji tags.
+    - Title and link are HTML-escaped before insertion to prevent injection.
+    - The final output is formatted for parse_mode=HTML.
     """
     import html as _html
     safe_title = _html.escape(title)
@@ -576,7 +511,7 @@ async def update_task_progress_in_db(task_id: int, text: str):
         logger.error(f"Failed to update task progress in DB for task {task_id}: {e}")
 
 async def safe_edit_message(message: Optional[Message], text: str):
-    """تعديل رسالة بأمان تام مع معالجة قيود FloodWait ومختلف الاستثناءات لتوفير شاشة تفاعلية لحظية"""
+
     if not message:
         return
     try:
@@ -610,7 +545,7 @@ def create_safe_task(coro):
     return asyncio.create_task(_safe())
 
 async def edit_or_reply(message: Optional[Message], text: str, original_cmd: Optional[str] = None) -> Optional[Message]:
-    """تعديل رسالة البوت الحالية بأمان لتحديث الحالة والتقدم لحظياً"""
+
     if not message:
         return None
 
@@ -678,22 +613,18 @@ async def get_formatted_ad_message(session, tenant_id: int, target_title: str, t
         return f"📢 تابعوا شات {target_title} من هنا: {target_link}"
 
 # ==========================================
-# 1. محرك القوالب والـ كاسح التلقائي المطور (Admin-Filtered Crawl)
 # ==========================================
 
 async def resolve_best_channel_link(client: Client, chat_id: int, general_fallback_link: str) -> str:
     """
-    جلب لينك التتبع الخاص بالحساب (الذي أنشأه هذا الـ Userbot) للقناة المحددة.
-    نفضل الروابط المخصصة الفرعية (non-primary) لأنها روابط التتبع التي ينشئها المستخدم.
-    إذا لم نجد أي رابط فرعي، نستخدم الرابط الأساسي (primary)، وإذا لم يتوفر نستخدم اللينك العام.
+    Retrieve the tracking link created by this userbot for the specified channel.
+    Prefer non-primary custom links as they represent tracking links.
     """
     try:
         primary_link = None
-        # البحث عن روابط الدعوة النشطة التي أنشأناها بأنفسنا (admin_id="me")
         async for link in client.get_chat_admin_invite_links(chat_id=chat_id, admin_id="me", revoked=False):
             if link.invite_link:
                 if not link.is_primary:
-                    # وجدنا رابطاً فرعياً مخصصاً (رابط تتبع) - نعيده فوراً
                     return link.invite_link
                 else:
                     primary_link = link.invite_link
@@ -703,7 +634,6 @@ async def resolve_best_channel_link(client: Client, chat_id: int, general_fallba
     except Exception as e:
         logger.debug(f"Failed to fetch admin invite links for chat {chat_id}: {e}")
 
-    # 2. إذا لم نجد أي رابط خاص بنا، نحاول جلب الرابط العام من القناة مباشرة لو كنا أدمن
     try:
         chat = await client.get_chat(chat_id)
         if chat.invite_link:
@@ -711,7 +641,6 @@ async def resolve_best_channel_link(client: Client, chat_id: int, general_fallba
     except Exception as e:
         logger.debug(f"Failed to get_chat invite link for {chat_id}: {e}")
 
-    # 3. محاولة إنشاء رابط دعوة جديد كحل أخير إذا كنا نملك الصلاحية
     try:
         new_link_obj = await client.create_chat_invite_link(chat_id)
         if new_link_obj and new_link_obj.invite_link:
@@ -719,7 +648,6 @@ async def resolve_best_channel_link(client: Client, chat_id: int, general_fallba
     except Exception as e:
         logger.debug(f"Failed to create new invite link for chat {chat_id}: {e}")
 
-    # 4. البديل النهائي هو اللينك العام الممرر
     return general_fallback_link
 
 async def get_average_views(client: Client, chat_id: int, limit: int = 10) -> int:
@@ -754,7 +682,7 @@ def calculate_quality_score(members_count: int, avg_views: float) -> int:
 
 async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] = None) -> List[dict]:
 
-    """جلب القنوات والمجموعات الفوقية التي يمتلك فيها الحساب صلاحيات النشر فقط (مالك أو مشرف)"""
+
     from pyrogram.raw import functions, types
     from pyrogram import utils
     
@@ -975,7 +903,7 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
 
 
 async def crawl_and_cache_tenant_channels(tenant_id: int, client: Client, status_msg: Optional[Message] = None):
-    """الزحف الآلي ومزامنة مجلدات تليجرام وقنوات النشر وتحديثها بالريديس"""
+
     from cache_manager import redis_client
     try:
         await redis_client.set(f"tenant:{tenant_id}:crawl_in_progress", "1")
@@ -1062,7 +990,6 @@ async def _crawl_and_cache_tenant_channels_inner(tenant_id: int, client: Client,
                 if exclude_ids:
                     ids = [i for i in ids if i not in exclude_ids]
                 
-                # المزامنة تدعم الأسماء باللغة العربية والإنجليزية
                 title_clean = title.replace(" ", "_").replace("-", "_")
                 is_no_post = False
                 keywords_no_post = ["no_post", "nopost", "dont_post", "dontpost", "exclude", "except", "استثناء", "لا_تنشر", "بدون_نشر", "لا تنشر", "بدون نشر"]
@@ -1232,7 +1159,6 @@ async def run_first_crawl_onboarding(tenant_id: int, client: Client):
                 pass
 
 # ==========================================
-# 2. مستمع ومعالج الأوامر الذكي من الـ Saved Messages
 # ==========================================
 
 async def ensure_sticker_unique_id(client: Client, tenant_id: int) -> Optional[str]:
@@ -1445,19 +1371,15 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                 logger.warning(f"Could not resolve target chat {lnk}: {e}")
                 
             if target_chat_id:
-                # التحقق الديناميكي من صلاحيات المشرف
                 is_admin = await check_admin_rights_dynamic(client, target_chat_id, tenant_id, require_posting_rights=False)
                 if is_admin:
-                    # لو مشرف في قناة الهدف، نقوم بفك اللينك الحقيقي لضمان أفضل طريقة دخول، ونستبعدها من النشر فيها
                     lnk_resolved = await resolve_best_channel_link(client, target_chat_id, lnk)
                     exclude_ids.add(target_chat_id)
                     resolved_links.append(lnk_resolved)
                     target_chat_ids_list.append(target_chat_id)
                 else:
-                    # لست مشرفاً بها، نقبلها كـ رابط هدف خارجي دايناميك
                     resolved_links.append(lnk)
             else:
-                # تعذر التحقق (قناة خاصة لست عضواً فيها، أو رابط ويب خارجي)، نقبلها كـ رابط هدف خارجي دايناميك
                 resolved_links.append(lnk)
             target_titles.append(target_title)
             
@@ -1679,7 +1601,6 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                     count += 1
                     await log_tenant_event(tenant_id, f"تم نشر إعلان الحملة الفردية بنجاح في قناة: {ch.get('title')}")
                     decrease_or_reset_tenant_backoff(tenant_id)
-                    # تحديث لايف لحظي ومقروء للمستخدم
                     if status_msg:
                         await safe_edit_message(
                             status_msg,
@@ -1853,7 +1774,6 @@ async def run_bulk_campaign_logic(
                 await log_tenant_event(tenant_id, "فشل حملة الفولدر: مجلد 'حملات' فارغ في الكاش.")
                 return
 
-        # Rotate the list based on the last processed target to implement round-robin ("التي عليها الدور")
         last_target_raw = await redis_client.get(f"tenant:{tenant_id}:last_processed_bulk_target")
         if last_target_raw and resume_index == 0:
             try:
@@ -1896,7 +1816,6 @@ async def run_bulk_campaign_logic(
             except Exception as se:
                 logger.error(f"Failed to save last processed target for tenant {tenant_id}: {se}")
             try:
-                # التحقق الديناميكي من صلاحيات المشرف
                 is_admin = await check_admin_rights_dynamic(client, target_id, tenant_id, require_posting_rights=False)
                 if not is_admin:
                     await log_tenant_event(tenant_id, f"⚠️ تم تخطي الترويج للقناة ذات المعرف [{target_id}] في حملة المجلد لأنك لست مشرفاً (Admin) فيها.")
@@ -2097,7 +2016,6 @@ async def run_bulk_campaign_logic(
             except Exception as e:
                 logger.error(f"Failed to process campaign target {target_id}: {e}")
             
-            # ✅ الفاصل الزمني هنا: بين كل هدف (Target) وليس بين كل قناة فردية
             if delay_between_channels > 0 and index < total_targets - 1:
                 await log_tenant_event(tenant_id, f"انتهى الهدف [{target_title}]. سيبدأ الهدف التالي بعد {delay_between_channels} دقيقة...")
                 if status_msg:
@@ -2134,7 +2052,7 @@ async def run_bulk_campaign_logic(
         await log_tenant_event(tenant_id, f"فشلت حملة المجلد المجمعة بسبب خطأ: {str(e)}")
 
 def register_tenant_command_handlers(tenant_id: int, client: Client):
-    """حقن مستمعين أوامر تليجرام ديناميكياً لكل عميل من شات Saved Messages فقط"""
+
     
     def is_saved_messages(message: Message) -> bool:
         if not message.from_user or not message.from_user.is_self:
@@ -2177,7 +2095,6 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                     raise
         message.reply_text = safe_reply_text
             
-        # Check if this is a sticker replying to a `.استيكر` text command
         if message.sticker and message.reply_to_message and message.reply_to_message.text:
             reply_text = normalize_digits(message.reply_to_message.text).strip().lower()
             reply_parts = reply_text.split('\n')[0].split()
@@ -2193,17 +2110,14 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         if not text:
             return
             
-        # 1. تطبيع الأرقام (عربي/فارسي -> إنجليزي)
         normalized_text = normalize_digits(text).strip()
         
-        # 2. فحص الكلمة الأولى وقراءة الأمر بمرونة البادئات (. أو / أو بدون بادئة)
         first_line = normalized_text.split('\n')[0]
         parts = first_line.split()
         if not parts:
             return
             
         cmd_part = parts[0]
-        # التحقق من أن الأمر يبدأ بأحد البادئات المعتمدة (. أو / أو \) وإلا يتم تجاهله تماماً
         if not (cmd_part.startswith('.') or cmd_part.startswith('/') or cmd_part.startswith('\\')):
             return
             
@@ -2238,7 +2152,6 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             elif cmd_clean in ["استيكر", "ستيكر", "sticker"] and arg_clean in ["تعطيل", "ايقاف", "إيقاف", "الغاء", "إلغاء", "disable", "off", "stop"]:
                 is_disable_sticker = True
             
-        # 3. توجيه الأمر إلى المعالج المخصص مع مراعاة نسبة خطأ البشر (الألياس والمرادفات)
         try:
             if is_enable_sticker:
                 await handle_تفعيل_استيكر(message, True)
@@ -2300,13 +2213,12 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             except Exception:
                 pass
 
-    # معالجات الأوامر الفرعية:
     
     async def handle_يلا(message: Message, text: str, parts: List[str]):
         numbers = [int(x) for x in parts if x.isdigit()]
         delay_start = 0
-        wave_interval = 420  # 7 دقائق افتراضي
-        ad_lifespan = 1500  # 25 دقيقة افتراضي
+        wave_interval = 420
+        ad_lifespan = 1500
         
         if len(numbers) >= 3:
             delay_start = numbers[0]
@@ -2326,7 +2238,6 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 await set_setting(session, tenant_id, "bot_system_state", "active")
                 await session.commit()
                 
-                # إطلاق أول موجة فوراً وتعديل الرسالة لايف بشكل لحظي تفاعلي
                 status_msg = await message.reply_text("⏳ **جاري بدء النشر التبادلي التلقائي...**")
                 last_wave_time[tenant_id] = datetime.now(timezone.utc)
                 asyncio.create_task(trigger_manual_wave(tenant_id, status_msg))
@@ -2371,7 +2282,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         first_line = lines[0].split()
         
         numbers = [int(x) for x in first_line if x.isdigit()]
-        ad_lifespan = 60  # الافتراضي 60 دقيقة
+        ad_lifespan = 60
         
         if numbers:
             ad_lifespan = numbers[0]
@@ -2423,8 +2334,6 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             raw_text = None
             if message.reply_to_message:
                 replied = message.reply_to_message
-                # استخدام .html بدلاً من .markdown لحفظ الإيموجيات المتحركة المميزة
-                # Pyrogram يُحوّل custom_emoji entities إلى <emoji id="...">char</emoji>
                 if replied.text:
                     raw_text = replied.text.html
                 elif replied.caption:
@@ -2515,7 +2424,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         numbers = [int(x) for x in first_line if x.isdigit()]
         delay_start = 0
         delay_between_channels = 0
-        ad_lifespan = 25  # الافتراضي 25 دقيقة
+        ad_lifespan = 25
         
         if len(numbers) >= 3:
             delay_start = numbers[0]
@@ -2527,16 +2436,12 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         elif len(numbers) == 1:
             ad_lifespan = numbers[0]
         
-        # ✅ جمع الروابط من جميع الأسطر (السطر الأول + الأسطر التالية)
         link_pattern = r'(?:https?://[^\s]+|t\.me/[^\s]+|@[\w\_]+)'
-        # روابط من السطر الأول
         links = re.findall(link_pattern, lines[0])
-        # روابط من الأسطر التالية (لو فيه أسطر تانية كلها روابط)
         ad_text_lines = []
         for extra_line in lines[1:]:
             extra_links = re.findall(link_pattern, extra_line.strip())
             if extra_links and extra_line.strip() == extra_links[0]:
-                # السطر ده رابط بس → يضاف لقائمة الروابط
                 links.extend(extra_links)
             else:
                 ad_text_lines.append(extra_line)
@@ -2578,7 +2483,6 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             )
 
     async def handle_حملات(message: Message, text: str, parts: List[str]):
-        # Parse command arguments: .حملات [delay_start] [delay_between_channels] [ad_lifespan]
         numbers = [int(x) for x in parts if x.isdigit()]
         
         delay_start = 0
@@ -3024,7 +2928,6 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         try:
             status_msg = await message.reply_text("⏳ **جاري إلغاء ومسح كافة المهام والحملات المجدولة...**")
             
-            # 1. إلغاء المهام المجدولة (المؤجلة)
             jobs = scheduled_jobs.get(tenant_id, [])
             total_jobs = len(jobs)
             for j in jobs:
@@ -3035,7 +2938,6 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             scheduled_jobs[tenant_id] = []
             await save_scheduled_jobs(tenant_id)
             
-            # 2. إيقاف أي عمليات نشر نشطة حالياً أيضاً (موجات أو حملات فردية/مجمعة) لضمان التطهير الكامل لجدول التشغيل
             running_tasks_list = list(active_running_tasks.get(tenant_id, []))
             total_running = len(running_tasks_list)
             for t in running_tasks_list:
@@ -3097,29 +2999,23 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             deleted_count = 0
             message_ids_to_delete = []
             
-            # جلب آخر 3000 رسالة لتنظيف السجل بالكامل
             async for msg in client.get_chat_history("me", limit=3000):
                 is_bot_related = False
                 text = msg.text or msg.caption
                 if text:
                     text_stripped = text.strip()
-                    # 1. إذا كانت تبدأ بأحد رموز الأوامر المعتمدة (. أو / أو \)
                     if text_stripped.startswith('.') or text_stripped.startswith('/') or text_stripped.startswith('\\'):
                         is_bot_related = True
-                    # 2. إذا كانت تبدأ بأحد إيموجيات البوت المميزة
                     elif any(text_stripped.startswith(emo) for emo in bot_emojis):
                         is_bot_related = True
-                    # 3. إذا كانت تحتوي على الكلمات الدلالية للبوت
                     elif any(kw in text_stripped for kw in bot_keywords):
                         is_bot_related = True
                         
                 if is_bot_related:
-                    # نتجنب مسح رسالة الحالة المؤقتة الحالية
                     if status_msg and msg.id == status_msg.id:
                         continue
                     message_ids_to_delete.append(msg.id)
             
-            # مسح الرسائل على دفعات (Batches) لتفادي الـ Rate Limit وسرعة التنفيذ
             batch_size = 100
             for i in range(0, len(message_ids_to_delete), batch_size):
                 batch = message_ids_to_delete[i:i+batch_size]
@@ -3130,7 +3026,6 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 except Exception:
                     pass
             
-            # مسح رسالة الحالة المؤقتة أيضاً
             if status_msg:
                 try:
                     await client.delete_messages(chat_id="me", message_ids=status_msg.id)
@@ -3152,7 +3047,6 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 await edit_or_reply(status_msg, "⚠️ **لم يتم إنشاء ملف السجلات `worker.log` بعد.**")
                 return
             
-            # قراءة آخر 20 سطر من ملف السجلات
             lines_to_read = 20
             with open("worker.log", "r", encoding="utf-8", errors="replace") as f:
                 lines = f.readlines()
@@ -3230,7 +3124,6 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
 
 
 # ==========================================
-# 3. المشرف والمحرك المركزي (Supervisor & Worker Core)
 # ==========================================
 
 async def supervisor_loop():
@@ -3245,12 +3138,10 @@ async def supervisor_loop():
                 active_accounts = (await session.execute(stmt)).scalars().all()
                 active_db_ids = {acc.id for acc in active_accounts}
                 
-                # إيقاف من انتهى اشتراكه
                 for tenant_id in list(running_clients.keys()):
                     if tenant_id not in active_db_ids:
                         await stop_tenant_worker(tenant_id, session, reason="Subscription Expired")
 
-                # تشغيل المشتركين الجدد والـ Auto-sync كل 12 ساعة
                 for acc in active_accounts:
                     if acc.needs_reboot:
                         logger.info(f"Reboot requested for TelegramAccount {acc.id} ({acc.phone})")
@@ -3322,7 +3213,6 @@ async def start_tenant_worker(account: TelegramAccount):
         
         register_tenant_command_handlers(tenant_id, client)
         
-        # كشط أولي أوتوماتيكي
         asyncio.create_task(run_first_crawl_onboarding(tenant_id, client))
         
         running_tasks[tenant_id] = asyncio.create_task(wave_publisher_worker(tenant_id))
@@ -3411,7 +3301,6 @@ async def handle_client_error(tenant_id: int, new_status: str, session: AsyncSes
     await stop_tenant_worker(tenant_id, session, reason=f"System Error: Moved to {new_status}")
 
 # ==========================================
-# 4. محرك الويفات المجدولة واليدوية
 # ==========================================
 
 async def trigger_auto_pause_and_resume(tenant_id: int, client: Client, wait_seconds: int):
@@ -3458,9 +3347,7 @@ async def run_wave_execution(
     is_manual: bool = False
 ):
     """
-    تنفيذ ويف نشر تبادلي متكامل ومتبادل بين قنوات الدفعة المحددة.
-    تقوم بنشر الإعلانات بشكل متبادل (A ينشر لـ B، و B ينشر لـ A)
-    وتعديل رسالة الحالة بشكل لحظي وتفاعلي قناة بقناة.
+    Execute mutual cross-publishing wave between specified batch channels.
     """
     logger.info(f"run_wave_execution started for tenant {tenant_id} with {len(batch)} channels.")
     
@@ -3479,7 +3366,6 @@ async def run_wave_execution(
     total_channels = len(batch)
     total_pairs = total_channels // 2
     
-    # 1. استعلام إجمالي الإعلانات النشطة الحالية من الداتابيز للبدء به كمرجع للعداد المباشر
     from db_manager import ActiveAd
     from sqlalchemy import func
     async with AsyncSessionLocal() as session:
@@ -3513,7 +3399,6 @@ async def run_wave_execution(
         
         logger.info(f"Pairing {ch_a.get('title')} <-> {ch_b.get('title')}")
         
-        # التحقق الديناميكي من صلاحيات المشرف في القناتين لضمان عدالة التبادل وتجنب النشر المجاني
         is_admin_a = await check_admin_rights_dynamic(client, ch_a["id"], tenant_id)
         is_admin_b = await check_admin_rights_dynamic(client, ch_b["id"], tenant_id)
         if not is_admin_a or not is_admin_b:
@@ -3522,14 +3407,12 @@ async def run_wave_execution(
                 f"⚠️ تم تخطي التبادل بين [{ch_a.get('title')}] و [{ch_b.get('title')}] بالكامل "
                 f"لأن صلاحيات الأدمن مفقودة في إحداهما أو كلتيهما (صلاحية A: {is_admin_a}، صلاحية B: {is_admin_b})."
             )
-            # تحديث الكاش لإزالة القناة التي فقدت الأدمن
             if not is_admin_a:
                 await remove_channel_from_cache_on_demotion(tenant_id, ch_a["id"])
             if not is_admin_b:
                 await remove_channel_from_cache_on_demotion(tenant_id, ch_b["id"])
             continue
         
-        # الاتجاه الأول: نشر إعلان B في القناة A
         cid_b_str = str(ch_b.get("id"))
         if cid_b_str.startswith("-100"):
             fallback_link_b = ch_b.get("invite_link") or (f"https://t.me/{ch_b.get('username')}" if ch_b.get('username') else f"https://t.me/c/{cid_b_str[4:]}")
@@ -3635,7 +3518,6 @@ async def run_wave_execution(
             
         await asyncio.sleep(max(get_safe_min_delay(tenant_id), get_adaptive_delay(tenant_id)))
         
-        # الاتجاه الثاني: نشر إعلان A في القناة B
         cid_a_str = str(ch_a.get("id"))
         if cid_a_str.startswith("-100"):
             fallback_link_a = ch_a.get("invite_link") or (f"https://t.me/{ch_a.get('username')}" if ch_a.get('username') else f"https://t.me/c/{cid_a_str[4:]}")
@@ -3742,7 +3624,6 @@ async def run_wave_execution(
             
         await asyncio.sleep(max(get_safe_min_delay(tenant_id), get_adaptive_delay(tenant_id)))
         
-    # تحديث نهائي عند الاكتمال
     if status_msg:
         live_active_ads = base_active_ads + ads_added_this_wave
         complete_text = (
@@ -3764,7 +3645,7 @@ async def run_wave_execution(
     await log_tenant_event(tenant_id, f"اكتمل النشر التبادلي التلقائي ({wave_name}) بنجاح! تم النشر في {published_count} قناة.")
 
 async def trigger_manual_wave(tenant_id: int, status_msg: Optional[Message] = None):
-    """تنفيذ ويف نشر فوري يدوياً بناءً على أمر تليجرام دون التأثير على التايمر المجدول"""
+
     logger.info(f"trigger_manual_wave called for tenant {tenant_id}")
     client = running_clients.get(tenant_id)
     if not client: 
@@ -3853,7 +3734,6 @@ async def wave_publisher_worker(tenant_id: int):
             import random
             import pytz
             
-            # ✅ التحقق من إيقاف الحملات من البوت (campaign_global_pause)
             global_pause = await redis_client.get(f"tenant:{tenant_id}:campaign_global_pause")
             if global_pause:
                 await asyncio.sleep(15)
@@ -3863,7 +3743,6 @@ async def wave_publisher_worker(tenant_id: int):
                 state_val = await get_setting(session, tenant_id, "bot_system_state")
                 state_val = state_val if state_val else "stopped"
                 
-                # لو البوت متوقف أو في حالة إيقاف مؤقت، لا ينشر ويف جديدة
                 if state_val in ("stopped", "paused"):
                     await asyncio.sleep(15)
                     continue
@@ -3894,11 +3773,9 @@ async def wave_publisher_worker(tenant_id: int):
             jitter = random.uniform(-0.10, 0.10)
             actual_interval = wave_interval * (1 + jitter)
                 
-            # التحقق من الفاصل الزمني بناءً على آخر موجة منطلقة
             if tenant_id in last_wave_time:
                 elapsed = (datetime.now(timezone.utc) - last_wave_time[tenant_id]).total_seconds()
                 if elapsed < actual_interval:
-                    # ننام فترة قصيرة لكي يستجيب البوت بسرعة إذا تغيرت الإعدادات
                     await asyncio.sleep(min(actual_interval - elapsed, 15))
                     continue
                     
@@ -3939,11 +3816,9 @@ async def wave_publisher_worker(tenant_id: int):
                 await asyncio.sleep(15)
                 continue
                 
-            # تسجيل موعد انطلاق الموجة
             last_wave_time[tenant_id] = datetime.now(timezone.utc)
             batch = available_channels[:batch_size]
             
-            # إرسال رسالة حالة في محادثة Saved Messages لبدء النشر التلقائي لايف
             status_msg = None
             try:
                 status_msg = await client.send_message(
@@ -3968,11 +3843,10 @@ async def wave_publisher_worker(tenant_id: int):
         except Exception as e:
             logger.error(f"Error in wave publisher loop: {e}")
             await asyncio.sleep(60)
-        # نوم المراقبة القصير
         await asyncio.sleep(15)
 
 async def sweep_single_channel(client: Client, cid: int, known_msg_ids: set, sticker_unique_id: Optional[str], me, ad_keywords: list) -> int:
-    """مسح وتطهير قناة واحدة من رسائل البوت الإعلانية فقط (الرسائل التي أرسلها العميل حصراً)"""
+
     try:
         async def _scan():
             deleted = 0
@@ -3990,19 +3864,14 @@ async def sweep_single_channel(client: Client, cid: int, known_msg_ids: set, sti
                 msg = history[h_idx]
                 is_ad = False
                 
-                # ✅ فقط الرسائل الصادرة من حساب العميل (outgoing)
                 if msg.outgoing:
                     is_ad = True
-                # ✅ فقط الرسائل المرسلة من المستخدم نفسه (is_self)
                 elif msg.from_user and msg.from_user.is_self:
                     is_ad = True
-                # ✅ فقط الرسائل المعروفة والمسجلة في قاعدة البيانات (ActiveAd / PublishLog)
                 elif (cid, msg.id) in known_msg_ids:
                     is_ad = True
-                # ✅ فقط الستيكر الخاص بالعميل المسجل في النظام
                 elif msg.sticker and sticker_unique_id and msg.sticker.file_unique_id == sticker_unique_id:
                     is_ad = True
-                # ✅ فقط الرسائل الموقعة باسم العميل (author_signature)
                 elif msg.author_signature:
                     sig = msg.author_signature.lower()
                     my_names = []
@@ -4012,12 +3881,9 @@ async def sweep_single_channel(client: Client, cid: int, known_msg_ids: set, sti
                     if any(name and name in sig for name in my_names):
                         is_ad = True
                 
-                # ❌ لا نمسح أي رسالة بناءً على الكلمات المفتاحية أو الروابط فقط
-                # لأن ذلك يمسح رسائل أصحاب القنوات الأصلية
                         
                 if is_ad:
                     to_delete.add(msg.id)
-                    # تحقق من الستيكر المرافق للإعلان (الرسالة اللي بعدها مباشرة)
                     if h_idx + 1 < len(history):
                         older_msg = history[h_idx + 1]
                         if older_msg.sticker:
@@ -4131,7 +3997,6 @@ async def run_clear_logic(tenant_id: int, client: Client, reply_to_message: Opti
         await update_task_progress_in_db(web_task_id, "🧹 **جاري إطلاق مكنسة التنظيف وإلغاء كافة الحملات والمهام...**")
 
     try:
-        # 1. إيقاف أي عمليات نشر نشطة حالياً (موجات أو حملات فردية/مجمعة)
         running_tasks_list = list(active_running_tasks.get(tenant_id, []))
         for t in running_tasks_list:
             try:
@@ -4143,7 +4008,6 @@ async def run_clear_logic(tenant_id: int, client: Client, reply_to_message: Opti
         # Clear active campaign state in Redis so it doesn't resume after being cancelled
         await clear_active_campaign_state(tenant_id)
         
-        # 2. إلغاء كافة المهام المجدولة
         jobs = scheduled_jobs.get(tenant_id, [])
         for j in jobs:
             try:
@@ -4322,7 +4186,6 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
         await update_task_progress_in_db(web_task_id, "🚨 **جاري تفعيل أمر المسح العميق (.مسح عميق)...**\n🔄 يتم أولاً إيقاف المهام النشطة والمجدولة وتحديث الكاش.")
 
     try:
-        # 1. إيقاف أي عمليات نشر نشطة حالياً (موجات أو حملات فردية/مجمعة)
         running_tasks_list = list(active_running_tasks.get(tenant_id, []))
         for t in running_tasks_list:
             try:
@@ -4334,7 +4197,6 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
         # Clear active campaign state in Redis so it doesn't resume after being cancelled
         await clear_active_campaign_state(tenant_id)
         
-        # 2. إلغاء كافة المهام المجدولة
         jobs = scheduled_jobs.get(tenant_id, [])
         for j in jobs:
             try:
@@ -4362,7 +4224,6 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
         pre_channels = await get_channels_cache(tenant_id)
         no_post_ids = await get_no_post_channel_ids_live(tenant_id, client)
 
-        # ✅ مسح مفاتيح الكاش في Redis للحصول على بداية نظيفة تماماً
         try:
             cache_keys_to_clear = [
                 f"tenant:{tenant_id}:channels",
@@ -4387,7 +4248,6 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
         async with AsyncSessionLocal() as session:
             await set_setting(session, tenant_id, "bot_system_state", "stopped")
             
-            # جلب الإعلانات النشطة لحذفها من القنوات
             stmt_ads = select(ActiveAd).where(ActiveAd.telegram_account_id == tenant_id)
             ads = (await session.execute(stmt_ads)).scalars().all()
             await session.commit()
@@ -4608,7 +4468,6 @@ async def run_update_logic(tenant_id: int, client: Client, reply_to_message: Opt
         await log_tenant_event(tenant_id, f"فشل تحديث المحرك: {str(e)}")
 
 # ==========================================
-# 5. المكنسة العالمية الموحدة والـ Orchestration
 # ==========================================
 
 async def run_web_campaign_task(task_id: int):
@@ -4663,8 +4522,6 @@ async def run_web_campaign_task(task_id: int):
                         await set_setting(db_session, tenant_id, "ad_lifespan", str(task.ad_lifespan * 60))
                     if task.delay_between_channels > 0:
                         await set_setting(db_session, tenant_id, "wave_interval", str(task.delay_between_channels * 60))
-                    # ✅ لا نغير bot_system_state هنا - ننفذ موجة واحدة فقط بدون تفعيل التبادل التلقائي الدائم
-                    # العميل لو عايز تبادل مستمر لازم يشغله صراحة بأمر .يلا
                     await db_session.commit()
                 await trigger_manual_wave(tenant_id=tenant_id, status_msg=status_msg)
             elif task.campaign_type == "activate_exchange":
@@ -4832,10 +4689,8 @@ last_autoclean_notifications: Dict[int, tuple] = {}
 async def global_cleaner_worker():
     while global_worker_running:
         try:
-            # ── جلب الإعلانات المنتهية في session قراءة منفصلة ──
             async with AsyncSessionLocal() as read_session:
                 expired_ads = await get_expired_ads(read_session)
-                # نسخ البيانات فوراً قبل إغلاق الـ session لتجنب DetachedInstanceError
                 ads_snapshot = [
                     {
                         "id": ad.id,
@@ -4849,7 +4704,6 @@ async def global_cleaner_worker():
 
             deleted_by_tenant = {}
 
-            # ── معالجة كل إعلان منفرداً بـ session مستقلة ──
             for ad_data in ads_snapshot:
                 tenant_id   = ad_data["telegram_account_id"]
                 chat_id     = ad_data["chat_id"]
@@ -4885,7 +4739,6 @@ async def global_cleaner_worker():
                         logger.warning(f"[Cleaner] Failed to delete msg {msg_id} from chat {chat_id} for tenant {tenant_id}: {e}")
                         telegram_deleted = False
                 else:
-                    # الـ client غير متاح أو غير متصل — نقوم بتخطيه وتأجيل الحذف للدورة القادمة
                     telegram_deleted = False
                     logger.warning(f"[Cleaner] Client for tenant {tenant_id} is not running or connected. Skipping deletion of expired ad {ad_id} for now.")
 
@@ -4897,7 +4750,6 @@ async def global_cleaner_worker():
                     except Exception as e:
                         logger.error(f"[Cleaner] Failed to remove DB record for ad {ad_id}: {e}")
 
-            # ── إرسال إشعار للمستأجرين بعدد الإعلانات التي تم مسحها تلقائياً ──
             for tenant_id, count in deleted_by_tenant.items():
                 if count > 0:
                     client = running_clients.get(tenant_id)

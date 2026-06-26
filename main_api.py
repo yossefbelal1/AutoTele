@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pyrogram import Client
 from pyrogram.errors import SessionPasswordNeeded, PhoneCodeInvalid, PhoneCodeExpired, FloodWait
 
-from db_manager import get_db, User, TelegramAccount, AsyncSessionLocal, CryptoPayment, AdTemplate, WebCampaignTask
+from db_manager import get_db, User, TelegramAccount, AsyncSessionLocal, CryptoPayment, AdTemplate, WebCampaignTask, apply_pyrogram_patches
 from cache_manager import is_rate_limited, is_key_rate_limited, redis_client, clear_tenant_cache
 
 import redis
@@ -69,67 +69,8 @@ class RedisPublishHandler(logging.Handler):
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Monkey patch Pyrogram to disable link previews globally
-try:
-    from pyrogram import Client
-    from pyrogram.types import Message
-    import pyrogram.utils
-
-    # Patch ID limit constants for high-ID channels (Telegram expanded ID namespaces)
-    pyrogram.utils.MIN_CHANNEL_ID = -1009999999999999
-    pyrogram.utils.MAX_USER_ID = 999999999999999
-
-    # 1. Patch Client.send_message
-    orig_send_message = Client.send_message
-    async def patched_send_message(self, *args, **kwargs):
-        if "disable_web_page_preview" not in kwargs:
-            kwargs["disable_web_page_preview"] = True
-        return await orig_send_message(self, *args, **kwargs)
-    Client.send_message = patched_send_message
-
-    # 2. Patch Client.edit_message_text
-    orig_edit_message_text = Client.edit_message_text
-    async def patched_edit_message_text(self, *args, **kwargs):
-        if "disable_web_page_preview" not in kwargs:
-            kwargs["disable_web_page_preview"] = True
-        return await orig_edit_message_text(self, *args, **kwargs)
-    Client.edit_message_text = patched_edit_message_text
-
-    # 3. Patch Message.reply_text
-    orig_reply_text = Message.reply_text
-    async def patched_reply_text(self, *args, **kwargs):
-        if "disable_web_page_preview" not in kwargs:
-            kwargs["disable_web_page_preview"] = True
-        return await orig_reply_text(self, *args, **kwargs)
-    Message.reply_text = patched_reply_text
-
-    # 4. Patch Message.reply
-    orig_reply = Message.reply
-    async def patched_reply(self, *args, **kwargs):
-        if "disable_web_page_preview" not in kwargs:
-            kwargs["disable_web_page_preview"] = True
-        return await orig_reply(self, *args, **kwargs)
-    Message.reply = patched_reply
-
-    # 5. Patch Message.edit_text
-    orig_edit_text = Message.edit_text
-    async def patched_edit_text(self, *args, **kwargs):
-        if "disable_web_page_preview" not in kwargs:
-            kwargs["disable_web_page_preview"] = True
-        return await orig_edit_text(self, *args, **kwargs)
-    Message.edit_text = patched_edit_text
-
-    # 6. Patch Message.edit
-    orig_edit = Message.edit
-    async def patched_edit(self, *args, **kwargs):
-        if "disable_web_page_preview" not in kwargs:
-            kwargs["disable_web_page_preview"] = True
-        return await orig_edit(self, *args, **kwargs)
-    Message.edit = patched_edit
-
-    logger.info("Successfully applied monkey-patch to disable link previews globally and expand ID namespace limits in Pyrogram.")
-except Exception as e:
-    logger.error(f"Failed to apply Pyrogram monkey-patch: {e}")
+# Apply shared Pyrogram monkey patches to disable link previews and handle high-ID channels
+apply_pyrogram_patches()
 
 try:
     redis_handler = RedisPublishHandler()
@@ -138,7 +79,9 @@ try:
 except Exception as rhe:
     logger.error(f"Failed to attach RedisPublishHandler: {rhe}")
 
-JWT_SECRET = os.getenv("JWT_SECRET", "SUPER_SECRET_SaaS_KEY_2026_DONOT_SHARE")
+JWT_SECRET = os.getenv("JWT_SECRET")
+if not JWT_SECRET:
+    raise RuntimeError("JWT_SECRET environment variable is required and cannot be empty.")
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 1440
 
@@ -216,13 +159,15 @@ async def metrics_endpoint():
 cors_origins_env = os.getenv("CORS_ALLOWED_ORIGINS", "*")
 if cors_origins_env == "*":
     allow_origins = ["*"]
+    allow_credentials = False
 else:
     allow_origins = [orig.strip() for orig in cors_origins_env.split(",") if orig.strip()]
+    allow_credentials = True
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,
-    allow_credentials=True,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -337,7 +282,6 @@ async def signup(user_data: UserAuth, request: Request):
         
         assigned_host = await get_least_used_proxy(session)
         
-        # تفعيل باقة تجربة مجانية لمدة يومين تلقائياً عند التسجيل لزيادة الاشتراكات
         trial_end = datetime.now(timezone.utc) + timedelta(days=2)
         new_user = User(
             email=user_data.email, 
@@ -436,7 +380,6 @@ async def google_login(req: GoogleAuthReq, request: Request):
         )
         return {"access_token": access_token, "token_type": "bearer"}
 
-# ======= تـغذية لوحة تـحكم الـ مستخدم الحية (Live Dashboard Feed) =======
 @app.get("/user/subscription")
 async def get_user_subscription(token: str):
     user_id = await get_current_user(token)
@@ -503,7 +446,6 @@ async def get_status_bot_link(token: str):
 async def get_receive_wallet():
     return {"wallet_address": USDT_TRC20_WALLET}
 
-# ======= استقبال إيصالات دفع الـ Crypto (TxID) =======
 @app.post("/payments/crypto-submit")
 async def crypto_submit(req: CryptoPaymentReq, token: str):
     user_id = await get_current_user(token)
@@ -704,7 +646,6 @@ async def stop_everything(token: str):
         return {"status": "success", "message": "تم إيقاف كل شيء وإلغاء جميع الحملات والمهام الجارية بنجاح!"}
 
 
-# ======= مركز الإشعارات والأحداث المجدولة =======
 @app.get("/user/logs")
 async def get_user_logs(token: str):
     user_id = await get_current_user(token)
@@ -914,7 +855,6 @@ async def clear_user_scheduled_jobs(token: str):
             "message": "تم مسح وإفراغ سجل المهام بالكامل بنجاح!"
         }
 
-# ======= هاند شيك ربط التليجرام السحابي الآمن =======
 @app.post("/telegram/send-code")
 async def telegram_send_code(req: TelegramSendCodeReq, token: str):
     user_id = await get_current_user(token)
@@ -1127,10 +1067,9 @@ async def telegram_verify_code(req: TelegramVerifyCodeReq, token: str):
     del active_handshakes[req.phone]
     return {"status": "success", "message": "تم ربط وتفعيل المحرك بنجاح!"}
 
-# ======= لوحة التحكم الإدارية الخلفية (Admin Back-Office) =======
 
 async def send_user_alert_telegram(user_id: int, message_text: str, session: AsyncSession) -> tuple[bool, str]:
-    """إرسال تنبيه مخصص إلى الرسائل المحفوظة للمستخدم كأداة إشعار سريعة"""
+
     try:
         stmt = select(TelegramAccount).where(TelegramAccount.user_id == user_id, TelegramAccount.status == "active")
         acc = (await session.execute(stmt)).scalars().first()
@@ -1169,7 +1108,7 @@ async def send_user_alert_telegram(user_id: int, message_text: str, session: Asy
         return False, f"فشل إرسال رسالة تيليجرام: {e}"
 
 async def send_renewal_alert_task(user_id: int, plan_label: str, new_end_str: str):
-    """مهمة خلفية لإرسال إشعار تجديد الاشتراك لتجنب إعاقة استجابة الـ API"""
+
     alert_msg = (
         f"🎉 **تهانينا! تم تجديد وتفعيل اشتراكك بنجاح** 🎉\n\n"
         f"━━━━━━━━━━━━━━━━━━\n"
@@ -1559,14 +1498,12 @@ async def verify_payment(req: VerifyPaymentReq, token: str, background_tasks: Ba
             if not user:
                 raise HTTPException(status_code=404, detail="المستخدم صاحب الإيصال غير موجود")
             
-            # حفظ بيانات البروكسي في جدول المستخدمين (User) إذا كانت متوفرة في الطلب
             if req.proxy_host is not None:
                 user.proxy_host = req.proxy_host.strip() if req.proxy_host.strip() else None
                 user.proxy_port = req.proxy_port if req.proxy_port is not None else None
                 user.proxy_username = req.proxy_username.strip() if req.proxy_username else None
                 user.proxy_password = req.proxy_password.strip() if req.proxy_password else None
                 
-            # [NEW] إذا كان الاشتراك نشطاً ولا يوجد بروكسي للمستخدم، قم بتعيين بروكسي تلقائي له من المجمع
             if not user.proxy_host:
                 assigned_host = await get_least_used_proxy(session)
                 user.proxy_host = assigned_host
@@ -1576,7 +1513,6 @@ async def verify_payment(req: VerifyPaymentReq, token: str, background_tasks: Ba
                 
             session.add(user)
             
-            # [NEW] دائماً نقوم بمزامنة البروكسي مع كافة حسابات التليجرام لضمان الاستقرار التام وتفادي التعديل اليدوي
             from db_manager import TelegramAccount
             stmt_acc = select(TelegramAccount).where(TelegramAccount.user_id == user.id)
             accounts = (await session.execute(stmt_acc)).scalars().all()
@@ -1591,11 +1527,9 @@ async def verify_payment(req: VerifyPaymentReq, token: str, background_tasks: Ba
             payment.status = "approved"
             
             now = datetime.now(timezone.utc)
-            # التحقق من OFFICIAL_PLANS أولاً لمنع التلاعب من الفرونتباند
             if payment.plan_selected in OFFICIAL_PLANS:
                 days_to_add = OFFICIAL_PLANS[payment.plan_selected]["duration_days"]
             else:
-                # احتياطي: لا يضاف أي يوم لأي باقة غير معروفة
                 raise HTTPException(status_code=400, detail=f"الباقة '{payment.plan_selected}' غير معروفة في OFFICIAL_PLANS ولا يمكن تفعيلها")
             
             current_end = user.subscription_end
@@ -1617,7 +1551,6 @@ async def verify_payment(req: VerifyPaymentReq, token: str, background_tasks: Ba
             
             await session.commit()
             
-            # [NEW] جدولة إرسال رسالة تليجرام التجديد
             background_tasks.add_task(send_renewal_alert_task, user.id, OFFICIAL_PLANS[payment.plan_selected]['label'], new_end.strftime("%Y-%m-%d %H:%M:%S"))
             
             return {"status": "success", "message": f"تم تفعيل اشتراك {OFFICIAL_PLANS[payment.plan_selected]['label']} بنجاح حتى تاريخ {new_end.strftime('%Y-%m-%d')}"}
@@ -1696,7 +1629,6 @@ async def approve_payment(payment_id: int, token: str, background_tasks: Backgro
         user.sub_alert_expired_sent = False
         user.sub_shutdown_executed = False
         
-        # [NEW] أتمتة تعيين البروكسي للمستخدم إذا كان فارغاً (المشتركين الجدد/بدون بروكسي)
         if not user.proxy_host:
             assigned_host = await get_least_used_proxy(session)
             user.proxy_host = assigned_host
@@ -1706,7 +1638,6 @@ async def approve_payment(payment_id: int, token: str, background_tasks: Backgro
             
         session.add(user)
         
-        # [NEW] مزامنة البروكسي مع كافة حسابات التليجرام المربوطة بالمستخدم وتفعيل إعادة التشغيل
         stmt_acc = select(TelegramAccount).where(TelegramAccount.user_id == user.id)
         accounts = (await session.execute(stmt_acc)).scalars().all()
         for acc in accounts:
@@ -1720,7 +1651,6 @@ async def approve_payment(payment_id: int, token: str, background_tasks: Backgro
         await session.commit()
         plan_label = OFFICIAL_PLANS[payment.plan_selected]["label"]
         
-        # [NEW] جدولة إرسال رسالة تليجرام تفاعلية تفيد بنجاح التجديد
         background_tasks.add_task(send_renewal_alert_task, user.id, plan_label, new_end.strftime("%Y-%m-%d %H:%M:%S"))
         
         return {"status": "success", "message": f"تم تفعيل {plan_label} بنجاح حتى تاريخ {new_end.strftime('%Y-%m-%d')}"}
@@ -1804,14 +1734,12 @@ async def modify_subscription(target_user_id: int, req: ModifySubscriptionReq, t
         if req.is_admin is not None:
             user.is_admin = req.is_admin
             
-        # تحديث بيانات البروكسي إذا تم تمريرها في الطلب
         if req.proxy_host is not None:
             user.proxy_host = req.proxy_host.strip() if req.proxy_host.strip() else None
             user.proxy_port = req.proxy_port if req.proxy_port is not None else None
             user.proxy_username = req.proxy_username.strip() if req.proxy_username else None
             user.proxy_password = req.proxy_password.strip() if req.proxy_password else None
             
-        # [NEW] إذا كان الاشتراك نشطاً ولا يوجد بروكسي للمستخدم، قم بتعيين بروكسي تلقائي
         if user.subscription_status == "active" and not user.proxy_host:
             assigned_host = await get_least_used_proxy(session)
             user.proxy_host = assigned_host
@@ -1821,7 +1749,6 @@ async def modify_subscription(target_user_id: int, req: ModifySubscriptionReq, t
 
         session.add(user)
         
-        # [NEW] دائماً نقوم بمزامنة البروكسي مع كافة حسابات التليجرام لضمان الاستقرار التام وتفادي التعديل اليدوي
         stmt_acc = select(TelegramAccount).where(TelegramAccount.user_id == user.id)
         accounts = (await session.execute(stmt_acc)).scalars().all()
         for acc in accounts:
@@ -1834,7 +1761,6 @@ async def modify_subscription(target_user_id: int, req: ModifySubscriptionReq, t
             
         await session.commit()
         
-        # [NEW] إذا تم تنشيط الاشتراك، قم بجدولة إرسال رسالة تليجرام التجديد
         if user.subscription_status == "active":
             plan_label = OFFICIAL_PLANS.get(user.subscription_plan, {}).get("label", user.subscription_plan)
             background_tasks.add_task(send_renewal_alert_task, user.id, plan_label, end_dt.strftime("%Y-%m-%d %H:%M:%S"))
