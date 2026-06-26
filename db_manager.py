@@ -52,7 +52,9 @@ AsyncSessionLocal = async_sessionmaker(
 from sqlalchemy.types import TypeDecorator
 from cryptography.fernet import Fernet
 
-SESSION_ENCRYPTION_KEY = os.getenv("SESSION_ENCRYPTION_KEY", "LsdLM10kc3tb-peVR8gNacGaBH9_6njN7FI9uMjneXA=")
+SESSION_ENCRYPTION_KEY = os.getenv("SESSION_ENCRYPTION_KEY")
+if not SESSION_ENCRYPTION_KEY:
+    raise RuntimeError("SESSION_ENCRYPTION_KEY environment variable is required and cannot be empty.")
 cipher = Fernet(SESSION_ENCRYPTION_KEY.encode())
 
 class EncryptedText(TypeDecorator):
@@ -92,7 +94,6 @@ class User(Base):
     totp_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     
-    # أعمدة إدارة تتبع باقات الاشتراكات الفعلية لدعم لوحة التحكم
     subscription_plan: Mapped[str] = mapped_column(String(50), default="trial", nullable=False)  # trial, weekly, monthly, half_year, yearly
     subscription_status: Mapped[str] = mapped_column(String(50), default="active", nullable=False)  # active, expired
     subscription_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -173,7 +174,6 @@ class Setting(Base):
     account: Mapped["TelegramAccount"] = relationship("TelegramAccount", back_populates="settings")
     __table_args__ = (UniqueConstraint("telegram_account_id", "key", name="uq_account_key_settings"),)
 
-# جدول مكتبة الصيغ الخارجية الخاصة بكل مستأجر
 class AdTemplate(Base):
     __tablename__ = "ad_templates"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -184,7 +184,6 @@ class AdTemplate(Base):
 
     account: Mapped["TelegramAccount"] = relationship("TelegramAccount", back_populates="ad_templates")
 
-# جدول إيصالات دفع الكريبتو اليدوية للمراجعة
 class CryptoPayment(Base):
     __tablename__ = "crypto_payments"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -219,7 +218,7 @@ class WebCampaignTask(Base):
     target_link: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     custom_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)  # pending, processing, completed, failed
-    result_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # نتيجة التنفيذ أو سبب الفشل/الإلغاء
+    result_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     account: Mapped["TelegramAccount"] = relationship("TelegramAccount")
@@ -255,7 +254,6 @@ class SavedMessageLog(Base):
     )
 
 
-# === دوال الـ CRUD الأساسية ===
 async def init_db() -> None:
     try:
         async with async_engine.begin() as conn:
@@ -355,4 +353,72 @@ async def get_active_templates_for_tenant(session: AsyncSession, telegram_accoun
 
 async def get_blacklist_for_tenant(session: AsyncSession, telegram_account_id: int) -> List[int]:
     stmt = select(Blacklist.chat_id).where(Blacklist.telegram_account_id == telegram_account_id)
-    return list((await session.execute(stmt)).scalars().all())
+    return list((await session.execute(stmt)).scalars().all())
+
+
+def apply_pyrogram_patches():
+    """
+    Apply monkey patches to Pyrogram to disable link previews globally
+    and expand ID namespace limits for high-ID channels.
+    """
+    try:
+        from pyrogram import Client
+        from pyrogram.types import Message
+        import pyrogram.utils
+
+        # Patch ID limit constants for high-ID channels
+        pyrogram.utils.MIN_CHANNEL_ID = -1009999999999999
+        pyrogram.utils.MAX_USER_ID = 999999999999999
+
+        # 1. Patch Client.send_message
+        orig_send_message = Client.send_message
+        async def patched_send_message(self, *args, **kwargs):
+            if "disable_web_page_preview" not in kwargs:
+                kwargs["disable_web_page_preview"] = True
+            return await orig_send_message(self, *args, **kwargs)
+        Client.send_message = patched_send_message
+
+        # 2. Patch Client.edit_message_text
+        orig_edit_message_text = Client.edit_message_text
+        async def patched_edit_message_text(self, *args, **kwargs):
+            if "disable_web_page_preview" not in kwargs:
+                kwargs["disable_web_page_preview"] = True
+            return await orig_edit_message_text(self, *args, **kwargs)
+        Client.edit_message_text = patched_edit_message_text
+
+        # 3. Patch Message.reply_text
+        orig_reply_text = Message.reply_text
+        async def patched_reply_text(self, *args, **kwargs):
+            if "disable_web_page_preview" not in kwargs:
+                kwargs["disable_web_page_preview"] = True
+            return await orig_reply_text(self, *args, **kwargs)
+        Message.reply_text = patched_reply_text
+
+        # 4. Patch Message.reply
+        orig_reply = Message.reply
+        async def patched_reply(self, *args, **kwargs):
+            if "disable_web_page_preview" not in kwargs:
+                kwargs["disable_web_page_preview"] = True
+            return await orig_reply(self, *args, **kwargs)
+        Message.reply = patched_reply
+
+        # 5. Patch Message.edit_text
+        orig_edit_text = Message.edit_text
+        async def patched_edit_text(self, *args, **kwargs):
+            if "disable_web_page_preview" not in kwargs:
+                kwargs["disable_web_page_preview"] = True
+            return await orig_edit_text(self, *args, **kwargs)
+        Message.edit_text = patched_edit_text
+
+        # 6. Patch Message.edit
+        orig_edit = Message.edit
+        async def patched_edit(self, *args, **kwargs):
+            if "disable_web_page_preview" not in kwargs:
+                kwargs["disable_web_page_preview"] = True
+            return await orig_edit(self, *args, **kwargs)
+        Message.edit = patched_edit
+        
+        logger.info("Successfully applied Pyrogram monkey patches.")
+    except Exception as e:
+        logger.error(f"Error applying Pyrogram monkey patches: {e}")
+

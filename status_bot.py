@@ -144,9 +144,7 @@ async def start_status_bot():
             logger.error(f"Failed to fetch fallback API credentials from DB: {e}")
             
     if not api_id or not api_hash:
-        # Final fallback to telegram standard
-        api_id = 26868843
-        api_hash = "6e07669d2f2d95267d30d1d643881ef1"
+        raise RuntimeError("STATUS_BOT_API_ID and STATUS_BOT_API_HASH must be configured in environment variables or available in database.")
 
     logger.info(f"Starting Status Bot (@{status_bot_username}) using API ID {api_id}...")
     
@@ -854,7 +852,7 @@ async def handle_private_message(client: Client, message: Message):
                 return
 
 async def notify_user_by_tenant_id(tenant_id: int, text: str):
-    """إرسال إشعار للمشترك عبر بوت التليجرام باستخدام معرف الحساب (tenant_id)"""
+
     if not status_bot_client or not status_bot_client.is_connected:
         return
     try:
@@ -876,7 +874,7 @@ async def notify_user_by_tenant_id(tenant_id: int, text: str):
         logger.error(f"Error in notify_user_by_tenant_id for tenant {tenant_id}: {e}")
 
 async def notify_user_by_id(user_id: int, text: str):
-    """إرسال إشعار للمشترك مباشرة عبر معرف اليوزر (user_id)"""
+
     if not status_bot_client or not status_bot_client.is_connected:
         return
     try:
