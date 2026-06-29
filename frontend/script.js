@@ -871,7 +871,8 @@ async function loadTemplatesList() {
   if (!container) return;
 
   try {
-    const data = await apiRequest("/templates");
+    const url = currentTelegramAccountId ? `/templates?telegram_account_id=${currentTelegramAccountId}` : "/templates";
+    const data = await apiRequest(url);
     if (!data || data.length === 0) {
       container.innerHTML = `<p style="color: #94a3b8; font-size: 13px; text-align: center; padding: 20px;">لا يوجد أي صيغ إعلانية مضافة في مكتبتك حالياً.</p>`;
       return;

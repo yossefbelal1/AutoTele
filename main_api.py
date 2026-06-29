@@ -491,16 +491,36 @@ async def add_template(req: TemplateCreateReq, token: str):
         return {"status": "success", "message": "تم إضافة الصيغة بنجاح لمكتبتك الخارجية"}
 
 @app.get("/templates")
-async def get_templates(token: str):
+async def get_templates(token: str, telegram_account_id: Optional[int] = None):
     user_id = await get_current_user(token)
     async with AsyncSessionLocal() as session:
-        tg_account = (await session.execute(
-            select(TelegramAccount).where(TelegramAccount.user_id == user_id)
-        )).scalars().first()
-        if not tg_account:
-            return []
+        if telegram_account_id:
+            tg_account = (await session.execute(
+                select(TelegramAccount).where(
+                    TelegramAccount.id == telegram_account_id,
+                    TelegramAccount.user_id == user_id
+                )
+            )).scalars().first()
+            if not tg_account:
+                return []
+            target_account_id = tg_account.id
+        else:
+            tg_account = (await session.execute(
+                select(TelegramAccount).where(
+                    TelegramAccount.user_id == user_id,
+                    TelegramAccount.status == "active"
+                )
+            )).scalars().first()
+            if not tg_account:
+                tg_account = (await session.execute(
+                    select(TelegramAccount).where(TelegramAccount.user_id == user_id)
+                )).scalars().first()
+            
+            if not tg_account:
+                return []
+            target_account_id = tg_account.id
         
-        stmt = select(AdTemplate).where(AdTemplate.telegram_account_id == tg_account.id).order_by(AdTemplate.created_at.desc())
+        stmt = select(AdTemplate).where(AdTemplate.telegram_account_id == target_account_id).order_by(AdTemplate.created_at.desc())
         results = (await session.execute(stmt)).scalars().all()
         return [
             {
@@ -517,21 +537,18 @@ async def delete_template(template_id: int, token: str):
     user_id = await get_current_user(token)
     async with AsyncSessionLocal() as session:
         await verify_active_subscription(user_id, session)
-        tg_account = (await session.execute(
-            select(TelegramAccount).where(TelegramAccount.user_id == user_id)
-        )).scalars().first()
-        if not tg_account:
-            raise HTTPException(status_code=404, detail="الحساب غير موجود")
         
         tmpl = (await session.execute(
-            select(AdTemplate).where(
+            select(AdTemplate)
+            .join(TelegramAccount, AdTemplate.telegram_account_id == TelegramAccount.id)
+            .where(
                 AdTemplate.id == template_id,
-                AdTemplate.telegram_account_id == tg_account.id
+                TelegramAccount.user_id == user_id
             )
         )).scalar_one_or_none()
         
         if not tmpl:
-            raise HTTPException(status_code=404, detail="الصيغة غير موجودة")
+            raise HTTPException(status_code=404, detail="الصيغة غير موجودة أو غير مصرح لك بحذفها")
             
         await session.delete(tmpl)
         await session.commit()
@@ -1108,6 +1125,20 @@ async def send_user_alert_telegram(user_id: int, message_text: str, session: Asy
         return False, f"فشل إرسال رسالة تيليجرام: {e}"
 
 async def send_renewal_alert_task(user_id: int, plan_label: str, new_end_str: str):
+    import json
+    from cache_manager import redis_client
+    from datetime import datetime as dt, timezone
+
+    # Calculate days left
+    try:
+        end_dt = dt.strptime(new_end_str, "%Y-%m-%d %H:%M:%S")
+        if end_dt.tzinfo is None:
+            end_dt = end_dt.replace(tzinfo=timezone.utc)
+        days_left = (end_dt - dt.now(timezone.utc)).days
+        if days_left < 0:
+            days_left = 0
+    except Exception:
+        days_left = 0
 
     alert_msg = (
         f"🎉 **تهانينا! تم تجديد وتفعيل اشتراكك بنجاح** 🎉\n\n"
@@ -1115,12 +1146,20 @@ async def send_renewal_alert_task(user_id: int, plan_label: str, new_end_str: st
         f"📢 **تفاصيل التجديد:**\n"
         f"• الباقة: **{plan_label}**\n"
         f"• تاريخ الانتهاء الجديد: `{new_end_str}`\n"
+        f"• الأيام المتبقية: `{days_left}` يومًا ⏳\n"
         f"• حالة البوت: جاهز ومستعد للعمل فوراً 🚀\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"💡 *ملاحظة: يمكنك إطلاق حملاتك والتبادل التلقائي الآن من خلال إرسال الأوامر المعتادة في محادثة البوت.*"
+        f"💡 *ملاحظة: يمكنك إطلاق حملاتك والتبادل التلقائي الآن من لوحة التحكم أو إرسال الأوامر المعتادة في محادثة البوت.*"
     )
-    async with AsyncSessionLocal() as session:
-        await send_user_alert_telegram(user_id, alert_msg, session)
+    try:
+        payload = {
+            "user_id": user_id,
+            "message_text": alert_msg
+        }
+        await redis_client.publish("saas_user_notifications", json.dumps(payload, ensure_ascii=False))
+        logger.info(f"Published subscription renewal alert to Redis for user {user_id}")
+    except Exception as e:
+        logger.error(f"Failed to publish user renewal alert to Redis: {e}")
 
 import random
 
