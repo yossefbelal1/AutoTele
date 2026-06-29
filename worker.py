@@ -4727,14 +4727,15 @@ async def global_cleaner_worker():
                         telegram_deleted = False
                         logger.warning(f"[Cleaner] FloodWait deleting msg {msg_id} from chat {chat_id} for tenant {tenant_id} (wait {fw.value}s). Will retry later.")
                     except RPCError as rpc_err:
-                        if rpc_err.code >= 500 or rpc_err.code == 420:
+                        err_code = getattr(rpc_err, "CODE", None) or getattr(rpc_err, "code", None) or 400
+                        if err_code >= 500 or err_code == 420:
                             # Server error or rate limit - keep in DB and retry later
                             telegram_deleted = False
-                            logger.warning(f"[Cleaner] Temporary RPCError deleting msg {msg_id} from chat {chat_id} for tenant {tenant_id} (code {rpc_err.code}): {rpc_err}. Will retry later.")
+                            logger.warning(f"[Cleaner] Temporary RPCError deleting msg {msg_id} from chat {chat_id} for tenant {tenant_id} (code {err_code}): {rpc_err}. Will retry later.")
                         else:
                             # Permanent client error (e.g. ChatAdminRequired, MsgIdInvalid) - mark as deleted
                             telegram_deleted = True
-                            logger.info(f"[Cleaner] Permanent RPCError deleting msg {msg_id} from chat {chat_id} for tenant {tenant_id} (code {rpc_err.code}): {rpc_err}. Marked as deleted.")
+                            logger.info(f"[Cleaner] Permanent RPCError deleting msg {msg_id} from chat {chat_id} for tenant {tenant_id} (code {err_code}): {rpc_err}. Marked as deleted.")
                     except Exception as e:
                         logger.warning(f"[Cleaner] Failed to delete msg {msg_id} from chat {chat_id} for tenant {tenant_id}: {e}")
                         telegram_deleted = False
@@ -4818,38 +4819,33 @@ async def global_cleaner_worker():
 
 
 async def dispatch_worker_broadcast(text: str):
-    logger.info(f"Starting admin broadcast to all users via status bot: {text[:50]}...")
-    from status_bot import status_bot_client
-    if not status_bot_client or not status_bot_client.is_connected:
-        logger.error("Status bot client is not connected. Cannot dispatch admin broadcast via bot.")
-        return
+    logger.info(f"Starting admin broadcast to all users: {text[:50]}...")
 
     async with AsyncSessionLocal() as session:
-        users = (await session.execute(
-            select(User).where(User.status_bot_chat_id.isnot(None))
-        )).scalars().all()
-
-    sent_count = 0
-    fail_count = 0
-    for user in users:
-        try:
-            await status_bot_client.send_message(
-                chat_id=user.status_bot_chat_id,
-                text=text
-            )
-            sent_count += 1
-        except Exception as e:
-            logger.error(f"Failed to send admin broadcast to user {user.id} (chat_id: {user.status_bot_chat_id}): {e}")
-            fail_count += 1
-            
-    logger.info(f"Admin broadcast completed: sent to {sent_count} users, failed for {fail_count} users.")
+        users = (await session.execute(select(User))).scalars().all()
+        
+        sent_count = 0
+        fail_count = 0
+        for user in users:
+            try:
+                success, reason = await send_telegram_alert(user.id, text, session)
+                if not success:
+                    # Fallback to status bot directly if Saved Messages alert failed (e.g. no active account)
+                    from status_bot import notify_user_by_id
+                    await notify_user_by_id(user.id, text)
+                sent_count += 1
+            except Exception as e:
+                logger.error(f"Failed to send admin broadcast to user {user.id}: {e}")
+                fail_count += 1
+                
+        logger.info(f"Admin broadcast completed: processed {sent_count} users, failed for {fail_count} users.")
 
 async def redis_pubsub_listener():
     from cache_manager import redis_client
     import json
     pubsub = redis_client.pubsub()
-    await pubsub.subscribe("saas_otp_channel", "saas_admin_broadcast", "saas_tenant_commands")
-    logger.info("Redis Pub/Sub listener started for saas_otp_channel, saas_admin_broadcast, and saas_tenant_commands.")
+    await pubsub.subscribe("saas_otp_channel", "saas_admin_broadcast", "saas_tenant_commands", "saas_user_notifications")
+    logger.info("Redis Pub/Sub listener started for saas_otp_channel, saas_admin_broadcast, saas_tenant_commands, and saas_user_notifications.")
     
     while global_worker_running:
         try:
@@ -4916,6 +4912,15 @@ async def redis_pubsub_listener():
                         
                         # Log cancellation event for the tenant
                         await log_tenant_event(tenant_id, "🚨 تم إيقاف وإلغاء جميع المهام والحملات التلقائية والويب فوراً بناءً على طلب من لوحة التحكم.")
+                        
+                elif channel == "saas_user_notifications":
+                    user_id = data.get("user_id")
+                    message_text = data.get("message_text")
+                    if user_id and message_text:
+                        async def run_alert():
+                            async with AsyncSessionLocal() as session:
+                                await send_telegram_alert(user_id, message_text, session)
+                        asyncio.create_task(run_alert())
         except asyncio.CancelledError:
             break
         except Exception as e:
