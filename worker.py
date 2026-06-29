@@ -4366,13 +4366,10 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
 
             from sqlalchemy import delete
             
-            # Delete children tables
-            await session.execute(delete(AdTemplate).where(AdTemplate.telegram_account_id == tenant_id))
+            # Delete children tables (only campaign/tracking data, preserving permanent libraries like AdTemplate, Settings, and Blacklists)
             await session.execute(delete(ActiveAd).where(ActiveAd.telegram_account_id == tenant_id))
             await session.execute(delete(PublishLog).where(PublishLog.telegram_account_id == tenant_id))
             await session.execute(delete(SavedMessageLog).where(SavedMessageLog.telegram_account_id == tenant_id))
-            await session.execute(delete(Setting).where(Setting.telegram_account_id == tenant_id))
-            await session.execute(delete(Blacklist).where(Blacklist.telegram_account_id == tenant_id))
             await session.execute(delete(WebCampaignTask).where(WebCampaignTask.telegram_account_id == tenant_id))
             
             # Reset TelegramAccount sticker columns

@@ -409,7 +409,17 @@ async def get_user_subscription(token: str):
         remaining_seconds = (sub_end - now).total_seconds()
         remaining_days = max(0, int(remaining_seconds / 86400))
         
-        tg_account = (await session.execute(select(TelegramAccount).where(TelegramAccount.user_id == user_id))).scalars().first()
+        # Select the active telegram account first, then fallback to first available
+        tg_account = (await session.execute(
+            select(TelegramAccount).where(
+                TelegramAccount.user_id == user_id,
+                TelegramAccount.status == "active"
+            )
+        )).scalars().first()
+        if not tg_account:
+            tg_account = (await session.execute(
+                select(TelegramAccount).where(TelegramAccount.user_id == user_id)
+            )).scalars().first()
         bot_status = tg_account.status if tg_account else "غير مربوط"
         
         return {
@@ -874,6 +884,8 @@ async def clear_user_scheduled_jobs(token: str):
 
 @app.post("/telegram/send-code")
 async def telegram_send_code(req: TelegramSendCodeReq, token: str):
+    # Normalize phone number to digits-only format to prevent duplicate entries
+    req.phone = "".join(c for c in req.phone if c.isdigit())
     user_id = await get_current_user(token)
     if await is_rate_limited(user_id, 3, 60): raise HTTPException(status_code=429)
     
@@ -931,6 +943,8 @@ async def telegram_send_code(req: TelegramSendCodeReq, token: str):
 
 @app.post("/telegram/verify-code")
 async def telegram_verify_code(req: TelegramVerifyCodeReq, token: str):
+    # Normalize phone number to digits-only format to prevent duplicate entries
+    req.phone = "".join(c for c in req.phone if c.isdigit())
     user_id = await get_current_user(token)
     handshake = active_handshakes.get(req.phone)
     if not handshake or handshake["user_id"] != user_id: raise HTTPException(status_code=400, detail="انتهت الجلسة")
@@ -970,6 +984,13 @@ async def telegram_verify_code(req: TelegramVerifyCodeReq, token: str):
             existing_account.proxy_username = proxy_username
             existing_account.proxy_password = proxy_password
         else:
+            # Check if there is any old account for this user to migrate templates and configurations from
+            old_account = (await db_session.execute(
+                select(TelegramAccount)
+                .where(TelegramAccount.user_id == user_id)
+                .order_by(TelegramAccount.id.desc())
+            )).scalars().first()
+            
             new_account = TelegramAccount(
                 user_id=user_id, 
                 phone=req.phone, 
@@ -983,6 +1004,43 @@ async def telegram_verify_code(req: TelegramVerifyCodeReq, token: str):
                 proxy_password=proxy_password
             )
             db_session.add(new_account)
+            await db_session.flush() # Populate new_account.id
+            
+            if old_account:
+                # Copy AdTemplates from old account to new account
+                from db_manager import Setting, Blacklist
+                old_templates = (await db_session.execute(
+                    select(AdTemplate).where(AdTemplate.telegram_account_id == old_account.id)
+                )).scalars().all()
+                for t in old_templates:
+                    db_session.add(AdTemplate(
+                        telegram_account_id=new_account.id,
+                        template_text=t.template_text,
+                        is_active=t.is_active
+                    ))
+                
+                # Copy Settings (like custom sticker, time intervals) from old account to new account
+                old_settings = (await db_session.execute(
+                    select(Setting).where(Setting.telegram_account_id == old_account.id)
+                )).scalars().all()
+                for s in old_settings:
+                    db_session.add(Setting(
+                        telegram_account_id=new_account.id,
+                        key=s.key,
+                        value=s.value
+                    ))
+                
+                # Copy Blacklist from old account to new account
+                old_blacklist = (await db_session.execute(
+                    select(Blacklist).where(Blacklist.telegram_account_id == old_account.id)
+                )).scalars().all()
+                for b in old_blacklist:
+                    db_session.add(Blacklist(
+                        telegram_account_id=new_account.id,
+                        chat_id=b.chat_id
+                    ))
+                
+                logger.info(f"Successfully migrated configurations from old account ID {old_account.id} to new account ID {new_account.id}")
             
         await db_session.commit()
         
