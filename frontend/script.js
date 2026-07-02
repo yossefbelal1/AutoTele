@@ -1723,6 +1723,14 @@ document.addEventListener("DOMContentLoaded", () => {
         manualArrow.style.transform = isHidden ? "rotate(-90deg)" : "rotate(0deg)";
       }
     });
+    btnToggleManual.addEventListener("mouseenter", () => {
+      btnToggleManual.style.background = "rgba(59, 130, 246, 0.16)";
+      btnToggleManual.style.borderColor = "rgba(59, 130, 246, 0.5)";
+    });
+    btnToggleManual.addEventListener("mouseleave", () => {
+      btnToggleManual.style.background = "rgba(59, 130, 246, 0.08)";
+      btnToggleManual.style.borderColor = "rgba(59, 130, 246, 0.3)";
+    });
   }
 
   // Handle dynamically adding/removing target links for campaign
