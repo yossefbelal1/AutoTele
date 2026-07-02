@@ -1443,16 +1443,18 @@ function formatTelegramText(text) {
 async function loadScheduledJobs() {
   try {
     const data = await apiRequest("/user/scheduled-jobs");
-    const listEl = document.getElementById("scheduled-jobs-list");
-    if (!listEl) return;
+    const scheduledListEl = document.getElementById("scheduled-jobs-list");
+    const activeListEl = document.getElementById("active-jobs-list");
+    const finishedListEl = document.getElementById("finished-jobs-list");
+    const activeCardContainer = document.getElementById("active-tasks-card-container");
+    const finishedCardContainer = document.getElementById("finished-tasks-card-container");
+    
+    if (!scheduledListEl) return;
+    
     if (data.status === "success") {
-      if (!data.jobs || data.jobs.length === 0) {
-        listEl.innerHTML = `<p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; padding: 12px; border: 1px dashed rgba(255,255,255,0.05); border-radius: 8px;">لا توجد حملات أو مهام مؤجلة مجدولة حالياً.</p>`;
-        return;
-      }
+      const jobs = data.jobs || [];
       
-      let html = "";
-      data.jobs.forEach(job => {
+      const renderJobItemHtml = (job) => {
         let dateStr = "";
         let remainingStr = "";
         try {
@@ -1460,7 +1462,7 @@ async function loadScheduledJobs() {
           dateStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + " - " + date.toLocaleDateString();
           
           const diffMs = date.getTime() - Date.now();
-          if (diffMs > 0) {
+          if (diffMs > 0 && job.status === "pending") {
             const diffMins = Math.ceil(diffMs / (1000 * 60));
             const hours = Math.floor(diffMins / 60);
             const mins = diffMins % 60;
@@ -1487,7 +1489,6 @@ async function loadScheduledJobs() {
           statusBadge = `<span style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">❌ متوقف / ملغي</span>`;
           cardStyle = "background: rgba(239, 68, 68, 0.02); border: 1px solid rgba(239, 68, 68, 0.25);";
         } else {
-          // pending
           statusBadge = `<span style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">⏳ مجدول</span>`;
           cardStyle = "background: rgba(255, 255, 255, 0.015); border: 1px solid rgba(255, 255, 255, 0.06);";
         }
@@ -1499,7 +1500,7 @@ async function loadScheduledJobs() {
           `;
         }
         
-        html += `
+        return `
           <div style="padding: 16px; border-radius: 12px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; transition: all 0.3s; ${cardStyle}">
             <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
               <span style="font-weight: 700; color: #fff; font-size: 14px; display: flex; align-items: center; gap: 6px;">🚀 ${escapeHtml(job.type)}</span>
@@ -1512,8 +1513,38 @@ async function loadScheduledJobs() {
             ${progressHtml}
           </div>
         `;
-      });
-      listEl.innerHTML = html;
+      };
+
+      const activeJobs = jobs.filter(j => j.status === "processing");
+      const scheduledJobs = jobs.filter(j => j.status === "pending");
+      const finishedJobs = jobs.filter(j => j.status === "completed" || j.status === "failed");
+
+      // 1. Render Active Tasks
+      if (activeJobs.length === 0) {
+        if (activeCardContainer) activeCardContainer.style.display = "none";
+      } else {
+        if (activeCardContainer) activeCardContainer.style.display = "block";
+        if (activeListEl) {
+          activeListEl.innerHTML = activeJobs.map(renderJobItemHtml).join("");
+        }
+      }
+
+      // 2. Render Scheduled Tasks
+      if (scheduledJobs.length === 0) {
+        scheduledListEl.innerHTML = `<p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; padding: 12px; border: 1px dashed rgba(255,255,255,0.05); border-radius: 8px;">لا توجد حملات أو مهام مجدولة قيد الانتظار.</p>`;
+      } else {
+        scheduledListEl.innerHTML = scheduledJobs.map(renderJobItemHtml).join("");
+      }
+
+      // 3. Render Recently Finished Tasks (limit to 5)
+      if (finishedJobs.length === 0) {
+        if (finishedCardContainer) finishedCardContainer.style.display = "none";
+      } else {
+        if (finishedCardContainer) finishedCardContainer.style.display = "block";
+        if (finishedListEl) {
+          finishedListEl.innerHTML = finishedJobs.slice(0, 5).map(renderJobItemHtml).join("");
+        }
+      }
     }
   } catch (error) {
     console.error("Error loading scheduled jobs:", error);

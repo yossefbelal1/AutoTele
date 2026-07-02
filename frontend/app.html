@@ -614,27 +614,49 @@
             </div>
           </div>
 
-          <!-- scheduled tasks box -->
+          <!-- Active Tasks Box -->
+          <div class="card active-tasks-card" id="active-tasks-card-container" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(59, 130, 246, 0.15); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px); display: none; box-shadow: 0 4px 20px rgba(59,130,246,0.05);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span class="pulse-text-animation" style="font-size: 20px;">🔄</span>
+                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">العمليات والمهام النشطة حالياً</h3>
+              </div>
+            </div>
+            <div id="active-jobs-list" style="display: grid; grid-template-columns: 1fr; gap: 12px;">
+            </div>
+          </div>
+
+          <!-- Scheduled Tasks Box -->
           <div class="card scheduled-tasks-card" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
               <div style="display: flex; align-items: center; gap: 12px;">
                 <span style="font-size: 20px;">📅</span>
-                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">
-                  <span class="hidden-mobile">المهام المجدولة النشطة</span>
-                  <span class="show-mobile">المهام النشطة</span>
-                </h3>
+                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">المهام والحملات المجدولة المستقبلية</h3>
               </div>
               <div style="display: flex; align-items: center; gap: 12px;">
                 <button type="button" id="btn-refresh-jobs" style="background: none; border: none; color: #60a5fa; cursor: pointer; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 4px;">
                   <span>🔄 تحديث</span>
                 </button>
                 <button type="button" id="btn-clear-jobs" style="background: none; border: none; color: #f87171; cursor: pointer; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 4px;">
-                  <span>🗑️ مسح المهام</span>
+                  <span>🗑️ إلغاء المجدول</span>
                 </button>
               </div>
             </div>
             <div id="scheduled-jobs-list" style="display: grid; grid-template-columns: 1fr; gap: 12px;">
-              <p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; padding: 12px; border: 1px dashed rgba(255,255,255,0.05); border-radius: 8px;">لا توجد حملات أو مهام مؤجلة مجدولة حالياً.</p>
+              <p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; padding: 12px; border: 1px dashed rgba(255,255,255,0.05); border-radius: 8px;">لا توجد حملات أو مهام مجدولة قيد الانتظار.</p>
+            </div>
+          </div>
+
+          <!-- Recently Finished Tasks Box -->
+          <div class="card finished-tasks-card" id="finished-tasks-card-container" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-size: 20px;">✅</span>
+                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">المهام والعمليات المنتهية مؤخراً</h3>
+              </div>
+            </div>
+            <div id="finished-jobs-list" style="display: grid; grid-template-columns: 1fr; gap: 12px;">
+              <p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; padding: 12px; border: 1px dashed rgba(255,255,255,0.05); border-radius: 8px;">لا توجد مهام منتهية مؤخراً.</p>
             </div>
           </div>
 
@@ -1105,6 +1127,6 @@
 
 
   <!-- JavaScript Main Script -->
-  <script src="script.js?v=4.0"></script>
+  <script src="script.js?v=4.1"></script>
 </body>
 </html>
