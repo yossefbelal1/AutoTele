@@ -920,49 +920,181 @@ async function fetchUserChannels(forceRefresh = false) {
 }
 
 function populateTimedPostDropdowns() {
-  const promoSelect = document.getElementById("web-pin-promo-select");
-  const targetSelect = document.getElementById("web-pin-target-select");
-  if (!promoSelect || !targetSelect) return;
+  const promoList = document.getElementById("promo-options-list");
+  const targetList = document.getElementById("target-options-list");
+  if (!promoList || !targetList) return;
 
-  // Clear existing options except manual
-  promoSelect.innerHTML = '<option value="manual">✍️ أدخل رابطاً يدوياً (قناة خارجية أو رابط تتبع)</option>';
-  targetSelect.innerHTML = '<option value="manual">✍️ أدخل رابطاً يدوياً (قناة خارجية أو معرف يدوي)</option>';
-
-  _channelPickerData.forEach(ch => {
+  // Function to create an option item
+  const createOptionItem = (ch, type) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "dropdown-option-item";
     const identifier = getChannelIdentifier(ch);
+    const title = ch.title || "بدون اسم";
+    const username = ch.username || "";
+    const members = ch.members_count || 0;
     const typeLabel = ch.is_broadcast ? "قناة" : "مجموعة";
-    const optionText = `[${typeLabel}] ${ch.title || "بدون اسم"} (${formatMembersCount(ch.members_count || 0)} عضو) ${ch.username ? "@" + ch.username : ""}`;
 
-    const optA = document.createElement("option");
-    optA.value = identifier;
-    optA.textContent = optionText;
-    promoSelect.appendChild(optA);
+    item.setAttribute("data-title", title.toLowerCase());
+    item.setAttribute("data-username", username.toLowerCase());
+    item.setAttribute("data-value", identifier);
 
-    const optB = document.createElement("option");
-    optB.value = identifier;
-    optB.textContent = optionText;
-    targetSelect.appendChild(optB);
+    item.style.cssText = "background: transparent; border: none; color: #cbd5e1; padding: 10px 12px; text-align: right; width: 100%; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; font-size: 13px; outline: none; transition: background 0.2s;";
+    
+    item.innerHTML = `
+      <div style="font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%;">${title}</div>
+      <div style="color: #64748b; font-size: 11px; flex-shrink: 0; direction: ltr;">
+        ${username ? "@" + username : typeLabel} (${formatMembersCount(members)})
+      </div>
+    `;
+
+    item.addEventListener("mouseenter", () => item.style.background = "rgba(255,255,255,0.05)");
+    item.addEventListener("mouseleave", () => item.style.background = "transparent");
+
+    item.addEventListener("click", () => {
+      selectDropdownOption(type, identifier, title);
+    });
+
+    return item;
+  };
+
+  // Clear and add manual fallback option
+  const addManualOption = (listEl, type, label) => {
+    listEl.innerHTML = "";
+    const manualBtn = document.createElement("button");
+    manualBtn.type = "button";
+    manualBtn.className = "dropdown-option-item manual-option";
+    manualBtn.style.cssText = "background: rgba(59, 130, 246, 0.08); border: 1px dashed rgba(59, 130, 246, 0.2); color: #60a5fa; padding: 10px 12px; text-align: right; width: 100%; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; outline: none; margin-bottom: 6px; width: 100%; box-sizing: border-box;";
+    manualBtn.textContent = label;
+    
+    manualBtn.addEventListener("mouseenter", () => manualBtn.style.background = "rgba(59, 130, 246, 0.15)");
+    manualBtn.addEventListener("mouseleave", () => manualBtn.style.background = "rgba(59, 130, 246, 0.08)");
+    
+    manualBtn.addEventListener("click", () => {
+      selectDropdownOption(type, "manual", label);
+    });
+    listEl.appendChild(manualBtn);
+  };
+
+  addManualOption(promoList, "promo", "✍️ أدخل رابطاً يدوياً (قناة خارجية أو رابط تتبع)");
+  addManualOption(targetList, "target", "✍️ أدخل رابطاً يدوياً (قناة خارجية أو معرف يدوي)");
+
+  // Sort channels by members_count desc
+  const sorted = [..._channelPickerData].sort((a, b) => (b.members_count || 0) - (a.members_count || 0));
+
+  sorted.forEach(ch => {
+    promoList.appendChild(createOptionItem(ch, "promo"));
+    targetList.appendChild(createOptionItem(ch, "target"));
   });
 }
 
 function resetTimedPostDropdowns() {
-  const promoSelect = document.getElementById("web-pin-promo-select");
-  const promoInput = document.getElementById("web-pin-promo-link");
-  const targetSelect = document.getElementById("web-pin-target-select");
-  const targetInput = document.getElementById("web-pin-target-link");
+  selectDropdownOption("promo", "manual", "✍️ أدخل رابطاً يدوياً (قناة خارجية أو رابط تتبع)");
+  selectDropdownOption("target", "manual", "✍️ أدخل رابطاً يدوياً (قناة خارجية أو معرف يدوي)");
+}
 
-  if (promoSelect && promoInput) {
-    promoSelect.value = "manual";
-    promoInput.value = "";
-    promoInput.readOnly = false;
-    promoInput.style.opacity = "1";
+function selectDropdownOption(type, value, label) {
+  const labelEl = document.getElementById(`${type}-selected-label`);
+  const inputEl = document.getElementById(`web-pin-${type}-link`);
+  const menuEl = document.getElementById(`${type}-dropdown-menu`);
+  const arrowEl = document.getElementById(`${type}-dropdown-arrow`);
+
+  if (labelEl) labelEl.textContent = label;
+  if (menuEl) menuEl.style.display = "none";
+  if (arrowEl) arrowEl.style.transform = "rotate(0deg)";
+
+  if (value === "manual" || value.startsWith("✍️")) {
+    if (inputEl) {
+      inputEl.value = "";
+      inputEl.style.display = "block";
+      inputEl.focus();
+    }
+  } else {
+    if (inputEl) {
+      inputEl.value = value;
+      inputEl.style.display = "none"; // Hide input field since channel is chosen!
+    }
   }
-  if (targetSelect && targetInput) {
-    targetSelect.value = "manual";
-    targetInput.value = "";
-    targetInput.readOnly = false;
-    targetInput.style.opacity = "1";
+}
+
+function filterCustomDropdownOptions(type, query) {
+  const listEl = document.getElementById(`${type}-options-list`);
+  if (!listEl) return;
+  const cleanQuery = query.trim().toLowerCase();
+
+  listEl.querySelectorAll(".dropdown-option-item").forEach(item => {
+    // Skip the manual option
+    if (item.classList.contains("manual-option")) return;
+
+    const title = item.getAttribute("data-title") || "";
+    const username = item.getAttribute("data-username") || "";
+    const matches = title.includes(cleanQuery) || username.includes(cleanQuery);
+    item.style.display = matches ? "flex" : "none";
+  });
+}
+
+function initCustomDropdowns() {
+  const promoToggle = document.getElementById("btn-promo-dropdown-toggle");
+  const promoMenu = document.getElementById("promo-dropdown-menu");
+  const promoArrow = document.getElementById("promo-dropdown-arrow");
+  const promoSearch = document.getElementById("promo-search-input");
+
+  const targetToggle = document.getElementById("btn-target-dropdown-toggle");
+  const targetMenu = document.getElementById("target-dropdown-menu");
+  const targetArrow = document.getElementById("target-dropdown-arrow");
+  const targetSearch = document.getElementById("target-search-input");
+
+  if (promoToggle && promoMenu) {
+    promoToggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isVisible = promoMenu.style.display === "block";
+      promoMenu.style.display = isVisible ? "none" : "block";
+      if (promoArrow) promoArrow.style.transform = isVisible ? "rotate(0deg)" : "rotate(180deg)";
+      if (!isVisible && promoSearch) {
+        promoSearch.value = "";
+        filterCustomDropdownOptions("promo", "");
+        setTimeout(() => promoSearch.focus(), 50);
+      }
+      if (targetMenu) targetMenu.style.display = "none";
+      if (targetArrow) targetArrow.style.transform = "rotate(0deg)";
+    });
   }
+
+  if (targetToggle && targetMenu) {
+    targetToggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isVisible = targetMenu.style.display === "block";
+      targetMenu.style.display = isVisible ? "none" : "block";
+      if (targetArrow) targetArrow.style.transform = isVisible ? "rotate(0deg)" : "rotate(180deg)";
+      if (!isVisible && targetSearch) {
+        targetSearch.value = "";
+        filterCustomDropdownOptions("target", "");
+        setTimeout(() => targetSearch.focus(), 50);
+      }
+      if (promoMenu) promoMenu.style.display = "none";
+      if (promoArrow) promoArrow.style.transform = "rotate(0deg)";
+    });
+  }
+
+  // Close dropdowns on click outside
+  document.addEventListener("click", () => {
+    if (promoMenu) promoMenu.style.display = "none";
+    if (promoArrow) promoArrow.style.transform = "rotate(0deg)";
+    if (targetMenu) targetMenu.style.display = "none";
+    if (targetArrow) targetArrow.style.transform = "rotate(0deg)";
+  });
+
+  // Stop propagation inside dropdown menus to prevent closing
+  promoMenu?.addEventListener("click", (e) => e.stopPropagation());
+  targetMenu?.addEventListener("click", (e) => e.stopPropagation());
+
+  // Search inputs event listeners
+  promoSearch?.addEventListener("input", (e) => {
+    filterCustomDropdownOptions("promo", e.target.value);
+  });
+  targetSearch?.addEventListener("input", (e) => {
+    filterCustomDropdownOptions("target", e.target.value);
+  });
 }
 
 function renderChannelPicker() {
@@ -1785,40 +1917,8 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Timed Post Select Dropdowns change listeners
-  const promoSelect = document.getElementById("web-pin-promo-select");
-  const promoInput = document.getElementById("web-pin-promo-link");
-  if (promoSelect && promoInput) {
-    promoSelect.addEventListener("change", () => {
-      if (promoSelect.value === "manual") {
-        promoInput.value = "";
-        promoInput.readOnly = false;
-        promoInput.style.opacity = "1";
-        promoInput.placeholder = "مثال: @external_channel أو https://t.me/...";
-      } else {
-        promoInput.value = promoSelect.value;
-        promoInput.readOnly = true;
-        promoInput.style.opacity = "0.7";
-      }
-    });
-  }
-
-  const targetSelect = document.getElementById("web-pin-target-select");
-  const targetInput = document.getElementById("web-pin-target-link");
-  if (targetSelect && targetInput) {
-    targetSelect.addEventListener("change", () => {
-      if (targetSelect.value === "manual") {
-        targetInput.value = "";
-        targetInput.readOnly = false;
-        targetInput.style.opacity = "1";
-        targetInput.placeholder = "مثال: @my_host_channel";
-      } else {
-        targetInput.value = targetSelect.value;
-        targetInput.readOnly = true;
-        targetInput.style.opacity = "0.7";
-      }
-    });
-  }
+  // Initialize Timed Post Custom Searchable Dropdowns
+  initCustomDropdowns();
 
   // Handle dynamically adding/removing target links for campaign
   const btnAddTargetLink = document.getElementById("btn-add-target-link");
