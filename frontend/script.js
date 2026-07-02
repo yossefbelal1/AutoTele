@@ -54,14 +54,13 @@ async function apiRequest(endpoint, options = {}) {
   
   // Build query string or inject authorization parameters
   let url = `${API_BASE_URL}${endpoint}`;
-  if (token) {
-    const separator = url.includes("?") ? "&" : "?";
-    url = `${url}${separator}token=${token}`;
-  }
 
   // Set default headers if none provided
   if (!options.headers) {
     options.headers = {};
+  }
+  if (token) {
+    options.headers["Authorization"] = `Bearer ${token}`;
   }
   if (!(options.body instanceof FormData) && !options.headers["Content-Type"]) {
     options.headers["Content-Type"] = "application/json";
@@ -348,6 +347,49 @@ window.handleGoogleLogin = async function(response) {
     console.error("Google sign in failed:", error);
   }
 };
+
+async function initializeGoogleOAuth() {
+  try {
+    const res = await fetch(API_BASE_URL + "/config");
+    if (!res.ok) return;
+    const config = await res.json();
+    const clientId = config.google_client_id;
+    if (!clientId) {
+      console.log("Google Client ID is not set in config.");
+      return;
+    }
+    
+    // Poller to wait until window.google is loaded
+    const checkGoogleLoaded = setInterval(() => {
+      if (window.google && window.google.accounts) {
+        clearInterval(checkGoogleLoaded);
+        google.accounts.id.initialize({
+          client_id: clientId,
+          callback: window.handleGoogleLogin,
+          context: "signin",
+          ux_mode: "popup",
+          auto_prompt: false
+        });
+        const googleBtnContainer = document.getElementById("google-signin-btn-container");
+        if (googleBtnContainer) {
+          google.accounts.id.renderButton(googleBtnContainer, {
+            type: "standard",
+            shape: "rectangular",
+            theme: "outline",
+            text: "signin_with",
+            size: "large",
+            logo_alignment: "left",
+            width: googleBtnContainer.parentElement ? googleBtnContainer.parentElement.clientWidth : 320
+          });
+        }
+      }
+    }, 100);
+    // Timeout after 10 seconds
+    setTimeout(() => clearInterval(checkGoogleLoaded), 10000);
+  } catch (err) {
+    console.error("Failed to initialize Google OAuth:", err);
+  }
+}
 
 // ==========================================
 // 5. LIVE SYNC MODULE (DASHBOARD REFRESH)
@@ -762,6 +804,227 @@ function resetTargetLinkInputs() {
 }
 
 // ==========================================
+// 8B-2. CHANNEL PICKER LOGIC
+// ==========================================
+let _channelPickerData = []; // full cached channel list from API
+let _channelPickerSelected = new Set(); // set of selected channel identifiers (username or invite_link)
+let _channelPickerFilter = "all"; // "all" | "broadcast" | "group"
+let _channelPickerFetched = false; // track if already fetched for this session
+
+async function fetchUserChannels(forceRefresh) {
+  const listEl = document.getElementById("channel-picker-list");
+  const loadingEl = document.getElementById("channel-picker-loading");
+  const emptyEl = document.getElementById("channel-picker-empty");
+  const noResultsEl = document.getElementById("channel-picker-no-results");
+  if (!listEl) return;
+
+  // Show loading
+  if (loadingEl) loadingEl.style.display = "block";
+  if (emptyEl) emptyEl.style.display = "none";
+  if (noResultsEl) noResultsEl.style.display = "none";
+
+  // Remove existing channel items (keep status elements)
+  listEl.querySelectorAll(".channel-picker-item").forEach(el => el.remove());
+
+  try {
+    const data = await apiRequest("/user/channels");
+    _channelPickerData = data.channels || [];
+    _channelPickerFetched = true;
+
+    // Update cache age display
+    const cacheAgeEl = document.getElementById("channel-picker-cache-age");
+    if (cacheAgeEl && data.cache_age_seconds != null) {
+      const mins = Math.floor(data.cache_age_seconds / 60);
+      if (mins < 60) {
+        cacheAgeEl.textContent = `آخر تحديث: ${mins} دقيقة`;
+      } else {
+        const hours = Math.floor(mins / 60);
+        cacheAgeEl.textContent = `آخر تحديث: ${hours} ساعة`;
+      }
+    }
+
+    if (loadingEl) loadingEl.style.display = "none";
+
+    if (_channelPickerData.length === 0) {
+      if (emptyEl) emptyEl.style.display = "block";
+      return;
+    }
+
+    renderChannelPicker();
+  } catch (error) {
+    console.error("Error fetching channels:", error);
+    if (loadingEl) loadingEl.style.display = "none";
+    if (emptyEl) {
+      emptyEl.style.display = "block";
+      emptyEl.querySelector("div").innerHTML = `
+        <span style="font-size: 28px; display: block; margin-bottom: 8px;">⚠️</span>
+        فشل في تحميل القنوات. تأكد من ربط حسابك وتفعيل المحرك.
+      `;
+    }
+  }
+}
+
+function renderChannelPicker() {
+  const listEl = document.getElementById("channel-picker-list");
+  const noResultsEl = document.getElementById("channel-picker-no-results");
+  if (!listEl) return;
+
+  // Remove existing channel items
+  listEl.querySelectorAll(".channel-picker-item").forEach(el => el.remove());
+
+  const searchQuery = (document.getElementById("channel-picker-search")?.value || "").trim().toLowerCase();
+
+  // Filter by type
+  let filtered = _channelPickerData;
+  if (_channelPickerFilter === "broadcast") {
+    filtered = filtered.filter(ch => ch.is_broadcast);
+  } else if (_channelPickerFilter === "group") {
+    filtered = filtered.filter(ch => ch.is_group);
+  }
+
+  // Filter by search query
+  if (searchQuery) {
+    filtered = filtered.filter(ch => {
+      const title = (ch.title || "").toLowerCase();
+      const username = (ch.username || "").toLowerCase();
+      return title.includes(searchQuery) || username.includes(searchQuery);
+    });
+  }
+
+  // Show/hide no results
+  if (noResultsEl) {
+    noResultsEl.style.display = filtered.length === 0 ? "block" : "none";
+  }
+
+  // Sort: selected first, then by members_count desc
+  filtered.sort((a, b) => {
+    const aSelected = _channelPickerSelected.has(getChannelIdentifier(a)) ? 1 : 0;
+    const bSelected = _channelPickerSelected.has(getChannelIdentifier(b)) ? 1 : 0;
+    if (aSelected !== bSelected) return bSelected - aSelected;
+    return (b.members_count || 0) - (a.members_count || 0);
+  });
+
+  // Render each channel
+  filtered.forEach(ch => {
+    const identifier = getChannelIdentifier(ch);
+    const isSelected = _channelPickerSelected.has(identifier);
+    const typeIcon = ch.is_broadcast ? "📢" : "👥";
+    const membersText = formatMembersCount(ch.members_count || 0);
+    const qualityBadge = ch.quality_score > 0 ? `<span style="color: #f59e0b; font-size: 10px; margin-right: 6px;">⭐ ${ch.quality_score}</span>` : "";
+    const usernameText = ch.username ? `@${ch.username}` : "رابط خاص";
+
+    const item = document.createElement("div");
+    item.className = "channel-picker-item";
+    item.setAttribute("data-id", identifier);
+    item.style.cssText = `
+      display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+      border-radius: 8px; cursor: pointer; transition: all 0.15s;
+      margin-bottom: 4px;
+      background: ${isSelected ? "rgba(59, 130, 246, 0.1)" : "transparent"};
+      border: 1px solid ${isSelected ? "rgba(59, 130, 246, 0.25)" : "rgba(255,255,255,0.04)"};
+    `;
+
+    item.innerHTML = `
+      <div style="flex-shrink: 0; width: 20px; height: 20px; border-radius: 4px; border: 2px solid ${isSelected ? "#3b82f6" : "#475569"}; display: flex; align-items: center; justify-content: center; transition: all 0.15s; background: ${isSelected ? "#3b82f6" : "transparent"};">
+        ${isSelected ? '<span style="color: #fff; font-size: 11px; line-height: 1;">✓</span>' : ""}
+      </div>
+      <div style="font-size: 18px; flex-shrink: 0;">${typeIcon}</div>
+      <div style="flex: 1; min-width: 0;">
+        <div style="color: #e2e8f0; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(ch.title || "بدون اسم")}</div>
+        <div style="color: #64748b; font-size: 11px; display: flex; align-items: center; gap: 6px; margin-top: 2px;">
+          <span>${usernameText}</span>
+          <span>·</span>
+          <span>${membersText} عضو</span>
+          ${qualityBadge}
+        </div>
+      </div>
+    `;
+
+    item.addEventListener("click", () => {
+      if (_channelPickerSelected.has(identifier)) {
+        _channelPickerSelected.delete(identifier);
+      } else {
+        _channelPickerSelected.add(identifier);
+      }
+      renderChannelPicker();
+      updateChannelSelectionSummary();
+    });
+
+    // Hover effect
+    item.addEventListener("mouseenter", () => {
+      if (!_channelPickerSelected.has(identifier)) {
+        item.style.background = "rgba(255,255,255,0.03)";
+      }
+    });
+    item.addEventListener("mouseleave", () => {
+      if (!_channelPickerSelected.has(identifier)) {
+        item.style.background = "transparent";
+      }
+    });
+
+    listEl.appendChild(item);
+  });
+}
+
+function getChannelIdentifier(ch) {
+  // Prefer @username, fallback to invite_link, fallback to id
+  if (ch.username) return `@${ch.username}`;
+  if (ch.invite_link) return ch.invite_link;
+  return String(ch.id);
+}
+
+function formatMembersCount(count) {
+  if (count >= 1000000) return (count / 1000000).toFixed(1) + "M";
+  if (count >= 1000) return (count / 1000).toFixed(1) + "K";
+  return String(count);
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function updateChannelSelectionSummary() {
+  const selectionEl = document.getElementById("channel-picker-selection");
+  const countEl = document.getElementById("channel-picker-count");
+  if (!selectionEl || !countEl) return;
+  const count = _channelPickerSelected.size;
+  countEl.textContent = count;
+  selectionEl.style.display = count > 0 ? "block" : "none";
+}
+
+function getSelectedChannelLinks() {
+  // Returns array of selected channel identifiers (usernames or links)
+  return Array.from(_channelPickerSelected);
+}
+
+function resetChannelPicker() {
+  _channelPickerSelected.clear();
+  _channelPickerFilter = "all";
+  const searchEl = document.getElementById("channel-picker-search");
+  if (searchEl) searchEl.value = "";
+  updateChannelSelectionSummary();
+  // Reset filter tab styles
+  document.querySelectorAll(".channel-filter-tab").forEach(tab => {
+    if (tab.getAttribute("data-filter") === "all") {
+      tab.style.background = "rgba(59, 130, 246, 0.15)";
+      tab.style.color = "#3b82f6";
+      tab.style.borderColor = "rgba(59, 130, 246, 0.3)";
+      tab.style.fontWeight = "600";
+      tab.classList.add("active");
+    } else {
+      tab.style.background = "transparent";
+      tab.style.color = "#94a3b8";
+      tab.style.borderColor = "rgba(255,255,255,0.08)";
+      tab.style.fontWeight = "normal";
+      tab.classList.remove("active");
+    }
+  });
+  if (_channelPickerFetched) renderChannelPicker();
+}
+
+// ==========================================
 // 8C. WEB CAMPAIGN SUBMIT HANDLER
 // ==========================================
 async function handleWebCampaignSubmit(e) {
@@ -783,14 +1046,17 @@ async function handleWebCampaignSubmit(e) {
     }
     targetLink = promoLink + "|" + targetLinkPin;
   } else {
+    // Merge picker selections + manual link inputs
+    const pickerLinks = getSelectedChannelLinks();
     const inputs = document.querySelectorAll(".web-target-link");
-    const links = Array.from(inputs).map(inp => inp.value.trim()).filter(val => val !== "");
-    targetLink = links.join("\n");
+    const manualLinks = Array.from(inputs).map(inp => inp.value.trim()).filter(val => val !== "");
+    const allLinks = [...pickerLinks, ...manualLinks];
+    targetLink = allLinks.join("\n");
   }
   const customText = customTextInput.value.trim();
 
   if (campaignType === "single" && !targetLink) {
-    showToast("يرجى إدخال رابط القناة المستهدفة للحملة الفردية.", "warning");
+    showToast("يرجى اختيار قناة من القائمة أو إدخال رابط القناة المستهدفة.", "warning");
     return;
   }
 
@@ -813,6 +1079,7 @@ async function handleWebCampaignSubmit(e) {
       showToast(data.message || "تم تقديم طلب الحملة بنجاح!", "success");
       document.getElementById("web-campaign-form").reset();
       resetTargetLinkInputs();
+      resetChannelPicker();
       const campaignTypeSelect = document.getElementById("web-campaign-type");
       if (campaignTypeSelect) {
         campaignTypeSelect.dispatchEvent(new Event("change"));
@@ -1096,6 +1363,9 @@ document.addEventListener("DOMContentLoaded", () => {
     window.history.replaceState({}, document.title, window.location.pathname);
   }
   
+  // Dynamically initialize Google OAuth
+  initializeGoogleOAuth();
+  
 
 
   // A. View Router Check
@@ -1300,6 +1570,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (campaignTypeSelect && groupTargetLink && groupCustomText) {
     campaignTypeSelect.addEventListener("change", () => {
       resetTargetLinkInputs();
+      resetChannelPicker();
       const selectedType = campaignTypeSelect.value;
       if (selectedType === "single") {
         groupTargetLink.style.display = "block";
@@ -1308,6 +1579,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (groupDelayBetween) groupDelayBetween.style.display = "none";
         if (groupAdLifespan) groupAdLifespan.style.display = "block";
         if (groupDelayStart) groupDelayStart.style.display = "block";
+        // Auto-fetch channels for the picker
+        fetchUserChannels();
       } else if (selectedType === "timed_post") {
         groupTargetLink.style.display = "none";
         if (groupPinChannels) groupPinChannels.style.display = "block";
@@ -1340,6 +1613,64 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     // Trigger on load to match initial select value
     campaignTypeSelect.dispatchEvent(new Event("change"));
+  }
+
+  // ---- Channel Picker Event Listeners ----
+
+  // Search input — live filter
+  const channelSearch = document.getElementById("channel-picker-search");
+  if (channelSearch) {
+    channelSearch.addEventListener("input", () => {
+      renderChannelPicker();
+    });
+  }
+
+  // Filter tabs
+  document.querySelectorAll(".channel-filter-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      _channelPickerFilter = tab.getAttribute("data-filter") || "all";
+      // Update tab styles
+      document.querySelectorAll(".channel-filter-tab").forEach(t => {
+        const isActive = t === tab;
+        t.style.background = isActive ? "rgba(59, 130, 246, 0.15)" : "transparent";
+        t.style.color = isActive ? "#3b82f6" : "#94a3b8";
+        t.style.borderColor = isActive ? "rgba(59, 130, 246, 0.3)" : "rgba(255,255,255,0.08)";
+        t.style.fontWeight = isActive ? "600" : "normal";
+      });
+      renderChannelPicker();
+    });
+  });
+
+  // Refresh button
+  const btnRefreshChannels = document.getElementById("btn-refresh-channels");
+  if (btnRefreshChannels) {
+    btnRefreshChannels.addEventListener("click", () => {
+      fetchUserChannels(true);
+    });
+  }
+
+  // Clear selection button
+  const btnClearSelection = document.getElementById("btn-clear-channel-selection");
+  if (btnClearSelection) {
+    btnClearSelection.addEventListener("click", () => {
+      _channelPickerSelected.clear();
+      updateChannelSelectionSummary();
+      renderChannelPicker();
+    });
+  }
+
+  // Manual link toggle
+  const btnToggleManual = document.getElementById("btn-toggle-manual-link");
+  const manualSection = document.getElementById("manual-link-section");
+  const manualArrow = document.getElementById("manual-link-arrow");
+  if (btnToggleManual && manualSection) {
+    btnToggleManual.addEventListener("click", () => {
+      const isHidden = manualSection.style.display === "none";
+      manualSection.style.display = isHidden ? "block" : "none";
+      if (manualArrow) {
+        manualArrow.style.transform = isHidden ? "rotate(-90deg)" : "rotate(0deg)";
+      }
+    });
   }
 
   // Handle dynamically adding/removing target links for campaign

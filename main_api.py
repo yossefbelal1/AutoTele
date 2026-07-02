@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional
 from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, Request
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr, Field
 import bcrypt
 from sqlalchemy import select, update, delete, func
@@ -19,7 +20,7 @@ from pyrogram import Client
 from pyrogram.errors import SessionPasswordNeeded, PhoneCodeInvalid, PhoneCodeExpired, FloodWait
 
 from db_manager import get_db, User, TelegramAccount, AsyncSessionLocal, CryptoPayment, AdTemplate, WebCampaignTask, apply_pyrogram_patches
-from cache_manager import is_rate_limited, is_key_rate_limited, redis_client, clear_tenant_cache
+from cache_manager import is_rate_limited, is_key_rate_limited, redis_client, clear_tenant_cache, get_channels_cache
 
 import redis
 import re as _re
@@ -82,6 +83,10 @@ except Exception as rhe:
 JWT_SECRET = os.getenv("JWT_SECRET")
 if not JWT_SECRET:
     raise RuntimeError("JWT_SECRET environment variable is required and cannot be empty.")
+if len(JWT_SECRET) < 32:
+    raise RuntimeError("JWT_SECRET environment variable must be at least 32 characters long.")
+if JWT_SECRET in ["SUPER_SECRET_SaaS_KEY_2026_DONOT_SHARE", "LOCAL_LAB_TESTING_SECRET_KEY"]:
+    raise RuntimeError("JWT_SECRET cannot be set to a known default testing key in production.")
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 1440
 
@@ -133,6 +138,10 @@ async def health_check():
     if health_status["status"] == "unhealthy":
         raise HTTPException(status_code=500, detail=health_status)
     return health_status
+
+@app.get("/config")
+async def get_config():
+    return {"google_client_id": GOOGLE_CLIENT_ID or ""}
 
 @app.get("/metrics")
 async def metrics_endpoint():
@@ -212,11 +221,29 @@ class CampaignSubmitReq(BaseModel):
     target_link: Optional[str] = None
     custom_text: Optional[str] = None
 
-async def get_current_user(token: str) -> int:
+reusable_oauth2 = HTTPBearer(auto_error=False)
+
+async def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(reusable_oauth2),
+    token: Optional[str] = None
+) -> int:
+    resolved_token = None
+    if credentials:
+        resolved_token = credentials.credentials
+    elif token:
+        resolved_token = token
+        
+    if not resolved_token:
+        raise HTTPException(
+            status_code=401,
+            detail="لم يتم إرسال توكن المصادقة (Bearer token required in Authorization header)"
+        )
+        
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(resolved_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         user_id: int = payload.get("sub")
-        if user_id is None: raise HTTPException(status_code=401)
+        if user_id is None:
+            raise HTTPException(status_code=401)
         return user_id
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="رخصة غير صالحة")
@@ -248,16 +275,12 @@ async def check_proxy_responsive(host: str, port: int, timeout: float = 3.0) -> 
     except Exception:
         return False
 
-# Pool of proxy servers for automatic load balancing
-PROXY_POOL = [
-    "85.120.128.180",
-    "85.120.131.44",
-    "85.120.130.123",
-    "85.120.129.8"
-]
-PROXY_PORT = 50101
-PROXY_USERNAME = "kamelyossef111"
-PROXY_PASSWORD = "zXAi3FHU7B"
+# Pool of proxy servers for automatic load balancing (from env)
+_proxy_pool_raw = os.getenv("PROXY_POOL", "[]")
+PROXY_POOL = _json.loads(_proxy_pool_raw)
+PROXY_PORT = int(os.getenv("PROXY_PORT", "1080"))
+PROXY_USERNAME = os.getenv("PROXY_USERNAME", "")
+PROXY_PASSWORD = os.getenv("PROXY_PASSWORD", "")
 
 async def get_least_used_proxy(session) -> str:
     # Find the counts of users assigned to each proxy to balance the load
@@ -313,7 +336,9 @@ async def login(user_data: UserAuth, request: Request):
 class GoogleAuthReq(BaseModel):
     id_token: str
 
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "593098771975-q2e20qf1lhlp1kv0dackfmlrtudqb365.apps.googleusercontent.com")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+if not GOOGLE_CLIENT_ID:
+    logger.warning("GOOGLE_CLIENT_ID not set. Google OAuth will be disabled.")
 
 def verify_google_token(id_token: str) -> Optional[dict]:
     url = f"https://oauth2.googleapis.com/tokeninfo?id_token={urllib.parse.quote(id_token)}"
@@ -381,8 +406,7 @@ async def google_login(req: GoogleAuthReq, request: Request):
         return {"access_token": access_token, "token_type": "bearer"}
 
 @app.get("/user/subscription")
-async def get_user_subscription(token: str):
-    user_id = await get_current_user(token)
+async def get_user_subscription(user_id: int = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
         if not user: raise HTTPException(status_code=404, detail="اليوزر غير موجود")
@@ -442,8 +466,9 @@ async def get_user_subscription(token: str):
         }
 
 @app.get("/user/status-bot-link")
-async def get_status_bot_link(token: str):
-    user_id = await get_current_user(token)
+async def get_status_bot_link(user_id: int = Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        await verify_active_subscription(user_id, session)
     import secrets
     link_token = secrets.token_hex(16)
     from cache_manager import redis_client
@@ -457,16 +482,15 @@ async def get_receive_wallet():
     return {"wallet_address": USDT_TRC20_WALLET}
 
 @app.post("/payments/crypto-submit")
-async def crypto_submit(req: CryptoPaymentReq, token: str):
-    user_id = await get_current_user(token)
-    
-    # Immutable server-side plan validation â€” reject any plan not in OFFICIAL_PLANS
+async def crypto_submit(req: CryptoPaymentReq, user_id: int = Depends(get_current_user)):
+    # Immutable server-side plan validation — reject any plan not in OFFICIAL_PLANS
     if req.plan_selected not in OFFICIAL_PLANS:
         raise HTTPException(
             status_code=400,
             detail=f"خطأ: الباقة '{req.plan_selected}' غير موجودة في قائمة الباقات الرسمية. يُرجى اختيار باقة صحيحة."
         )
     
+    from sqlalchemy.exc import IntegrityError
     async with AsyncSessionLocal() as session:
         try:
             new_payment = CryptoPayment(user_id=user_id, plan_selected=req.plan_selected, txid=req.txid)
@@ -475,13 +499,15 @@ async def crypto_submit(req: CryptoPaymentReq, token: str):
             plan_label = OFFICIAL_PLANS[req.plan_selected]["label"]
             plan_price = OFFICIAL_PLANS[req.plan_selected]["price_usd"]
             return {"status": "success", "message": f"تم إرسال طلب التفعيل لباقة {plan_label} بقيمة ${plan_price}. جاري مراجعة الإيصال وسيتم التفعيل فور التأكيد!"}
-        except Exception:
+        except IntegrityError:
             await session.rollback()
             raise HTTPException(status_code=400, detail="هذا الـ TxID مبعوث مسبقاً ومسجل في النظام")
+        except Exception as e:
+            await session.rollback()
+            raise HTTPException(status_code=500, detail="حدث خطأ في قاعدة البيانات أثناء معالجة الطلب")
 
 @app.post("/templates/add")
-async def add_template(req: TemplateCreateReq, token: str):
-    user_id = await get_current_user(token)
+async def add_template(req: TemplateCreateReq, user_id: int = Depends(get_current_user)):
 
     async with AsyncSessionLocal() as session:
         await verify_active_subscription(user_id, session)
@@ -501,9 +527,9 @@ async def add_template(req: TemplateCreateReq, token: str):
         return {"status": "success", "message": "تم إضافة الصيغة بنجاح لمكتبتك الخارجية"}
 
 @app.get("/templates")
-async def get_templates(token: str, telegram_account_id: Optional[int] = None):
-    user_id = await get_current_user(token)
+async def get_templates(telegram_account_id: Optional[int] = None, user_id: int = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
+        await verify_active_subscription(user_id, session)
         if telegram_account_id:
             tg_account = (await session.execute(
                 select(TelegramAccount).where(
@@ -543,8 +569,7 @@ async def get_templates(token: str, telegram_account_id: Optional[int] = None):
         ]
 
 @app.delete("/templates/{template_id}")
-async def delete_template(template_id: int, token: str):
-    user_id = await get_current_user(token)
+async def delete_template(template_id: int, user_id: int = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
         await verify_active_subscription(user_id, session)
         
@@ -565,9 +590,42 @@ async def delete_template(template_id: int, token: str):
         return {"status": "success", "message": "تم حذف الصيغة بنجاح"}
 
 
+@app.get("/user/channels")
+async def get_user_channels(user_id: int = Depends(get_current_user)):
+    """Return the list of Telegram channels/groups the user is admin on (from Redis cache)."""
+    async with AsyncSessionLocal() as session:
+        user = await verify_active_subscription(user_id, session)
+
+        tg_account = (await session.execute(
+            select(TelegramAccount).where(
+                TelegramAccount.user_id == user_id,
+                TelegramAccount.status == "active"
+            )
+        )).scalars().first()
+        if not tg_account:
+            raise HTTPException(status_code=400, detail="يرجى ربط حسابك على تليجرام وتفعيل المحرك أولاً.")
+
+        channels = await get_channels_cache(tg_account.id)
+
+        # Calculate cache age from Redis TTL
+        cache_age_seconds = None
+        try:
+            ttl = await redis_client.ttl(f"tenant:{tg_account.id}:channels")
+            if ttl and ttl > 0:
+                # CHANNELS_CACHE_TTL is 43200 (12h); age = max_ttl - remaining_ttl
+                cache_age_seconds = 43200 - ttl
+        except Exception:
+            pass
+
+        return {
+            "channels": channels,
+            "total": len(channels),
+            "cache_age_seconds": cache_age_seconds
+        }
+
+
 @app.post("/user/campaign-submit")
-async def campaign_submit(req: CampaignSubmitReq, token: str):
-    user_id = await get_current_user(token)
+async def campaign_submit(req: CampaignSubmitReq, user_id: int = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
         # Verify active subscription
         user = await verify_active_subscription(user_id, session)
@@ -617,8 +675,7 @@ async def log_tenant_event_api(tenant_id: int, text: str):
 
 
 @app.post("/user/stop-everything")
-async def stop_everything(token: str):
-    user_id = await get_current_user(token)
+async def stop_everything(user_id: int = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
         # Verify active subscription
         user = await verify_active_subscription(user_id, session)
@@ -674,9 +731,9 @@ async def stop_everything(token: str):
 
 
 @app.get("/user/logs")
-async def get_user_logs(token: str):
-    user_id = await get_current_user(token)
+async def get_user_logs(user_id: int = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
+        await verify_active_subscription(user_id, session)
         tg_account = (await session.execute(
             select(TelegramAccount).where(TelegramAccount.user_id == user_id, TelegramAccount.status == "active")
         )).scalars().first()
@@ -703,8 +760,7 @@ async def get_user_logs(token: str):
         }
 
 @app.post("/user/logs/clear")
-async def clear_user_logs(token: str):
-    user_id = await get_current_user(token)
+async def clear_user_logs(user_id: int = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
         # [SECURITY] Verify active subscription before allowing any write operation
         await verify_active_subscription(user_id, session)
@@ -730,9 +786,9 @@ async def clear_user_logs(token: str):
         return {"status": "success", "message": "تم تفريغ مسح سجل الأحداث بنجاح!"}
 
 @app.get("/user/scheduled-jobs")
-async def get_user_scheduled_jobs(token: str):
-    user_id = await get_current_user(token)
+async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
+        await verify_active_subscription(user_id, session)
         tg_account = (await session.execute(
             select(TelegramAccount).where(TelegramAccount.user_id == user_id, TelegramAccount.status == "active")
         )).scalars().first()
@@ -811,9 +867,9 @@ async def get_user_scheduled_jobs(token: str):
         }
 
 @app.get("/user/active-ads")
-async def get_user_active_ads(token: str):
-    user_id = await get_current_user(token)
+async def get_user_active_ads(user_id: int = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
+        await verify_active_subscription(user_id, session)
         tg_account = (await session.execute(
             select(TelegramAccount).where(TelegramAccount.user_id == user_id, TelegramAccount.status == "active")
         )).scalars().first()
@@ -837,8 +893,7 @@ async def get_user_active_ads(token: str):
         return {"status": "success", "active_ads": ads}
 
 @app.delete("/user/scheduled-jobs")
-async def clear_user_scheduled_jobs(token: str):
-    user_id = await get_current_user(token)
+async def clear_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
         # [SECURITY] Verify active subscription before allowing any write operation
         await verify_active_subscription(user_id, session)
@@ -883,10 +938,9 @@ async def clear_user_scheduled_jobs(token: str):
         }
 
 @app.post("/telegram/send-code")
-async def telegram_send_code(req: TelegramSendCodeReq, token: str):
+async def telegram_send_code(req: TelegramSendCodeReq, user_id: int = Depends(get_current_user)):
     # Normalize phone number to digits-only format to prevent duplicate entries
     req.phone = "".join(c for c in req.phone if c.isdigit())
-    user_id = await get_current_user(token)
     if await is_rate_limited(user_id, 3, 60): raise HTTPException(status_code=429)
     
     # Purge expired handshakes older than 10 minutes to prevent memory leaks
@@ -942,10 +996,9 @@ async def telegram_send_code(req: TelegramSendCodeReq, token: str):
     except Exception as e: raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/telegram/verify-code")
-async def telegram_verify_code(req: TelegramVerifyCodeReq, token: str):
+async def telegram_verify_code(req: TelegramVerifyCodeReq, user_id: int = Depends(get_current_user)):
     # Normalize phone number to digits-only format to prevent duplicate entries
     req.phone = "".join(c for c in req.phone if c.isdigit())
-    user_id = await get_current_user(token)
     handshake = active_handshakes.get(req.phone)
     if not handshake or handshake["user_id"] != user_id: raise HTTPException(status_code=400, detail="انتهت الجلسة")
     client: Client = handshake["client"]
@@ -1345,9 +1398,24 @@ async def admin_login(req: AdminLoginReq):
             "message": "تم تسجيل الدخول بنجاح!"
         }
 
-async def check_admin_user(token: str) -> User:
+async def check_admin_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(reusable_oauth2),
+    token: Optional[str] = None
+) -> User:
+    resolved_token = None
+    if credentials:
+        resolved_token = credentials.credentials
+    elif token:
+        resolved_token = token
+        
+    if not resolved_token:
+        raise HTTPException(
+            status_code=401,
+            detail="لم يتم إرسال توكن المصادقة (Bearer token required in Authorization header)"
+        )
+        
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(resolved_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         if not payload.get("is_admin"):
             raise HTTPException(status_code=403, detail="غير مسموح. يجب تسجيل الدخول عبر بوابة المشرفين الثنائية Telegram OTP")
         user_id = payload.get("sub")
@@ -1363,8 +1431,7 @@ async def check_admin_user(token: str) -> User:
         return user
 
 @app.get("/admin/stats")
-async def get_admin_stats(token: str):
-    await check_admin_user(token)
+async def get_admin_stats(admin_user: User = Depends(check_admin_user)):
     async with AsyncSessionLocal() as session:
         total_users = (await session.execute(select(func.count(User.id)))).scalar() or 0
         
@@ -1391,8 +1458,7 @@ async def get_admin_stats(token: str):
         }
 
 @app.get("/admin/system-stats")
-async def get_admin_system_stats(token: str):
-    await check_admin_user(token)
+async def get_admin_system_stats(admin_user: User = Depends(check_admin_user)):
     
     import psutil
     import os
@@ -1479,8 +1545,7 @@ async def get_admin_system_stats(token: str):
     }
 
 @app.get("/admin/subscriptions/expiring")
-async def get_admin_subscriptions_expiring(token: str):
-    await check_admin_user(token)
+async def get_admin_subscriptions_expiring(admin_user: User = Depends(check_admin_user)):
     async with AsyncSessionLocal() as session:
         now = datetime.now(timezone.utc)
         
@@ -1525,8 +1590,7 @@ async def get_admin_subscriptions_expiring(token: str):
         }
 
 @app.get("/admin/subscriptions/notifications")
-async def get_admin_subscriptions_notifications(token: str):
-    await check_admin_user(token)
+async def get_admin_subscriptions_notifications(admin_user: User = Depends(check_admin_user)):
     async with AsyncSessionLocal() as session:
         from db_manager import SubscriptionNotificationLog
         stmt = (
@@ -1552,8 +1616,7 @@ async def get_admin_subscriptions_notifications(token: str):
         return logs
 
 @app.get("/admin/pending-payments")
-async def get_admin_pending_payments(token: str):
-    await check_admin_user(token)
+async def get_admin_pending_payments(admin_user: User = Depends(check_admin_user)):
     async with AsyncSessionLocal() as session:
         payments = (await session.execute(
             select(CryptoPayment).where(CryptoPayment.status == "pending").order_by(CryptoPayment.created_at.desc())
@@ -1581,8 +1644,7 @@ class VerifyPaymentReq(BaseModel):
     proxy_password: Optional[str] = None
 
 @app.post("/admin/verify-payment")
-async def verify_payment(req: VerifyPaymentReq, token: str, background_tasks: BackgroundTasks):
-    await check_admin_user(token)
+async def verify_payment(req: VerifyPaymentReq, background_tasks: BackgroundTasks, admin_user: User = Depends(check_admin_user)):
     async with AsyncSessionLocal() as session:
         payment = (await session.execute(select(CryptoPayment).where(CryptoPayment.id == req.payment_id))).scalar_one_or_none()
         if not payment:
@@ -1659,8 +1721,7 @@ async def verify_payment(req: VerifyPaymentReq, token: str, background_tasks: Ba
             raise HTTPException(status_code=400, detail="إجراء غير معروف. يجب استخدام approve أو reject")
 
 @app.get("/admin/payments")
-async def get_admin_payments(token: str):
-    await check_admin_user(token)
+async def get_admin_payments(admin_user: User = Depends(check_admin_user)):
     async with AsyncSessionLocal() as session:
         stmt = select(CryptoPayment, User.email).join(User, CryptoPayment.user_id == User.id).order_by(CryptoPayment.created_at.desc())
         results = (await session.execute(stmt)).all()
@@ -1683,8 +1744,7 @@ async def get_admin_payments(token: str):
 # because it included 'trial' as a payable plan and could drift out of sync with OFFICIAL_PLANS.
 
 @app.post("/admin/payments/{payment_id}/approve")
-async def approve_payment(payment_id: int, token: str, background_tasks: BackgroundTasks):
-    await check_admin_user(token)
+async def approve_payment(payment_id: int, background_tasks: BackgroundTasks, admin_user: User = Depends(check_admin_user)):
     async with AsyncSessionLocal() as session:
         payment = (await session.execute(select(CryptoPayment).where(CryptoPayment.id == payment_id))).scalar_one_or_none()
         if not payment:
@@ -1753,8 +1813,7 @@ async def approve_payment(payment_id: int, token: str, background_tasks: Backgro
         return {"status": "success", "message": f"تم تفعيل {plan_label} بنجاح حتى تاريخ {new_end.strftime('%Y-%m-%d')}"}
 
 @app.post("/admin/payments/{payment_id}/reject")
-async def reject_payment(payment_id: int, token: str):
-    await check_admin_user(token)
+async def reject_payment(payment_id: int, admin_user: User = Depends(check_admin_user)):
     async with AsyncSessionLocal() as session:
         payment = (await session.execute(select(CryptoPayment).where(CryptoPayment.id == payment_id))).scalar_one_or_none()
         if not payment:
@@ -1767,8 +1826,7 @@ async def reject_payment(payment_id: int, token: str):
         return {"status": "success", "message": "تم رفض الإيصال بنجاح"}
 
 @app.get("/admin/users")
-async def get_admin_users(token: str):
-    await check_admin_user(token)
+async def get_admin_users(admin_user: User = Depends(check_admin_user)):
     async with AsyncSessionLocal() as session:
         users = (await session.execute(select(User).order_by(User.created_at.desc()))).scalars().all()
         
@@ -1794,8 +1852,7 @@ async def get_admin_users(token: str):
         return users_list
 
 @app.post("/admin/users/{target_user_id}/modify-subscription")
-async def modify_subscription(target_user_id: int, req: ModifySubscriptionReq, token: str, background_tasks: BackgroundTasks):
-    await check_admin_user(token)
+async def modify_subscription(target_user_id: int, req: ModifySubscriptionReq, background_tasks: BackgroundTasks, admin_user: User = Depends(check_admin_user)):
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(User.id == target_user_id))).scalar_one_or_none()
         if not user:
@@ -1865,8 +1922,7 @@ async def modify_subscription(target_user_id: int, req: ModifySubscriptionReq, t
         return {"status": "success", "message": "تم تعديل بيانات اشتراك المستخدم بنجاح"}
 
 @app.post("/admin/users/{target_user_id}/reboot")
-async def reboot_user_service(target_user_id: int, token: str):
-    await check_admin_user(token)
+async def reboot_user_service(target_user_id: int, admin_user: User = Depends(check_admin_user)):
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(User.id == target_user_id))).scalar_one_or_none()
         if not user:
@@ -1886,8 +1942,7 @@ async def reboot_user_service(target_user_id: int, token: str):
         return {"status": "success", "message": "تم إرسال أمر إعادة التشغيل وتنظيف الكاش لجميع محركات العميل بنجاح"}
 
 @app.delete("/admin/users/{target_user_id}")
-async def delete_user_account(target_user_id: int, token: str):
-    await check_admin_user(token)
+async def delete_user_account(target_user_id: int, admin_user: User = Depends(check_admin_user)):
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(User.id == target_user_id))).scalar_one_or_none()
         if not user:
@@ -1922,8 +1977,7 @@ async def dispatch_admin_broadcast(text: str):
         return False
 
 @app.post("/admin/broadcast")
-async def admin_broadcast(req: BroadcastReq, token: str, background_tasks: BackgroundTasks):
-    await check_admin_user(token)
+async def admin_broadcast(req: BroadcastReq, background_tasks: BackgroundTasks, admin_user: User = Depends(check_admin_user)):
     if not req.message_text.strip():
         raise HTTPException(status_code=400, detail="لا يمكن إرسال رسالة فارغة")
     
@@ -1931,8 +1985,7 @@ async def admin_broadcast(req: BroadcastReq, token: str, background_tasks: Backg
     return {"status": "success", "message": "جاري إرسال البث لجميع المشتركين النشطين في الخلفية بنجاح!"}
 
 @app.get("/admin/logs/stream")
-async def live_logs_stream(token: str, tenant_id: Optional[int] = None):
-    await check_admin_user(token)
+async def live_logs_stream(tenant_id: Optional[int] = None, admin_user: User = Depends(check_admin_user)):
 
     async def log_generator():
         pubsub = redis_client.pubsub()

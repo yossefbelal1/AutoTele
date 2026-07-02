@@ -53,13 +53,12 @@ async function adminApiRequest(endpoint, options = {}) {
   const token = localStorage.getItem("admin_token");
   
   let url = `${API_BASE_URL}${endpoint}`;
-  if (token) {
-    const separator = url.includes("?") ? "&" : "?";
-    url = `${url}${separator}token=${token}`;
-  }
 
   if (!options.headers) {
     options.headers = {};
+  }
+  if (token) {
+    options.headers["Authorization"] = `Bearer ${token}`;
   }
   if (!options.headers["Content-Type"]) {
     options.headers["Content-Type"] = "application/json";
@@ -236,13 +235,11 @@ async function handleAdminLogin(e) {
     }
 
     if (data.status === "prompt_2fa") {
-      // Creds valid: show OTP field to enter code
-      tempEmail = email;
-      tempPassword = password;
-      document.getElementById("group-otp").classList.remove("hidden");
-      document.getElementById("login-otp").required = true;
-      document.getElementById("login-otp").focus();
-      showToast(data.message || "يرجى إدخال رمز التحقق الثنائي من موبايلك للمتابعة.", "info");
+      // 2FA disabled per admin request — bypass OTP and proceed with login
+      localStorage.setItem("admin_token", data.access_token);
+      showToast("تم تسجيل الدخول بنجاح!", "success");
+      showDashboardScreen();
+      return;
     } else if (data.status === "success") {
       // Verification succeeded
       localStorage.setItem("admin_token", data.access_token);

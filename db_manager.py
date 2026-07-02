@@ -55,7 +55,14 @@ from cryptography.fernet import Fernet
 SESSION_ENCRYPTION_KEY = os.getenv("SESSION_ENCRYPTION_KEY")
 if not SESSION_ENCRYPTION_KEY:
     raise RuntimeError("SESSION_ENCRYPTION_KEY environment variable is required and cannot be empty.")
-cipher = Fernet(SESSION_ENCRYPTION_KEY.encode())
+if len(SESSION_ENCRYPTION_KEY) < 32:
+    raise RuntimeError("SESSION_ENCRYPTION_KEY environment variable must be at least 32 characters long.")
+if SESSION_ENCRYPTION_KEY in ["DEFAULT_FERNET_KEY_GENERATE_YOUR_OWN_KEY_PLEASE", "SUPER_SECRET_SESSION_ENCRYPTION_KEY_2026"]:
+    raise RuntimeError("SESSION_ENCRYPTION_KEY cannot be set to a known default testing key in production.")
+try:
+    cipher = Fernet(SESSION_ENCRYPTION_KEY.encode())
+except Exception as fe:
+    raise RuntimeError(f"SESSION_ENCRYPTION_KEY is not a valid Fernet key: {fe}")
 
 class EncryptedText(TypeDecorator):
     impl = Text
@@ -356,11 +363,16 @@ async def get_blacklist_for_tenant(session: AsyncSession, telegram_account_id: i
     return list((await session.execute(stmt)).scalars().all())
 
 
+_patches_applied = False
+
 def apply_pyrogram_patches():
     """
     Apply monkey patches to Pyrogram to disable link previews globally
     and expand ID namespace limits for high-ID channels.
     """
+    global _patches_applied
+    if _patches_applied:
+        return
     try:
         from pyrogram import Client
         from pyrogram.types import Message
@@ -418,6 +430,7 @@ def apply_pyrogram_patches():
             return await orig_edit(self, *args, **kwargs)
         Message.edit = patched_edit
         
+        _patches_applied = True
         logger.info("Successfully applied Pyrogram monkey patches.")
     except Exception as e:
         logger.error(f"Error applying Pyrogram monkey patches: {e}")

@@ -328,6 +328,33 @@ async def handle_posting_error_and_clean_cache(tenant_id: int, chat_id: int, e: 
 
 # Global state to track scheduled tasks and last wave execution timestamp per tenant
 scheduled_jobs: Dict[int, List[dict]] = {}
+
+async def load_scheduled_jobs_from_redis():
+    from cache_manager import redis_client
+    import json
+    try:
+        keys = await redis_client.keys("tenant:*:scheduled_jobs")
+        for key in keys:
+            try:
+                tenant_id = int(key.split(":")[1])
+                raw = await redis_client.get(key)
+                if raw:
+                    loaded = json.loads(raw)
+                    for job in loaded:
+                        if "start_time" in job and isinstance(job["start_time"], str):
+                            try:
+                                # Convert ISO format back to datetime, with UTC timezone
+                                dt = datetime.fromisoformat(job["start_time"])
+                                if dt.tzinfo is None:
+                                    dt = dt.replace(tzinfo=timezone.utc)
+                                job["start_time"] = dt
+                            except Exception:
+                                job["start_time"] = datetime.now(timezone.utc)
+                    scheduled_jobs[tenant_id] = loaded
+            except Exception as e:
+                logger.warning(f"Failed to load scheduled jobs for key {key}: {e}")
+    except Exception as e:
+        logger.error(f"Failed to load scheduled jobs from Redis: {e}")
 last_wave_time: Dict[int, datetime] = {}
 last_crawl_time: Dict[int, datetime] = {}
 active_running_tasks: Dict[int, Set[asyncio.Task]] = {}
@@ -477,8 +504,6 @@ def format_user_template(template: str, title: str, link: str) -> str:
     import html as _html
     safe_title = _html.escape(title)
     safe_link   = _html.escape(link)
-    # HTML hyperlink for [LINK] / {LINK} placeholders
-    html_link   = f'<a href="{safe_link}">{safe_link}</a>'
 
     res = template.replace("{title}", safe_title).replace("{link}", safe_link)
     res = res.replace("{TITLE}", safe_title).replace("{LINK}", safe_link)
@@ -695,6 +720,7 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
         offset_date = 0
         offset_id = 0
         offset_peer = types.InputPeerEmpty()
+        # Ensure offset_date is always an int (Unix timestamp) for pagination
         prev_offset_id = None
         prev_offset_peer_id = None
         
@@ -867,7 +893,7 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                     break
                     
                 offset_id = top_msg.id
-                offset_date = top_msg.date
+                offset_date = int(top_msg.date.timestamp())
                 
                 # Construct offset_peer safely from r.chats or r.users to avoid network calls/exceptions
                 offset_peer = types.InputPeerEmpty()
@@ -906,7 +932,7 @@ async def crawl_and_cache_tenant_channels(tenant_id: int, client: Client, status
 
     from cache_manager import redis_client
     try:
-        await redis_client.set(f"tenant:{tenant_id}:crawl_in_progress", "1")
+        await redis_client.set(f"tenant:{tenant_id}:crawl_in_progress", "1", ex=600)
     except Exception as re:
         logger.error(f"Redis error setting crawl_in_progress flag: {re}")
 
@@ -1281,7 +1307,7 @@ async def run_timed_post_logic(
         sticker_msg_id = await send_sticker_if_needed(client, host_chat_id, tenant_id)
         
         # Send the message to the host channel B (disabling web page previews)
-        sent_msg = await client.send_message(chat_id=host_chat_id, text=ad_text, disable_web_page_preview=True)
+        sent_msg = await client.send_message(chat_id=host_chat_id, text=ad_text, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
         
         # Calculate expiry time
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=ad_lifespan)
@@ -1442,7 +1468,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                             except Exception as se:
                                 logger.error(f"Failed to send sticker to chat {cid}: {se}")
                             
-                    msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True)
+                    msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
                     async with AsyncSessionLocal() as db_session:
                         await add_ad_record(
                             db_session,
@@ -1471,7 +1497,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                     logger.warning(f"FloodWait hit during concurrent campaign: waiting {fw.value}s")
                     await asyncio.sleep(fw.value + 1)
                     try:
-                        msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True)
+                        msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
                         async with AsyncSessionLocal() as db_session:
                             await add_ad_record(
                                 db_session,
@@ -1499,7 +1525,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                                 sticker_msg = await client.send_sticker(chat_id=cid, sticker=fresh_sticker_id)
                                 sticker_msg_id = sticker_msg.id
                                 await asyncio.sleep(1.0)
-                        msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True)
+                        msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
                         async with AsyncSessionLocal() as db_session:
                             await add_ad_record(
                                 db_session,
@@ -1586,7 +1612,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                                 except Exception as se:
                                     logger.error(f"Failed to send sticker to chat {cid}: {se}")
                                 
-                        msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True)
+                        msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
                         async with AsyncSessionLocal() as db_session:
                             await add_ad_record(
                                 db_session,
@@ -1630,7 +1656,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                                     sticker_msg = await client.send_sticker(chat_id=cid, sticker=fresh_sticker_id)
                                     sticker_msg_id = sticker_msg.id
                                     await asyncio.sleep(2.0)
-                            msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True)
+                            msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
                             async with AsyncSessionLocal() as db_session:
                                 await add_ad_record(
                                     db_session,
@@ -1665,7 +1691,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                                     sticker_msg = await client.send_sticker(chat_id=cid, sticker=fresh_sticker_id)
                                     sticker_msg_id = sticker_msg.id
                                     await asyncio.sleep(2.0)
-                            msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True)
+                            msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
                             async with AsyncSessionLocal() as db_session:
                                 await add_ad_record(
                                     db_session,
@@ -1888,7 +1914,7 @@ async def run_bulk_campaign_logic(
                                     except Exception as se:
                                         logger.error(f"Failed to send sticker to chat {cid}: {se}")
                                     
-                            msg = await client.send_message(chat_id=cid, text=ad_body, disable_web_page_preview=True)
+                            msg = await client.send_message(chat_id=cid, text=ad_body, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
                             async with AsyncSessionLocal() as db_session:
                                 await add_ad_record(
                                     db_session,
@@ -1935,7 +1961,7 @@ async def run_bulk_campaign_logic(
                                         sticker_msg = await client.send_sticker(chat_id=cid, sticker=fresh_sticker_id)
                                         sticker_msg_id = sticker_msg.id
                                         await asyncio.sleep(2.0)
-                                msg = await client.send_message(chat_id=cid, text=ad_body, disable_web_page_preview=True)
+                                msg = await client.send_message(chat_id=cid, text=ad_body, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
                                 async with AsyncSessionLocal() as db_session:
                                     await add_ad_record(
                                         db_session,
@@ -1970,7 +1996,7 @@ async def run_bulk_campaign_logic(
                                         sticker_msg = await client.send_sticker(chat_id=cid, sticker=fresh_sticker_id)
                                         sticker_msg_id = sticker_msg.id
                                         await asyncio.sleep(2.0)
-                                msg = await client.send_message(chat_id=cid, text=ad_body, disable_web_page_preview=True)
+                                msg = await client.send_message(chat_id=cid, text=ad_body, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
                                 async with AsyncSessionLocal() as db_session:
                                     await add_ad_record(
                                         db_session,
@@ -3456,7 +3482,7 @@ async def run_wave_execution(
                     await delete_active_ads_in_channel(clean_session, client, tenant_id, ch_a["id"])
                     
                 sticker_msg_id = await send_sticker_if_needed(client, chat_id=ch_a["id"], tenant_id=tenant_id)
-                msg_a = await client.send_message(chat_id=ch_a["id"], text=body_a, disable_web_page_preview=True)
+                msg_a = await client.send_message(chat_id=ch_a["id"], text=body_a, disable_web_page_preview=True, parse_mode="html")
                 async with AsyncSessionLocal() as db_session:
                     await add_ad_record(db_session, tenant_id, ch_a["id"], msg_a.id, datetime.now(timezone.utc) + timedelta(seconds=ad_lifespan), "auto", [ch_b["id"]], sticker_msg_id)
             logger.info(f"Published ad to channel: {ch_a.get('title')} (Msg ID: {msg_a.id})")
@@ -3476,7 +3502,7 @@ async def run_wave_execution(
                     tenant_semaphores[tenant_id] = asyncio.Semaphore(1)
                 async with tenant_semaphores[tenant_id]:
                     sticker_msg_id = await send_sticker_if_needed(client, chat_id=ch_a["id"], tenant_id=tenant_id)
-                    msg_a = await client.send_message(chat_id=ch_a["id"], text=body_a, disable_web_page_preview=True)
+                    msg_a = await client.send_message(chat_id=ch_a["id"], text=body_a, disable_web_page_preview=True, parse_mode="html")
                     async with AsyncSessionLocal() as db_session:
                         await add_ad_record(db_session, tenant_id, ch_a["id"], msg_a.id, datetime.now(timezone.utc) + timedelta(seconds=ad_lifespan), "auto", [ch_b["id"]], sticker_msg_id)
                 logger.info(f"Published ad to channel (after FloodWait): {ch_a.get('title')} (Msg ID: {msg_a.id})")
@@ -3495,7 +3521,7 @@ async def run_wave_execution(
                     tenant_semaphores[tenant_id] = asyncio.Semaphore(1)
                 async with tenant_semaphores[tenant_id]:
                     sticker_msg_id = await send_sticker_if_needed(client, chat_id=ch_a["id"], tenant_id=tenant_id)
-                    msg_a = await client.send_message(chat_id=ch_a["id"], text=body_a, disable_web_page_preview=True)
+                    msg_a = await client.send_message(chat_id=ch_a["id"], text=body_a, disable_web_page_preview=True, parse_mode="html")
                     async with AsyncSessionLocal() as db_session:
                         await add_ad_record(db_session, tenant_id, ch_a["id"], msg_a.id, datetime.now(timezone.utc) + timedelta(seconds=ad_lifespan), "auto", [ch_b["id"]], sticker_msg_id)
                 logger.info(f"Published ad to channel (after Slowmode): {ch_a.get('title')} (Msg ID: {msg_a.id})")
@@ -3561,7 +3587,7 @@ async def run_wave_execution(
                     await delete_active_ads_in_channel(clean_session, client, tenant_id, ch_b["id"])
                     
                 sticker_msg_id = await send_sticker_if_needed(client, chat_id=ch_b["id"], tenant_id=tenant_id)
-                msg_b = await client.send_message(chat_id=ch_b["id"], text=body_b, disable_web_page_preview=True)
+                msg_b = await client.send_message(chat_id=ch_b["id"], text=body_b, disable_web_page_preview=True, parse_mode="html")
                 async with AsyncSessionLocal() as db_session:
                     await add_ad_record(db_session, tenant_id, ch_b["id"], msg_b.id, datetime.now(timezone.utc) + timedelta(seconds=ad_lifespan), "auto", [ch_a["id"]], sticker_msg_id)
             logger.info(f"Published ad to channel: {ch_b.get('title')} (Msg ID: {msg_b.id})")
@@ -3581,7 +3607,7 @@ async def run_wave_execution(
                     tenant_semaphores[tenant_id] = asyncio.Semaphore(1)
                 async with tenant_semaphores[tenant_id]:
                     sticker_msg_id = await send_sticker_if_needed(client, chat_id=ch_b["id"], tenant_id=tenant_id)
-                    msg_b = await client.send_message(chat_id=ch_b["id"], text=body_b, disable_web_page_preview=True)
+                    msg_b = await client.send_message(chat_id=ch_b["id"], text=body_b, disable_web_page_preview=True, parse_mode="html")
                     async with AsyncSessionLocal() as db_session:
                         await add_ad_record(db_session, tenant_id, ch_b["id"], msg_b.id, datetime.now(timezone.utc) + timedelta(seconds=ad_lifespan), "auto", [ch_a["id"]], sticker_msg_id)
                 logger.info(f"Published ad to channel (after FloodWait): {ch_b.get('title')} (Msg ID: {msg_b.id})")
@@ -3601,7 +3627,7 @@ async def run_wave_execution(
                     tenant_semaphores[tenant_id] = asyncio.Semaphore(1)
                 async with tenant_semaphores[tenant_id]:
                     sticker_msg_id = await send_sticker_if_needed(client, chat_id=ch_b["id"], tenant_id=tenant_id)
-                    msg_b = await client.send_message(chat_id=ch_b["id"], text=body_b, disable_web_page_preview=True)
+                    msg_b = await client.send_message(chat_id=ch_b["id"], text=body_b, disable_web_page_preview=True, parse_mode="html")
                     async with AsyncSessionLocal() as db_session:
                         await add_ad_record(db_session, tenant_id, ch_b["id"], msg_b.id, datetime.now(timezone.utc) + timedelta(seconds=ad_lifespan), "auto", [ch_a["id"]], sticker_msg_id)
                 logger.info(f"Published ad to channel (after Slowmode): {ch_b.get('title')} (Msg ID: {msg_b.id})")
@@ -4054,8 +4080,13 @@ async def run_clear_logic(tenant_id: int, client: Client, reply_to_message: Opti
                     ids_to_delete.append(ad.sticker_msg_id)
                 await client.delete_messages(chat_id=ad.chat_id, message_ids=ids_to_delete)
                 telegram_deleted = True
-            except RPCError:
-                telegram_deleted = True
+            except RPCError as rpc_err:
+                err_str = str(rpc_err).upper()
+                if any(x in err_str for x in ["MESSAGE_ID_INVALID", "MESSAGE_DELETE_FORBIDDEN"]):
+                    telegram_deleted = True
+                else:
+                    logger.warning(f"RPCError during clear for ad {ad.id}: {rpc_err}. Will retry later.")
+                    telegram_deleted = False
             except FloodWait as fw:
                 logger.warning(f"FloodWait in clear logic: waiting {fw.value}s")
                 await asyncio.sleep(fw.value)
@@ -4224,22 +4255,7 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
         pre_channels = await get_channels_cache(tenant_id)
         no_post_ids = await get_no_post_channel_ids_live(tenant_id, client)
 
-        try:
-            cache_keys_to_clear = [
-                f"tenant:{tenant_id}:channels",
-                f"tenant:{tenant_id}:banned",
-                f"tenant:{tenant_id}:no_post",
-                f"tenant:{tenant_id}:campaign",
-                f"tenant:{tenant_id}:scheduled_jobs",
-            ]
-            for key in cache_keys_to_clear:
-                try:
-                    await rc.delete(key)
-                except Exception:
-                    pass
-            logger.info(f"Cleared {len(cache_keys_to_clear)} Redis cache keys for tenant {tenant_id} in deep clear.")
-        except Exception as cache_err:
-            logger.error(f"Error clearing Redis cache in deep clear for tenant {tenant_id}: {cache_err}")
+
             
         await log_tenant_event(tenant_id, "بدء المسح الأمني العميق وإيقاف كافة الحملات والمهام وتصفير الكاش...")
         
@@ -4264,8 +4280,13 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
                     ids_to_delete.append(ad.sticker_msg_id)
                 await client.delete_messages(chat_id=ad.chat_id, message_ids=ids_to_delete)
                 telegram_deleted = True
-            except RPCError:
-                telegram_deleted = True
+            except RPCError as rpc_err:
+                err_str = str(rpc_err).upper()
+                if any(x in err_str for x in ["MESSAGE_ID_INVALID", "MESSAGE_DELETE_FORBIDDEN"]):
+                    telegram_deleted = True
+                else:
+                    logger.warning(f"RPCError during clear for ad {ad.id}: {rpc_err}. Will retry later.")
+                    telegram_deleted = False
             except FloodWait as fw:
                 logger.warning(f"FloodWait in deep clear logic: waiting {fw.value}s")
                 await asyncio.sleep(fw.value)
@@ -4386,11 +4407,24 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
 
         # Extra safety: Clear all cache keys in Redis
         try:
-            from cache_manager import redis_client as rc
+            from cache_manager import redis_client
             # Clear all settings keys
-            setting_keys = await rc.keys(f"tenant:{tenant_id}:setting:*")
+            setting_keys = await redis_client.keys(f"tenant:{tenant_id}:setting:*")
             if setting_keys:
-                await rc.delete(*setting_keys)
+                await redis_client.delete(*setting_keys)
+            # Also clear the main cache keys that were attempted earlier
+            cache_keys_to_clear = [
+                f"tenant:{tenant_id}:channels",
+                f"tenant:{tenant_id}:banned",
+                f"tenant:{tenant_id}:no_post",
+                f"tenant:{tenant_id}:campaign",
+                f"tenant:{tenant_id}:scheduled_jobs",
+            ]
+            for key in cache_keys_to_clear:
+                try:
+                    await redis_client.delete(key)
+                except Exception:
+                    pass
         except Exception as rc_err:
             logger.error(f"Failed to clear settings Redis keys in deep clear: {rc_err}")
                 
@@ -4665,7 +4699,22 @@ async def poll_web_campaign_tasks():
                         active_running_tasks[tenant_id] = set()
                     active_running_tasks[tenant_id].add(t)
                     
-                    def make_cleanup(tid):
+                    if tenant_id not in scheduled_jobs:
+                        scheduled_jobs[tenant_id] = []
+                    
+                    # Prevent duplicate entries in scheduled_jobs
+                    scheduled_jobs[tenant_id] = [j for j in scheduled_jobs[tenant_id] if j.get("id") != task.id]
+                    
+                    scheduled_jobs[tenant_id].append({
+                        "id": task.id,
+                        "type": task.campaign_type,
+                        "start_time": datetime.now(timezone.utc),
+                        "details": f"Target: {task.target_link}" if task.target_link else "",
+                        "task": t
+                    })
+                    asyncio.create_task(save_scheduled_jobs(tenant_id))
+                    
+                    def make_cleanup(tid, j_id):
                         def cleanup(task_obj):
                             try:
                                 active_running_tasks[tid].remove(task_obj)
@@ -4673,15 +4722,14 @@ async def poll_web_campaign_tasks():
                                     active_running_tasks.pop(tid, None)
                             except KeyError:
                                 pass
+                            if tid in scheduled_jobs:
+                                scheduled_jobs[tid] = [j for j in scheduled_jobs[tid] if j.get("id") != j_id]
+                                asyncio.create_task(save_scheduled_jobs(tid))
                         return cleanup
-                    t.add_done_callback(make_cleanup(tenant_id))
+                    t.add_done_callback(make_cleanup(tenant_id, task.id))
         except Exception as e:
             logger.error(f"Error in poll_web_campaign_tasks: {e}")
         await asyncio.sleep(10)
-
-# Track last auto-clean notification to edit instead of sending multiple new messages in short windows
-# Maps tenant_id -> (timestamp, message_obj, cumulative_count)
-last_autoclean_notifications: Dict[int, tuple] = {}
 
 async def global_cleaner_worker():
     while global_worker_running:
@@ -4700,7 +4748,6 @@ async def global_cleaner_worker():
                 ]
 
             deleted_by_tenant = {}
-
             for ad_data in ads_snapshot:
                 tenant_id   = ad_data["telegram_account_id"]
                 chat_id     = ad_data["chat_id"]
@@ -4725,14 +4772,13 @@ async def global_cleaner_worker():
                         logger.warning(f"[Cleaner] FloodWait deleting msg {msg_id} from chat {chat_id} for tenant {tenant_id} (wait {fw.value}s). Will retry later.")
                     except RPCError as rpc_err:
                         err_code = getattr(rpc_err, "CODE", None) or getattr(rpc_err, "code", None) or 400
-                        if err_code >= 500 or err_code == 420:
-                            # Server error or rate limit - keep in DB and retry later
-                            telegram_deleted = False
-                            logger.warning(f"[Cleaner] Temporary RPCError deleting msg {msg_id} from chat {chat_id} for tenant {tenant_id} (code {err_code}): {rpc_err}. Will retry later.")
-                        else:
-                            # Permanent client error (e.g. ChatAdminRequired, MsgIdInvalid) - mark as deleted
+                        err_str = str(rpc_err).upper()
+                        if any(x in err_str for x in ["MESSAGE_ID_INVALID", "MESSAGE_DELETE_FORBIDDEN"]):
                             telegram_deleted = True
-                            logger.info(f"[Cleaner] Permanent RPCError deleting msg {msg_id} from chat {chat_id} for tenant {tenant_id} (code {err_code}): {rpc_err}. Marked as deleted.")
+                            logger.info(f"[Cleaner] Message already gone from Telegram (code {err_code}): {rpc_err}. Marked as deleted in DB.")
+                        else:
+                            telegram_deleted = False
+                            logger.warning(f"[Cleaner] Permission or temporary RPCError deleting msg {msg_id} from chat {chat_id} (code {err_code}): {rpc_err}. Will retry later.")
                     except Exception as e:
                         logger.warning(f"[Cleaner] Failed to delete msg {msg_id} from chat {chat_id} for tenant {tenant_id}: {e}")
                         telegram_deleted = False
@@ -4857,25 +4903,49 @@ async def redis_pubsub_listener():
                     targets = data.get("targets", [])
                     text = f"🔑 كود الدخول الثنائي المؤقت للوحة الإدارة هو: {otp_code}\nصالح لمدة 5 دقائق."
                     sent = False
-                    if running_clients:
-                        acc_id, client = next(iter(running_clients.items()))
+                    
+                    # 1. Try to find an active admin client in running_clients
+                    async with AsyncSessionLocal() as session:
+                        admin_accounts = (await session.execute(
+                            select(TelegramAccount.id)
+                            .join(User, TelegramAccount.user_id == User.id)
+                            .where(User.is_admin == True, TelegramAccount.status == "active")
+                        )).scalars().all()
+                        
+                    admin_client = None
+                    for acc_id in admin_accounts:
+                        if acc_id in running_clients:
+                            admin_client = running_clients[acc_id]
+                            break
+                            
+                    if admin_client:
                         for phone in targets:
                             try:
-                                clean_phone = "".join(filter(str.isdigit, phone))
-                                async with AsyncSessionLocal() as session:
-                                    acc = (await session.execute(select(TelegramAccount).where(TelegramAccount.id == acc_id))).scalar_one_or_none()
-                                if acc and "".join(filter(str.isdigit, acc.phone)) == clean_phone:
-                                    await client.send_message("me", text)
-                                else:
-                                    from pyrogram.types import InputPhoneContact
-                                    await client.import_contacts([InputPhoneContact(phone=phone, first_name="Owner")])
-                                    await client.send_message(phone, text)
-                                logger.info(f"OTP sent to {phone} via active worker client for tenant {acc_id}")
+                                await admin_client.send_message(phone, text)
+                                logger.info(f"OTP sent to {phone} via admin client {acc_id}")
                                 sent = True
                             except Exception as e:
-                                logger.error(f"Failed to send OTP via active client {acc_id}: {e}")
+                                logger.error(f"Failed to send OTP to {phone} via admin client: {e}")
+                                
+                    # 2. Fallback: Send via status bot to all admin users who have started the bot
                     if not sent:
-                        logger.warning("No active clients available in worker to send OTP.")
+                        logger.info("No active admin Telegram client found. Falling back to status bot alert...")
+                        async with AsyncSessionLocal() as session:
+                            admins = (await session.execute(
+                                select(User).where(User.is_admin == True, User.status_bot_chat_id.isnot(None))
+                            )).scalars().all()
+                            
+                        from status_bot import notify_user_by_id
+                        for admin in admins:
+                            try:
+                                await notify_user_by_id(admin.id, text)
+                                logger.info(f"OTP sent to admin user {admin.id} via status bot")
+                                sent = True
+                            except Exception as e:
+                                logger.error(f"Failed to send OTP to admin {admin.id} via status bot: {e}")
+                                
+                    if not sent:
+                        logger.warning("Could not send admin OTP code. No admin clients are active and no admins have status bot chat IDs configured.")
                         
                 elif channel == "saas_admin_broadcast":
                     message_text = data.get("message_text")
@@ -5128,6 +5198,10 @@ async def start_global_engine():
         asyncio.create_task(start_status_bot())
     except Exception as sbe:
         logger.error(f"Error starting status bot: {sbe}")
+    try:
+        await load_scheduled_jobs_from_redis()
+    except Exception as e:
+        logger.error(f"Error loading scheduled jobs on startup: {e}")
     await asyncio.gather(
         asyncio.create_task(supervisor_loop()), 
         asyncio.create_task(global_cleaner_worker()), 

@@ -70,22 +70,7 @@
 
       <div class="or-separator"><span>أو</span></div>
       <div class="google-btn-wrapper">
-        <div id="g_id_onload"
-             data-client_id="593098771975-q2e20qf1lhlp1kv0dackfmlrtudqb365.apps.googleusercontent.com"
-             data-context="signin"
-             data-ux_mode="popup"
-             data-callback="handleGoogleLogin"
-             data-auto_prompt="false">
-        </div>
-        <div class="g_id_signin"
-             data-type="standard"
-             data-shape="rectangular"
-             data-theme="outline"
-             data-text="signin_with"
-             data-size="large"
-             data-logo_alignment="left"
-             data-width="100%">
-        </div>
+        <div id="google-signin-btn-container" style="width: 100%;"></div>
       </div>
 
 
@@ -386,17 +371,104 @@
 
                 <!-- 5. Conditional fields -->
                 <div id="group-target-link" class="form-group" style="display: none;">
-                  <label class="form-label" style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px; font-weight: 600;">روابط القنوات المستهدفة (مثال: @channel)</label>
-                  <div id="web-links-container">
-                    <div class="web-link-input-wrapper" style="margin-bottom: 10px; display: flex; gap: 8px; align-items: center;">
-                      <input type="text" class="web-target-link form-control" placeholder="أدخل معرف أو رابط القناة" style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; flex: 1; font-size: 14px; outline: none;">
+                  
+                  <!-- Channel Picker Component -->
+                  <div id="channel-picker-container" style="background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; overflow: hidden;">
+                    
+                    <!-- Picker Header -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 16px;">📡</span>
+                        <span style="color: #e2e8f0; font-size: 14px; font-weight: 600;">اختر القنوات المستهدفة</span>
+                      </div>
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <span id="channel-picker-cache-age" style="color: #64748b; font-size: 11px;"></span>
+                        <button type="button" id="btn-refresh-channels" title="تحديث القنوات" style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2); color: #3b82f6; width: 30px; height: 30px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; transition: all 0.2s;">
+                          🔄
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- Search Bar -->
+                    <div style="padding: 10px 16px;">
+                      <div style="position: relative;">
+                        <input type="text" id="channel-picker-search" placeholder="🔍 ابحث عن قناة بالاسم أو @username..." style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 10px 12px; padding-right: 36px; border-radius: 8px; width: 100%; font-size: 13px; outline: none; transition: border-color 0.2s; box-sizing: border-box;" autocomplete="off">
+                      </div>
+                    </div>
+
+                    <!-- Filter Tabs -->
+                    <div style="display: flex; gap: 6px; padding: 0 16px 10px 16px;">
+                      <button type="button" class="channel-filter-tab active" data-filter="all" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3); padding: 5px 14px; border-radius: 20px; font-size: 12px; cursor: pointer; transition: all 0.2s; font-weight: 600;">
+                        الكل
+                      </button>
+                      <button type="button" class="channel-filter-tab" data-filter="broadcast" style="background: transparent; color: #94a3b8; border: 1px solid rgba(255,255,255,0.08); padding: 5px 14px; border-radius: 20px; font-size: 12px; cursor: pointer; transition: all 0.2s;">
+                        📢 قنوات
+                      </button>
+                      <button type="button" class="channel-filter-tab" data-filter="group" style="background: transparent; color: #94a3b8; border: 1px solid rgba(255,255,255,0.08); padding: 5px 14px; border-radius: 20px; font-size: 12px; cursor: pointer; transition: all 0.2s;">
+                        👥 مجموعات
+                      </button>
+                    </div>
+
+                    <!-- Channel List -->
+                    <div id="channel-picker-list" style="max-height: 260px; overflow-y: auto; padding: 0 12px 8px 12px; scrollbar-width: thin; scrollbar-color: #334155 transparent;">
+                      <!-- Loading skeleton -->
+                      <div id="channel-picker-loading" style="padding: 16px; text-align: center;">
+                        <div style="color: #64748b; font-size: 13px; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                          <div class="spinner" style="width: 24px; height: 24px; border: 2px solid rgba(59,130,246,0.2); border-top: 2px solid #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+                          جاري تحميل القنوات...
+                        </div>
+                      </div>
+                      <!-- Empty state -->
+                      <div id="channel-picker-empty" style="display: none; padding: 20px 16px; text-align: center;">
+                        <div style="color: #64748b; font-size: 13px;">
+                          <span style="font-size: 28px; display: block; margin-bottom: 8px;">📭</span>
+                          لا توجد قنوات في الكاش حالياً.<br>
+                          <span style="font-size: 11px; color: #475569;">تأكد من ربط حسابك وتفعيل المحرك ليتم سحب قنواتك تلقائياً.</span>
+                        </div>
+                      </div>
+                      <!-- No results state -->
+                      <div id="channel-picker-no-results" style="display: none; padding: 16px; text-align: center;">
+                        <div style="color: #64748b; font-size: 13px;">
+                          <span style="font-size: 20px;">🔍</span> لا توجد نتائج مطابقة
+                        </div>
+                      </div>
+                      <!-- Channels will be rendered here dynamically -->
+                    </div>
+
+                    <!-- Selection Summary -->
+                    <div id="channel-picker-selection" style="display: none; padding: 8px 16px; border-top: 1px solid rgba(255,255,255,0.06); background: rgba(59, 130, 246, 0.05);">
+                      <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <span style="color: #3b82f6; font-size: 12px; font-weight: 600;">
+                          ✅ تم اختيار <span id="channel-picker-count">0</span> قناة
+                        </span>
+                        <button type="button" id="btn-clear-channel-selection" style="background: transparent; border: none; color: #ef4444; font-size: 11px; cursor: pointer; padding: 2px 6px; outline: none;">
+                          إلغاء الكل
+                        </button>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  <!-- Manual Link Fallback (collapsible) -->
+                  <div style="margin-top: 10px;">
+                    <button type="button" id="btn-toggle-manual-link" style="background: transparent; border: none; color: #64748b; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px; outline: none; padding: 0; transition: color 0.2s;">
+                      <span id="manual-link-arrow" style="transition: transform 0.2s; display: inline-block;">◀</span>
+                      <span>أو أدخل الرابط يدوياً</span>
+                    </button>
+                    <div id="manual-link-section" style="display: none; margin-top: 8px;">
+                      <div id="web-links-container">
+                        <div class="web-link-input-wrapper" style="margin-bottom: 10px; display: flex; gap: 8px; align-items: center;">
+                          <input type="text" class="web-target-link form-control" placeholder="أدخل معرف أو رابط القناة" style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; flex: 1; font-size: 14px; outline: none; transition: border-color 0.2s;">
+                        </div>
+                      </div>
+                      <div style="margin-top: 8px; text-align: left;">
+                        <button type="button" id="btn-add-target-link" style="background: transparent; border: none; color: #3b82f6; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; outline: none; padding: 0;">
+                          <span>➕ إضافة رابط آخر</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
-                  <div style="margin-top: 8px; text-align: left;">
-                    <button type="button" id="btn-add-target-link" style="background: transparent; border: none; color: #3b82f6; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; outline: none; padding: 0;">
-                      <span>➕ إضافة رابط آخر</span>
-                    </button>
-                  </div>
+
                 </div>
                 
                 <div id="group-pin-channels" class="form-group" style="display: none;">
