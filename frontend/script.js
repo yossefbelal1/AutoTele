@@ -826,6 +826,7 @@ async function fetchUserChannels(forceRefresh = false) {
       if (loadingEl) loadingEl.style.display = "none";
       if (emptyEl) emptyEl.style.display = "none";
       if (noResultsEl) noResultsEl.style.display = "none";
+      populateTimedPostDropdowns();
       renderChannelPicker();
       return;
     }
@@ -855,6 +856,7 @@ async function fetchUserChannels(forceRefresh = false) {
         if (_channelPickerData.length === 0) {
           if (emptyEl) emptyEl.style.display = "block";
         } else {
+          populateTimedPostDropdowns();
           renderChannelPicker();
         }
         return;
@@ -902,6 +904,7 @@ async function fetchUserChannels(forceRefresh = false) {
       return;
     }
 
+    populateTimedPostDropdowns();
     renderChannelPicker();
   } catch (error) {
     console.error("Error fetching channels:", error);
@@ -913,6 +916,52 @@ async function fetchUserChannels(forceRefresh = false) {
         فشل في تحميل القنوات. تأكد من ربط حسابك وتفعيل المحرك.
       `;
     }
+  }
+}
+
+function populateTimedPostDropdowns() {
+  const promoSelect = document.getElementById("web-pin-promo-select");
+  const targetSelect = document.getElementById("web-pin-target-select");
+  if (!promoSelect || !targetSelect) return;
+
+  // Clear existing options except manual
+  promoSelect.innerHTML = '<option value="manual">✍️ أدخل رابطاً يدوياً (قناة خارجية أو رابط تتبع)</option>';
+  targetSelect.innerHTML = '<option value="manual">✍️ أدخل رابطاً يدوياً (قناة خارجية أو معرف يدوي)</option>';
+
+  _channelPickerData.forEach(ch => {
+    const identifier = getChannelIdentifier(ch);
+    const typeLabel = ch.is_broadcast ? "قناة" : "مجموعة";
+    const optionText = `[${typeLabel}] ${ch.title || "بدون اسم"} (${formatMembersCount(ch.members_count || 0)} عضو) ${ch.username ? "@" + ch.username : ""}`;
+
+    const optA = document.createElement("option");
+    optA.value = identifier;
+    optA.textContent = optionText;
+    promoSelect.appendChild(optA);
+
+    const optB = document.createElement("option");
+    optB.value = identifier;
+    optB.textContent = optionText;
+    targetSelect.appendChild(optB);
+  });
+}
+
+function resetTimedPostDropdowns() {
+  const promoSelect = document.getElementById("web-pin-promo-select");
+  const promoInput = document.getElementById("web-pin-promo-link");
+  const targetSelect = document.getElementById("web-pin-target-select");
+  const targetInput = document.getElementById("web-pin-target-link");
+
+  if (promoSelect && promoInput) {
+    promoSelect.value = "manual";
+    promoInput.value = "";
+    promoInput.readOnly = false;
+    promoInput.style.opacity = "1";
+  }
+  if (targetSelect && targetInput) {
+    targetSelect.value = "manual";
+    targetInput.value = "";
+    targetInput.readOnly = false;
+    targetInput.style.opacity = "1";
   }
 }
 
@@ -1640,6 +1689,9 @@ document.addEventListener("DOMContentLoaded", () => {
         if (groupDelayBetween) groupDelayBetween.style.display = "none";
         if (groupAdLifespan) groupAdLifespan.style.display = "block";
         if (groupDelayStart) groupDelayStart.style.display = "none";
+        // Auto-fetch channels for the timed post dropdowns
+        resetTimedPostDropdowns();
+        fetchUserChannels();
       } else if (selectedType === "bulk") {
         groupTargetLink.style.display = "none";
         if (groupPinChannels) groupPinChannels.style.display = "none";
@@ -1730,6 +1782,41 @@ document.addEventListener("DOMContentLoaded", () => {
     btnToggleManual.addEventListener("mouseleave", () => {
       btnToggleManual.style.background = "rgba(59, 130, 246, 0.08)";
       btnToggleManual.style.borderColor = "rgba(59, 130, 246, 0.3)";
+    });
+  }
+
+  // Timed Post Select Dropdowns change listeners
+  const promoSelect = document.getElementById("web-pin-promo-select");
+  const promoInput = document.getElementById("web-pin-promo-link");
+  if (promoSelect && promoInput) {
+    promoSelect.addEventListener("change", () => {
+      if (promoSelect.value === "manual") {
+        promoInput.value = "";
+        promoInput.readOnly = false;
+        promoInput.style.opacity = "1";
+        promoInput.placeholder = "مثال: @external_channel أو https://t.me/...";
+      } else {
+        promoInput.value = promoSelect.value;
+        promoInput.readOnly = true;
+        promoInput.style.opacity = "0.7";
+      }
+    });
+  }
+
+  const targetSelect = document.getElementById("web-pin-target-select");
+  const targetInput = document.getElementById("web-pin-target-link");
+  if (targetSelect && targetInput) {
+    targetSelect.addEventListener("change", () => {
+      if (targetSelect.value === "manual") {
+        targetInput.value = "";
+        targetInput.readOnly = false;
+        targetInput.style.opacity = "1";
+        targetInput.placeholder = "مثال: @my_host_channel";
+      } else {
+        targetInput.value = targetSelect.value;
+        targetInput.readOnly = true;
+        targetInput.style.opacity = "0.7";
+      }
     });
   }
 

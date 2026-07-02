@@ -471,16 +471,31 @@
 
                 </div>
                 
-                <div id="group-pin-channels" class="form-group" style="display: none;">
-                  <div style="display: flex; flex-direction: column; gap: 12px;">
-                    <div>
-                      <label for="web-pin-promo-link" class="form-label" style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px; font-weight: 600;">رابط القناة المراد الترويج لها - A</label>
-                      <input type="text" id="web-pin-promo-link" class="form-control" placeholder="مثال: https://t.me/external_promo" style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; width: 100%; font-size: 14px; outline: none;">
+                 <div id="group-pin-channels" class="form-group" style="display: none;">
+                  <div style="display: flex; flex-direction: column; gap: 16px;">
+                    
+                    <!-- Channel A (Promo) -->
+                    <div style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.06); padding: 16px; border-radius: 12px;">
+                      <label class="form-label" style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 10px; font-weight: 600;">رابط القناة المراد الترويج لها - A (الترويج)</label>
+                      <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <select id="web-pin-promo-select" class="form-control" style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; width: 100%; font-size: 14px; outline: none; transition: border-color 0.2s;">
+                          <option value="manual">✍️ أدخل رابطاً يدوياً (قناة خارجية أو رابط تتبع)</option>
+                        </select>
+                        <input type="text" id="web-pin-promo-link" class="form-control" placeholder="مثال: @external_channel أو https://t.me/..." style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; width: 100%; font-size: 14px; outline: none; transition: all 0.2s;">
+                      </div>
                     </div>
-                    <div>
-                      <label for="web-pin-target-link" class="form-label" style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px; font-weight: 600;">رابط قناتك الحاضنة للنشر - B</label>
-                      <input type="text" id="web-pin-target-link" class="form-control" placeholder="مثال: @my_host_channel" style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; width: 100%; font-size: 14px; outline: none;">
+
+                    <!-- Channel B (Host) -->
+                    <div style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.06); padding: 16px; border-radius: 12px;">
+                      <label class="form-label" style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 10px; font-weight: 600;">رابط قناتك الحاضنة للنشر - B (النشر والتثبيت)</label>
+                      <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <select id="web-pin-target-select" class="form-control" style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; width: 100%; font-size: 14px; outline: none; transition: border-color 0.2s;">
+                          <option value="manual">✍️ أدخل رابطاً يدوياً (قناة خارجية أو معرف يدوي)</option>
+                        </select>
+                        <input type="text" id="web-pin-target-link" class="form-control" placeholder="مثال: @my_host_channel" style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; width: 100%; font-size: 14px; outline: none; transition: all 0.2s;">
+                      </div>
                     </div>
+
                   </div>
                 </div>
 
