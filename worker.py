@@ -894,7 +894,12 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                     break
                     
                 offset_id = top_msg.id
-                offset_date = int(top_msg.date.timestamp())
+                if isinstance(top_msg.date, int):
+                    offset_date = top_msg.date
+                elif hasattr(top_msg.date, "timestamp"):
+                    offset_date = int(top_msg.date.timestamp())
+                else:
+                    offset_date = int(top_msg.date)
                 
                 # Construct offset_peer safely from r.chats or r.users to avoid network calls/exceptions
                 offset_peer = types.InputPeerEmpty()
