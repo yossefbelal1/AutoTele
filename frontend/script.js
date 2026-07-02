@@ -811,14 +811,60 @@ let _channelPickerSelected = new Set(); // set of selected channel identifiers (
 let _channelPickerFilter = "all"; // "all" | "broadcast" | "group"
 let _channelPickerFetched = false; // track if already fetched for this session
 
-async function fetchUserChannels(forceRefresh) {
+async function fetchUserChannels(forceRefresh = false) {
   const listEl = document.getElementById("channel-picker-list");
   const loadingEl = document.getElementById("channel-picker-loading");
   const emptyEl = document.getElementById("channel-picker-empty");
   const noResultsEl = document.getElementById("channel-picker-no-results");
+  const cacheAgeEl = document.getElementById("channel-picker-cache-age");
   if (!listEl) return;
 
-  // Show loading
+  // 1. Check in-memory / sessionStorage cache first (unless forced refresh)
+  if (!forceRefresh) {
+    // Check in-memory global cache first
+    if (_channelPickerFetched && _channelPickerData && _channelPickerData.length > 0) {
+      if (loadingEl) loadingEl.style.display = "none";
+      if (emptyEl) emptyEl.style.display = "none";
+      if (noResultsEl) noResultsEl.style.display = "none";
+      renderChannelPicker();
+      return;
+    }
+
+    // Check sessionStorage cache
+    const cached = sessionStorage.getItem("channels_cache");
+    if (cached) {
+      try {
+        const cacheData = JSON.parse(cached);
+        _channelPickerData = cacheData.channels || [];
+        _channelPickerFetched = true;
+
+        if (cacheAgeEl && cacheData.timestamp) {
+          const ageSecs = Math.floor((Date.now() - cacheData.timestamp) / 1000);
+          const mins = Math.max(0, Math.floor(ageSecs / 60));
+          if (mins < 60) {
+            cacheAgeEl.textContent = `آخر تحديث: ${mins} دقيقة`;
+          } else {
+            cacheAgeEl.textContent = `آخر تحديث: ${Math.floor(mins / 60)} ساعة`;
+          }
+        }
+
+        if (loadingEl) loadingEl.style.display = "none";
+        if (emptyEl) emptyEl.style.display = "none";
+        if (noResultsEl) noResultsEl.style.display = "none";
+
+        if (_channelPickerData.length === 0) {
+          if (emptyEl) emptyEl.style.display = "block";
+        } else {
+          renderChannelPicker();
+        }
+        return;
+      } catch (e) {
+        console.error("Error parsing sessionStorage cache:", e);
+      }
+    }
+  }
+
+  // 2. Cache miss or forceRefresh: Fetch from API
   if (loadingEl) loadingEl.style.display = "block";
   if (emptyEl) emptyEl.style.display = "none";
   if (noResultsEl) noResultsEl.style.display = "none";
@@ -831,8 +877,14 @@ async function fetchUserChannels(forceRefresh) {
     _channelPickerData = data.channels || [];
     _channelPickerFetched = true;
 
+    // Save to sessionStorage
+    const currentAgeSecs = data.cache_age_seconds || 0;
+    sessionStorage.setItem("channels_cache", JSON.stringify({
+      channels: _channelPickerData,
+      timestamp: Date.now() - (currentAgeSecs * 1000)
+    }));
+
     // Update cache age display
-    const cacheAgeEl = document.getElementById("channel-picker-cache-age");
     if (cacheAgeEl && data.cache_age_seconds != null) {
       const mins = Math.floor(data.cache_age_seconds / 60);
       if (mins < 60) {
