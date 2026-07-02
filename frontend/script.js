@@ -1688,7 +1688,7 @@ document.addEventListener("DOMContentLoaded", () => {
         groupCustomText.style.display = "block";
         if (groupDelayBetween) groupDelayBetween.style.display = "none";
         if (groupAdLifespan) groupAdLifespan.style.display = "block";
-        if (groupDelayStart) groupDelayStart.style.display = "none";
+        if (groupDelayStart) groupDelayStart.style.display = "block";
         // Auto-fetch channels for the timed post dropdowns
         resetTimedPostDropdowns();
         fetchUserChannels();
