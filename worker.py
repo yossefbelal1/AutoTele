@@ -3583,6 +3583,13 @@ async def run_wave_execution(
     """
     logger.info(f"run_wave_execution started for tenant {tenant_id} with {len(batch)} channels.")
     
+    last_wave_time[tenant_id] = datetime.now(timezone.utc)
+    try:
+        from cache_manager import redis_client
+        await redis_client.set(f"tenant:{tenant_id}:last_wave_time", last_wave_time[tenant_id].isoformat())
+    except Exception as re:
+        logger.error(f"Failed to save last_wave_time to Redis in run_wave_execution: {re}")
+        
     curr_task = asyncio.current_task()
     if tenant_id not in active_running_tasks:
         active_running_tasks[tenant_id] = set()
@@ -3986,8 +3993,12 @@ async def wave_publisher_worker(tenant_id: int):
                 state_val = state_val if state_val else "stopped"
                 
                 if state_val in ("stopped", "paused"):
+                    logger.info(f"[Debug Loop] Tenant {tenant_id} is stopped/paused (state={state_val}). Sleeping.")
                     await asyncio.sleep(15)
                     continue
+                
+                last_time = last_wave_time.get(tenant_id)
+                logger.info(f"[Debug Loop] Tenant {tenant_id} is active. last_wave_time={last_time.isoformat() if last_time else 'None'}")
                     
                 db_wave = await get_setting(session, tenant_id, "wave_interval")
                 wave_interval = int(db_wave) if db_wave else 420
@@ -4058,11 +4069,6 @@ async def wave_publisher_worker(tenant_id: int):
                 await asyncio.sleep(15)
                 continue
                 
-            last_wave_time[tenant_id] = datetime.now(timezone.utc)
-            try:
-                await redis_client.set(f"tenant:{tenant_id}:last_wave_time", last_wave_time[tenant_id].isoformat())
-            except Exception as re:
-                logger.error(f"Failed to save last_wave_time to Redis: {re}")
             batch = available_channels[:batch_size]
             
             status_msg = None

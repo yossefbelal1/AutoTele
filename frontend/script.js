@@ -1689,8 +1689,13 @@ async function loadScheduledJobs() {
           statusBadge = `<span class="pulse-text-animation" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">🔄 جاري التنفيذ...</span>`;
           cardStyle = "background: rgba(59, 130, 246, 0.04); border: 1px solid rgba(59, 130, 246, 0.35); box-shadow: 0 4px 20px rgba(59, 130, 246, 0.1);";
         } else if (job.status === "active") {
-          statusBadge = `<span class="pulse-text-animation" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.5); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">📌 إعلان حي — بانتظار الحذف</span>`;
-          cardStyle = "background: rgba(245, 158, 11, 0.04); border: 1px solid rgba(245, 158, 11, 0.35); box-shadow: 0 4px 20px rgba(245, 158, 11, 0.08);";
+          if (job.type === "wave" || job.type === "activate_exchange") {
+            statusBadge = `<span class="pulse-text-animation" style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">🔄 التبادل التلقائي نشط</span>`;
+            cardStyle = "background: rgba(16, 185, 129, 0.02); border: 1px solid rgba(16, 185, 129, 0.25);";
+          } else {
+            statusBadge = `<span class="pulse-text-animation" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.5); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">📌 إعلان حي — بانتظار الحذف</span>`;
+            cardStyle = "background: rgba(245, 158, 11, 0.04); border: 1px solid rgba(245, 158, 11, 0.35); box-shadow: 0 4px 20px rgba(245, 158, 11, 0.08);";
+          }
         } else if (job.status === "completed") {
           statusBadge = `<span style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">✅ مكتمل</span>`;
           cardStyle = "background: rgba(16, 185, 129, 0.02); border: 1px solid rgba(16, 185, 129, 0.25);";
