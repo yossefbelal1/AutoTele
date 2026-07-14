@@ -60,6 +60,9 @@
         <div class="input-group">
           <label for="login-password">كلمة المرور</label>
           <input type="password" id="login-password" required placeholder="••••••••" autocomplete="current-password">
+          <div style="text-align: left; margin-top: 4px;">
+            <a href="#" id="link-forgot-password" style="font-size: 11px; color: #2481cc; text-decoration: underline; -webkit-tap-highlight-color: transparent;">نسيت كلمة المرور؟</a>
+          </div>
         </div>
         
         <button type="submit" id="btn-login" class="btn btn-primary">
@@ -70,22 +73,7 @@
 
       <div class="or-separator"><span>أو</span></div>
       <div class="google-btn-wrapper">
-        <div id="g_id_onload"
-             data-client_id="593098771975-q2e20qf1lhlp1kv0dackfmlrtudqb365.apps.googleusercontent.com"
-             data-context="signin"
-             data-ux_mode="popup"
-             data-callback="handleGoogleLogin"
-             data-auto_prompt="false">
-        </div>
-        <div class="g_id_signin"
-             data-type="standard"
-             data-shape="rectangular"
-             data-theme="outline"
-             data-text="signin_with"
-             data-size="large"
-             data-logo_alignment="left"
-             data-width="100%">
-        </div>
+        <div id="google-signin-btn-container" style="width: 100%;"></div>
       </div>
 
 
@@ -166,7 +154,10 @@
             <div class="user-avatar">AD</div>
             <div class="user-meta">
               <h4 id="user-email-display" class="user-email">user@domain.com</h4>
-              <span id="user-plan-badge" class="badge">جاري التحميل...</span>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span id="user-plan-badge" class="badge">جاري التحميل...</span>
+                <span id="btn-logout-mobile" style="color: #f43f5e; font-size: 11px; font-weight: bold; cursor: pointer; text-decoration: underline; -webkit-tap-highlight-color: transparent;">تسجيل خروج</span>
+              </div>
             </div>
           </div>
         </div>
@@ -179,10 +170,6 @@
           <button class="nav-tab" data-tab="tab-plans">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
             <span>الخطة والترقية</span>
-          </button>
-          <button class="nav-tab" data-tab="tab-crypto">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-            <span>الدفع بالـ Crypto</span>
           </button>
           <button class="nav-tab" data-tab="tab-connect">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
@@ -220,7 +207,7 @@
             <div class="card status-card">
               <h3 class="card-title">الأيام المتبقية</h3>
               <div class="circular-progress-wrapper">
-                <svg class="circular-progress" width="160" height="160">
+                <svg class="circular-progress" width="160" height="160" viewBox="0 0 160 160">
                   <circle class="circle-bg" cx="80" cy="80" r="70"></circle>
                   <circle id="countdown-ring" class="circle-val" cx="80" cy="80" r="70" stroke-dasharray="440" stroke-dashoffset="440"></circle>
                 </svg>
@@ -310,7 +297,9 @@
                     <option value="single">حملة فردية مستهدفة (.حملة)</option>
                     <option value="bulk">حملة مجلد مجمعة (.حملات)</option>
                     <option value="timed_post">⏱️ إطلاق حملة نشر مؤقتة محددة المدة (تثبيت مدة)</option>
+                    <option value="clear">🧹 جدولة مسح سريع وتطهير الإعلانات (.مسح)</option>
                     <option value="deep_clear">جدولة مسح عميق (.مسح عميق)</option>
+                    <option value="stop_everything">🚨 جدولة إيقاف فوري وشامل لجميع العمليات (.إيقاف)</option>
                   </select>
                 </div>
 
@@ -386,29 +375,187 @@
 
                 <!-- 5. Conditional fields -->
                 <div id="group-target-link" class="form-group" style="display: none;">
-                  <label class="form-label" style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px; font-weight: 600;">روابط القنوات المستهدفة (مثال: @channel)</label>
-                  <div id="web-links-container">
-                    <div class="web-link-input-wrapper" style="margin-bottom: 10px; display: flex; gap: 8px; align-items: center;">
-                      <input type="text" class="web-target-link form-control" placeholder="أدخل معرف أو رابط القناة" style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; flex: 1; font-size: 14px; outline: none;">
+                  
+                  <!-- Channel Picker Component -->
+                  <div id="channel-picker-container" style="background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; overflow: hidden;">
+                    
+                    <!-- Picker Header -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 16px;">📡</span>
+                        <span style="color: #e2e8f0; font-size: 14px; font-weight: 600;">اختر القنوات المستهدفة</span>
+                      </div>
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <span id="channel-picker-cache-age" style="color: #64748b; font-size: 11px;"></span>
+                        <button type="button" id="btn-refresh-channels" title="تحديث القنوات" style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2); color: #3b82f6; width: 30px; height: 30px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; transition: all 0.2s;">
+                          🔄
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- Search Bar -->
+                    <div style="padding: 10px 16px;">
+                      <div style="position: relative;">
+                        <input type="text" id="channel-picker-search" placeholder="🔍 ابحث عن قناة بالاسم أو @username..." style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 10px 12px; padding-right: 36px; border-radius: 8px; width: 100%; font-size: 13px; outline: none; transition: border-color 0.2s; box-sizing: border-box;" autocomplete="off">
+                      </div>
+                    </div>
+
+                    <!-- Filter Tabs -->
+                    <div style="display: flex; gap: 6px; padding: 0 16px 10px 16px;">
+                      <button type="button" class="channel-filter-tab active" data-filter="all" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3); padding: 5px 14px; border-radius: 20px; font-size: 12px; cursor: pointer; transition: all 0.2s; font-weight: 600;">
+                        الكل
+                      </button>
+                      <button type="button" class="channel-filter-tab" data-filter="broadcast" style="background: transparent; color: #94a3b8; border: 1px solid rgba(255,255,255,0.08); padding: 5px 14px; border-radius: 20px; font-size: 12px; cursor: pointer; transition: all 0.2s;">
+                        📢 قنوات
+                      </button>
+                      <button type="button" class="channel-filter-tab" data-filter="group" style="background: transparent; color: #94a3b8; border: 1px solid rgba(255,255,255,0.08); padding: 5px 14px; border-radius: 20px; font-size: 12px; cursor: pointer; transition: all 0.2s;">
+                        👥 مجموعات
+                      </button>
+                    </div>
+
+                    <!-- Channel List -->
+                    <div id="channel-picker-list" style="max-height: 260px; overflow-y: auto; padding: 0 12px 8px 12px; scrollbar-width: thin; scrollbar-color: #334155 transparent;">
+                      <!-- Loading skeleton -->
+                      <div id="channel-picker-loading" style="padding: 16px; text-align: center;">
+                        <div style="color: #64748b; font-size: 13px; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                          <div class="spinner" style="width: 24px; height: 24px; border: 2px solid rgba(59,130,246,0.2); border-top: 2px solid #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+                          جاري تحميل القنوات...
+                        </div>
+                      </div>
+                      <!-- Empty state -->
+                      <div id="channel-picker-empty" style="display: none; padding: 20px 16px; text-align: center;">
+                        <div style="color: #64748b; font-size: 13px;">
+                          <span style="font-size: 28px; display: block; margin-bottom: 8px;">📭</span>
+                          لا توجد قنوات في الكاش حالياً.<br>
+                          <span style="font-size: 11px; color: #475569;">تأكد من ربط حسابك وتفعيل المحرك ليتم سحب قنواتك تلقائياً.</span>
+                        </div>
+                      </div>
+                      <!-- No results state -->
+                      <div id="channel-picker-no-results" style="display: none; padding: 16px; text-align: center;">
+                        <div style="color: #64748b; font-size: 13px;">
+                          <span style="font-size: 20px;">🔍</span> لا توجد نتائج مطابقة
+                        </div>
+                      </div>
+                      <!-- Channels will be rendered here dynamically -->
+                    </div>
+
+                    <!-- Selection Summary -->
+                    <div id="channel-picker-selection" style="display: none; padding: 8px 16px; border-top: 1px solid rgba(255,255,255,0.06); background: rgba(59, 130, 246, 0.05);">
+                      <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <span style="color: #3b82f6; font-size: 12px; font-weight: 600;">
+                          ✅ تم اختيار <span id="channel-picker-count">0</span> قناة
+                        </span>
+                        <button type="button" id="btn-clear-channel-selection" style="background: transparent; border: none; color: #ef4444; font-size: 11px; cursor: pointer; padding: 2px 6px; outline: none;">
+                          إلغاء الكل
+                        </button>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  <!-- Manual Link Fallback (collapsible) -->
+                  <div style="margin-top: 14px;">
+                    <button type="button" id="btn-toggle-manual-link" style="background: rgba(59, 130, 246, 0.08); border: 1px dashed rgba(59, 130, 246, 0.3); color: #60a5fa; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; outline: none; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.2);">
+                      <span id="manual-link-arrow" style="transition: transform 0.2s; display: inline-block;">◀</span>
+                      <span>أو أدخل رابط القناة يدوياً (للقنوات الخارجية)</span>
+                    </button>
+                    <div id="manual-link-section" style="display: none; margin-top: 12px; padding: 12px; background: rgba(15, 23, 42, 0.3); border: 1px solid rgba(255,255,255,0.04); border-radius: 8px;">
+                      <div id="web-links-container">
+                        <div class="web-link-input-wrapper" style="margin-bottom: 10px; display: flex; gap: 8px; align-items: center;">
+                          <input type="text" class="web-target-link form-control" placeholder="أدخل معرف أو رابط القناة" style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; flex: 1; font-size: 14px; outline: none; transition: border-color 0.2s;">
+                        </div>
+                      </div>
+                      <div style="margin-top: 8px; text-align: left;">
+                        <button type="button" id="btn-add-target-link" style="background: transparent; border: none; color: #3b82f6; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; outline: none; padding: 0;">
+                          <span>➕ إضافة رابط آخر</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
-                  <div style="margin-top: 8px; text-align: left;">
-                    <button type="button" id="btn-add-target-link" style="background: transparent; border: none; color: #3b82f6; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; outline: none; padding: 0;">
-                      <span>➕ إضافة رابط آخر</span>
-                    </button>
-                  </div>
+
                 </div>
                 
-                <div id="group-pin-channels" class="form-group" style="display: none;">
-                  <div style="display: flex; flex-direction: column; gap: 12px;">
-                    <div>
-                      <label for="web-pin-promo-link" class="form-label" style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px; font-weight: 600;">رابط القناة المراد الترويج لها - A</label>
-                      <input type="text" id="web-pin-promo-link" class="form-control" placeholder="مثال: https://t.me/external_promo" style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; width: 100%; font-size: 14px; outline: none;">
+                                  <div id="group-pin-channels" class="form-group" style="display: none;">
+                  <div style="display: flex; flex-direction: column; gap: 24px;">
+                    
+                    <!-- Channel A (Promo) -->
+                    <div style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.06); padding: 20px; border-radius: 16px;">
+                      <label class="form-label" style="display: block; color: #fff; font-size: 14px; margin-bottom: 12px; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px;">
+                        رابط القناة المراد الترويج لها - A (الترويج)
+                      </label>
+                      
+                      <!-- Channel Picker A -->
+                      <div class="channel-picker-container" style="background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; overflow: hidden; margin-bottom: 12px;">
+                        <!-- Header with Search & Filters -->
+                        <div style="padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(15, 23, 42, 0.3); display: flex; flex-direction: column; gap: 8px;">
+                          <div style="display: flex; gap: 8px; align-items: center;">
+                            <input type="text" id="promo-picker-search" placeholder="🔍 ابحث بالاسم أو الـ username..." style="background: rgba(30, 41, 59, 0.5); color: #fff; border: 1px solid rgba(255,255,255,0.08); padding: 8px 12px; border-radius: 6px; flex: 1; font-size: 13px; outline: none;">
+                          </div>
+                          <!-- Filter tabs -->
+                          <div style="display: flex; gap: 6px; border-top: 1px solid rgba(255,255,255,0.03); pt-8; margin-top: 2px;">
+                            <button type="button" class="promo-filter-tab active" data-filter="all" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3); padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; font-weight: 600; outline: none;">الكل</button>
+                            <button type="button" class="promo-filter-tab" data-filter="broadcast" style="background: transparent; color: #94a3b8; border: 1px solid rgba(255,255,255,0.08); padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; outline: none;">📢 قنوات</button>
+                            <button type="button" class="promo-filter-tab" data-filter="group" style="background: transparent; color: #94a3b8; border: 1px solid rgba(255,255,255,0.08); padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; outline: none;">💬 مجموعات</button>
+                          </div>
+                        </div>
+                        
+                        <!-- Scrollable Channels List -->
+                        <div id="promo-picker-list" style="max-height: 200px; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 4px;">
+                          <!-- Populated dynamically -->
+                        </div>
+                      </div>
+
+                      <!-- Manual Link A Fallback Toggle -->
+                      <div>
+                        <button type="button" id="btn-toggle-promo-manual" style="background: rgba(59, 130, 246, 0.08); border: 1px dashed rgba(59, 130, 246, 0.3); color: #60a5fa; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px; border-radius: 6px; outline: none; transition: all 0.2s;">
+                          <span id="promo-manual-arrow" style="transition: transform 0.2s; display: inline-block;">◀</span>
+                          <span>أو أدخل الرابط/الروابط يدوياً (قناة خارجية)</span>
+                        </button>
+                        <div id="promo-manual-section" style="display: none; margin-top: 10px; padding: 10px; background: rgba(15, 23, 42, 0.3); border: 1px solid rgba(255,255,255,0.04); border-radius: 8px;">
+                          <textarea id="web-pin-promo-link" class="form-control" rows="2" placeholder="مثال: @external_channel1, @external_channel2 (رابط في كل سطر أو مفصولة بفاصلة)..." style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; width: 100%; font-size: 14px; outline: none; resize: vertical;"></textarea>
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label for="web-pin-target-link" class="form-label" style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px; font-weight: 600;">رابط قناتك الحاضنة للنشر - B</label>
-                      <input type="text" id="web-pin-target-link" class="form-control" placeholder="مثال: @my_host_channel" style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; width: 100%; font-size: 14px; outline: none;">
+
+                    <!-- Channel B (Host) -->
+                    <div style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.06); padding: 20px; border-radius: 16px;">
+                      <label class="form-label" style="display: block; color: #fff; font-size: 14px; margin-bottom: 12px; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px;">
+                        رابط قناتك الحاضنة للنشر - B (النشر والتثبيت)
+                      </label>
+                      
+                      <!-- Channel Picker B -->
+                      <div class="channel-picker-container" style="background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; overflow: hidden; margin-bottom: 12px;">
+                        <!-- Header with Search & Filters -->
+                        <div style="padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(15, 23, 42, 0.3); display: flex; flex-direction: column; gap: 8px;">
+                          <div style="display: flex; gap: 8px; align-items: center;">
+                            <input type="text" id="target-picker-search" placeholder="🔍 ابحث بالاسم أو الـ username..." style="background: rgba(30, 41, 59, 0.5); color: #fff; border: 1px solid rgba(255,255,255,0.08); padding: 8px 12px; border-radius: 6px; flex: 1; font-size: 13px; outline: none;">
+                          </div>
+                          <!-- Filter tabs -->
+                          <div style="display: flex; gap: 6px; border-top: 1px solid rgba(255,255,255,0.03); pt-8; margin-top: 2px;">
+                            <button type="button" class="target-filter-tab active" data-filter="all" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3); padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; font-weight: 600; outline: none;">الكل</button>
+                            <button type="button" class="target-filter-tab" data-filter="broadcast" style="background: transparent; color: #94a3b8; border: 1px solid rgba(255,255,255,0.08); padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; outline: none;">📢 قنوات</button>
+                            <button type="button" class="target-filter-tab" data-filter="group" style="background: transparent; color: #94a3b8; border: 1px solid rgba(255,255,255,0.08); padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; outline: none;">💬 مجموعات</button>
+                          </div>
+                        </div>
+                        
+                        <!-- Scrollable Channels List -->
+                        <div id="target-picker-list" style="max-height: 200px; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 4px;">
+                          <!-- Populated dynamically -->
+                        </div>
+                      </div>
+
+                      <!-- Manual Link B Fallback Toggle -->
+                      <div>
+                        <button type="button" id="btn-toggle-target-manual" style="background: rgba(59, 130, 246, 0.08); border: 1px dashed rgba(59, 130, 246, 0.3); color: #60a5fa; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px; border-radius: 6px; outline: none; transition: all 0.2s;">
+                          <span id="target-manual-arrow" style="transition: transform 0.2s; display: inline-block;">◀</span>
+                          <span>أو أدخل الرابط/الروابط يدوياً (قناة خارجية)</span>
+                        </button>
+                        <div id="target-manual-section" style="display: none; margin-top: 10px; padding: 10px; background: rgba(15, 23, 42, 0.3); border: 1px solid rgba(255,255,255,0.04); border-radius: 8px;">
+                          <textarea id="web-pin-target-link" class="form-control" rows="2" placeholder="مثال: @my_host_channel1, @my_host_channel2 (رابط في كل سطر أو مفصولة بفاصلة)..." style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; width: 100%; font-size: 14px; outline: none; resize: vertical;"></textarea>
+                        </div>
+                      </div>
                     </div>
+
                   </div>
                 </div>
 
@@ -527,27 +674,49 @@
             </div>
           </div>
 
-          <!-- scheduled tasks box -->
+          <!-- Active Tasks Box -->
+          <div class="card active-tasks-card" id="active-tasks-card-container" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(59, 130, 246, 0.15); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px); display: none; box-shadow: 0 4px 20px rgba(59,130,246,0.05);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span class="pulse-text-animation" style="font-size: 20px;">🔄</span>
+                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">العمليات والمهام النشطة حالياً</h3>
+              </div>
+            </div>
+            <div id="active-jobs-list" style="display: grid; grid-template-columns: 1fr; gap: 12px;">
+            </div>
+          </div>
+
+          <!-- Scheduled Tasks Box -->
           <div class="card scheduled-tasks-card" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
               <div style="display: flex; align-items: center; gap: 12px;">
                 <span style="font-size: 20px;">📅</span>
-                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">
-                  <span class="hidden-mobile">المهام المجدولة النشطة</span>
-                  <span class="show-mobile">المهام النشطة</span>
-                </h3>
+                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">المهام والحملات المجدولة المستقبلية</h3>
               </div>
               <div style="display: flex; align-items: center; gap: 12px;">
                 <button type="button" id="btn-refresh-jobs" style="background: none; border: none; color: #60a5fa; cursor: pointer; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 4px;">
                   <span>🔄 تحديث</span>
                 </button>
                 <button type="button" id="btn-clear-jobs" style="background: none; border: none; color: #f87171; cursor: pointer; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 4px;">
-                  <span>🗑️ مسح المهام</span>
+                  <span>🗑️ إلغاء المجدول</span>
                 </button>
               </div>
             </div>
             <div id="scheduled-jobs-list" style="display: grid; grid-template-columns: 1fr; gap: 12px;">
-              <p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; padding: 12px; border: 1px dashed rgba(255,255,255,0.05); border-radius: 8px;">لا توجد حملات أو مهام مؤجلة مجدولة حالياً.</p>
+              <p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; padding: 12px; border: 1px dashed rgba(255,255,255,0.05); border-radius: 8px;">لا توجد حملات أو مهام مجدولة قيد الانتظار.</p>
+            </div>
+          </div>
+
+          <!-- Recently Finished Tasks Box -->
+          <div class="card finished-tasks-card" id="finished-tasks-card-container" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-size: 20px;">✅</span>
+                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">المهام والعمليات المنتهية مؤخراً</h3>
+              </div>
+            </div>
+            <div id="finished-jobs-list" style="display: grid; grid-template-columns: 1fr; gap: 12px; max-height: 280px; overflow-y: auto; padding-inline-end: 6px;">
+              <p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; padding: 12px; border: 1px dashed rgba(255,255,255,0.05); border-radius: 8px;">لا توجد مهام منتهية مؤخراً.</p>
             </div>
           </div>
 
@@ -611,7 +780,7 @@
                 <li>حذف الإعلانات تلقائياً بدقة ثانية</li>
                 <li>سيرفر خاص بسرعات اتصال فائقة</li>
               </ul>
-              <button class="btn btn-primary btn-select-plan" onclick="switchTab('tab-crypto', 'weekly')">اختر هذه الباقة للترقية</button>
+              <button class="btn btn-primary btn-select-plan" onclick="switchTab('tab-plans', 'weekly')">اختر هذه الباقة للترقية</button>
             </div>
 
             <!-- Plan 3: Monthly -->
@@ -629,7 +798,7 @@
                 <li>حذف الإعلانات أوتوماتيكياً بدقة ثانية</li>
                 <li>تفعيل استيكر مخصص مانع للحظر</li>
               </ul>
-              <button class="btn btn-primary btn-select-plan" onclick="switchTab('tab-crypto', 'monthly')">اختر هذه الباقة للترقية</button>
+              <button class="btn btn-primary btn-select-plan" onclick="switchTab('tab-plans', 'monthly')">اختر هذه الباقة للترقية</button>
             </div>
 
             <!-- Plan 4: 6-Months -->
@@ -647,7 +816,7 @@
                 <li>دعم كامل لوكيل (Proxy SOCKS5) خاص</li>
                 <li>دعم فني مخصص ومباشر 24/7</li>
               </ul>
-              <button class="btn btn-primary btn-select-plan" onclick="switchTab('tab-crypto', 'half_year')">اختر هذه الباقة للترقية</button>
+              <button class="btn btn-primary btn-select-plan" onclick="switchTab('tab-plans', 'half_year')">اختر هذه الباقة للترقية</button>
             </div>
 
             <!-- Plan 5: Yearly -->
@@ -665,69 +834,69 @@
                 <li>بروكسي SOCKS5 مخصص مجاني مدمج</li>
                 <li>مستشار ومدير حساب مخصص بالكامل</li>
               </ul>
-              <button class="btn btn-primary btn-select-plan" onclick="switchTab('tab-crypto', 'yearly')">اختر هذه الباقة للترقية</button>
+              <button class="btn btn-primary btn-select-plan" onclick="switchTab('tab-plans', 'yearly')">اختر هذه الباقة للترقية</button>
             </div>
           </div>
-        </section>
 
-        <!-- Tab 3: الدفع بالـ Crypto -->
-        <section id="tab-crypto" class="tab-panel hidden">
-          <div class="panel-header">
-            <h1 class="panel-title">بوابة الدفع الآمنة بالعملات الرقمية (USDT)</h1>
-            <p class="panel-subtitle">قم بالتحويل على محفظتنا الآمنة ثم الصق رمز المعاملة للتفعيل التلقائي</p>
-          </div>
-
-          <div class="crypto-billing-layout">
-            <div class="crypto-payment-info card">
-              <h3 class="card-title">تفاصيل المحفظة الرقمية</h3>
-              
-              <div class="crypto-network-badge">
-                <span>الشبكة المطلوبة:</span>
-                <strong>USDT (Network: TRC20)</strong>
-              </div>
-
-              <!-- Static QR Code Placeholder -->
-              <div class="qr-code-wrapper">
-                <div class="qr-code-placeholder">
-                  <img src="images/QRCode.png" alt="QR Code" style="width: 120px; height: 120px; display: block; object-fit: contain;">
-                </div>
-                <p class="qr-hint">[امسح الـ QR للتحويل المقبل من هاتفك]</p>
-              </div>
-
-              <div class="wallet-copy-box">
-                <span class="label">عنوان محفظة الاستلام:</span>
-                <div class="copy-input-row">
-                  <input type="text" id="wallet-address" readonly value="" placeholder="جاري تحميل عنوان المحفظة الآمنة...">
-                  <button id="btn-copy-address" class="btn btn-secondary">نسخ العنوان</button>
-                </div>
-              </div>
+          <!-- بوابة الدفع الآمنة (USDT) -->
+          <div id="crypto-payment-section" style="margin-top: 32px; border-top: 1px dashed rgba(255, 255, 255, 0.08); padding-top: 24px;">
+            <div class="panel-header" style="text-align: center; margin-bottom: 20px;">
+              <h2 class="panel-title" style="font-size: 18px; color: #fff; margin-bottom: 4px;">بوابة الدفع الآمنة بالعملات الرقمية (USDT)</h2>
+              <p class="panel-subtitle">قم بالتحويل على محفظتنا الآمنة ثم الصق رمز المعاملة للتفعيل التلقائي</p>
             </div>
 
-            <div class="crypto-submission-form card">
-              <h3 class="card-title">تأكيد معاملة التحويل</h3>
-              <form id="crypto-payment-form">
-                <div class="input-group">
-                  <label for="payment-plan-select">الباقة المراد تفعيلها</label>
-                  <select id="payment-plan-select" required>
-                    <option value="" disabled selected>-- اختر الباقة التي قمت بتحويل قيمتها --</option>
-                    <option value="weekly">اشتراك أسبوعي ($30)</option>
-                    <option value="monthly">اشتراك شهري ($65)</option>
-                    <option value="half_year">اشتراك 6 شهور ($500)</option>
-                    <option value="yearly">اشتراك سنوي ($999)</option>
-                  </select>
+            <div class="crypto-billing-layout">
+              <div class="crypto-payment-info card">
+                <h3 class="card-title">تفاصيل المحفظة الرقمية</h3>
+                
+                <div class="crypto-network-badge">
+                  <span>الشبكة المطلوبة:</span>
+                  <strong>USDT (Network: TRC20)</strong>
                 </div>
 
-                <div class="input-group">
-                  <label for="payment-txid">رقم عملية التحويل (Transaction ID / TxID)</label>
-                  <input type="text" id="payment-txid" required placeholder="أدخل الـ Hash الخاص بالتحويل للتأكيد..." autocomplete="off">
-                  <p class="input-hint">تنبيه: يتم مطابقة الـ TxID وتفعيل الاشتراك آلياً بعد فحص البلوك تشين.</p>
+                <!-- Static QR Code Placeholder -->
+                <div class="qr-code-wrapper">
+                  <div class="qr-code-placeholder">
+                    <img src="images/QRCode.png" alt="QR Code" style="width: 120px; height: 120px; display: block; object-fit: contain;">
+                  </div>
+                  <p class="qr-hint">[امسح الـ QR للتحويل المقبل من هاتفك]</p>
                 </div>
 
-                <button type="submit" id="btn-submit-payment" class="btn btn-primary">
-                  <span class="btn-text">تأكيد وإرسال للمراجعة والتفعيل</span>
-                  <span class="spinner hidden"></span>
-                </button>
-              </form>
+                <div class="wallet-copy-box">
+                  <span class="label">عنوان محفظة الاستلام:</span>
+                  <div class="copy-input-row">
+                    <input type="text" id="wallet-address" readonly value="" placeholder="جاري تحميل عنوان المحفظة الآمنة...">
+                    <button id="btn-copy-address" class="btn btn-secondary">نسخ العنوان</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="crypto-submission-form card">
+                <h3 class="card-title">تأكيد معاملة التحويل</h3>
+                <form id="crypto-payment-form">
+                  <div class="input-group">
+                    <label for="payment-plan-select">الباقة المراد تفعيلها</label>
+                    <select id="payment-plan-select" required>
+                      <option value="" disabled selected>-- اختر الباقة التي قمت بتحويل قيمتها --</option>
+                      <option value="weekly">اشتراك أسبوعي ($30)</option>
+                      <option value="monthly">اشتراك شهري ($65)</option>
+                      <option value="half_year">اشتراك 6 شهور ($500)</option>
+                      <option value="yearly">اشتراك سنوي ($999)</option>
+                    </select>
+                  </div>
+
+                  <div class="input-group">
+                    <label for="payment-txid">رقم عملية التحويل (Transaction ID / TxID)</label>
+                    <input type="text" id="payment-txid" required placeholder="أدخل الـ Hash الخاص بالتحويل للتأكيد..." autocomplete="off">
+                    <p class="input-hint">تنبيه: يتم مطابقة الـ TxID وتفعيل الاشتراك آلياً بعد فحص البلوك تشين.</p>
+                  </div>
+
+                  <button type="submit" id="btn-submit-payment" class="btn btn-primary">
+                    <span class="btn-text">تأكيد وإرسال للمراجعة والتفعيل</span>
+                    <span class="spinner hidden"></span>
+                  </button>
+                </form>
+              </div>
             </div>
           </div>
         </section>
@@ -1018,6 +1187,6 @@
 
 
   <!-- JavaScript Main Script -->
-  <script src="script.js?v=3.6"></script>
+  <script src="script.js?v=4.8"></script>
 </body>
 </html>

@@ -75,8 +75,8 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:local_secure_password_2026@postgres_db:5432/ad_exchange
       - REDIS_URL=redis://redis_cache:6379/0
-      - JWT_SECRET=${JWT_SECRET:-LOCAL_LAB_TESTING_SECRET_KEY}
-      - SESSION_ENCRYPTION_KEY=${SESSION_ENCRYPTION_KEY:-}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required. Set it in .env file.}
+      - SESSION_ENCRYPTION_KEY=${SESSION_ENCRYPTION_KEY:?SESSION_ENCRYPTION_KEY is required. Set it in .env file.}
       - PYTHONUNBUFFERED=1
       - STATUS_BOT_TOKEN=${STATUS_BOT_TOKEN:-}
       - STATUS_BOT_USERNAME=${STATUS_BOT_USERNAME:-AutoTeleStatusBot}
@@ -104,7 +104,7 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:local_secure_password_2026@postgres_db:5432/ad_exchange
       - REDIS_URL=redis://redis_cache:6379/0
-      - SESSION_ENCRYPTION_KEY=${SESSION_ENCRYPTION_KEY:-}
+      - SESSION_ENCRYPTION_KEY=${SESSION_ENCRYPTION_KEY:?SESSION_ENCRYPTION_KEY is required. Set it in .env file.}
       - PYTHONUNBUFFERED=1
       - STATUS_BOT_TOKEN=${STATUS_BOT_TOKEN:-}
       - STATUS_BOT_USERNAME=${STATUS_BOT_USERNAME:-AutoTeleStatusBot}

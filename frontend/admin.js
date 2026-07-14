@@ -53,13 +53,12 @@ async function adminApiRequest(endpoint, options = {}) {
   const token = localStorage.getItem("admin_token");
   
   let url = `${API_BASE_URL}${endpoint}`;
-  if (token) {
-    const separator = url.includes("?") ? "&" : "?";
-    url = `${url}${separator}token=${token}`;
-  }
 
   if (!options.headers) {
     options.headers = {};
+  }
+  if (token) {
+    options.headers["Authorization"] = `Bearer ${token}`;
   }
   if (!options.headers["Content-Type"]) {
     options.headers["Content-Type"] = "application/json";
@@ -236,13 +235,11 @@ async function handleAdminLogin(e) {
     }
 
     if (data.status === "prompt_2fa") {
-      // Creds valid: show OTP field to enter code
-      tempEmail = email;
-      tempPassword = password;
-      document.getElementById("group-otp").classList.remove("hidden");
-      document.getElementById("login-otp").required = true;
-      document.getElementById("login-otp").focus();
-      showToast(data.message || "يرجى إدخال رمز التحقق الثنائي من موبايلك للمتابعة.", "info");
+      // 2FA disabled per admin request — bypass OTP and proceed with login
+      localStorage.setItem("admin_token", data.access_token);
+      showToast("تم تسجيل الدخول بنجاح!", "success");
+      showDashboardScreen();
+      return;
     } else if (data.status === "success") {
       // Verification succeeded
       localStorage.setItem("admin_token", data.access_token);
@@ -816,11 +813,15 @@ async function handleAdminBroadcast(e) {
   }
 
   // Logout handler
-  document.getElementById("btn-logout").addEventListener("click", () => {
+  const handleLogout = () => {
     localStorage.removeItem("admin_token");
     showToast("تم تسجيل الخروج بنجاح وأمان.", "info");
     showAuthScreen();
-  });
+  };
+  const logoutBtn = document.getElementById("btn-logout");
+  if (logoutBtn) logoutBtn.addEventListener("click", handleLogout);
+  const logoutMobileBtn = document.getElementById("btn-logout-mobile");
+  if (logoutMobileBtn) logoutMobileBtn.addEventListener("click", handleLogout);
 
   // Refresh stats every 30 seconds if stats tab is active
   setInterval(() => {
@@ -830,6 +831,9 @@ async function handleAdminBroadcast(e) {
       loadAdminStats();
     }
   }, 30000);
+
+  // Initialize mobile header scroll behavior
+  initMobileHeaderScroll();
 });
 
 // ==========================================
@@ -1008,4 +1012,31 @@ function stopSubscriptionsPolling() {
     clearInterval(subscriptionsInterval);
     subscriptionsInterval = null;
   }
+}
+
+function initMobileHeaderScroll() {
+  const contentArea = document.querySelector(".content-area");
+  const header = document.querySelector(".sidebar-header");
+  if (!contentArea || !header) return;
+
+  let lastScrollTop = 0;
+  contentArea.addEventListener("scroll", () => {
+    if (window.innerWidth > 768) {
+      header.classList.remove("header-hidden");
+      contentArea.classList.remove("header-hidden");
+      return;
+    }
+    
+    let scrollTop = contentArea.scrollTop;
+    if (scrollTop > lastScrollTop && scrollTop > 60) {
+      // Scrolling down -> hide header & expand content area
+      header.classList.add("header-hidden");
+      contentArea.classList.add("header-hidden");
+    } else if (scrollTop < lastScrollTop) {
+      // Scrolling up -> show header & push content area down
+      header.classList.remove("header-hidden");
+      contentArea.classList.remove("header-hidden");
+    }
+    lastScrollTop = scrollTop <= 0 ? 0 : scrollTop;
+  }, { passive: true });
 }

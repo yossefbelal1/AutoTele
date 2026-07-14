@@ -51,17 +51,24 @@ function showToast(message, type = "info", duration = 5000) {
 // ==========================================
 async function apiRequest(endpoint, options = {}) {
   const token = localStorage.getItem("access_token");
+  const method = (options.method || "GET").toUpperCase();
   
   // Build query string or inject authorization parameters
   let url = `${API_BASE_URL}${endpoint}`;
-  if (token) {
+
+  // Prevent browser caching for GET requests
+  if (method === "GET") {
     const separator = url.includes("?") ? "&" : "?";
-    url = `${url}${separator}token=${token}`;
+    url = `${url}${separator}_t=${Date.now()}`;
+    options.cache = "no-store";
   }
 
   // Set default headers if none provided
   if (!options.headers) {
     options.headers = {};
+  }
+  if (token) {
+    options.headers["Authorization"] = `Bearer ${token}`;
   }
   if (!(options.body instanceof FormData) && !options.headers["Content-Type"]) {
     options.headers["Content-Type"] = "application/json";
@@ -72,6 +79,15 @@ async function apiRequest(endpoint, options = {}) {
     
     // Resilience constraint: If 401 Unauthorized
     if (response.status === 401) {
+      if (endpoint.includes("/auth/login")) {
+        let errorMessage = "البريد الإلكتروني أو كلمة المرور غير صحيحة.";
+        try {
+          const errorData = await response.json();
+          if (errorData.detail) errorMessage = errorData.detail;
+        } catch (e) {}
+        showToast(errorMessage, "error");
+        throw new Error(errorMessage);
+      }
       const hadToken = localStorage.getItem("access_token") !== null;
       localStorage.removeItem("access_token");
       if (hadToken) {
@@ -152,7 +168,7 @@ function showDashboardScreen() {
     if (savedPlan === 'trial') {
       switchTab("tab-connect");
     } else {
-      switchTab("tab-crypto", savedPlan);
+      switchTab("tab-plans", savedPlan);
     }
   } else {
     // Default to first tab
@@ -191,13 +207,19 @@ function switchTab(tabId, selectedPlan = null) {
   }
 
   // Pre-select plan in payment dropdown if redirected from pricing plans
-  if (tabId === "tab-crypto") {
+  if (tabId === "tab-plans") {
     loadReceiveWalletAddress();
     if (selectedPlan) {
       const planSelect = document.getElementById("payment-plan-select");
       if (planSelect) {
         planSelect.value = selectedPlan;
       }
+      setTimeout(() => {
+        const cryptoSection = document.getElementById("crypto-payment-section");
+        if (cryptoSection) {
+          cryptoSection.scrollIntoView({ behavior: "smooth" });
+        }
+      }, 100);
     }
   }
   if (tabId === "tab-templates") {
@@ -348,6 +370,49 @@ window.handleGoogleLogin = async function(response) {
     console.error("Google sign in failed:", error);
   }
 };
+
+async function initializeGoogleOAuth() {
+  try {
+    const res = await fetch(API_BASE_URL + "/config");
+    if (!res.ok) return;
+    const config = await res.json();
+    const clientId = config.google_client_id;
+    if (!clientId) {
+      console.log("Google Client ID is not set in config.");
+      return;
+    }
+    
+    // Poller to wait until window.google is loaded
+    const checkGoogleLoaded = setInterval(() => {
+      if (window.google && window.google.accounts) {
+        clearInterval(checkGoogleLoaded);
+        google.accounts.id.initialize({
+          client_id: clientId,
+          callback: window.handleGoogleLogin,
+          context: "signin",
+          ux_mode: "popup",
+          auto_prompt: false
+        });
+        const googleBtnContainer = document.getElementById("google-signin-btn-container");
+        if (googleBtnContainer) {
+          google.accounts.id.renderButton(googleBtnContainer, {
+            type: "standard",
+            shape: "rectangular",
+            theme: "outline",
+            text: "signin_with",
+            size: "large",
+            logo_alignment: "left",
+            width: googleBtnContainer.parentElement ? googleBtnContainer.parentElement.clientWidth : 320
+          });
+        }
+      }
+    }, 100);
+    // Timeout after 10 seconds
+    setTimeout(() => clearInterval(checkGoogleLoaded), 10000);
+  } catch (err) {
+    console.error("Failed to initialize Google OAuth:", err);
+  }
+}
 
 // ==========================================
 // 5. LIVE SYNC MODULE (DASHBOARD REFRESH)
@@ -762,6 +827,637 @@ function resetTargetLinkInputs() {
 }
 
 // ==========================================
+// 8B-2. CHANNEL PICKER LOGIC
+// ==========================================
+let _channelPickerData = []; // full cached channel list from API
+let _channelPickerSelected = new Set(); // set of selected channel identifiers (username or invite_link)
+let _channelPickerFilter = "all"; // "all" | "broadcast" | "group"
+let _channelPickerFetched = false; // track if already fetched for this session
+
+async function fetchUserChannels(forceRefresh = false) {
+  const listEl = document.getElementById("channel-picker-list");
+  const loadingEl = document.getElementById("channel-picker-loading");
+  const emptyEl = document.getElementById("channel-picker-empty");
+  const noResultsEl = document.getElementById("channel-picker-no-results");
+  const cacheAgeEl = document.getElementById("channel-picker-cache-age");
+  if (!listEl) return;
+
+  // 1. Check in-memory / sessionStorage cache first (unless forced refresh)
+  if (!forceRefresh) {
+    // Check in-memory global cache first
+    if (_channelPickerFetched && _channelPickerData && _channelPickerData.length > 0) {
+      if (loadingEl) loadingEl.style.display = "none";
+      if (emptyEl) emptyEl.style.display = "none";
+      if (noResultsEl) noResultsEl.style.display = "none";
+      populateTimedPostDropdowns();
+      renderChannelPicker();
+      return;
+    }
+
+    // Check sessionStorage cache
+    const cached = sessionStorage.getItem("channels_cache");
+    if (cached) {
+      try {
+        const cacheData = JSON.parse(cached);
+        _channelPickerData = cacheData.channels || [];
+        _channelPickerFetched = true;
+
+        if (cacheAgeEl && cacheData.timestamp) {
+          const ageSecs = Math.floor((Date.now() - cacheData.timestamp) / 1000);
+          const mins = Math.max(0, Math.floor(ageSecs / 60));
+          if (mins < 60) {
+            cacheAgeEl.textContent = `آخر تحديث: ${mins} دقيقة`;
+          } else {
+            cacheAgeEl.textContent = `آخر تحديث: ${Math.floor(mins / 60)} ساعة`;
+          }
+        }
+
+        if (loadingEl) loadingEl.style.display = "none";
+        if (emptyEl) emptyEl.style.display = "none";
+        if (noResultsEl) noResultsEl.style.display = "none";
+
+        if (_channelPickerData.length === 0) {
+          if (emptyEl) emptyEl.style.display = "block";
+        } else {
+          populateTimedPostDropdowns();
+          renderChannelPicker();
+        }
+        return;
+      } catch (e) {
+        console.error("Error parsing sessionStorage cache:", e);
+      }
+    }
+  }
+
+  // 2. Cache miss or forceRefresh: Fetch from API
+  if (loadingEl) loadingEl.style.display = "block";
+  if (emptyEl) emptyEl.style.display = "none";
+  if (noResultsEl) noResultsEl.style.display = "none";
+
+  // Remove existing channel items (keep status elements)
+  listEl.querySelectorAll(".channel-picker-item").forEach(el => el.remove());
+
+  try {
+    const data = await apiRequest("/user/channels");
+    _channelPickerData = data.channels || [];
+    _channelPickerFetched = true;
+
+    // Save to sessionStorage
+    const currentAgeSecs = data.cache_age_seconds || 0;
+    sessionStorage.setItem("channels_cache", JSON.stringify({
+      channels: _channelPickerData,
+      timestamp: Date.now() - (currentAgeSecs * 1000)
+    }));
+
+    if (cacheAgeEl && data.cache_age_seconds != null) {
+      const mins = Math.floor(data.cache_age_seconds / 60);
+      if (mins < 60) {
+        cacheAgeEl.textContent = `آخر تحديث: ${mins} دقيقة`;
+      } else {
+        const hours = Math.floor(mins / 60);
+        cacheAgeEl.textContent = `آخر تحديث: ${hours} ساعة`;
+      }
+    }
+
+    if (loadingEl) loadingEl.style.display = "none";
+
+    if (_channelPickerData.length === 0) {
+      if (emptyEl) emptyEl.style.display = "block";
+      return;
+    }
+
+    populateTimedPostDropdowns();
+    renderChannelPicker();
+  } catch (error) {
+    console.error("Error fetching channels:", error);
+    if (loadingEl) loadingEl.style.display = "none";
+    if (emptyEl) {
+      emptyEl.style.display = "block";
+      emptyEl.querySelector("div").innerHTML = `
+        <span style="font-size: 28px; display: block; margin-bottom: 8px;">⚠️</span>
+        فشل في تحميل القنوات. تأكد من ربط حسابك وتفعيل المحرك.
+      `;
+    }
+  }
+}
+
+// Timed Post Custom Dropdowns / Pickers
+let _promoPickerSelected = new Set();
+let _targetPickerSelected = new Set();
+let _promoFilter = "all";
+let _targetFilter = "all";
+
+function renderPromoPicker() {
+  const listEl = document.getElementById("promo-picker-list");
+  if (!listEl) return;
+  listEl.innerHTML = "";
+
+  const searchQuery = (document.getElementById("promo-picker-search")?.value || "").trim().toLowerCase();
+
+  let filtered = _channelPickerData;
+  if (_promoFilter === "broadcast") {
+    filtered = filtered.filter(ch => ch.is_broadcast);
+  } else if (_promoFilter === "group") {
+    filtered = filtered.filter(ch => ch.is_group);
+  }
+
+  if (searchQuery) {
+    filtered = filtered.filter(ch => {
+      const title = (ch.title || "").toLowerCase();
+      const username = (ch.username || "").toLowerCase();
+      return title.includes(searchQuery) || username.includes(searchQuery);
+    });
+  }
+
+  // Sort: selected first, then members count desc
+  filtered.sort((a, b) => {
+    const aId = getChannelIdentifier(a);
+    const bId = getChannelIdentifier(b);
+    const aSelected = _promoPickerSelected.has(aId) ? 1 : 0;
+    const bSelected = _promoPickerSelected.has(bId) ? 1 : 0;
+    if (aSelected !== bSelected) return bSelected - aSelected;
+    return (b.members_count || 0) - (a.members_count || 0);
+  });
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = `
+      <div style="padding: 20px; text-align: center; color: #64748b; font-size: 13px;">
+        لا توجد قنوات مطابقة للبحث
+      </div>
+    `;
+    return;
+  }
+
+  filtered.forEach(ch => {
+    const identifier = getChannelIdentifier(ch);
+    const isSelected = _promoPickerSelected.has(identifier);
+
+    const item = document.createElement("div");
+    item.className = `channel-picker-item ${isSelected ? "selected" : ""}`;
+    item.style.cssText = `
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+      cursor: pointer;
+      transition: all 0.2s;
+      background: ${isSelected ? "rgba(59, 130, 246, 0.08)" : "transparent"};
+    `;
+
+    item.addEventListener("mouseenter", () => {
+      if (!isSelected) item.style.background = "rgba(255,255,255,0.02)";
+    });
+    item.addEventListener("mouseleave", () => {
+      if (!isSelected) item.style.background = "transparent";
+    });
+
+    const isGroup = ch.is_group;
+    const typeIcon = isGroup ? "👥" : "📢";
+    const typeLabel = isGroup ? "مجموعة" : "قناة";
+
+    const detailsLeft = `
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 14px; font-weight: 500; color: #fff;">${escapeHtml(ch.title)}</span>
+        <span style="font-size: 11px; background: rgba(255,255,255,0.06); color: #94a3b8; padding: 2px 6px; border-radius: 4px;">${typeIcon} ${typeLabel}</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; margin-top: 4px; font-size: 11px; color: #64748b;">
+        ${ch.username ? `<span>@${escapeHtml(ch.username)}</span>` : `<span style="color: #fbbf24;">🔐 رابط خاص</span>`}
+        <span>•</span>
+        <span>${formatMembersCount(ch.members_count)} عضو</span>
+      </div>
+    `;
+
+    // Standard square checkbox
+    const checkboxRight = `
+      <div style="width: 20px; height: 20px; border-radius: 4px; border: 2px solid ${isSelected ? "#3b82f6" : "rgba(255,255,255,0.2)"}; display: flex; align-items: center; justify-content: center; transition: all 0.2s; background: ${isSelected ? "#3b82f6" : "transparent"};">
+        ${isSelected ? '<span style="color: #fff; font-size: 11px; line-height: 1;">✓</span>' : ""}
+      </div>
+    `;
+
+    item.innerHTML = `
+      <div style="display: flex; flex-direction: column;">${detailsLeft}</div>
+      <div>${checkboxRight}</div>
+    `;
+
+    item.addEventListener("click", () => {
+      if (_promoPickerSelected.has(identifier)) {
+        _promoPickerSelected.delete(identifier);
+      } else {
+        _promoPickerSelected.add(identifier);
+      }
+      
+      // Update hidden input with all selected channels joined by comma
+      document.getElementById("web-pin-promo-link").value = Array.from(_promoPickerSelected).join(",");
+      
+      // Hide manual section if there are selections
+      if (_promoPickerSelected.size > 0) {
+        const manualSec = document.getElementById("promo-manual-section");
+        const arrow = document.getElementById("promo-manual-arrow");
+        if (manualSec) manualSec.style.display = "none";
+        if (arrow) arrow.style.transform = "rotate(0deg)";
+      }
+      renderPromoPicker();
+    });
+
+    listEl.appendChild(item);
+  });
+}
+
+function renderTargetPicker() {
+  const listEl = document.getElementById("target-picker-list");
+  if (!listEl) return;
+  listEl.innerHTML = "";
+
+  const searchQuery = (document.getElementById("target-picker-search")?.value || "").trim().toLowerCase();
+
+  let filtered = _channelPickerData;
+  if (_targetFilter === "broadcast") {
+    filtered = filtered.filter(ch => ch.is_broadcast);
+  } else if (_targetFilter === "group") {
+    filtered = filtered.filter(ch => ch.is_group);
+  }
+
+  if (searchQuery) {
+    filtered = filtered.filter(ch => {
+      const title = (ch.title || "").toLowerCase();
+      const username = (ch.username || "").toLowerCase();
+      return title.includes(searchQuery) || username.includes(searchQuery);
+    });
+  }
+
+  // Sort: selected first, then members count desc
+  filtered.sort((a, b) => {
+    const aId = getChannelIdentifier(a);
+    const bId = getChannelIdentifier(b);
+    const aSelected = _targetPickerSelected.has(aId) ? 1 : 0;
+    const bSelected = _targetPickerSelected.has(bId) ? 1 : 0;
+    if (aSelected !== bSelected) return bSelected - aSelected;
+    return (b.members_count || 0) - (a.members_count || 0);
+  });
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = `
+      <div style="padding: 20px; text-align: center; color: #64748b; font-size: 13px;">
+        لا توجد قنوات مطابقة للبحث
+      </div>
+    `;
+    return;
+  }
+
+  filtered.forEach(ch => {
+    const identifier = getChannelIdentifier(ch);
+    const isSelected = _targetPickerSelected.has(identifier);
+
+    const item = document.createElement("div");
+    item.className = `channel-picker-item ${isSelected ? "selected" : ""}`;
+    item.style.cssText = `
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+      cursor: pointer;
+      transition: all 0.2s;
+      background: ${isSelected ? "rgba(59, 130, 246, 0.08)" : "transparent"};
+    `;
+
+    item.addEventListener("mouseenter", () => {
+      if (!isSelected) item.style.background = "rgba(255,255,255,0.02)";
+    });
+    item.addEventListener("mouseleave", () => {
+      if (!isSelected) item.style.background = "transparent";
+    });
+
+    const isGroup = ch.is_group;
+    const typeIcon = isGroup ? "👥" : "📢";
+    const typeLabel = isGroup ? "مجموعة" : "قناة";
+
+    const detailsLeft = `
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 14px; font-weight: 500; color: #fff;">${escapeHtml(ch.title)}</span>
+        <span style="font-size: 11px; background: rgba(255,255,255,0.06); color: #94a3b8; padding: 2px 6px; border-radius: 4px;">${typeIcon} ${typeLabel}</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; margin-top: 4px; font-size: 11px; color: #64748b;">
+        ${ch.username ? `<span>@${escapeHtml(ch.username)}</span>` : `<span style="color: #fbbf24;">🔐 رابط خاص</span>`}
+        <span>•</span>
+        <span>${formatMembersCount(ch.members_count)} عضو</span>
+      </div>
+    `;
+
+    // Standard square checkbox
+    const checkboxRight = `
+      <div style="width: 20px; height: 20px; border-radius: 4px; border: 2px solid ${isSelected ? "#3b82f6" : "rgba(255,255,255,0.2)"}; display: flex; align-items: center; justify-content: center; transition: all 0.2s; background: ${isSelected ? "#3b82f6" : "transparent"};">
+        ${isSelected ? '<span style="color: #fff; font-size: 11px; line-height: 1;">✓</span>' : ""}
+      </div>
+    `;
+
+    item.innerHTML = `
+      <div style="display: flex; flex-direction: column;">${detailsLeft}</div>
+      <div>${checkboxRight}</div>
+    `;
+
+    item.addEventListener("click", () => {
+      if (_targetPickerSelected.has(identifier)) {
+        _targetPickerSelected.delete(identifier);
+      } else {
+        _targetPickerSelected.add(identifier);
+      }
+      
+      // Update hidden input with all selected channels joined by comma
+      document.getElementById("web-pin-target-link").value = Array.from(_targetPickerSelected).join(",");
+      
+      // Hide manual section if there are selections
+      if (_targetPickerSelected.size > 0) {
+        const manualSec = document.getElementById("target-manual-section");
+        const arrow = document.getElementById("target-manual-arrow");
+        if (manualSec) manualSec.style.display = "none";
+        if (arrow) arrow.style.transform = "rotate(0deg)";
+      }
+      renderTargetPicker();
+    });
+
+    listEl.appendChild(item);
+  });
+}
+
+function initCustomDropdowns() {
+  // Hook up promo search and filter tabs
+  const promoSearch = document.getElementById("promo-picker-search");
+  if (promoSearch) {
+    promoSearch.addEventListener("input", renderPromoPicker);
+  }
+
+  document.querySelectorAll(".promo-filter-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".promo-filter-tab").forEach(t => {
+        t.classList.remove("active");
+        t.style.background = "transparent";
+        t.style.color = "#94a3b8";
+        t.style.border = "1px solid rgba(255,255,255,0.08)";
+      });
+      tab.classList.add("active");
+      tab.style.background = "rgba(59, 130, 246, 0.15)";
+      tab.style.color = "#3b82f6";
+      tab.style.border = "1px solid rgba(59, 130, 246, 0.3)";
+      _promoFilter = tab.getAttribute("data-filter") || "all";
+      renderPromoPicker();
+    });
+  });
+
+  // Hook up target search and filter tabs
+  const targetSearch = document.getElementById("target-picker-search");
+  if (targetSearch) {
+    targetSearch.addEventListener("input", renderTargetPicker);
+  }
+
+  document.querySelectorAll(".target-filter-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".target-filter-tab").forEach(t => {
+        t.classList.remove("active");
+        t.style.background = "transparent";
+        t.style.color = "#94a3b8";
+        t.style.border = "1px solid rgba(255,255,255,0.08)";
+      });
+      tab.classList.add("active");
+      tab.style.background = "rgba(59, 130, 246, 0.15)";
+      tab.style.color = "#3b82f6";
+      tab.style.border = "1px solid rgba(59, 130, 246, 0.3)";
+      _targetFilter = tab.getAttribute("data-filter") || "all";
+      renderTargetPicker();
+    });
+  });
+
+  // Hook up manual toggles
+  const btnTogglePromoManual = document.getElementById("btn-toggle-promo-manual");
+  const promoManualSec = document.getElementById("promo-manual-section");
+  const promoManualArrow = document.getElementById("promo-manual-arrow");
+  if (btnTogglePromoManual && promoManualSec) {
+    btnTogglePromoManual.addEventListener("click", () => {
+      const isHidden = promoManualSec.style.display === "none";
+      promoManualSec.style.display = isHidden ? "block" : "none";
+      if (promoManualArrow) {
+        promoManualArrow.style.transform = isHidden ? "rotate(-90deg)" : "rotate(0deg)";
+      }
+      if (isHidden) {
+        _promoPickerSelected.clear();
+        renderPromoPicker();
+        document.getElementById("web-pin-promo-link").value = "";
+        setTimeout(() => document.getElementById("web-pin-promo-link").focus(), 50);
+      }
+    });
+  }
+
+  const btnToggleTargetManual = document.getElementById("btn-toggle-target-manual");
+  const targetManualSec = document.getElementById("target-manual-section");
+  const targetManualArrow = document.getElementById("target-manual-arrow");
+  if (btnToggleTargetManual && targetManualSec) {
+    btnToggleTargetManual.addEventListener("click", () => {
+      const isHidden = targetManualSec.style.display === "none";
+      targetManualSec.style.display = isHidden ? "block" : "none";
+      if (targetManualArrow) {
+        targetManualArrow.style.transform = isHidden ? "rotate(-90deg)" : "rotate(0deg)";
+      }
+      if (isHidden) {
+        _targetPickerSelected.clear();
+        renderTargetPicker();
+        document.getElementById("web-pin-target-link").value = "";
+        setTimeout(() => document.getElementById("web-pin-target-link").focus(), 50);
+      }
+    });
+  }
+}
+
+function populateTimedPostDropdowns() {
+  renderPromoPicker();
+  renderTargetPicker();
+}
+
+function resetTimedPostDropdowns() {
+  _promoPickerSelected.clear();
+  _targetPickerSelected.clear();
+  const webPromo = document.getElementById("web-pin-promo-link");
+  const webTarget = document.getElementById("web-pin-target-link");
+  if (webPromo) webPromo.value = "";
+  if (webTarget) webTarget.value = "";
+  
+  const promoManualSec = document.getElementById("promo-manual-section");
+  const promoManualArrow = document.getElementById("promo-manual-arrow");
+  if (promoManualSec) promoManualSec.style.display = "none";
+  if (promoManualArrow) promoManualArrow.style.transform = "rotate(0deg)";
+
+  const targetManualSec = document.getElementById("target-manual-section");
+  const targetManualArrow = document.getElementById("target-manual-arrow");
+  if (targetManualSec) targetManualSec.style.display = "none";
+  if (targetManualArrow) targetManualArrow.style.transform = "rotate(0deg)";
+
+  renderPromoPicker();
+  renderTargetPicker();
+}
+
+
+
+function renderChannelPicker() {
+  const listEl = document.getElementById("channel-picker-list");
+  const noResultsEl = document.getElementById("channel-picker-no-results");
+  if (!listEl) return;
+
+  // Remove existing channel items
+  listEl.querySelectorAll(".channel-picker-item").forEach(el => el.remove());
+
+  const searchQuery = (document.getElementById("channel-picker-search")?.value || "").trim().toLowerCase();
+
+  // Filter by type
+  let filtered = _channelPickerData;
+  if (_channelPickerFilter === "broadcast") {
+    filtered = filtered.filter(ch => ch.is_broadcast);
+  } else if (_channelPickerFilter === "group") {
+    filtered = filtered.filter(ch => ch.is_group);
+  }
+
+  // Filter by search query
+  if (searchQuery) {
+    filtered = filtered.filter(ch => {
+      const title = (ch.title || "").toLowerCase();
+      const username = (ch.username || "").toLowerCase();
+      return title.includes(searchQuery) || username.includes(searchQuery);
+    });
+  }
+
+  // Show/hide no results
+  if (noResultsEl) {
+    noResultsEl.style.display = filtered.length === 0 ? "block" : "none";
+  }
+
+  // Sort: selected first, then by members_count desc
+  filtered.sort((a, b) => {
+    const aSelected = _channelPickerSelected.has(getChannelIdentifier(a)) ? 1 : 0;
+    const bSelected = _channelPickerSelected.has(getChannelIdentifier(b)) ? 1 : 0;
+    if (aSelected !== bSelected) return bSelected - aSelected;
+    return (b.members_count || 0) - (a.members_count || 0);
+  });
+
+  // Render each channel
+  filtered.forEach(ch => {
+    const identifier = getChannelIdentifier(ch);
+    const isSelected = _channelPickerSelected.has(identifier);
+    const typeIcon = ch.is_broadcast ? "📢" : "👥";
+    const membersText = formatMembersCount(ch.members_count || 0);
+    const qualityBadge = ch.quality_score > 0 ? `<span style="color: #f59e0b; font-size: 10px; margin-right: 6px;">⭐ ${ch.quality_score}</span>` : "";
+    const usernameText = ch.username ? `@${ch.username}` : "رابط خاص";
+
+    const item = document.createElement("div");
+    item.className = "channel-picker-item";
+    item.setAttribute("data-id", identifier);
+    item.style.cssText = `
+      display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+      border-radius: 8px; cursor: pointer; transition: all 0.15s;
+      margin-bottom: 4px;
+      background: ${isSelected ? "rgba(59, 130, 246, 0.1)" : "transparent"};
+      border: 1px solid ${isSelected ? "rgba(59, 130, 246, 0.25)" : "rgba(255,255,255,0.04)"};
+    `;
+
+    item.innerHTML = `
+      <div style="flex-shrink: 0; width: 20px; height: 20px; border-radius: 4px; border: 2px solid ${isSelected ? "#3b82f6" : "#475569"}; display: flex; align-items: center; justify-content: center; transition: all 0.15s; background: ${isSelected ? "#3b82f6" : "transparent"};">
+        ${isSelected ? '<span style="color: #fff; font-size: 11px; line-height: 1;">✓</span>' : ""}
+      </div>
+      <div style="font-size: 18px; flex-shrink: 0;">${typeIcon}</div>
+      <div style="flex: 1; min-width: 0;">
+        <div style="color: #e2e8f0; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(ch.title || "بدون اسم")}</div>
+        <div style="color: #64748b; font-size: 11px; display: flex; align-items: center; gap: 6px; margin-top: 2px;">
+          <span>${usernameText}</span>
+          <span>·</span>
+          <span>${membersText} عضو</span>
+          ${qualityBadge}
+        </div>
+      </div>
+    `;
+
+    item.addEventListener("click", () => {
+      if (_channelPickerSelected.has(identifier)) {
+        _channelPickerSelected.delete(identifier);
+      } else {
+        _channelPickerSelected.add(identifier);
+      }
+      renderChannelPicker();
+      updateChannelSelectionSummary();
+    });
+
+    // Hover effect
+    item.addEventListener("mouseenter", () => {
+      if (!_channelPickerSelected.has(identifier)) {
+        item.style.background = "rgba(255,255,255,0.03)";
+      }
+    });
+    item.addEventListener("mouseleave", () => {
+      if (!_channelPickerSelected.has(identifier)) {
+        item.style.background = "transparent";
+      }
+    });
+
+    listEl.appendChild(item);
+  });
+}
+
+function getChannelIdentifier(ch) {
+  // Prefer @username, fallback to invite_link, fallback to id
+  if (ch.username) return `@${ch.username}`;
+  if (ch.invite_link) return ch.invite_link;
+  return String(ch.id);
+}
+
+function formatMembersCount(count) {
+  if (count >= 1000000) return (count / 1000000).toFixed(1) + "M";
+  if (count >= 1000) return (count / 1000).toFixed(1) + "K";
+  return String(count);
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function updateChannelSelectionSummary() {
+  const selectionEl = document.getElementById("channel-picker-selection");
+  const countEl = document.getElementById("channel-picker-count");
+  if (!selectionEl || !countEl) return;
+  const count = _channelPickerSelected.size;
+  countEl.textContent = count;
+  selectionEl.style.display = count > 0 ? "block" : "none";
+}
+
+function getSelectedChannelLinks() {
+  // Returns array of selected channel identifiers (usernames or links)
+  return Array.from(_channelPickerSelected);
+}
+
+function resetChannelPicker() {
+  _channelPickerSelected.clear();
+  _channelPickerFilter = "all";
+  const searchEl = document.getElementById("channel-picker-search");
+  if (searchEl) searchEl.value = "";
+  updateChannelSelectionSummary();
+  // Reset filter tab styles
+  document.querySelectorAll(".channel-filter-tab").forEach(tab => {
+    if (tab.getAttribute("data-filter") === "all") {
+      tab.style.background = "rgba(59, 130, 246, 0.15)";
+      tab.style.color = "#3b82f6";
+      tab.style.borderColor = "rgba(59, 130, 246, 0.3)";
+      tab.style.fontWeight = "600";
+      tab.classList.add("active");
+    } else {
+      tab.style.background = "transparent";
+      tab.style.color = "#94a3b8";
+      tab.style.borderColor = "rgba(255,255,255,0.08)";
+      tab.style.fontWeight = "normal";
+      tab.classList.remove("active");
+    }
+  });
+  if (_channelPickerFetched) renderChannelPicker();
+}
+
+// ==========================================
 // 8C. WEB CAMPAIGN SUBMIT HANDLER
 // ==========================================
 async function handleWebCampaignSubmit(e) {
@@ -777,20 +1473,28 @@ async function handleWebCampaignSubmit(e) {
   if (campaignType === "timed_post") {
     const promoLink = document.getElementById("web-pin-promo-link").value.trim();
     const targetLinkPin = document.getElementById("web-pin-target-link").value.trim();
-    if (!promoLink || !targetLinkPin) {
-      showToast("يرجى إدخال رابط الترويج ورابط القناة الحاضنة للنشر المؤقت.", "warning");
+    
+    // Normalize and filter out empty inputs, joining by commas
+    const promoLinksClean = promoLink.split(/[\n,]+/).map(l => l.trim()).filter(l => l !== "").join(",");
+    const targetLinksClean = targetLinkPin.split(/[\n,]+/).map(l => l.trim()).filter(l => l !== "").join(",");
+    
+    if (!promoLinksClean || !targetLinksClean) {
+      showToast("يرجى اختيار قنوات الترويج وقنوات النشر المؤقت، أو إدخال روابط يدوية.", "warning");
       return;
     }
-    targetLink = promoLink + "|" + targetLinkPin;
+    targetLink = promoLinksClean + "|" + targetLinksClean;
   } else {
+    // Merge picker selections + manual link inputs
+    const pickerLinks = getSelectedChannelLinks();
     const inputs = document.querySelectorAll(".web-target-link");
-    const links = Array.from(inputs).map(inp => inp.value.trim()).filter(val => val !== "");
-    targetLink = links.join("\n");
+    const manualLinks = Array.from(inputs).map(inp => inp.value.trim()).filter(val => val !== "");
+    const allLinks = [...pickerLinks, ...manualLinks];
+    targetLink = allLinks.join("\n");
   }
   const customText = customTextInput.value.trim();
 
   if (campaignType === "single" && !targetLink) {
-    showToast("يرجى إدخال رابط القناة المستهدفة للحملة الفردية.", "warning");
+    showToast("يرجى اختيار قناة من القائمة أو إدخال رابط القناة المستهدفة.", "warning");
     return;
   }
 
@@ -813,6 +1517,8 @@ async function handleWebCampaignSubmit(e) {
       showToast(data.message || "تم تقديم طلب الحملة بنجاح!", "success");
       document.getElementById("web-campaign-form").reset();
       resetTargetLinkInputs();
+      resetChannelPicker();
+      resetTimedPostDropdowns();
       const campaignTypeSelect = document.getElementById("web-campaign-type");
       if (campaignTypeSelect) {
         campaignTypeSelect.dispatchEvent(new Event("change"));
@@ -943,16 +1649,18 @@ function formatTelegramText(text) {
 async function loadScheduledJobs() {
   try {
     const data = await apiRequest("/user/scheduled-jobs");
-    const listEl = document.getElementById("scheduled-jobs-list");
-    if (!listEl) return;
+    const scheduledListEl = document.getElementById("scheduled-jobs-list");
+    const activeListEl = document.getElementById("active-jobs-list");
+    const finishedListEl = document.getElementById("finished-jobs-list");
+    const activeCardContainer = document.getElementById("active-tasks-card-container");
+    const finishedCardContainer = document.getElementById("finished-tasks-card-container");
+    
+    if (!scheduledListEl) return;
+    
     if (data.status === "success") {
-      if (!data.jobs || data.jobs.length === 0) {
-        listEl.innerHTML = `<p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; padding: 12px; border: 1px dashed rgba(255,255,255,0.05); border-radius: 8px;">لا توجد حملات أو مهام مؤجلة مجدولة حالياً.</p>`;
-        return;
-      }
+      const jobs = data.jobs || [];
       
-      let html = "";
-      data.jobs.forEach(job => {
+      const renderJobItemHtml = (job) => {
         let dateStr = "";
         let remainingStr = "";
         try {
@@ -960,7 +1668,7 @@ async function loadScheduledJobs() {
           dateStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + " - " + date.toLocaleDateString();
           
           const diffMs = date.getTime() - Date.now();
-          if (diffMs > 0) {
+          if (diffMs > 0 && job.status === "pending") {
             const diffMins = Math.ceil(diffMs / (1000 * 60));
             const hours = Math.floor(diffMins / 60);
             const mins = diffMins % 60;
@@ -980,6 +1688,9 @@ async function loadScheduledJobs() {
         if (job.status === "processing") {
           statusBadge = `<span class="pulse-text-animation" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">🔄 جاري التنفيذ...</span>`;
           cardStyle = "background: rgba(59, 130, 246, 0.04); border: 1px solid rgba(59, 130, 246, 0.35); box-shadow: 0 4px 20px rgba(59, 130, 246, 0.1);";
+        } else if (job.status === "active") {
+          statusBadge = `<span class="pulse-text-animation" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.5); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">📌 إعلان حي — بانتظار الحذف</span>`;
+          cardStyle = "background: rgba(245, 158, 11, 0.04); border: 1px solid rgba(245, 158, 11, 0.35); box-shadow: 0 4px 20px rgba(245, 158, 11, 0.08);";
         } else if (job.status === "completed") {
           statusBadge = `<span style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">✅ مكتمل</span>`;
           cardStyle = "background: rgba(16, 185, 129, 0.02); border: 1px solid rgba(16, 185, 129, 0.25);";
@@ -987,19 +1698,54 @@ async function loadScheduledJobs() {
           statusBadge = `<span style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">❌ متوقف / ملغي</span>`;
           cardStyle = "background: rgba(239, 68, 68, 0.02); border: 1px solid rgba(239, 68, 68, 0.25);";
         } else {
-          // pending
           statusBadge = `<span style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">⏳ مجدول</span>`;
           cardStyle = "background: rgba(255, 255, 255, 0.015); border: 1px solid rgba(255, 255, 255, 0.06);";
         }
 
         let progressHtml = "";
-        if (job.result_summary) {
+
+        // Live countdown + progress bar for active timed_post
+        if (job.status === "active" && job.expires_at) {
+          const expiresMs   = new Date(job.expires_at).getTime();
+          const lifespanMs  = (job.ad_lifespan || 15) * 60 * 1000;
+          const startedMs   = expiresMs - lifespanMs;
+          const nowMs       = Date.now();
+          const totalMs     = lifespanMs;
+          const elapsedMs   = Math.max(0, nowMs - startedMs);
+          const remainMs    = Math.max(0, expiresMs - nowMs);
+          const pct         = Math.min(100, Math.round((elapsedMs / totalMs) * 100));
+          const remMins     = Math.floor(remainMs / 60000);
+          const remSecs     = Math.floor((remainMs % 60000) / 1000);
+          const cardId      = `job-timer-${job.task_id}`;
+
+          // Status summary box (shows posting result)
+          const summaryBox = job.result_summary ? `
+            <div style="background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.2); padding: 10px 12px; border-radius: 8px; color: #fde68a; font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; direction: rtl; text-align: right; margin-top: 8px;">${formatTelegramText(job.result_summary)}</div>
+          ` : '';
+
+          progressHtml = `
+            ${summaryBox}
+            <div id="${cardId}" style="margin-top:10px; padding: 12px 14px; background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.25); border-radius: 10px; direction: rtl;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:7px;">
+                <span style="color:#fbbf24; font-size:12px; font-weight:600;">⏱ متبقي على الحذف التلقائي للإعلان</span>
+                <span id="${cardId}-txt" style="color:#fff; font-size:14px; font-weight:700; font-variant-numeric: tabular-nums; font-family: monospace;">${remMins}:${String(remSecs).padStart(2,'0')}</span>
+              </div>
+              <div style="background: rgba(255,255,255,0.07); border-radius:99px; height:8px; overflow:hidden;">
+                <div id="${cardId}-bar" style="height:100%; border-radius:99px; width:${pct}%; background: linear-gradient(90deg,#10b981,#f59e0b); transition: width 1s linear;"></div>
+              </div>
+              <div style="display:flex; justify-content:space-between; margin-top:5px;">
+                <span style="color:#64748b; font-size:10px;">0</span>
+                <span style="color:#64748b; font-size:10px;">${job.ad_lifespan || 15} دقيقة</span>
+              </div>
+            </div>
+          `;
+        } else if (job.result_summary) {
           progressHtml = `
             <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.05); padding: 12px; border-radius: 8px; margin-top: 8px; color: #e2e8f0; font-family: system-ui, -apple-system, sans-serif; font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; direction: rtl; text-align: right;">${formatTelegramText(job.result_summary)}</div>
           `;
         }
         
-        html += `
+        return `
           <div style="padding: 16px; border-radius: 12px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; transition: all 0.3s; ${cardStyle}">
             <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
               <span style="font-weight: 700; color: #fff; font-size: 14px; display: flex; align-items: center; gap: 6px;">🚀 ${escapeHtml(job.type)}</span>
@@ -1012,8 +1758,83 @@ async function loadScheduledJobs() {
             ${progressHtml}
           </div>
         `;
-      });
-      listEl.innerHTML = html;
+      };
+
+      const sortByTimeDesc = (a, b) => new Date(b.start_time) - new Date(a.start_time);
+
+      const activeJobs = jobs.filter(j => j.status === "processing" || j.status === "active").sort(sortByTimeDesc);
+      const scheduledJobs = jobs.filter(j => j.status === "pending").sort(sortByTimeDesc);
+      const finishedJobs = jobs.filter(j => j.status === "completed" || j.status === "failed").sort(sortByTimeDesc);
+
+      // 1. Render Active Tasks
+      if (activeJobs.length === 0) {
+        if (activeCardContainer) activeCardContainer.style.display = "none";
+      } else {
+        if (activeCardContainer) activeCardContainer.style.display = "block";
+        if (activeListEl) {
+          activeListEl.innerHTML = activeJobs.map(renderJobItemHtml).join("");
+        }
+      }
+
+      // Live countdown tick — updates every second without re-rendering
+      if (window._jobCountdownInterval) clearInterval(window._jobCountdownInterval);
+      const activeTimedJobs = activeJobs.filter(j => j.status === "active" && j.expires_at);
+      if (activeTimedJobs.length > 0) {
+        window._jobCountdownInterval = setInterval(() => {
+          let allDone = true;
+          activeTimedJobs.forEach(job => {
+            const cardId   = `job-timer-${job.task_id}`;
+            const txtEl    = document.getElementById(`${cardId}-txt`);
+            const barEl    = document.getElementById(`${cardId}-bar`);
+            if (!txtEl || !barEl) return;
+
+            const expiresMs  = new Date(job.expires_at).getTime();
+            const lifespanMs = (job.ad_lifespan || 15) * 60 * 1000;
+            const startedMs  = expiresMs - lifespanMs;
+            const nowMs      = Date.now();
+            const remainMs   = Math.max(0, expiresMs - nowMs);
+            const elapsedMs  = Math.max(0, nowMs - startedMs);
+            const pct        = Math.min(100, Math.round((elapsedMs / lifespanMs) * 100));
+            const remMins    = Math.floor(remainMs / 60000);
+            const remSecs    = Math.floor((remainMs % 60000) / 1000);
+
+            txtEl.textContent = `${remMins}:${String(remSecs).padStart(2, '0')}`;
+            barEl.style.width = `${pct}%`;
+
+            // Color shift: green → amber → red as time runs out
+            if (pct < 50) {
+              barEl.style.background = 'linear-gradient(90deg,#10b981,#f59e0b)';
+            } else if (pct < 80) {
+              barEl.style.background = 'linear-gradient(90deg,#f59e0b,#ef4444)';
+            } else {
+              barEl.style.background = 'linear-gradient(90deg,#ef4444,#dc2626)';
+            }
+
+            if (remainMs > 0) allDone = false;
+          });
+          if (allDone) {
+            clearInterval(window._jobCountdownInterval);
+            window._jobCountdownInterval = null;
+          }
+        }, 1000);
+      }
+
+      // 2. Render Scheduled Tasks
+      if (scheduledJobs.length === 0) {
+        scheduledListEl.innerHTML = `<p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; padding: 12px; border: 1px dashed rgba(255,255,255,0.05); border-radius: 8px;">لا توجد حملات أو مهام مجدولة قيد الانتظار.</p>`;
+      } else {
+        scheduledListEl.innerHTML = scheduledJobs.map(renderJobItemHtml).join("");
+      }
+
+      // 3. Render Recently Finished Tasks (limit to 5)
+      if (finishedJobs.length === 0) {
+        if (finishedCardContainer) finishedCardContainer.style.display = "none";
+      } else {
+        if (finishedCardContainer) finishedCardContainer.style.display = "block";
+        if (finishedListEl) {
+          finishedListEl.innerHTML = finishedJobs.slice(0, 45).map(renderJobItemHtml).join("");
+        }
+      }
     }
   } catch (error) {
     console.error("Error loading scheduled jobs:", error);
@@ -1096,6 +1917,9 @@ document.addEventListener("DOMContentLoaded", () => {
     window.history.replaceState({}, document.title, window.location.pathname);
   }
   
+  // Dynamically initialize Google OAuth
+  initializeGoogleOAuth();
+  
 
 
   // A. View Router Check
@@ -1130,6 +1954,39 @@ document.addEventListener("DOMContentLoaded", () => {
     e.preventDefault();
     showAuthScreen();
   });
+
+  // Forgot Password Action
+  const linkForgotPassword = document.getElementById("link-forgot-password");
+  if (linkForgotPassword) {
+    linkForgotPassword.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const email = document.getElementById("login-email").value.trim();
+      if (!email) {
+        showToast("يرجى إدخال البريد الإلكتروني الخاص بك أولاً.", "warning");
+        return;
+      }
+      const confirmReset = confirm(`هل تريد إرسال كلمة مرور مؤقتة إلى حساب تليجرام المرتبط بالبريد الإلكتروني:\n${email}\n؟`);
+      if (!confirmReset) return;
+      
+      showToast("جاري إرسال كلمة المرور المؤقتة...", "info");
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email })
+        });
+        const data = await response.json();
+        if (response.ok) {
+          showToast(data.message || "تم إرسال كلمة المرور المؤقتة بنجاح.", "success");
+        } else {
+          showToast(data.detail || "فشل إرسال كلمة المرور.", "error");
+        }
+      } catch (err) {
+        showToast("حدث خطأ أثناء محاولة الاتصال بالخادم.", "error");
+        console.error("Forgot password error:", err);
+      }
+    });
+  }
 
   // D. Form Submissions
   document.getElementById("login-form").addEventListener("submit", handleLogin);
@@ -1300,6 +2157,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (campaignTypeSelect && groupTargetLink && groupCustomText) {
     campaignTypeSelect.addEventListener("change", () => {
       resetTargetLinkInputs();
+      resetChannelPicker();
       const selectedType = campaignTypeSelect.value;
       if (selectedType === "single") {
         groupTargetLink.style.display = "block";
@@ -1308,13 +2166,18 @@ document.addEventListener("DOMContentLoaded", () => {
         if (groupDelayBetween) groupDelayBetween.style.display = "none";
         if (groupAdLifespan) groupAdLifespan.style.display = "block";
         if (groupDelayStart) groupDelayStart.style.display = "block";
+        // Auto-fetch channels for the picker
+        fetchUserChannels();
       } else if (selectedType === "timed_post") {
         groupTargetLink.style.display = "none";
         if (groupPinChannels) groupPinChannels.style.display = "block";
         groupCustomText.style.display = "block";
         if (groupDelayBetween) groupDelayBetween.style.display = "none";
         if (groupAdLifespan) groupAdLifespan.style.display = "block";
-        if (groupDelayStart) groupDelayStart.style.display = "none";
+        if (groupDelayStart) groupDelayStart.style.display = "block";
+        // Auto-fetch channels for the timed post dropdowns
+        resetTimedPostDropdowns();
+        fetchUserChannels();
       } else if (selectedType === "bulk") {
         groupTargetLink.style.display = "none";
         if (groupPinChannels) groupPinChannels.style.display = "none";
@@ -1322,7 +2185,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (groupDelayBetween) groupDelayBetween.style.display = "block";
         if (groupAdLifespan) groupAdLifespan.style.display = "block";
         if (groupDelayStart) groupDelayStart.style.display = "block";
-      } else if (selectedType === "deep_clear") {
+      } else if (selectedType === "deep_clear" || selectedType === "clear" || selectedType === "stop_everything") {
         groupTargetLink.style.display = "none";
         if (groupPinChannels) groupPinChannels.style.display = "none";
         groupCustomText.style.display = "none";
@@ -1341,6 +2204,75 @@ document.addEventListener("DOMContentLoaded", () => {
     // Trigger on load to match initial select value
     campaignTypeSelect.dispatchEvent(new Event("change"));
   }
+
+  // ---- Channel Picker Event Listeners ----
+
+  // Search input — live filter
+  const channelSearch = document.getElementById("channel-picker-search");
+  if (channelSearch) {
+    channelSearch.addEventListener("input", () => {
+      renderChannelPicker();
+    });
+  }
+
+  // Filter tabs
+  document.querySelectorAll(".channel-filter-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      _channelPickerFilter = tab.getAttribute("data-filter") || "all";
+      // Update tab styles
+      document.querySelectorAll(".channel-filter-tab").forEach(t => {
+        const isActive = t === tab;
+        t.style.background = isActive ? "rgba(59, 130, 246, 0.15)" : "transparent";
+        t.style.color = isActive ? "#3b82f6" : "#94a3b8";
+        t.style.borderColor = isActive ? "rgba(59, 130, 246, 0.3)" : "rgba(255,255,255,0.08)";
+        t.style.fontWeight = isActive ? "600" : "normal";
+      });
+      renderChannelPicker();
+    });
+  });
+
+  // Refresh button
+  const btnRefreshChannels = document.getElementById("btn-refresh-channels");
+  if (btnRefreshChannels) {
+    btnRefreshChannels.addEventListener("click", () => {
+      fetchUserChannels(true);
+    });
+  }
+
+  // Clear selection button
+  const btnClearSelection = document.getElementById("btn-clear-channel-selection");
+  if (btnClearSelection) {
+    btnClearSelection.addEventListener("click", () => {
+      _channelPickerSelected.clear();
+      updateChannelSelectionSummary();
+      renderChannelPicker();
+    });
+  }
+
+  // Manual link toggle
+  const btnToggleManual = document.getElementById("btn-toggle-manual-link");
+  const manualSection = document.getElementById("manual-link-section");
+  const manualArrow = document.getElementById("manual-link-arrow");
+  if (btnToggleManual && manualSection) {
+    btnToggleManual.addEventListener("click", () => {
+      const isHidden = manualSection.style.display === "none";
+      manualSection.style.display = isHidden ? "block" : "none";
+      if (manualArrow) {
+        manualArrow.style.transform = isHidden ? "rotate(-90deg)" : "rotate(0deg)";
+      }
+    });
+    btnToggleManual.addEventListener("mouseenter", () => {
+      btnToggleManual.style.background = "rgba(59, 130, 246, 0.16)";
+      btnToggleManual.style.borderColor = "rgba(59, 130, 246, 0.5)";
+    });
+    btnToggleManual.addEventListener("mouseleave", () => {
+      btnToggleManual.style.background = "rgba(59, 130, 246, 0.08)";
+      btnToggleManual.style.borderColor = "rgba(59, 130, 246, 0.3)";
+    });
+  }
+
+  // Initialize Timed Post Custom Searchable Dropdowns
+  initCustomDropdowns();
 
   // Handle dynamically adding/removing target links for campaign
   const btnAddTargetLink = document.getElementById("btn-add-target-link");
@@ -1406,11 +2338,15 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // G. Logout Action
-  document.getElementById("btn-logout").addEventListener("click", () => {
+  const handleLogout = () => {
     localStorage.removeItem("access_token");
     showToast("تم تسجيل الخروج بنجاح.", "info");
     window.location.replace("index.html");
-  });
+  };
+  const logoutBtn = document.getElementById("btn-logout");
+  if (logoutBtn) logoutBtn.addEventListener("click", handleLogout);
+  const logoutMobileBtn = document.getElementById("btn-logout-mobile");
+  if (logoutMobileBtn) logoutMobileBtn.addEventListener("click", handleLogout);
 
 
   // Bind refresh and clear events
@@ -1492,7 +2428,8 @@ document.addEventListener("DOMContentLoaded", () => {
       jobsList.innerHTML.includes("🔄 جاري التنفيذ...") || 
       jobsList.innerHTML.includes("⏳ مجدول") ||
       jobsList.innerHTML.includes("processing") ||
-      jobsList.innerHTML.includes("pending")
+      jobsList.innerHTML.includes("pending") ||
+      jobsList.innerHTML.includes("active")
     );
     
     const delay = hasActiveJobs ? 2000 : 5000;
@@ -1521,6 +2458,9 @@ document.addEventListener("DOMContentLoaded", () => {
       syncDashboardData();
     }
   }, 30000);
+
+  // Initialize mobile header scroll behavior
+  initMobileHeaderScroll();
 });
 
 // ==========================================
@@ -1838,5 +2778,33 @@ function showStatusBotLinkingModal() {
     }
   });
 }
+
+function initMobileHeaderScroll() {
+  const contentArea = document.querySelector(".content-area");
+  const header = document.querySelector(".sidebar-header");
+  if (!contentArea || !header) return;
+
+  let lastScrollTop = 0;
+  contentArea.addEventListener("scroll", () => {
+    if (window.innerWidth > 768) {
+      header.classList.remove("header-hidden");
+      contentArea.classList.remove("header-hidden");
+      return;
+    }
+    
+    let scrollTop = contentArea.scrollTop;
+    if (scrollTop > lastScrollTop && scrollTop > 60) {
+      // Scrolling down -> hide header & expand content area
+      header.classList.add("header-hidden");
+      contentArea.classList.add("header-hidden");
+    } else if (scrollTop < lastScrollTop) {
+      // Scrolling up -> show header & push content area down
+      header.classList.remove("header-hidden");
+      contentArea.classList.remove("header-hidden");
+    }
+    lastScrollTop = scrollTop <= 0 ? 0 : scrollTop;
+  }, { passive: true });
+}
+
 
 

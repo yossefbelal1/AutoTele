@@ -1401,12 +1401,15 @@ body {
   .dashboard-layout {
     grid-template-columns: 1fr !important;
     display: block !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    overflow: hidden !important;
+    min-height: 100vh !important;
+    min-height: 100dvh !important;
   }
   
   .sidebar {
-    position: static !important;
-    border: none !important;
-    height: auto !important;
+    display: contents !important;
   }
 
   /* Top Navigation / App Header Bar */
@@ -1416,7 +1419,9 @@ body {
     left: 0 !important;
     right: 0 !important;
     height: 60px !important;
-    background-color: #1e2c3a !important;
+    background-color: rgba(30, 44, 58, 0.85) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
     z-index: 1000 !important;
     padding: 0 16px !important;
     display: flex !important;
@@ -1424,6 +1429,11 @@ body {
     justify-content: space-between !important;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  }
+
+  .sidebar-header.header-hidden {
+    transform: translateY(-100%) !important;
   }
   
   .sidebar-header .user-info {
@@ -1452,39 +1462,9 @@ body {
     padding: 1px 6px !important;
   }
 
-  /* Top Logout Button on Mobile Header */
+
   .sidebar-footer {
-    position: fixed !important;
-    top: 0 !important;
-    left: 0 !important; /* aligned to opposite of user-info in RTL */
-    height: 60px !important;
-    z-index: 1001 !important; /* above header */
-    border-top: none !important;
-    padding: 0 16px !important;
-    display: flex !important;
-    align-items: center !important;
-    background: transparent !important;
-  }
-  
-  .sidebar-footer .btn-logout {
-    padding: 8px !important;
-    background: transparent !important;
-    border: none !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    width: auto !important;
-    margin: 0 !important;
-  }
-  
-  .sidebar-footer .btn-logout span {
     display: none !important;
-  }
-  
-  .sidebar-footer .btn-logout svg {
-    width: 20px !important;
-    height: 20px !important;
-    color: #f43f5e !important; /* red logout icon for premium look */
   }
 
   /* Bottom Navigation Bar */
@@ -1554,39 +1534,133 @@ body {
 
   /* Content Area */
   .content-area {
-    padding: 76px 12px 80px 12px !important; /* Space for fixed header and bottom nav */
-    height: calc(100vh - 124px) !important;
+    position: fixed !important;
+    top: 60px !important;
+    bottom: 64px !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: auto !important;
+    padding: 12px 10px !important;
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch !important;
+    transition: top 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    z-index: 10 !important;
+  }
+  
+  .content-area.header-hidden {
+    top: 0 !important;
   }
   
   .panel-header {
-    margin-bottom: 20px !important;
+    margin-bottom: 12px !important; /* Compact padding */
   }
   
   .panel-title {
-    font-size: 20px !important;
+    font-size: 18px !important; /* Tighter title */
   }
   
   .panel-subtitle {
-    font-size: 12px !important;
+    font-size: 11px !important;
   }
 
   /* Metrics Cards & Dashboard Elements */
   .metrics-grid {
-    grid-template-columns: 1fr !important;
-    gap: 16px !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+  
+  .engine-card {
+    grid-column: span 2 !important;
   }
   
   .card {
-    padding: 16px !important;
-    border-radius: 12px !important;
+    padding: 12px !important;
+    border-radius: 8px !important;
   }
 
-  /* Form layouts */
+  /* Compact Circular Progress Ring on Mobile */
+  .circular-progress-wrapper {
+    height: 100px !important;
+    margin: 4px auto !important;
+  }
+  
+  .circular-progress {
+    width: 100px !important;
+    height: 100px !important;
+  }
+  
+  .circular-label .number {
+    font-size: 22px !important;
+  }
+  
+  .circular-label .lbl {
+    font-size: 9px !important;
+  }
+
+  /* Compact Info Card lists */
+  .info-list {
+    gap: 6px !important;
+  }
+  
+  .info-item {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 1px !important;
+    border-bottom: 1px solid rgba(255,255,255,0.03) !important;
+    padding-bottom: 4px !important;
+  }
+  
+  .info-item:last-child {
+    border-bottom: none !important;
+    padding-bottom: 0 !important;
+  }
+  
+  .info-label {
+    font-size: 9px !important;
+    color: #708499 !important;
+  }
+  
+  .info-value {
+    font-size: 11px !important;
+  }
+  
+  .status-badge {
+    font-size: 9px !important;
+    padding: 1px 4px !important;
+  }
+
+  /* Form layouts & Touch Optimizations */
   .web-form div[style*="grid-template-columns"] {
     grid-template-columns: 1fr !important;
-    gap: 12px !important;
+    gap: 10px !important;
+  }
+  
+  .input-group {
+    margin-bottom: 12px !important;
+    gap: 6px !important;
+  }
+  
+  .input-group label {
+    font-size: 12px !important;
+  }
+  
+  .input-group input,
+  .input-group select {
+    height: 44px !important; /* Premium touch target */
+    padding: 10px 12px !important;
+    font-size: 13px !important;
+  }
+  
+  .input-group textarea {
+    min-height: 80px !important; /* Smaller textareas to fit fold */
+    padding: 10px 12px !important;
+    font-size: 13px !important;
+  }
+
+  .input-hint {
+    font-size: 10px !important;
+    margin-top: 2px !important;
   }
 
   /* Stack maintenance actions */
@@ -1648,6 +1722,16 @@ body {
   }
 
   /* Connection wizard overlay */
+  .wizard-header {
+    margin-bottom: 12px !important;
+  }
+  .wizard-header h3 {
+    font-size: 15px !important;
+    margin: 4px 0 !important;
+  }
+  .step-description {
+    font-size: 11px !important;
+  }
   .button-row {
     flex-direction: column-reverse !important;
     gap: 8px !important;
