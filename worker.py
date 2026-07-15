@@ -646,6 +646,9 @@ async def resolve_best_channel_link(client: Client, chat_id: int, general_fallba
     Retrieve the tracking link created by this userbot for the specified channel.
     Prefer non-primary custom links as they represent tracking links.
     """
+    if general_fallback_link and ("+" in general_fallback_link or "joinchat" in general_fallback_link):
+        return general_fallback_link
+        
     try:
         primary_link = None
         async for link in client.get_chat_admin_invite_links(chat_id=chat_id, admin_id="me", revoked=False):
@@ -2386,7 +2389,10 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 elif len(parts) > 1 and parts[1] in ["شات", "الشات", "chat"]:
                     await handle_تنظيف_شات(message)
                 else:
-                    await handle_مسح(message)
+                    if cmd_clean in ["نضف", "نظف", "تنظيف", "تنضيف", "clean"]:
+                        await handle_تنظيف_شات(message)
+                    else:
+                        await handle_مسح(message)
             elif cmd_clean in ["اولويات", "أولويات", "ترتيب", "تفاعل", "الاولويات", "الأولويات", "priorities", "sort", "ترتيب_القنوات", "تفاعل_القنوات", "اولويات_القنوات"]:
                 await handle_اولويات(message)
             elif cmd_clean in ["تحديث", "ريفرش", "تنشيط", "مزامنة", "مزامنه", "update", "refresh", "sync", "تحديث_الكاش", "تحديث_القنوات", "ريفرش_البوت", "تحديت", "تحديظ", "تحديثث", "تحديثة", "تحدث", "تحدييث", "تحديتث"]:
