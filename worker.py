@@ -3369,6 +3369,12 @@ async def supervisor_loop():
                 active_accounts = (await session.execute(stmt)).scalars().all()
                 active_db_ids = {acc.id for acc in active_accounts}
                 
+                logger.info(f"[Supervisor Status Check] Active DB IDs: {active_db_ids} | Running Clients: {list(running_clients.keys())} | Starting Tenants: {list(starting_tenants)}")
+                for acc in active_accounts:
+                    client = running_clients.get(acc.id)
+                    is_conn = client.is_connected if client else None
+                    logger.info(f"  Tenant {acc.id}: client exists={client is not None}, connected={is_conn}")
+                
                 for tenant_id in list(running_clients.keys()):
                     if tenant_id not in active_db_ids:
                         await stop_tenant_worker(tenant_id, session, reason="Subscription Expired")
@@ -3384,7 +3390,15 @@ async def supervisor_loop():
                         continue
                         
                     client = running_clients.get(acc.id)
-                    if (not client or not client.is_connected) and acc.id not in starting_tenants:
+                    is_connected = False
+                    if client and client.is_connected:
+                        try:
+                            await asyncio.wait_for(client.get_chat("me"), timeout=5.0)
+                            is_connected = True
+                        except Exception as p_ex:
+                            logger.warning(f"Tenant {acc.id} client ping failed: {p_ex}. Treating as disconnected.")
+                            
+                    if (not client or not is_connected) and acc.id not in starting_tenants:
                         if client:
                             logger.warning(f"Tenant {acc.id} client is disconnected. Stopping and restarting worker...")
                             try:
