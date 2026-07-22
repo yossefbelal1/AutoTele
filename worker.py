@@ -4130,37 +4130,63 @@ async def sweep_single_channel(client: Client, cid: int, known_msg_ids: set, sti
                 logger.debug(f"Failed history scan in channel {cid}: {e}")
                 return 0
                 
+            pinned_msg_id = None
+            try:
+                chat = await client.get_chat(cid)
+                if chat.pinned_message:
+                    pinned_msg_id = chat.pinned_message.id
+            except Exception as e:
+                logger.debug(f"Failed to fetch pinned message ID for channel {cid}: {e}")
+
             to_delete = set()
             h_idx = 0
             while h_idx < len(history):
                 msg = history[h_idx]
                 is_ad = False
                 
-                if msg.outgoing:
-                    is_ad = True
-                elif msg.from_user and msg.from_user.is_self:
-                    is_ad = True
-                elif (cid, msg.id) in known_msg_ids:
-                    is_ad = True
-                elif msg.sticker and sticker_unique_id and msg.sticker.file_unique_id == sticker_unique_id:
-                    is_ad = True
-                elif msg.author_signature:
+                # Protect pinned messages
+                if pinned_msg_id and msg.id == pinned_msg_id:
+                    h_idx += 1
+                    continue
+                
+                is_my_sig = False
+                if msg.author_signature:
                     sig = msg.author_signature.lower()
                     my_names = []
                     if me.first_name: my_names.append(me.first_name.lower())
                     if me.last_name: my_names.append(me.last_name.lower())
                     if me.username: my_names.append(me.username.lower())
                     if any(name and name in sig for name in my_names):
-                        is_ad = True
+                        is_my_sig = True
                 
+                is_my_msg = msg.outgoing or (msg.from_user and msg.from_user.is_self) or is_my_sig
+
+                if (cid, msg.id) in known_msg_ids:
+                    is_ad = True
+                elif msg.sticker and sticker_unique_id and msg.sticker.file_unique_id == sticker_unique_id:
+                    is_ad = True
+                elif is_my_msg:
+                    text_content = (msg.text or msg.caption or "").lower()
+                    has_ad_indicator = (
+                        any(kw.lower() in text_content for kw in ad_keywords) or
+                        "t.me/" in text_content or
+                        "@" in text_content or
+                        "http" in text_content
+                    )
+                    if msg.sticker:
+                        is_ad = False
+                    elif has_ad_indicator:
+                        is_ad = True
                         
                 if is_ad:
                     to_delete.add(msg.id)
                     if h_idx + 1 < len(history):
                         older_msg = history[h_idx + 1]
-                        if older_msg.sticker:
+                        if pinned_msg_id and older_msg.id == pinned_msg_id:
+                            pass
+                        elif older_msg.sticker:
                             is_older_match = False
-                            if older_msg.outgoing:
+                            if older_msg.outgoing or (older_msg.from_user and older_msg.from_user.is_self):
                                 is_older_match = True
                             elif sticker_unique_id and older_msg.sticker.file_unique_id == sticker_unique_id:
                                 is_older_match = True
