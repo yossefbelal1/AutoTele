@@ -2343,7 +2343,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         if not (cmd_part.startswith('.') or cmd_part.startswith('/') or cmd_part.startswith('\\')):
             return
             
-        cmd_clean = cmd_part[1:]
+        cmd_clean = _re.sub(r'[\u200e\u200f\u202a-\u202e\ufeff]', '', cmd_part[1:]).strip().lower()
 
         # Check for enable/disable sticker commands (typo-tolerant)
         is_enable_sticker = False
@@ -2389,7 +2389,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 await handle_حملة(message, normalized_text)
             elif cmd_clean in ["مجلد", "فولدر", "حملة_مجلد", "حمله_مجلد", "my_channels", "mychannels", "قنواتي_مجلد"] or _re.match(r'^(?:مجلد|فولدر|my_?channels|قنواتي)\d*$', cmd_clean):
                 await handle_حملات_مجلد(message, normalized_text, parts)
-            elif cmd_clean in ["حملات", "الحملات", "حملات_مجمعة", "حملات_مجمعه", "bulk", "campaigns", "folders", "انشر_مجلد", "فولدرات"]:
+            elif cmd_clean in ["حملات", "الحملات", "حملات_مجمعة", "حملات_مجمعه", "bulk", "campaigns", "folders", "انشر_حملات", "فولدرات"]:
                 await handle_حملات(message, normalized_text, parts)
             elif cmd_clean in ["بنج", "حالة", "حاله", "الوضع", "الاحصائيات", "الإحصائيات", "ping", "status", "info", "الحاله", "الاحصائيات_اليومية", "الاحصائيات_اليوميه", "بنجج", "بنججج", "بنق", "بنجي", "بنك"]:
                 await handle_بنج(message)
@@ -2804,10 +2804,11 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 await message.reply_text(rep_text)
 
     async def handle_حملات_مجلد(message: Message, text: str, parts: List[str]):
+        clean_parts = [_re.sub(r'[\u200e\u200f\u202a-\u202e\ufeff]', '', p).strip() for p in parts if p.strip()]
         folder_num = 1
-        numbers = [int(x) for x in parts if x.isdigit()]
+        numbers = [int(x) for x in clean_parts if x.isdigit()]
         
-        cmd_first = parts[0].replace('.', '').replace('/', '').strip()
+        cmd_first = clean_parts[0].replace('.', '').replace('/', '').replace('\\', '').strip()
         match_cmd_num = _re.search(r'\d+', cmd_first)
         if match_cmd_num:
             folder_num = int(match_cmd_num.group(0))
