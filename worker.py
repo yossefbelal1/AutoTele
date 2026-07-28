@@ -996,6 +996,7 @@ async def _crawl_and_cache_tenant_channels_inner(tenant_id: int, client: Client,
     banned_ids = []
     campaign_ids = []
     only_post_ids = []
+    custom_my_channels = {}
     try:
         from pyrogram.raw import functions, types
         from cache_manager import redis_client
@@ -1070,6 +1071,13 @@ async def _crawl_and_cache_tenant_channels_inner(tenant_id: int, client: Client,
                     campaign_ids = ids
                 elif is_only_post:
                     only_post_ids = ids
+
+                title_lower = title_clean.lower()
+                match_custom = _re.search(r'(?:my_?channels|mychannels|قنواتي)[\s_-]*(\d*)', title_lower)
+                if match_custom:
+                    num_str = match_custom.group(1)
+                    folder_num = int(num_str) if num_str else 1
+                    custom_my_channels[folder_num] = list(set(ids))
                     
         # Uniquify to avoid duplicate stats or lists
         no_post_ids = list(set(no_post_ids))
@@ -1081,7 +1089,13 @@ async def _crawl_and_cache_tenant_channels_inner(tenant_id: int, client: Client,
         await redis_client.set(f"tenant:{tenant_id}:banned", json.dumps(banned_ids))
         await redis_client.set(f"tenant:{tenant_id}:campaign", json.dumps(campaign_ids))
         await redis_client.set(f"tenant:{tenant_id}:only_post", json.dumps(only_post_ids))
-        logger.info(f"Folders synced for tenant {tenant_id}: No_Post={len(no_post_ids)} | BANNED={len(banned_ids)} | CAMPAIGN={len(campaign_ids)} | ONLY_POST={len(only_post_ids)}")
+        
+        custom_folder_numbers = sorted(list(custom_my_channels.keys()))
+        for folder_num, ch_ids in custom_my_channels.items():
+            await redis_client.set(f"tenant:{tenant_id}:my_channels:{folder_num}", json.dumps(ch_ids))
+        await redis_client.set(f"tenant:{tenant_id}:my_channels_list", json.dumps(custom_folder_numbers))
+        
+        logger.info(f"Folders synced for tenant {tenant_id}: No_Post={len(no_post_ids)} | BANNED={len(banned_ids)} | CAMPAIGN={len(campaign_ids)} | ONLY_POST={len(only_post_ids)} | MY_CHANNELS={custom_folder_numbers}")
     except Exception as e:
         logger.error(f"Failed to sync folders for tenant {tenant_id}: {e}")
         
@@ -1926,7 +1940,8 @@ async def run_bulk_campaign_logic(
     delay_between_channels: int, 
     ad_lifespan: int, 
     status_msg: Optional[Message] = None,
-    resume_index: int = 0
+    resume_index: int = 0,
+    folder_number: Optional[int] = None
 ):
     curr_task = asyncio.current_task()
     if tenant_id not in active_running_tasks:
@@ -1942,22 +1957,29 @@ async def run_bulk_campaign_logic(
     curr_task.add_done_callback(cleanup_task)
     
     try:
-        await log_tenant_event(tenant_id, "بدء إطلاق حملة مجلد مجمعة (على قنوات مجلد 'حملات')..." if resume_index == 0 else f"🔄 جاري استئناف حملة مجلد مجمعة من الهدف رقم {resume_index + 1}...")
+        if folder_number is not None and folder_number > 0:
+            redis_key = f"tenant:{tenant_id}:my_channels:{folder_number}"
+            folder_label = f"My_channels{folder_number}"
+        else:
+            redis_key = f"tenant:{tenant_id}:campaign"
+            folder_label = "حملات"
+
+        await log_tenant_event(tenant_id, f"بدء إطلاق حملة مجلد مجمعة (على قنوات مجلد '{folder_label}')..." if resume_index == 0 else f"🔄 جاري استئناف حملة مجلد مجمعة من الهدف رقم {resume_index + 1}...")
         from cache_manager import redis_client
-        raw_campaign = await redis_client.get(f"tenant:{tenant_id}:campaign")
+        raw_campaign = await redis_client.get(redis_key)
         campaign_ids = json.loads(raw_campaign) if raw_campaign else []
         
         if not campaign_ids:
-            logger.info(f"Campaign folder ids empty for tenant {tenant_id} during bulk campaign. Triggering self-healing crawl...")
+            logger.info(f"Campaign folder '{folder_label}' empty for tenant {tenant_id} during bulk campaign. Triggering self-healing crawl...")
             if status_msg:
-                await safe_edit_message(status_msg, "⏳ **كاش المجلد فارغ. جاري تحديث ومزامنة القنوات والمجلدات تلقائياً (التشافي الذاتي)...**")
+                await safe_edit_message(status_msg, f"⏳ **كاش المجلد '{folder_label}' فارغ. جاري تحديث ومزامنة القنوات والمجلدات تلقائياً (التشافي الذاتي)...**")
             await crawl_and_cache_tenant_channels(tenant_id, client, status_msg)
-            raw_campaign = await redis_client.get(f"tenant:{tenant_id}:campaign")
+            raw_campaign = await redis_client.get(redis_key)
             campaign_ids = json.loads(raw_campaign) if raw_campaign else []
             if not campaign_ids:
                 if status_msg:
-                    await safe_edit_message(status_msg, "❌ **فشل حملة الفولدر: لم يتم العثور على أي قنوات في مجلد 'حملات'.**")
-                await log_tenant_event(tenant_id, "فشل حملة الفولدر: مجلد 'حملات' فارغ في الكاش.")
+                    await safe_edit_message(status_msg, f"❌ **فشل حملة الفولدر: لم يتم العثور على أي قنوات في مجلد '{folder_label}'.**")
+                await log_tenant_event(tenant_id, f"فشل حملة الفولدر: مجلد '{folder_label}' فارغ في الكاش.")
                 return
 
         last_target_raw = await redis_client.get(f"tenant:{tenant_id}:last_processed_bulk_target")
@@ -2365,7 +2387,9 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 await handle_كمل(message)
             elif cmd_clean in ["حملة", "حمله", "حمله_فردية", "حملة_فردية", "اعلان", "إعلان", "ad", "campaign", "single", "أعلان", "حمله_فرديه", "انشر_حملة", "انشر_حمله"]:
                 await handle_حملة(message, normalized_text)
-            elif cmd_clean in ["حملات", "الحملات", "مجلد", "فولدر", "حملات_مجمعة", "حملات_مجمعه", "bulk", "campaigns", "folders", "حملات_مجلد", "انشر_مجلد", "فولدرات"]:
+            elif cmd_clean in ["مجلد", "فولدر", "حملة_مجلد", "حمله_مجلد", "my_channels", "mychannels", "قنواتي_مجلد"] or _re.match(r'^(?:مجلد|فولدر|my_?channels|قنواتي)\d*$', cmd_clean):
+                await handle_حملات_مجلد(message, normalized_text, parts)
+            elif cmd_clean in ["حملات", "الحملات", "حملات_مجمعة", "حملات_مجمعه", "bulk", "campaigns", "folders", "انشر_مجلد", "فولدرات"]:
                 await handle_حملات(message, normalized_text, parts)
             elif cmd_clean in ["بنج", "حالة", "حاله", "الوضع", "الاحصائيات", "الإحصائيات", "ping", "status", "info", "الحاله", "الاحصائيات_اليومية", "الاحصائيات_اليوميه", "بنجج", "بنججج", "بنق", "بنجي", "بنك"]:
                 await handle_بنج(message)
@@ -2770,6 +2794,87 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             
             rep_text = (
                 f"⏳ **تم جدولة حملة الفولدر المجمعة (معرف: db-{task_id}):**\n"
+                f"• ستبدأ بعد `{delay_start}` دقيقة.\n"
+                f"• فاصل الوقت الزمني بين الحملات: `{delay_between_channels}` دقيقة\n"
+                f"• مدة الاعلان: `{ad_lifespan}` دقيقة"
+            )
+            if status_msg:
+                await edit_or_reply(status_msg, rep_text)
+            else:
+                await message.reply_text(rep_text)
+
+    async def handle_حملات_مجلد(message: Message, text: str, parts: List[str]):
+        folder_num = 1
+        numbers = [int(x) for x in parts if x.isdigit()]
+        
+        cmd_first = parts[0].replace('.', '').replace('/', '').strip()
+        match_cmd_num = _re.search(r'\d+', cmd_first)
+        if match_cmd_num:
+            folder_num = int(match_cmd_num.group(0))
+        elif numbers:
+            folder_num = numbers[0]
+            numbers = numbers[1:]
+            
+        delay_start = 0
+        delay_between_channels = 15
+        ad_lifespan = 10
+        
+        if len(numbers) >= 3:
+            delay_start = numbers[0]
+            delay_between_channels = numbers[1]
+            ad_lifespan = numbers[2]
+        elif len(numbers) == 2:
+            delay_between_channels = numbers[0]
+            ad_lifespan = numbers[1]
+        elif len(numbers) == 1:
+            ad_lifespan = numbers[0]
+            
+        from cache_manager import redis_client
+        raw_campaign = await redis_client.get(f"tenant:{tenant_id}:my_channels:{folder_num}")
+        campaign_ids = json.loads(raw_campaign) if raw_campaign else []
+        
+        status_msg = None
+        if not campaign_ids:
+            if await is_crawl_in_progress(tenant_id):
+                await message.reply_text("⏳ **جاري تحديث كاش قنواتك ومجلداتك حالياً... يرجى الانتظار لحين اكتمال التحديث وتلقي إشعار النجاح.**")
+                return
+            status_msg = await message.reply_text(f"⏳ **كاش المجلد 'My_channels{folder_num}' فارغ. جاري تحديث ومزامنة القنوات تلقائياً (التشافي الذاتي)...**")
+            await crawl_and_cache_tenant_channels(tenant_id, client, status_msg)
+            raw_campaign = await redis_client.get(f"tenant:{tenant_id}:my_channels:{folder_num}")
+            campaign_ids = json.loads(raw_campaign) if raw_campaign else []
+            if not campaign_ids:
+                await edit_or_reply(status_msg, f"❌ **فشل حملة الفولدر: لم يتم العثور على أي قنوات في مجلد 'My_channels{folder_num}' حتى بعد التحديث التلقائي.**")
+                return
+            
+        full_html = message.text.html if message.text else (message.caption.html if message.caption else "")
+        html_lines = full_html.split('\n') if full_html else []
+        ad_text_lines = html_lines[1:] if len(html_lines) > 1 else []
+        ad_text_custom = "\n".join(ad_text_lines).strip()
+        
+        if delay_start == 0:
+            if status_msg:
+                await edit_or_reply(status_msg, f"🚀 **جاري بدء حملة المجلد (My_channels{folder_num}) فوراً...**")
+            else:
+                status_msg = await message.reply_text(f"🚀 **جاري بدء حملة المجلد (My_channels{folder_num}) فوراً...**")
+            create_safe_task(run_bulk_campaign_logic(tenant_id, client, ad_text_custom, delay_between_channels, ad_lifespan, status_msg, folder_number=folder_num))
+        else:
+            async with AsyncSessionLocal() as db_session:
+                new_task = WebCampaignTask(
+                    telegram_account_id=tenant_id,
+                    campaign_type="custom_folder",
+                    target_link=str(folder_num),
+                    delay_start=delay_start,
+                    delay_between_channels=delay_between_channels,
+                    ad_lifespan=ad_lifespan,
+                    custom_text=ad_text_custom,
+                    status="pending"
+                )
+                db_session.add(new_task)
+                await db_session.commit()
+                task_id = new_task.id
+            
+            rep_text = (
+                f"⏳ **تم جدولة حملة المجلد (My_channels{folder_num}) (معرف: db-{task_id}):**\n"
                 f"• ستبدأ بعد `{delay_start}` دقيقة.\n"
                 f"• فاصل الوقت الزمني بين الحملات: `{delay_between_channels}` دقيقة\n"
                 f"• مدة الاعلان: `{ad_lifespan}` دقيقة"
@@ -5043,14 +5148,16 @@ async def run_web_campaign_task(task_id: int):
                     ad_lifespan=task.ad_lifespan,
                     status_msg=status_msg
                 )
-            elif task.campaign_type == "bulk":
+            elif task.campaign_type in ["bulk", "custom_folder"]:
+                folder_num = int(task.target_link) if (task.campaign_type == "custom_folder" and task.target_link and task.target_link.isdigit()) else None
                 await run_bulk_campaign_logic(
                     tenant_id=tenant_id,
                     client=client,
                     ad_text_custom=task.custom_text,
                     delay_between_channels=task.delay_between_channels,
                     ad_lifespan=task.ad_lifespan,
-                    status_msg=status_msg
+                    status_msg=status_msg,
+                    folder_number=folder_num
                 )
             elif task.campaign_type == "clear":
                 await run_clear_logic(tenant_id=tenant_id, client=client, web_task_id=task_id)
