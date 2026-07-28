@@ -5041,6 +5041,18 @@ async def run_update_logic(tenant_id: int, client: Client, reply_to_message: Opt
         only_post = stats.get("only_post_count", 0) if stats else 0
         avg_quality = stats.get("avg_quality_score", 0) if stats else 0
 
+        from cache_manager import redis_client
+        raw_my_list = await redis_client.get(f"tenant:{tenant_id}:my_channels_list")
+        my_list = json.loads(raw_my_list) if raw_my_list else []
+        my_channels_text = ""
+        if my_list:
+            my_details = []
+            for num in my_list:
+                raw_ch = await redis_client.get(f"tenant:{tenant_id}:my_channels:{num}")
+                cnt = len(json.loads(raw_ch)) if raw_ch else 0
+                my_details.append(f"`My_channels{num}` ({cnt} قناة)")
+            my_channels_text = f"\n• المجلدات المخصصة: {', '.join(my_details)}"
+
         report = (
             "✅ **اكتمل التحديث والمزامنة بنجاح!**\n\n"
             "📋 **إحصائيات المزامنة الحالية:**\n"
@@ -5049,7 +5061,7 @@ async def run_update_logic(tenant_id: int, client: Client, reply_to_message: Opt
             f"• مجلد الاستثناءات (`No_Post`): `{no_post}` قناة.\n"
             f"• مجلد المحظورات (`Banned`): `{banned}` قناة.\n"
             f"• مجلد الحملات (`Campaign`): `{campaign}` قناة.\n"
-            f"• مجلد إعلان فقط (`Only_Post`): `{only_post}` قناة."
+            f"• مجلد إعلان فقط (`Only_Post`): `{only_post}` قناة.{my_channels_text}"
         )
         if status_msg:
             try:
