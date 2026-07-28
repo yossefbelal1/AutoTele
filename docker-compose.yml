@@ -113,6 +113,8 @@ services:
         condition: service_healthy
       redis_cache:
         condition: service_started
+    volumes:
+      - ./worker.py:/app/worker.py
     restart: always
     mem_limit: 1024m
     mem_reservation: 192m
