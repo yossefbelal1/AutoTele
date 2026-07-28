@@ -1002,7 +1002,7 @@ async def _crawl_and_cache_tenant_channels_inner(tenant_id: int, client: Client,
         from cache_manager import redis_client
         dialog_filters = await client.invoke(functions.messages.GetDialogFilters())
         for df in dialog_filters:
-            if isinstance(df, types.DialogFilter):
+            if isinstance(df, (types.DialogFilter, types.DialogFilterChatlist)):
                 title = df.title.strip().lower()
                 ids = []
                 # 1. Parse explicitly included peers
@@ -4328,7 +4328,7 @@ async def get_no_post_channel_ids_live(tenant_id: int, client: Client) -> set:
         no_post_ids = []
         dialog_filters = await client.invoke(functions.messages.GetDialogFilters())
         for df in dialog_filters:
-            if isinstance(df, types.DialogFilter):
+            if isinstance(df, (types.DialogFilter, types.DialogFilterChatlist)):
                 title = df.title.strip().lower()
                 title_clean = title.replace(" ", "_").replace("-", "_")
                 is_no_post = False
@@ -4386,7 +4386,7 @@ async def get_only_post_channel_ids_live(tenant_id: int, client: Client) -> set:
         only_post_ids = []
         dialog_filters = await client.invoke(functions.messages.GetDialogFilters())
         for df in dialog_filters:
-            if isinstance(df, types.DialogFilter):
+            if isinstance(df, (types.DialogFilter, types.DialogFilterChatlist)):
                 title = df.title.strip().lower()
                 title_clean = title.replace(" ", "_").replace("-", "_")
                 is_only_post = False
