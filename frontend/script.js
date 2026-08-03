@@ -27,6 +27,15 @@ function showToast(message, type = "info", duration = 5000) {
   const container = document.getElementById("toast-container");
   if (!container) return;
 
+  // Prevent duplicate toast spam
+  const existingToasts = Array.from(container.children);
+  if (existingToasts.some(t => t.textContent === message)) {
+    return;
+  }
+  if (existingToasts.length >= 2) {
+    existingToasts[0].remove();
+  }
+
   const toast = document.createElement("div");
   toast.className = `toast-alert ${type}`;
   toast.textContent = message;
@@ -124,7 +133,7 @@ async function apiRequest(endpoint, options = {}) {
         showToast(errorMessage || "البيانات المدخلة غير صحيحة، يرجى التحقق منها.", "error");
       } else if (response.status === 429) {
         showToast("طلبات كثيرة جداً، يرجى التمهل والمحاولة بعد قليل.", "warning");
-      } else {
+      } else if (options.showToast !== false && method !== "GET") {
         showToast(errorMessage, "error");
       }
       

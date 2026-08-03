@@ -28,6 +28,14 @@ function showToast(message, type = "info", duration = 5000) {
   const container = document.getElementById("toast-container");
   if (!container) return;
 
+  const existingToasts = Array.from(container.children);
+  if (existingToasts.some(t => t.textContent === message)) {
+    return;
+  }
+  if (existingToasts.length >= 2) {
+    existingToasts[0].remove();
+  }
+
   const toast = document.createElement("div");
   toast.className = `toast-alert ${type}`;
   toast.textContent = message;
