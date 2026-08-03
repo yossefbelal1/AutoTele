@@ -71,7 +71,7 @@ services:
     container_name: saas_fastapi_api
     volumes:
       - ./main_api.py:/app/main_api.py
-    command: uvicorn main_api:app --host 0.0.0.0 --port 8000 --workers 1 --loop asyncio
+    command: uvicorn main_api:app --host 0.0.0.0 --port 8000
     ports:
       - "127.0.0.1:8001:8000"
     environment:

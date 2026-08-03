@@ -32,7 +32,7 @@ class RedisPublishHandler(logging.Handler):
     def __init__(self):
         super().__init__()
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        self.redis_client = redis.Redis.from_url(redis_url, decode_responses=True)
+        self.redis_client = redis.Redis.from_url(redis_url, decode_responses=True, socket_timeout=1.0, socket_connect_timeout=1.0)
         self.channel = "saas_live_logs"
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
@@ -108,8 +108,11 @@ app = FastAPI(title="Telegram Ad Exchange SaaS API", version="3.0")
 
 @app.on_event("startup")
 async def on_startup():
-    from db_manager import init_db
-    await init_db()
+    try:
+        from db_manager import init_db
+        asyncio.create_task(init_db())
+    except Exception as e:
+        logger.error(f"Non-blocking init_db failed: {e}")
     if JWT_SECRET == "SUPER_SECRET_SaaS_KEY_2026_DONOT_SHARE":
         logger.critical("SECURITY WARNING: Running with default hardcoded JWT_SECRET. Please set a custom JWT_SECRET in production environment variables immediately!")
 
