@@ -78,7 +78,7 @@ async function apiRequest(endpoint, options = {}) {
     const response = await fetch(url, options);
     
     // Resilience constraint: If 401 Unauthorized
-    if (response.status === 401) {
+        if (response.status === 401) {
       if (endpoint.includes("/auth/login")) {
         let errorMessage = "البريد الإلكتروني أو كلمة المرور غير صحيحة.";
         try {
@@ -91,7 +91,7 @@ async function apiRequest(endpoint, options = {}) {
       const hadToken = localStorage.getItem("access_token") !== null;
       localStorage.removeItem("access_token");
       if (hadToken) {
-        showToast("انتهت الجلسة أو رخصة غير صالحة. يرجى تسجيل الدخول مجدداً.", "error");
+        showToast("انتهت الجلسة. يرجى إعادة تسجيل الدخول.", "info");
       }
       showAuthScreen();
       throw new Error("Unauthorized access - redirecting to login");
@@ -1647,6 +1647,8 @@ function formatTelegramText(text) {
 }
 
 async function loadScheduledJobs() {
+  const token = localStorage.getItem("access_token");
+  if (!token) return;
   try {
     const data = await apiRequest("/user/scheduled-jobs");
     const scheduledListEl = document.getElementById("scheduled-jobs-list");
@@ -1847,6 +1849,8 @@ async function loadScheduledJobs() {
 }
 
 async function loadEventLogs() {
+  const token = localStorage.getItem("access_token");
+  if (!token) return;
   try {
     const data = await apiRequest("/user/logs");
     const container = document.getElementById("logs-container");
