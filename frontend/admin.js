@@ -71,8 +71,11 @@ async function adminApiRequest(endpoint, options = {}) {
     if (response.status === 401 || response.status === 403) {
       const hadToken = localStorage.getItem("admin_token") !== null;
       localStorage.removeItem("admin_token");
+      if (typeof stopHealthPolling === "function") stopHealthPolling();
+      if (typeof stopSubscriptionsPolling === "function") stopSubscriptionsPolling();
+      if (typeof stopLogStream === "function") stopLogStream();
       if (hadToken) {
-        showToast("انتهت الجلسة أو غير مسموح بالوصول. يرجى تسجيل الدخول الثنائي مجدداً.", "error");
+        showToast("انتهت الجلسة. يرجى إعادة تسجيل الدخول لتحديث البيانات.", "info");
       }
       showAuthScreen();
       throw new Error("Unauthorized - redirecting to login");
