@@ -239,7 +239,21 @@
 
           <div class="card" style="max-width: 800px;">
             <h3 class="card-title" style="margin-bottom: 20px;">صياغة وإرسال رسالة البث الجماعي</h3>
-            <form id="admin-broadcast-form">
+                    <form id="admin-broadcast-form">
+          <div class="input-group" style="margin-bottom: 16px;">
+            <label for="broadcast-target-type" style="font-weight: 700; color: #e2e8f0; margin-bottom: 8px; display: block;">🎯 توجيه الرسالة الإشعارية إلى:</label>
+            <select id="broadcast-target-type" class="form-control" onchange="toggleBroadcastTargetInput(this.value)" style="width: 100%; padding: 12px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.12); color: #fff; border-radius: 10px;">
+              <option value="all">📢 كافّة المشتركين النشطين (Broadcast to All)</option>
+              <option value="specific">👤 مستخدم محدد فقط (Target Specific User)</option>
+            </select>
+          </div>
+
+          <div id="broadcast-user-select-group" class="input-group hidden" style="margin-bottom: 16px;">
+            <label for="broadcast-target-user-id" style="font-weight: 700; color: #3b82f6; margin-bottom: 8px; display: block;">👤 اختر المستخدم المستهدف:</label>
+            <select id="broadcast-target-user-id" class="form-control" style="width: 100%; padding: 12px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(59, 130, 246, 0.3); color: #fff; border-radius: 10px;">
+              <option value="">-- جاري تحميل قائمة المشتركين... --</option>
+            </select>
+          </div>
               <div class="input-group" style="margin-bottom: 20px;">
                 <label for="broadcast-message" style="margin-bottom: 8px; display: block; font-weight: 600;">نص الرسالة (يدعم ماركداون تليجرام):</label>
                 <textarea id="broadcast-message" rows="8" required placeholder="مثال:&#10;⚠️ **تنبيه هام:**&#10;سيتم إيقاف الخدمة لإجراء صيانة دورية لمدة ساعتين تبدأ من الساعة 10:00 مساءً بتوقيت مصر." style="width: 100%; border: 1px solid rgba(255, 255, 255, 0.08); background-color: rgba(0, 0, 0, 0.2); color: #fff; padding: 12px; border-radius: 8px; font-family: inherit; font-size: 14px; line-height: 1.6; resize: vertical; box-sizing: border-box;"></textarea>
@@ -634,5 +648,27 @@
 
   <!-- JavaScript Admin Script -->
   <script src="admin.js"></script>
+
+  <!-- ==========================================
+       MODAL: Interactive Userbots Breakdown List
+       ========================================== -->
+  <div id="userbots-modal" class="modal-overlay hidden">
+    <div class="modal-card glass-panel-glow" style="max-width: 850px; width: 92%;">
+      <div class="modal-header">
+        <h3 id="userbots-modal-title" class="modal-title">🤖 قائمة محركات البوتات</h3>
+        <button type="button" class="btn-close" onclick="closeUserbotsModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 20px;">
+        <div style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <input type="text" id="userbots-modal-search" placeholder="🔍 بحث عن مستخدم بالإيميل أو الهاتف..." class="form-control" style="max-width: 320px;" onkeyup="filterUserbotsModalList()">
+          <span id="userbots-modal-count-badge" class="badge blue">0 حسابات</span>
+        </div>
+        <div id="userbots-modal-list-container" style="max-height: 450px; overflow-y: auto;">
+          <!-- Userbots items loaded dynamically -->
+        </div>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>

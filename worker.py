@@ -5510,11 +5510,14 @@ async def global_cleaner_worker():
         await asyncio.sleep(15)
 
 
-async def dispatch_worker_broadcast(text: str):
-    logger.info(f"Starting admin broadcast to all users: {text[:50]}...")
+async def dispatch_worker_broadcast(text: str, target_user_id: Optional[int] = None):
+    logger.info(f"Starting admin broadcast (target_user_id={target_user_id}): {text[:50]}...")
 
     async with AsyncSessionLocal() as session:
-        users = (await session.execute(select(User))).scalars().all()
+        if target_user_id:
+            users = (await session.execute(select(User).where(User.id == target_user_id))).scalars().all()
+        else:
+            users = (await session.execute(select(User))).scalars().all()
         
         sent_count = 0
         fail_count = 0
@@ -5598,8 +5601,9 @@ async def redis_pubsub_listener():
                         
                 elif channel == "saas_admin_broadcast":
                     message_text = data.get("message_text")
+                    target_user_id = data.get("target_user_id")
                     if message_text:
-                        asyncio.create_task(dispatch_worker_broadcast(message_text))
+                        asyncio.create_task(dispatch_worker_broadcast(message_text, target_user_id))
                         
                 elif channel == "saas_tenant_commands":
                     tenant_id = data.get("tenant_id")

@@ -1040,3 +1040,157 @@ function initMobileHeaderScroll() {
     lastScrollTop = scrollTop <= 0 ? 0 : scrollTop;
   }, { passive: true });
 }
+
+
+// ==========================================
+// INTERACTIVE USERBOTS MODAL & TARGETED BROADCAST
+// ==========================================
+let allModalUserbots = [];
+
+function initUserbotsCardListeners() {
+  const activeCard = document.querySelector('.userbot-stat-card.active-card');
+  const pausedCard = document.querySelector('.userbot-stat-card.paused-card');
+  const stoppedCard = document.querySelector('.userbot-stat-card.stopped-card');
+  const errorCard = document.querySelector('.userbot-stat-card.error-card');
+
+  if (activeCard) activeCard.onclick = () => openUserbotsModal('active');
+  if (pausedCard) pausedCard.onclick = () => openUserbotsModal('paused');
+  if (stoppedCard) stoppedCard.onclick = () => openUserbotsModal('stopped');
+  if (errorCard) errorCard.onclick = () => openUserbotsModal('error');
+}
+
+async function openUserbotsModal(statusFilter) {
+  const modal = document.getElementById('userbots-modal');
+  const titleEl = document.getElementById('userbots-modal-title');
+  const container = document.getElementById('userbots-modal-list-container');
+  
+  if (!modal) return;
+  
+  const statusTitles = {
+    'active': '🟢 قائمة المحركات النشطة (Active)',
+    'paused': '🟠 قائمة المحركات المتوقفة مؤقتاً (Paused)',
+    'stopped': '⚪ قائمة المحركات المتوقفة يدوياً (Stopped)',
+    'error': '🔴 قائمة المحركات التي بها خطأ أو حظر (Error/Banned)'
+  };
+  
+  titleEl.textContent = statusTitles[statusFilter] || '🤖 قائمة محركات البوتات';
+  modal.classList.remove('hidden');
+  container.innerHTML = '<div style="text-align: center; padding: 40px; color: #94a3b8;">جاري تحميل المحركات... ⏳</div>';
+  
+  try {
+    const userbots = await adminApiRequest(`/admin/userbots?status=${statusFilter}`);
+    allModalUserbots = userbots;
+    renderUserbotsModalList(userbots);
+  } catch (err) {
+    console.error("Failed to load userbots modal list:", err);
+    container.innerHTML = '<div style="text-align: center; padding: 20px; color: #f43f5e;">حدث خطأ أثناء تحميل القائمة.</div>';
+  }
+}
+
+function closeUserbotsModal() {
+  const modal = document.getElementById('userbots-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function renderUserbotsModalList(userbots) {
+  const container = document.getElementById('userbots-modal-list-container');
+  const countBadge = document.getElementById('userbots-modal-count-badge');
+  if (countBadge) countBadge.textContent = `${userbots.length} حسابات`;
+  
+  if (!userbots || userbots.length === 0) {
+    container.innerHTML = '<div style="text-align: center; padding: 30px; color: #64748b;">لا توجد محركات بهذه الحالة حالياً.</div>';
+    return;
+  }
+  
+  let html = '<div style="display: flex; flex-direction: column; gap: 12px;">';
+  userbots.forEach(ub => {
+    const badgeColors = {
+      'active': 'background: rgba(16, 185, 129, 0.15); color: #10b981;',
+      'paused': 'background: rgba(245, 158, 11, 0.15); color: #f59e0b;',
+      'stopped': 'background: rgba(255, 255, 255, 0.1); color: #ccc;',
+      'error': 'background: rgba(244, 63, 94, 0.15); color: #f43f5e;'
+    };
+
+    html += `
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; gap: 12px; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="width: 42px; height: 42px; border-radius: 50%; background: rgba(59, 130, 246, 0.2); color: #3b82f6; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem;">
+            ${(ub.first_name || ub.email || 'U')[0].toUpperCase()}
+          </div>
+          <div>
+            <div style="font-weight: 700; color: #f8fafc; font-size: 0.95rem;">${ub.first_name || 'بدون اسم'} <span style="color: #94a3b8; font-size: 0.82rem;">(${ub.email})</span></div>
+            <div style="font-size: 0.8rem; color: #64748b; margin-top: 2px;">📞 ${ub.phone || 'بدون رقم'} | 🆔 ID: ${ub.user_id}</div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; ${badgeColors[ub.status] || badgeColors['stopped']}">
+            ${ub.status.toUpperCase()}
+          </span>
+          <button class="btn btn-glass" onclick="targetUserInBroadcast(${ub.user_id}, '${ub.email}')" style="font-size: 0.8rem; padding: 6px 12px;">
+            ✉️ مراسلة خاصة
+          </button>
+        </div>
+      </div>
+    `;
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function filterUserbotsModalList() {
+  const query = document.getElementById('userbots-modal-search').value.toLowerCase().trim();
+  if (!query) {
+    renderUserbotsModalList(allModalUserbots);
+    return;
+  }
+  const filtered = allModalUserbots.filter(ub => 
+    (ub.email && ub.email.toLowerCase().includes(query)) ||
+    (ub.phone && ub.phone.includes(query)) ||
+    (ub.first_name && ub.first_name.toLowerCase().includes(query))
+  );
+  renderUserbotsModalList(filtered);
+}
+
+function toggleBroadcastTargetInput(val) {
+  const group = document.getElementById('broadcast-user-select-group');
+  if (!group) return;
+  if (val === 'specific') {
+    group.classList.remove('hidden');
+    loadBroadcastUsersDropdown();
+  } else {
+    group.classList.add('hidden');
+  }
+}
+
+async function loadBroadcastUsersDropdown() {
+  const select = document.getElementById('broadcast-target-user-id');
+  if (!select) return;
+  try {
+    const users = await adminApiRequest('/admin/users');
+    let html = '<option value="">-- اختر مستخدم من القائمة --</option>';
+    users.forEach(u => {
+      html += `<option value="${u.id}">👤 ${u.email} (ID: ${u.id})</option>`;
+    });
+    select.innerHTML = html;
+  } catch (err) {
+    console.error("Failed to load broadcast users:", err);
+  }
+}
+
+function targetUserInBroadcast(userId, userEmail) {
+  closeUserbotsModal();
+  switchTab('tab-broadcast');
+  const targetType = document.getElementById('broadcast-target-type');
+  if (targetType) {
+    targetType.value = 'specific';
+    toggleBroadcastTargetInput('specific');
+    setTimeout(() => {
+      const select = document.getElementById('broadcast-target-user-id');
+      if (select) select.value = userId;
+    }, 400);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(initUserbotsCardListeners, 1000);
+});

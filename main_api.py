@@ -2174,3 +2174,32 @@ async def live_logs_stream(tenant_id: Optional[int] = None, admin_user: User = D
             "Connection": "keep-alive"
         }
     )
+
+@app.get("/admin/userbots")
+async def get_admin_userbots(status: Optional[str] = None, admin_user: User = Depends(check_admin_user)):
+    async with AsyncSessionLocal() as session:
+        query = select(TelegramAccount, User).join(User, TelegramAccount.user_id == User.id)
+        if status:
+            if status == "error":
+                query = query.where(TelegramAccount.status.in_(["error", "banned", "unauthorized"]))
+            else:
+                query = query.where(TelegramAccount.status == status)
+                
+        results = (await session.execute(query.order_by(TelegramAccount.updated_at.desc()))).all()
+        
+        userbots_list = []
+        for acc, u in results:
+            userbots_list.append({
+                "account_id": acc.id,
+                "user_id": u.id,
+                "email": u.email,
+                "phone": acc.phone,
+                "first_name": acc.first_name or "",
+                "username": acc.username or "",
+                "status": acc.status,
+                "is_active": acc.is_active,
+                "last_active": acc.updated_at.strftime("%Y-%m-%d %H:%M:%S") if acc.updated_at else None,
+                "proxy_host": acc.proxy_host,
+                "proxy_port": acc.proxy_port
+            })
+        return userbots_list
