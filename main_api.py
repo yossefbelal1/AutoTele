@@ -2185,7 +2185,7 @@ async def get_admin_userbots(status: Optional[str] = None, admin_user: User = De
             else:
                 query = query.where(TelegramAccount.status == status)
                 
-        results = (await session.execute(query.order_by(TelegramAccount.updated_at.desc()))).all()
+        results = (await session.execute(query.order_by(TelegramAccount.created_at.desc()))).all()
         
         userbots_list = []
         for acc, u in results:
@@ -2198,7 +2198,7 @@ async def get_admin_userbots(status: Optional[str] = None, admin_user: User = De
                 "username": acc.username or "",
                 "status": acc.status,
                 "is_active": acc.is_active,
-                "last_active": acc.updated_at.strftime("%Y-%m-%d %H:%M:%S") if acc.updated_at else None,
+                "last_active": acc.created_at.strftime("%Y-%m-%d %H:%M:%S") if acc.created_at else None,
                 "proxy_host": acc.proxy_host,
                 "proxy_port": acc.proxy_port
             })
