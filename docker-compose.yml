@@ -26,7 +26,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5433:5432"
     restart: always
     mem_limit: 128m
     mem_reservation: 64m
@@ -53,7 +53,7 @@ services:
       --save 900 1
       --save 300 10
     ports:
-      - "127.0.0.1:6379:6379"
+      - "127.0.0.1:6380:6379"
     volumes:
       - redis_data:/data
     restart: always
@@ -71,7 +71,7 @@ services:
     container_name: saas_fastapi_api
     command: uvicorn main_api:app --host 0.0.0.0 --port 8000 --workers 1 --loop asyncio
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:8001:8000"
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:local_secure_password_2026@postgres_db:5432/ad_exchange
       - REDIS_URL=redis://redis_cache:6379/0
