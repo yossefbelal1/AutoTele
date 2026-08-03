@@ -23,9 +23,12 @@ let triggerImmediatePoll = null;
 // ==========================================
 // 1. TOAST NOTIFICATION SYSTEM
 // ==========================================
-function showToast(message, type = "info", duration = 5000) {
+function showToast(message, type = "info", duration = 4000) {
   const container = document.getElementById("toast-container");
   if (!container) return;
+
+  // Clear any existing toasts to guarantee zero stacking
+  container.innerHTML = "";
 
   // Prevent duplicate toast spam
   const existingToasts = Array.from(container.children);
@@ -87,23 +90,11 @@ async function apiRequest(endpoint, options = {}) {
     const response = await fetch(url, options);
     
     // Resilience constraint: If 401 Unauthorized
-        if (response.status === 401) {
-      if (endpoint.includes("/auth/login")) {
-        let errorMessage = "البريد الإلكتروني أو كلمة المرور غير صحيحة.";
-        try {
-          const errorData = await response.json();
-          if (errorData.detail) errorMessage = errorData.detail;
-        } catch (e) {}
-        showToast(errorMessage, "error");
-        throw new Error(errorMessage);
-      }
-      const hadToken = localStorage.getItem("access_token") !== null;
+        if (response.status === 401 || response.status === 403) {
       localStorage.removeItem("access_token");
-      if (hadToken) {
-        showToast("انتهت الجلسة. يرجى إعادة تسجيل الدخول.", "info");
-      }
+      stopAllPolling();
       showAuthScreen();
-      throw new Error("Unauthorized access - redirecting to login");
+      throw new Error("Unauthorized");
     }
 
     // Handle custom error codes
@@ -154,10 +145,23 @@ async function apiRequest(endpoint, options = {}) {
 // ==========================================
 // 3. ROUTER / VIEW CONTROLLER
 // ==========================================
+let pollingTimer = null;
+
+function stopAllPolling() {
+  if (pollingTimer) {
+    clearTimeout(pollingTimer);
+    pollingTimer = null;
+  }
+}
+
 function showAuthScreen() {
-  document.getElementById("dashboard-view").classList.add("hidden");
-  document.getElementById("signup-view").classList.add("hidden");
-  document.getElementById("auth-view").classList.remove("hidden");
+  stopAllPolling();
+  const dash = document.getElementById("dashboard-view");
+  const signup = document.getElementById("signup-view");
+  const auth = document.getElementById("auth-view");
+  if (dash) dash.classList.add("hidden");
+  if (signup) signup.classList.add("hidden");
+  if (auth) auth.classList.remove("hidden");
 }
 
 function showSignupScreen() {
@@ -2432,6 +2436,12 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   function scheduleNextPoll() {
+  const token = localStorage.getItem("access_token");
+  const dashVisible = document.getElementById("dashboard-view") && !document.getElementById("dashboard-view").classList.contains("hidden");
+  if (!token || !dashVisible) {
+    stopAllPolling();
+    return;
+  }
     if (pollingTimer) clearTimeout(pollingTimer);
     
     const dashboardVisible = !document.getElementById("dashboard-view").classList.contains("hidden");

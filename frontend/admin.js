@@ -24,9 +24,12 @@ let subscriptionsInterval = null;
 // ==========================================
 // 1. TOAST NOTIFICATION SYSTEM
 // ==========================================
-function showToast(message, type = "info", duration = 5000) {
+function showToast(message, type = "info", duration = 4000) {
   const container = document.getElementById("toast-container");
   if (!container) return;
+
+  // Clear container to guarantee zero toast stacking
+  container.innerHTML = "";
 
   const existingToasts = Array.from(container.children);
   if (existingToasts.some(t => t.textContent === message)) {
