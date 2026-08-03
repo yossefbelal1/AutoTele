@@ -2193,13 +2193,13 @@ async def get_admin_userbots(status: Optional[str] = None, admin_user: User = De
                 "account_id": acc.id,
                 "user_id": u.id,
                 "email": u.email,
-                "phone": acc.phone,
-                "first_name": acc.first_name or "",
-                "username": acc.username or "",
+                "phone": acc.phone or "",
+                "first_name": u.email.split("@")[0] if u.email else "",
+                "username": "",
                 "status": acc.status,
-                "is_active": acc.is_active,
+                "is_active": (acc.status == "active"),
                 "last_active": acc.created_at.strftime("%Y-%m-%d %H:%M:%S") if acc.created_at else None,
-                "proxy_host": acc.proxy_host,
-                "proxy_port": acc.proxy_port
+                "proxy_host": acc.proxy_host or "",
+                "proxy_port": acc.proxy_port or 0
             })
         return userbots_list
