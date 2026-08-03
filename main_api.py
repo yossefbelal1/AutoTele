@@ -108,11 +108,11 @@ app = FastAPI(title="Telegram Ad Exchange SaaS API", version="3.0")
 
 @app.on_event("startup")
 async def on_startup():
+    from db_manager import init_db
     try:
-        from db_manager import init_db
         asyncio.create_task(init_db())
     except Exception as e:
-        logger.error(f"Non-blocking init_db failed: {e}")
+        logger.error(f"Non-blocking init_db error: {e}")
     if JWT_SECRET == "SUPER_SECRET_SaaS_KEY_2026_DONOT_SHARE":
         logger.critical("SECURITY WARNING: Running with default hardcoded JWT_SECRET. Please set a custom JWT_SECRET in production environment variables immediately!")
 
@@ -2177,32 +2177,3 @@ async def live_logs_stream(tenant_id: Optional[int] = None, admin_user: User = D
             "Connection": "keep-alive"
         }
     )
-
-@app.get("/admin/userbots")
-async def get_admin_userbots(status: Optional[str] = None, admin_user: User = Depends(check_admin_user)):
-    async with AsyncSessionLocal() as session:
-        query = select(TelegramAccount, User).join(User, TelegramAccount.user_id == User.id)
-        if status:
-            if status == "error":
-                query = query.where(TelegramAccount.status.in_(["error", "banned", "unauthorized"]))
-            else:
-                query = query.where(TelegramAccount.status == status)
-                
-        results = (await session.execute(query.order_by(TelegramAccount.created_at.desc()))).all()
-        
-        userbots_list = []
-        for acc, u in results:
-            userbots_list.append({
-                "account_id": acc.id,
-                "user_id": u.id,
-                "email": u.email,
-                "phone": acc.phone or "",
-                "first_name": u.email.split("@")[0] if u.email else "",
-                "username": "",
-                "status": acc.status,
-                "is_active": (acc.status == "active"),
-                "last_active": acc.created_at.strftime("%Y-%m-%d %H:%M:%S") if acc.created_at else None,
-                "proxy_host": acc.proxy_host or "",
-                "proxy_port": acc.proxy_port or 0
-            })
-        return userbots_list

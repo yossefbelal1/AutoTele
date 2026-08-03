@@ -239,21 +239,7 @@
 
           <div class="card" style="max-width: 800px;">
             <h3 class="card-title" style="margin-bottom: 20px;">صياغة وإرسال رسالة البث الجماعي</h3>
-                    <form id="admin-broadcast-form">
-          <div class="input-group" style="margin-bottom: 16px;">
-            <label for="broadcast-target-type" style="font-weight: 700; color: #e2e8f0; margin-bottom: 8px; display: block;">🎯 توجيه الرسالة الإشعارية إلى:</label>
-            <select id="broadcast-target-type" class="form-control" onchange="toggleBroadcastTargetInput(this.value)" style="width: 100%; padding: 12px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.12); color: #fff; border-radius: 10px;">
-              <option value="all">📢 كافّة المشتركين النشطين (Broadcast to All)</option>
-              <option value="specific">👤 مستخدم محدد فقط (Target Specific User)</option>
-            </select>
-          </div>
-
-          <div id="broadcast-user-select-group" class="input-group hidden" style="margin-bottom: 16px;">
-            <label for="broadcast-target-user-id" style="font-weight: 700; color: #3b82f6; margin-bottom: 8px; display: block;">👤 اختر المستخدم المستهدف:</label>
-            <select id="broadcast-target-user-id" class="form-control" style="width: 100%; padding: 12px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(59, 130, 246, 0.3); color: #fff; border-radius: 10px;">
-              <option value="">-- جاري تحميل قائمة المشتركين... --</option>
-            </select>
-          </div>
+            <form id="admin-broadcast-form">
               <div class="input-group" style="margin-bottom: 20px;">
                 <label for="broadcast-message" style="margin-bottom: 8px; display: block; font-weight: 600;">نص الرسالة (يدعم ماركداون تليجرام):</label>
                 <textarea id="broadcast-message" rows="8" required placeholder="مثال:&#10;⚠️ **تنبيه هام:**&#10;سيتم إيقاف الخدمة لإجراء صيانة دورية لمدة ساعتين تبدأ من الساعة 10:00 مساءً بتوقيت مصر." style="width: 100%; border: 1px solid rgba(255, 255, 255, 0.08); background-color: rgba(0, 0, 0, 0.2); color: #fff; padding: 12px; border-radius: 8px; font-family: inherit; font-size: 14px; line-height: 1.6; resize: vertical; box-sizing: border-box;"></textarea>
@@ -315,170 +301,97 @@
         </section>
 
         <!-- Tab F: Health Dashboard -->
-                <!-- 6. TAB: Health & System Performance (Enterprise Radial Gauges) -->
         <section id="tab-health" class="tab-panel hidden">
-          
-          <!-- System Status Banner -->
-          <div class="health-header-banner">
-            <div class="banner-info">
-              <div class="status-pulse-badge">
-                <span class="pulse-dot green"></span>
-                <span class="status-text">السيرفر متصل ونشط 100% (Hetzner Cloud VPS)</span>
-              </div>
-              <p class="banner-sub">مراقبة صحية لحظية لموارد السيرفر، المكونات الأساسية، وحالة محركات المشتركين</p>
-            </div>
-            <div class="banner-actions">
-              <button class="btn btn-glass" onclick="loadAdminHealth()">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
-                تحديث فوري
-              </button>
-            </div>
+          <div class="panel-header">
+            <h1 class="panel-title">صحة وأداء خادم النظام (System Health)</h1>
+            <p class="panel-subtitle">مراقبة موارد السيرفر (VPS) وحالة قواعد البيانات ومحركات المشتركين النشطة</p>
           </div>
 
-          <!-- 1. Services Status Grid -->
+          <!-- Services Health Badges -->
           <div class="services-health-grid">
-            <div class="service-card glass-panel">
-              <div class="service-icon postgres-bg">🐘</div>
-              <div class="service-details">
-                <h4>قاعدة البيانات (PostgreSQL)</h4>
-                <span id="health-db-status" class="status-badge green">متصلة ونشطة</span>
+            <div class="card" style="display: flex; align-items: center; justify-content: space-between; padding: 15px 20px; border-right: 4px solid #27c93f;">
+              <div>
+                <span style="font-size: 12px; color: #708499; display: block; margin-bottom: 4px;">قاعدة بيانات PostgreSQL</span>
+                <span id="health-db-status" class="badge" style="background: rgba(39, 201, 63, 0.12); color: #27c93f; border-color: rgba(39, 201, 63, 0.2);">متصلة ونشطة</span>
               </div>
-              <div class="service-latency">1.2ms</div>
             </div>
-            
-            <div class="service-card glass-panel">
-              <div class="service-icon redis-bg">⚡</div>
-              <div class="service-details">
-                <h4>ذاكرة الكاش (Redis)</h4>
-                <span id="health-redis-status" class="status-badge green">جاهزة وسريعة</span>
+            <div class="card" style="display: flex; align-items: center; justify-content: space-between; padding: 15px 20px; border-right: 4px solid #27c93f;">
+              <div>
+                <span style="font-size: 12px; color: #708499; display: block; margin-bottom: 4px;">خادم التخزين المؤقت Redis</span>
+                <span id="health-redis-status" class="badge" style="background: rgba(39, 201, 63, 0.12); color: #27c93f; border-color: rgba(39, 201, 63, 0.2);">متصل ونشط</span>
               </div>
-              <div class="service-latency">0.4ms</div>
             </div>
-
-            <div class="service-card glass-panel">
-              <div class="service-icon userbots-bg">🤖</div>
-              <div class="service-details">
-                <h4>محركات البوتات (Userbots)</h4>
-                <span id="health-userbots-status" class="status-badge blue">4 نشط / 6 إجمالي</span>
-              </div>
-              <div class="service-latency">MTProto 2.0</div>
-            </div>
-          </div>
-
-          <!-- 2. System Resources Gauges (CPU, RAM, DISK) -->
-          <div class="vps-stats-section">
-            <h3 class="section-title">📊 استهلاك موارد السيرفر (VPS Live Gauges)</h3>
-            
-            <div class="gauges-grid">
-              <!-- CPU Gauge Card -->
-              <div class="gauge-card glass-panel-glow">
-                <div class="gauge-header">
-                  <span class="gauge-icon">💻</span>
-                  <span class="gauge-name">استهلاك المعالج (CPU)</span>
-                </div>
-                <div class="radial-gauge-container">
-                  <svg class="radial-gauge" viewBox="0 0 120 120">
-                    <circle class="gauge-bg" cx="60" cy="60" r="50"></circle>
-                    <circle id="health-cpu-circle" class="gauge-progress cpu-gradient" cx="60" cy="60" r="50" stroke-dasharray="314.15" stroke-dashoffset="298"></circle>
-                  </svg>
-                  <div class="gauge-center-val">
-                    <span id="health-cpu-val" class="gauge-number">5%</span>
-                    <span class="gauge-label">الاستهلاك</span>
-                  </div>
-                </div>
-                <div class="gauge-linear-bar">
-                  <div id="health-cpu-bar" class="linear-fill cpu-gradient" style="width: 5%;"></div>
-                </div>
-              </div>
-
-              <!-- RAM Gauge Card -->
-              <div class="gauge-card glass-panel-glow">
-                <div class="gauge-header">
-                  <span class="gauge-icon">🧠</span>
-                  <span class="gauge-name">الذاكرة العشوائية (RAM)</span>
-                </div>
-                <div class="radial-gauge-container">
-                  <svg class="radial-gauge" viewBox="0 0 120 120">
-                    <circle class="gauge-bg" cx="60" cy="60" r="50"></circle>
-                    <circle id="health-ram-circle" class="gauge-progress ram-gradient" cx="60" cy="60" r="50" stroke-dasharray="314.15" stroke-dashoffset="166"></circle>
-                  </svg>
-                  <div class="gauge-center-val">
-                    <span id="health-ram-percent-val" class="gauge-number">47%</span>
-                    <span class="gauge-label">المستخدم</span>
-                  </div>
-                </div>
-                <div class="gauge-sub-info" id="health-ram-val">1431 MB / 3819 MB (47%)</div>
-                <div class="gauge-linear-bar">
-                  <div id="health-ram-bar" class="linear-fill ram-gradient" style="width: 47%;"></div>
-                </div>
-              </div>
-
-              <!-- Disk Gauge Card -->
-              <div class="gauge-card glass-panel-glow">
-                <div class="gauge-header">
-                  <span class="gauge-icon">💾</span>
-                  <span class="gauge-name">مساحة التخزين (Disk)</span>
-                </div>
-                <div class="radial-gauge-container">
-                  <svg class="radial-gauge" viewBox="0 0 120 120">
-                    <circle class="gauge-bg" cx="60" cy="60" r="50"></circle>
-                    <circle id="health-disk-circle" class="gauge-progress disk-gradient" cx="60" cy="60" r="50" stroke-dasharray="314.15" stroke-dashoffset="263"></circle>
-                  </svg>
-                  <div class="gauge-center-val">
-                    <span id="health-disk-percent-val" class="gauge-number">16%</span>
-                    <span class="gauge-label">المستغل</span>
-                  </div>
-                </div>
-                <div class="gauge-sub-info" id="health-disk-val">5 GB / 37 GB (16%)</div>
-                <div class="gauge-linear-bar">
-                  <div id="health-disk-bar" class="linear-fill disk-gradient" style="width: 16%;"></div>
-                </div>
+            <div class="card" style="display: flex; align-items: center; justify-content: space-between; padding: 15px 20px; border-right: 4px solid #3b82f6;">
+              <div>
+                <span style="font-size: 12px; color: #708499; display: block; margin-bottom: 4px;">محركات اليوزربوت النشطة</span>
+                <span id="health-userbots-status" style="font-weight: bold; color: #3b82f6;">--</span>
               </div>
             </div>
           </div>
 
-          <!-- 3. Userbots Breakdown Section -->
-          <div class="userbots-breakdown-section">
-            <h3 class="section-title">🤖 حالة محركات المشتركين (Userbots Status Breakdown)</h3>
-            <div class="userbots-grid">
-              <div class="userbot-stat-card active-card glass-panel">
-                <div class="card-top">
-                  <span class="dot-indicator green"></span>
-                  <span class="stat-title">يعمل بنشاط (Active)</span>
+          <!-- VPS Performance Grid -->
+          <div class="vps-perf-grid">
+            <!-- CPU, RAM, Disk Resources -->
+            <div class="card">
+              <h3 class="card-title">استهلاك موارد السيرفر (VPS Stats)</h3>
+              
+              <!-- CPU -->
+              <div style="margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 13px;">
+                  <span>استهلاك المعالج (CPU Usage)</span>
+                  <span id="health-cpu-val" style="font-weight: bold; color: #e11d48;">--%</span>
                 </div>
-                <div class="card-value" id="health-bot-active">4</div>
-                <div class="card-desc">محركات متصلة وتنفذ المهام والتنظيف تلقائياً</div>
+                <div style="width: 100%; height: 8px; background-color: #17212b; border-radius: 4px; overflow: hidden;">
+                  <div id="health-cpu-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3b82f6 0%, #e11d48 100%); transition: width 0.5s ease-in-out;"></div>
+                </div>
               </div>
 
-              <div class="userbot-stat-card paused-card glass-panel">
-                <div class="card-top">
-                  <span class="dot-indicator amber"></span>
-                  <span class="stat-title">متوقف مؤقتاً (Paused)</span>
+              <!-- RAM -->
+              <div style="margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 13px;">
+                  <span>استهلاك الذاكرة العشوائية (RAM Usage)</span>
+                  <span id="health-ram-val" style="font-weight: bold; color: #a5b4fc;">-- MB / -- MB (--%)</span>
                 </div>
-                <div class="card-value" id="health-bot-paused">0</div>
-                <div class="card-desc">متوقف بسبب قيود التبول أو أمر (.بريك)</div>
+                <div style="width: 100%; height: 8px; background-color: #17212b; border-radius: 4px; overflow: hidden;">
+                  <div id="health-ram-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3b82f6 0%, #a5b4fc 100%); transition: width 0.5s ease-in-out;"></div>
+                </div>
               </div>
 
-              <div class="userbot-stat-card stopped-card glass-panel">
-                <div class="card-top">
-                  <span class="dot-indicator slate"></span>
-                  <span class="stat-title">متوقف يدوياً (Stopped)</span>
+              <!-- Disk Space -->
+              <div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 13px;">
+                  <span>المساحة التخزينية المستخدمة (Disk Space)</span>
+                  <span id="health-disk-val" style="font-weight: bold; color: #10b981;">-- GB / -- GB (--%)</span>
                 </div>
-                <div class="card-value" id="health-bot-stopped">0</div>
-                <div class="card-desc">اشتراك غير مفعّل أو معطل يدوياً</div>
+                <div style="width: 100%; height: 8px; background-color: #17212b; border-radius: 4px; overflow: hidden;">
+                  <div id="health-disk-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3b82f6 0%, #10b981 100%); transition: width 0.5s ease-in-out;"></div>
+                </div>
               </div>
+            </div>
 
-              <div class="userbot-stat-card error-card glass-panel">
-                <div class="card-top">
-                  <span class="dot-indicator rose"></span>
-                  <span class="stat-title">خطأ أو محظور (Banned/Error)</span>
+            <!-- Userbot Status Breakdown -->
+            <div class="card">
+              <h3 class="card-title">حالة محركات المشتركين (Userbots Status)</h3>
+              <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 15px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 8px;">
+                  <span style="font-size: 13px; color: #708499;">🟢 يوزربوت يعمل بنشاط (Active)</span>
+                  <span id="health-bot-active" class="badge" style="background: rgba(39, 201, 63, 0.12); color: #27c93f;">0</span>
                 </div>
-                <div class="card-value" id="health-bot-error">2</div>
-                <div class="card-desc">يتطلب إعادة تسجيل الدخول أو تحديث الجلسة</div>
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 8px;">
+                  <span style="font-size: 13px; color: #708499;">🟡 متوقف مؤقتاً بسبب قيود تيليجرام (Paused)</span>
+                  <span id="health-bot-paused" class="badge" style="background: rgba(245, 158, 11, 0.12); color: #f59e0b;">0</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 8px;">
+                  <span style="font-size: 13px; color: #708499;">⚪ متوقف يدوياً أو معطل (Stopped)</span>
+                  <span id="health-bot-stopped" class="badge" style="background: rgba(255, 255, 255, 0.08); color: #ccc;">0</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px;">
+                  <span style="font-size: 13px; color: #708499;">🔴 يوزربوت به خطأ أو محظور (Banned/Error)</span>
+                  <span id="health-bot-error" class="badge" style="background: rgba(225, 29, 72, 0.12); color: #e11d48;">0</span>
+                </div>
               </div>
             </div>
           </div>
-
         </section>
 
         <!-- Tab G: Subscriptions Lifecycle Dashboard -->
@@ -648,27 +561,5 @@
 
   <!-- JavaScript Admin Script -->
   <script src="admin.js"></script>
-
-  <!-- ==========================================
-       MODAL: Interactive Userbots Breakdown List
-       ========================================== -->
-  <div id="userbots-modal" class="modal-overlay hidden">
-    <div class="modal-card glass-panel-glow" style="max-width: 850px; width: 92%;">
-      <div class="modal-header">
-        <h3 id="userbots-modal-title" class="modal-title">🤖 قائمة محركات البوتات</h3>
-        <button type="button" class="btn-close" onclick="closeUserbotsModal()">&times;</button>
-      </div>
-      <div class="modal-body" style="padding: 20px;">
-        <div style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
-          <input type="text" id="userbots-modal-search" placeholder="🔍 بحث عن مستخدم بالإيميل أو الهاتف..." class="form-control" style="max-width: 320px;" onkeyup="filterUserbotsModalList()">
-          <span id="userbots-modal-count-badge" class="badge blue">0 حسابات</span>
-        </div>
-        <div id="userbots-modal-list-container" style="max-height: 450px; overflow-y: auto;">
-          <!-- Userbots items loaded dynamically -->
-        </div>
-      </div>
-    </div>
-  </div>
-
 </body>
 </html>

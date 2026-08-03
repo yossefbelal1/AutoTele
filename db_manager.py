@@ -264,38 +264,28 @@ class SavedMessageLog(Base):
 async def init_db() -> None:
     try:
         async with async_engine.begin() as conn:
-            from sqlalchemy import text
-            await conn.execute(text("SET statement_timeout = 3000;"))
             await conn.run_sync(Base.metadata.create_all)
-            
-            ddl_statements = [
-                "ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS needs_reboot BOOLEAN DEFAULT FALSE;",
-                "ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS sticker_file_id TEXT;",
-                "ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS sticker_enabled BOOLEAN DEFAULT TRUE;",
-                "ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS sticker_file_unique_id TEXT;",
-                "ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS proxy_host VARCHAR(255);",
-                "ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS proxy_port INTEGER;",
-                "ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS proxy_username VARCHAR(255);",
-                "ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS proxy_password VARCHAR(255);",
-                "ALTER TABLE active_ads ADD COLUMN IF NOT EXISTS sticker_msg_id INTEGER;",
-                "ALTER TABLE publish_logs ADD COLUMN IF NOT EXISTS sticker_msg_id INTEGER;",
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS credits INTEGER DEFAULT 500;",
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_alert_2d_sent BOOLEAN DEFAULT FALSE;",
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_alert_24h_sent BOOLEAN DEFAULT FALSE;",
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_alert_expired_sent BOOLEAN DEFAULT FALSE;",
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_shutdown_executed BOOLEAN DEFAULT FALSE;",
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS status_bot_chat_id BIGINT;",
-                "ALTER TABLE web_campaign_tasks ADD COLUMN IF NOT EXISTS result_summary TEXT;"
-            ]
-            for stmt in ddl_statements:
-                try:
-                    await conn.execute(text(stmt))
-                except Exception as stmt_err:
-                    logger.warning(f"Skipping DDL stmt ({stmt_err}): {stmt}")
-                    
+            from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS needs_reboot BOOLEAN DEFAULT FALSE;"))
+            await conn.execute(text("ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS sticker_file_id TEXT;"))
+            await conn.execute(text("ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS sticker_enabled BOOLEAN DEFAULT TRUE;"))
+            await conn.execute(text("ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS sticker_file_unique_id TEXT;"))
+            await conn.execute(text("ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS proxy_host VARCHAR(255);"))
+            await conn.execute(text("ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS proxy_port INTEGER;"))
+            await conn.execute(text("ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS proxy_username VARCHAR(255);"))
+            await conn.execute(text("ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS proxy_password VARCHAR(255);"))
+            await conn.execute(text("ALTER TABLE active_ads ADD COLUMN IF NOT EXISTS sticker_msg_id INTEGER;"))
+            await conn.execute(text("ALTER TABLE publish_logs ADD COLUMN IF NOT EXISTS sticker_msg_id INTEGER;"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS credits INTEGER DEFAULT 500;"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_alert_2d_sent BOOLEAN DEFAULT FALSE;"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_alert_24h_sent BOOLEAN DEFAULT FALSE;"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_alert_expired_sent BOOLEAN DEFAULT FALSE;"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_shutdown_executed BOOLEAN DEFAULT FALSE;"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS status_bot_chat_id BIGINT;"))
+            await conn.execute(text("ALTER TABLE web_campaign_tasks ADD COLUMN IF NOT EXISTS result_summary TEXT;"))
         logger.info("Database initialized successfully.")
     except Exception as e:
-        logger.error(f"Database initialization failed: {e}")
+        logger.critical(f"Failed to initialize database: {e}"); raise
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:

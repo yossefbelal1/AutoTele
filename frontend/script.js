@@ -23,21 +23,9 @@ let triggerImmediatePoll = null;
 // ==========================================
 // 1. TOAST NOTIFICATION SYSTEM
 // ==========================================
-function showToast(message, type = "info", duration = 4000) {
+function showToast(message, type = "info", duration = 5000) {
   const container = document.getElementById("toast-container");
   if (!container) return;
-
-  // Clear any existing toasts to guarantee zero stacking
-  container.innerHTML = "";
-
-  // Prevent duplicate toast spam
-  const existingToasts = Array.from(container.children);
-  if (existingToasts.some(t => t.textContent === message)) {
-    return;
-  }
-  if (existingToasts.length >= 2) {
-    existingToasts[0].remove();
-  }
 
   const toast = document.createElement("div");
   toast.className = `toast-alert ${type}`;
@@ -90,11 +78,23 @@ async function apiRequest(endpoint, options = {}) {
     const response = await fetch(url, options);
     
     // Resilience constraint: If 401 Unauthorized
-        if (response.status === 401 || response.status === 403) {
+    if (response.status === 401) {
+      if (endpoint.includes("/auth/login")) {
+        let errorMessage = "البريد الإلكتروني أو كلمة المرور غير صحيحة.";
+        try {
+          const errorData = await response.json();
+          if (errorData.detail) errorMessage = errorData.detail;
+        } catch (e) {}
+        showToast(errorMessage, "error");
+        throw new Error(errorMessage);
+      }
+      const hadToken = localStorage.getItem("access_token") !== null;
       localStorage.removeItem("access_token");
-      stopAllPolling();
+      if (hadToken) {
+        showToast("انتهت الجلسة أو رخصة غير صالحة. يرجى تسجيل الدخول مجدداً.", "error");
+      }
       showAuthScreen();
-      throw new Error("Unauthorized");
+      throw new Error("Unauthorized access - redirecting to login");
     }
 
     // Handle custom error codes
@@ -124,7 +124,7 @@ async function apiRequest(endpoint, options = {}) {
         showToast(errorMessage || "البيانات المدخلة غير صحيحة، يرجى التحقق منها.", "error");
       } else if (response.status === 429) {
         showToast("طلبات كثيرة جداً، يرجى التمهل والمحاولة بعد قليل.", "warning");
-      } else if (options.showToast !== false && method !== "GET") {
+      } else {
         showToast(errorMessage, "error");
       }
       
@@ -145,23 +145,10 @@ async function apiRequest(endpoint, options = {}) {
 // ==========================================
 // 3. ROUTER / VIEW CONTROLLER
 // ==========================================
-let pollingTimer = null;
-
-function stopAllPolling() {
-  if (pollingTimer) {
-    clearTimeout(pollingTimer);
-    pollingTimer = null;
-  }
-}
-
 function showAuthScreen() {
-  stopAllPolling();
-  const dash = document.getElementById("dashboard-view");
-  const signup = document.getElementById("signup-view");
-  const auth = document.getElementById("auth-view");
-  if (dash) dash.classList.add("hidden");
-  if (signup) signup.classList.add("hidden");
-  if (auth) auth.classList.remove("hidden");
+  document.getElementById("dashboard-view").classList.add("hidden");
+  document.getElementById("signup-view").classList.add("hidden");
+  document.getElementById("auth-view").classList.remove("hidden");
 }
 
 function showSignupScreen() {
@@ -1660,8 +1647,6 @@ function formatTelegramText(text) {
 }
 
 async function loadScheduledJobs() {
-  const token = localStorage.getItem("access_token");
-  if (!token) return;
   try {
     const data = await apiRequest("/user/scheduled-jobs");
     const scheduledListEl = document.getElementById("scheduled-jobs-list");
@@ -1862,8 +1847,6 @@ async function loadScheduledJobs() {
 }
 
 async function loadEventLogs() {
-  const token = localStorage.getItem("access_token");
-  if (!token) return;
   try {
     const data = await apiRequest("/user/logs");
     const container = document.getElementById("logs-container");
@@ -2436,12 +2419,6 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   function scheduleNextPoll() {
-  const token = localStorage.getItem("access_token");
-  const dashVisible = document.getElementById("dashboard-view") && !document.getElementById("dashboard-view").classList.contains("hidden");
-  if (!token || !dashVisible) {
-    stopAllPolling();
-    return;
-  }
     if (pollingTimer) clearTimeout(pollingTimer);
     
     const dashboardVisible = !document.getElementById("dashboard-view").classList.contains("hidden");
