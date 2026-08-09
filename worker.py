@@ -102,6 +102,10 @@ logger = logging.getLogger("saas_worker")
 # Apply shared Pyrogram monkey patches to disable link previews and handle high-ID channels
 apply_pyrogram_patches()
 
+# Tune GC thresholds for lower CPU overhead on 2 vCPU server
+import gc
+gc.set_threshold(700, 10, 5)
+
 try:
     redis_handler = RedisPublishHandler()
     redis_handler.setFormatter(logging.Formatter('{"timestamp": "%(asctime)s", "level": "%(levelname)s", "module": "%(module)s", "message": "%(message)s"}'))
@@ -122,7 +126,7 @@ tenant_backoff_multipliers: Dict[int, float] = {}
 tenant_wave_locks: Dict[int, asyncio.Lock] = {}
 
 # Global semaphore: max 3 tenants can crawl (get_dialogs) simultaneously to protect CPU on t3a.medium
-_GLOBAL_CRAWL_SEMAPHORE = asyncio.Semaphore(3)
+_GLOBAL_CRAWL_SEMAPHORE = asyncio.Semaphore(2)  # Tuned for 2 vCPU
 
 async def check_proxy_responsive(host: str, port: int, timeout: float = 3.0) -> bool:
     try:
@@ -258,7 +262,25 @@ async def send_sticker_if_needed(client: Client, chat_id: int, tenant_id: int) -
             stmt = select(TelegramAccount.sticker_enabled).where(TelegramAccount.id == tenant_id)
             res = (await session.execute(stmt)).first()
             sticker_enabled = res[0] if res else False
-        if sticker_enabled:
+            
+            if not sticker_enabled:
+                return None
+
+            # Smart Deduplication: If an active ad with a sticker ALREADY exists in this channel for this tenant,
+            # skip sending a duplicate sticker!
+            existing_sticker = (await session.execute(
+                select(ActiveAd.sticker_msg_id)
+                .where(
+                    ActiveAd.telegram_account_id == tenant_id,
+                    ActiveAd.chat_id == chat_id,
+                    ActiveAd.sticker_msg_id.isnot(None)
+                )
+            )).first()
+
+            if existing_sticker:
+                logger.info(f"Skipping duplicate sticker for tenant {tenant_id} in chat {chat_id} - active ad with sticker (msg {existing_sticker[0]}) already present.")
+                return None
+
             fresh_sticker_id = await get_fresh_sticker_file_id(client, tenant_id)
             if fresh_sticker_id:
                 logger.info(f"Sending custom sticker {fresh_sticker_id} to chat {chat_id} before ad text...")
@@ -886,6 +908,9 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                                 "quality_score": quality_score
                             })
                             
+                # Yield CPU between pagination batches
+                await asyncio.sleep(0.05)
+                
                 if len(r.dialogs) < limit:
                     break
                     
@@ -1762,16 +1787,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                         async with AsyncSessionLocal() as clean_session:
                             await delete_active_ads_in_channel(clean_session, client, tenant_id, cid)
                             
-                        if acc and acc.sticker_enabled:
-                            fresh_sticker_id = await get_fresh_sticker_file_id(client, tenant_id)
-                            if fresh_sticker_id:
-                                try:
-                                    sticker_msg = await client.send_sticker(chat_id=cid, sticker=fresh_sticker_id)
-                                    sticker_msg_id = sticker_msg.id
-                                    logger.info(f"Sticker {fresh_sticker_id} sent successfully to chat {cid}")
-                                    await asyncio.sleep(2.0)
-                                except Exception as se:
-                                    logger.error(f"Failed to send sticker to chat {cid}: {se}")
+                        sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
                                 
                         msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
                         async with AsyncSessionLocal() as db_session:
@@ -1810,13 +1826,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                         if tenant_id not in tenant_semaphores:
                             tenant_semaphores[tenant_id] = asyncio.Semaphore(1)
                         async with tenant_semaphores[tenant_id]:
-                            sticker_msg_id = None
-                            if acc and acc.sticker_enabled:
-                                fresh_sticker_id = await get_fresh_sticker_file_id(client, tenant_id)
-                                if fresh_sticker_id:
-                                    sticker_msg = await client.send_sticker(chat_id=cid, sticker=fresh_sticker_id)
-                                    sticker_msg_id = sticker_msg.id
-                                    await asyncio.sleep(2.0)
+                            sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
                             msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
                             async with AsyncSessionLocal() as db_session:
                                 await add_ad_record(
@@ -1845,13 +1855,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                         if tenant_id not in tenant_semaphores:
                             tenant_semaphores[tenant_id] = asyncio.Semaphore(1)
                         async with tenant_semaphores[tenant_id]:
-                            sticker_msg_id = None
-                            if acc and acc.sticker_enabled:
-                                fresh_sticker_id = await get_fresh_sticker_file_id(client, tenant_id)
-                                if fresh_sticker_id:
-                                    sticker_msg = await client.send_sticker(chat_id=cid, sticker=fresh_sticker_id)
-                                    sticker_msg_id = sticker_msg.id
-                                    await asyncio.sleep(2.0)
+                            sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
                             msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
                             async with AsyncSessionLocal() as db_session:
                                 await add_ad_record(
@@ -5865,6 +5869,9 @@ async def start_global_engine():
     )
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    try: loop.run_until_complete(start_global_engine())
-    except: pass
+    try:
+        asyncio.run(start_global_engine())
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        logging.getLogger("saas_worker").critical(f"Global engine crashed: {e}")

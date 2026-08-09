@@ -21,7 +21,7 @@ INVITE_LINKS_CACHE_TTL = int(os.getenv("INVITE_LINKS_CACHE_TTL", 86400))  # 24 �
 redis_client: aioredis.Redis = aioredis.from_url(
     REDIS_URL,
     decode_responses=True,
-    max_connections=100,  # الحد الأقصى للاتصالات في الـ Pool بناءً على أحمال الـ Workers
+    max_connections=20,  # الحد الأقصى للاتصالات في الـ Pool بناءً على أحمال الـ Workers
     socket_timeout=5.0,
     socket_connect_timeout=5.0,
     retry_on_timeout=True

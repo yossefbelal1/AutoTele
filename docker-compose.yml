@@ -13,7 +13,7 @@ services:
       POSTGRES_INITDB_ARGS: "--encoding=UTF8"
     command: >
       postgres
-      -c shared_buffers=32MB
+      -c shared_buffers=48MB
       -c effective_cache_size=64MB
       -c work_mem=2MB
       -c maintenance_work_mem=16MB
@@ -28,8 +28,8 @@ services:
     ports:
       - "127.0.0.1:5433:5432"
     restart: always
-    mem_limit: 128m
-    mem_reservation: 64m
+    mem_limit: 192m
+    mem_reservation: 96m
     logging:
       driver: "json-file"
       options:
@@ -48,7 +48,7 @@ services:
     command: >
       redis-server
       --appendonly yes
-      --maxmemory 64mb
+      --maxmemory 48mb
       --maxmemory-policy allkeys-lru
       --save 900 1
       --save 300 10
@@ -57,8 +57,8 @@ services:
     volumes:
       - redis_data:/data
     restart: always
-    mem_limit: 128m
-    mem_reservation: 64m
+    mem_limit: 96m
+    mem_reservation: 48m
     logging:
       driver: "json-file"
       options:
@@ -88,8 +88,8 @@ services:
       redis_cache:
         condition: service_started
     restart: always
-    mem_limit: 160m
-    mem_reservation: 80m
+    mem_limit: 192m
+    mem_reservation: 96m
     tmpfs:
       - /tmp
     logging:
@@ -118,8 +118,8 @@ services:
     volumes:
       - ./worker.py:/app/worker.py
     restart: always
-    mem_limit: 1024m
-    mem_reservation: 192m
+    mem_limit: 512m
+    mem_reservation: 128m
     tmpfs:
       - /tmp
     logging:
