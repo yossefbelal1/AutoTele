@@ -258,18 +258,51 @@ async def delete_active_ads_in_channel(session: AsyncSession, client: Client, te
 
 async def get_chat_total_invite_joins(client: Client, chat_id: int, me_peer) -> int:
     try:
-        from pyrogram.raw import functions
+        from pyrogram.raw import functions, types
         peer = await client.resolve_peer(chat_id)
-        res = await client.invoke(
-            functions.messages.GetExportedChatInvites(
-                peer=peer,
-                admin_id=me_peer,
-                limit=50
-            ),
-            sleep_threshold=10
-        )
+        invites_list = []
+        seen_links = set()
+        
+        # 1. Fetch invites created by me (Primary + custom admin links)
+        if me_peer:
+            try:
+                res1 = await client.invoke(
+                    functions.messages.GetExportedChatInvites(
+                        peer=peer,
+                        admin_id=me_peer,
+                        limit=50
+                    ),
+                    sleep_threshold=10
+                )
+                for inv in getattr(res1, "invites", []):
+                    link = getattr(inv, "link", None)
+                    if link and link not in seen_links:
+                        seen_links.add(link)
+                        invites_list.append(inv)
+            except Exception:
+                pass
+
+        # 2. Fetch all exported chat invites (Primary link + other admin links)
+        try:
+            res2 = await client.invoke(
+                functions.messages.GetExportedChatInvites(
+                    peer=peer,
+                    admin_id=types.InputUserEmpty(),
+                    limit=50
+                ),
+                sleep_threshold=10
+            )
+            for inv in getattr(res2, "invites", []):
+                link = getattr(inv, "link", None)
+                if link and link not in seen_links:
+                    seen_links.add(link)
+                    invites_list.append(inv)
+        except Exception:
+            pass
+
+        # Calculate sum of joined members across all links (7 + 19 = 26)
         total_joins = 0
-        for inv in getattr(res, "invites", []):
+        for inv in invites_list:
             if not getattr(inv, "revoked", False):
                 cnt = getattr(inv, "joined", 0) or 0
                 total_joins += cnt
