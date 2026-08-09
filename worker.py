@@ -256,6 +256,27 @@ async def delete_active_ads_in_channel(session: AsyncSession, client: Client, te
     except Exception as ge:
         logger.error(f"Error in delete_active_ads_in_channel for tenant {tenant_id} on chat {chat_id}: {ge}")
 
+async def get_chat_total_invite_joins(client: Client, chat_id: int, me_peer) -> int:
+    try:
+        from pyrogram.raw import functions
+        peer = await client.resolve_peer(chat_id)
+        res = await client.invoke(
+            functions.messages.GetExportedChatInvites(
+                peer=peer,
+                admin_id=me_peer,
+                limit=50
+            ),
+            sleep_threshold=10
+        )
+        total_joins = 0
+        for inv in getattr(res, "invites", []):
+            if not getattr(inv, "revoked", False):
+                cnt = getattr(inv, "joined", 0) or 0
+                total_joins += cnt
+        return total_joins
+    except Exception:
+        return 0
+
 async def send_sticker_if_needed(client: Client, chat_id: int, tenant_id: int) -> Optional[int]:
     try:
         async with AsyncSessionLocal() as session:
@@ -1605,8 +1626,25 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
         target_title = " / ".join(list(set(target_titles)))
         
         eligible_channels = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True)]
-        import random
-        random.shuffle(eligible_channels)
+        
+        # Smart Sorting: Calculate total invite link joins (Primary + All Custom Links summed)
+        # and sort channels in ASCENDING order (channels with 0 or lowest joins come FIRST!)
+        me_peer = None
+        try:
+            if client and getattr(client, "me", None):
+                me_peer = await client.resolve_peer(client.me.id)
+        except Exception:
+            pass
+
+        channel_scores = []
+        for ch in eligible_channels:
+            joins = await get_chat_total_invite_joins(client, ch["id"], me_peer) if me_peer else 0
+            channel_scores.append((joins, ch))
+            await asyncio.sleep(0.05)
+
+        channel_scores.sort(key=lambda item: item[0])
+        eligible_channels = [item[1] for item in channel_scores]
+        logger.info(f"Tenant {tenant_id}: Sorted {len(eligible_channels)} channels by total invite joins (ascending).")
         total = len(eligible_channels)
         
         total_account_channels = len(channels)
