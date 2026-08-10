@@ -310,6 +310,18 @@ async def get_chat_total_invite_joins(client: Client, chat_id: int, me_peer) -> 
     except Exception:
         return 0
 
+async def is_my_sticker_in_recent_history(client: Client, chat_id: int, limit: int = 5) -> bool:
+    try:
+        me_id = getattr(client, "me", None).id if getattr(client, "me", None) else None
+        async for msg in client.get_chat_history(chat_id, limit=limit):
+            if msg.sticker:
+                sender_id = msg.from_user.id if msg.from_user else None
+                if msg.outgoing or (me_id and sender_id == me_id):
+                    return True
+    except Exception as e:
+        logger.debug(f"Failed to check chat history for chat {chat_id}: {e}")
+    return False
+
 async def send_sticker_if_needed(client: Client, chat_id: int, tenant_id: int) -> Optional[int]:
     try:
         async with AsyncSessionLocal() as session:
@@ -320,22 +332,11 @@ async def send_sticker_if_needed(client: Client, chat_id: int, tenant_id: int) -
             if not sticker_enabled:
                 return None
 
-            # Smart 2-Minute Window Deduplication:
-            # Only skip sending a sticker if one was ALREADY sent to this channel within the last 2 minutes (120s).
-            # This ensures every new campaign gets its sticker, while preventing duplicate stickers during concurrent runs.
-            two_mins_ago = datetime.now(timezone.utc) - timedelta(minutes=2)
-            recent_sticker = (await session.execute(
-                select(PublishLog.sticker_msg_id)
-                .where(
-                    PublishLog.telegram_account_id == tenant_id,
-                    PublishLog.chat_id == chat_id,
-                    PublishLog.sticker_msg_id.isnot(None),
-                    PublishLog.created_at >= two_mins_ago
-                )
-            )).first()
-
-            if recent_sticker:
-                logger.info(f"Skipping duplicate sticker for tenant {tenant_id} in chat {chat_id} - sticker was already sent within the last 2 minutes (msg {recent_sticker[0]}).")
+            # Dynamic Live Inspection: Check the last 5 messages in the Telegram channel history!
+            # If a sticker sent by this userbot is ALREADY present in the last 5 messages,
+            # skip sending a duplicate sticker!
+            if await is_my_sticker_in_recent_history(client, chat_id, limit=5):
+                logger.info(f"Skipping duplicate sticker for tenant {tenant_id} in chat {chat_id} - sticker found in recent 5 messages.")
                 return None
 
             fresh_sticker_id = await get_fresh_sticker_file_id(client, tenant_id)
