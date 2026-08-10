@@ -320,19 +320,22 @@ async def send_sticker_if_needed(client: Client, chat_id: int, tenant_id: int) -
             if not sticker_enabled:
                 return None
 
-            # Smart Deduplication: If an active ad with a sticker ALREADY exists in this channel for this tenant,
-            # skip sending a duplicate sticker!
-            existing_sticker = (await session.execute(
-                select(ActiveAd.sticker_msg_id)
+            # Smart 2-Minute Window Deduplication:
+            # Only skip sending a sticker if one was ALREADY sent to this channel within the last 2 minutes (120s).
+            # This ensures every new campaign gets its sticker, while preventing duplicate stickers during concurrent runs.
+            two_mins_ago = datetime.now(timezone.utc) - timedelta(minutes=2)
+            recent_sticker = (await session.execute(
+                select(PublishLog.sticker_msg_id)
                 .where(
-                    ActiveAd.telegram_account_id == tenant_id,
-                    ActiveAd.chat_id == chat_id,
-                    ActiveAd.sticker_msg_id.isnot(None)
+                    PublishLog.telegram_account_id == tenant_id,
+                    PublishLog.chat_id == chat_id,
+                    PublishLog.sticker_msg_id.isnot(None),
+                    PublishLog.created_at >= two_mins_ago
                 )
             )).first()
 
-            if existing_sticker:
-                logger.info(f"Skipping duplicate sticker for tenant {tenant_id} in chat {chat_id} - active ad with sticker (msg {existing_sticker[0]}) already present.")
+            if recent_sticker:
+                logger.info(f"Skipping duplicate sticker for tenant {tenant_id} in chat {chat_id} - sticker was already sent within the last 2 minutes (msg {recent_sticker[0]}).")
                 return None
 
             fresh_sticker_id = await get_fresh_sticker_file_id(client, tenant_id)
