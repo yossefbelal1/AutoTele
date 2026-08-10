@@ -245,11 +245,6 @@ async def get_fresh_sticker_file_id(client: Client, tenant_id: int) -> Optional[
         return None
 
 async def delete_active_ads_in_channel(session: AsyncSession, client: Client, tenant_id: int, chat_id: int):
-    """
-    Verify the number of active ads in the specified channel.
-    If the count is 2 or more, delete the oldest ad (Telegram and Database)
-    to ensure the maximum active ads in the channel does not exceed 2.
-    """
     try:
         stmt = select(ActiveAd).where(ActiveAd.telegram_account_id == tenant_id, ActiveAd.chat_id == chat_id).order_by(ActiveAd.id.asc())
         ads = list((await session.execute(stmt)).scalars().all())
@@ -264,10 +259,21 @@ async def delete_active_ads_in_channel(session: AsyncSession, client: Client, te
             try:
                 ids_to_delete = [ad.msg_id]
                 if getattr(ad, "sticker_msg_id", None):
-                    ids_to_delete.append(ad.sticker_msg_id)
+                    # Check if sticker_msg_id is referenced by remaining active ads
+                    other_ref = (await session.execute(
+                        select(ActiveAd.id).where(
+                            ActiveAd.telegram_account_id == tenant_id,
+                            ActiveAd.chat_id == chat_id,
+                            ActiveAd.id != ad.id,
+                            ActiveAd.sticker_msg_id == ad.sticker_msg_id
+                        )
+                    )).first()
+                    if not other_ref:
+                        ids_to_delete.append(ad.sticker_msg_id)
+                        
                 if client and client.is_connected:
                     await client.delete_messages(chat_id=chat_id, message_ids=ids_to_delete)
-                await log_tenant_event(tenant_id, f"🧹 [تطهير مسبق] تم حذف أقدم إعلان نشط (msg {ad.msg_id}) من القناة {chat_id} للحفاظ على حد أقصى (إعلانين) بالجروب.")
+                await log_tenant_event(tenant_id, f"🗑️ [Pre-publish Clean] Deleted old ad (msg {ad.msg_id}) in chat {chat_id}.")
             except Exception as e:
                 logger.debug(f"[Pre-publish Clean] Failed to delete message {ad.msg_id} in chat {chat_id}: {e}")
             
