@@ -192,8 +192,30 @@ async def get_fresh_sticker_file_id(client: Client, tenant_id: int) -> Optional[
                 select(TelegramAccount).where(TelegramAccount.id == tenant_id)
             )).scalar_one_or_none()
             
-        if not acc or not acc.sticker_file_id:
-            return None
+        if saved_msg_id_str:
+            try:
+                saved_msg_id = int(saved_msg_id_str)
+                msg = await client.get_messages("me", message_ids=saved_msg_id)
+                if msg and msg.sticker:
+                    fresh_id = msg.sticker.file_id
+                    fresh_unique = msg.sticker.file_unique_id
+                    async with AsyncSessionLocal() as session:
+                        await session.execute(
+                            update(TelegramAccount)
+                            .where(TelegramAccount.id == tenant_id)
+                            .values(
+                                sticker_file_id=fresh_id,
+                                sticker_file_unique_id=fresh_unique,
+                                sticker_enabled=True
+                            )
+                        )
+                        await session.commit()
+                    return fresh_id
+            except Exception as se:
+                logger.debug(f"Could not refresh sticker from Saved Messages: {se}")
+
+        if acc and acc.sticker_enabled and acc.sticker_file_id:
+            return acc.sticker_file_id
             
         if saved_msg_id_str:
             try:
@@ -310,13 +332,15 @@ async def get_chat_total_invite_joins(client: Client, chat_id: int, me_peer) -> 
     except Exception:
         return 0
 
-async def is_my_sticker_in_recent_history(client: Client, chat_id: int, limit: int = 5) -> bool:
+async def is_my_sticker_in_recent_history(client: Client, chat_id: int, tenant_id: int, limit: int = 5) -> bool:
     try:
-        me_id = getattr(client, "me", None).id if getattr(client, "me", None) else None
+        my_unique_id = await ensure_sticker_unique_id(client, tenant_id)
         async for msg in client.get_chat_history(chat_id, limit=limit):
             if msg.sticker:
-                sender_id = msg.from_user.id if msg.from_user else None
-                if msg.outgoing or (me_id and sender_id == me_id):
+                stk_unique = msg.sticker.file_unique_id
+                if my_unique_id and stk_unique == my_unique_id:
+                    return True
+                elif not my_unique_id:
                     return True
     except Exception as e:
         logger.debug(f"Failed to check chat history for chat {chat_id}: {e}")
@@ -324,27 +348,21 @@ async def is_my_sticker_in_recent_history(client: Client, chat_id: int, limit: i
 
 async def send_sticker_if_needed(client: Client, chat_id: int, tenant_id: int) -> Optional[int]:
     try:
-        async with AsyncSessionLocal() as session:
-            stmt = select(TelegramAccount.sticker_enabled).where(TelegramAccount.id == tenant_id)
-            res = (await session.execute(stmt)).first()
-            sticker_enabled = res[0] if res else False
-            
-            if not sticker_enabled:
-                return None
+        fresh_sticker_id = await get_fresh_sticker_file_id(client, tenant_id)
+        if not fresh_sticker_id:
+            return None
 
-            # Dynamic Live Inspection: Check the last 5 messages in the Telegram channel history!
-            # If a sticker sent by this userbot is ALREADY present in the last 5 messages,
-            # skip sending a duplicate sticker!
-            if await is_my_sticker_in_recent_history(client, chat_id, limit=5):
-                logger.info(f"Skipping duplicate sticker for tenant {tenant_id} in chat {chat_id} - sticker found in recent 5 messages.")
-                return None
+        # Live Channel Inspection: Check the last 5 messages in the Telegram channel history.
+        # If the tenant's sticker is ALREADY present in the last 5 messages, skip sending a duplicate sticker.
+        # If it is NOT present in the last 5 messages, send the sticker before the ad text!
+        if await is_my_sticker_in_recent_history(client, chat_id, tenant_id, limit=5):
+            logger.info(f"Skipping duplicate sticker for tenant {tenant_id} in chat {chat_id} - sticker found in recent 5 messages.")
+            return None
 
-            fresh_sticker_id = await get_fresh_sticker_file_id(client, tenant_id)
-            if fresh_sticker_id:
-                logger.info(f"Sending custom sticker {fresh_sticker_id} to chat {chat_id} before ad text...")
-                msg = await client.send_sticker(chat_id=chat_id, sticker=fresh_sticker_id)
-                await asyncio.sleep(2.0)
-                return msg.id
+        logger.info(f"Sending custom sticker {fresh_sticker_id} to chat {chat_id} before ad text...")
+        msg = await client.send_sticker(chat_id=chat_id, sticker=fresh_sticker_id)
+        await asyncio.sleep(2.0)
+        return msg.id
     except Exception as e:
         logger.error(f"Failed to send pre-ad sticker for tenant {tenant_id} to chat {chat_id}: {e}")
     return None
