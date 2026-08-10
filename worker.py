@@ -1714,16 +1714,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                     async with AsyncSessionLocal() as clean_session:
                         await delete_active_ads_in_channel(clean_session, client, tenant_id, cid)
                         
-                    sticker_msg_id = None
-                    if acc and acc.sticker_enabled:
-                        fresh_sticker_id = await get_fresh_sticker_file_id(client, tenant_id)
-                        if fresh_sticker_id:
-                            try:
-                                sticker_msg = await client.send_sticker(chat_id=cid, sticker=fresh_sticker_id)
-                                sticker_msg_id = sticker_msg.id
-                                await asyncio.sleep(1.0)
-                            except Exception as se:
-                                logger.error(f"Failed to send sticker to chat {cid}: {se}")
+                    sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
                             
                     msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
                     async with AsyncSessionLocal() as db_session:
@@ -1775,13 +1766,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                     await log_tenant_event(tenant_id, f"⏳ وضع البطء نشط في [{ch.get('title')}]. جاري الانتظار `{sw.value}` ثانية لإعادة المحاولة...")
                     await asyncio.sleep(sw.value + 1)
                     try:
-                        sticker_msg_id = None
-                        if acc and acc.sticker_enabled:
-                            fresh_sticker_id = await get_fresh_sticker_file_id(client, tenant_id)
-                            if fresh_sticker_id:
-                                sticker_msg = await client.send_sticker(chat_id=cid, sticker=fresh_sticker_id)
-                                sticker_msg_id = sticker_msg.id
-                                await asyncio.sleep(1.0)
+                        sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
                         msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
                         async with AsyncSessionLocal() as db_session:
                             await add_ad_record(
@@ -2161,15 +2146,7 @@ async def run_bulk_campaign_logic(
                             async with AsyncSessionLocal() as clean_session:
                                 await delete_active_ads_in_channel(clean_session, client, tenant_id, cid)
                                 
-                            if acc and acc.sticker_enabled:
-                                fresh_sticker_id = await get_fresh_sticker_file_id(client, tenant_id)
-                                if fresh_sticker_id:
-                                    try:
-                                        sticker_msg = await client.send_sticker(chat_id=cid, sticker=fresh_sticker_id)
-                                        sticker_msg_id = sticker_msg.id
-                                        await asyncio.sleep(2.0)
-                                    except Exception as se:
-                                        logger.error(f"Failed to send sticker to chat {cid}: {se}")
+                            sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
                                     
                             msg = await client.send_message(chat_id=cid, text=ad_body, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
                             async with AsyncSessionLocal() as db_session:
@@ -2211,13 +2188,7 @@ async def run_bulk_campaign_logic(
                             if tenant_id not in tenant_semaphores:
                                 tenant_semaphores[tenant_id] = asyncio.Semaphore(1)
                             async with tenant_semaphores[tenant_id]:
-                                sticker_msg_id = None
-                                if acc and acc.sticker_enabled:
-                                    fresh_sticker_id = await get_fresh_sticker_file_id(client, tenant_id)
-                                    if fresh_sticker_id:
-                                        sticker_msg = await client.send_sticker(chat_id=cid, sticker=fresh_sticker_id)
-                                        sticker_msg_id = sticker_msg.id
-                                        await asyncio.sleep(2.0)
+                                sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
                                 msg = await client.send_message(chat_id=cid, text=ad_body, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
                                 async with AsyncSessionLocal() as db_session:
                                     await add_ad_record(
@@ -2246,13 +2217,7 @@ async def run_bulk_campaign_logic(
                             if tenant_id not in tenant_semaphores:
                                 tenant_semaphores[tenant_id] = asyncio.Semaphore(1)
                             async with tenant_semaphores[tenant_id]:
-                                sticker_msg_id = None
-                                if acc and acc.sticker_enabled:
-                                    fresh_sticker_id = await get_fresh_sticker_file_id(client, tenant_id)
-                                    if fresh_sticker_id:
-                                        sticker_msg = await client.send_sticker(chat_id=cid, sticker=fresh_sticker_id)
-                                        sticker_msg_id = sticker_msg.id
-                                        await asyncio.sleep(2.0)
+                                sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
                                 msg = await client.send_message(chat_id=cid, text=ad_body, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
                                 async with AsyncSessionLocal() as db_session:
                                     await add_ad_record(
