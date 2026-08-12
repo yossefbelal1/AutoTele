@@ -5156,7 +5156,16 @@ async def run_web_campaign_task(task_id: int):
 
         tenant_id = task.telegram_account_id
         client = running_clients.get(tenant_id)
-        if not client:
+        if not client or not client.is_connected:
+            try:
+                acc = (await session.execute(select(TelegramAccount).where(TelegramAccount.id == tenant_id))).scalar_one_or_none()
+                if acc:
+                    await start_tenant_worker(acc)
+                    client = running_clients.get(tenant_id)
+            except Exception as e:
+                logger.error(f"Failed to start_tenant_worker for tenant {tenant_id}: {e}")
+
+        if not client or not client.is_connected:
             logger.error(f"Cannot run web task {task_id}: Client for tenant {tenant_id} is not running.")
             task.status = "failed"
             session.add(task)
