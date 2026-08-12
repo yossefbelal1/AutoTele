@@ -898,7 +898,8 @@ async function fetchUserChannels(forceRefresh = false) {
   listEl.querySelectorAll(".channel-picker-item").forEach(el => el.remove());
 
   try {
-    const data = await apiRequest("/user/channels");
+    const endpoint = forceRefresh ? "/user/channels?refresh=true" : "/user/channels";
+    const data = await apiRequest(endpoint);
     _channelPickerData = data.channels || [];
     _channelPickerFetched = true;
 
