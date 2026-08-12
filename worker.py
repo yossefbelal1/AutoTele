@@ -4551,24 +4551,14 @@ async def run_clear_logic(tenant_id: int, client: Client, reply_to_message: Opti
         from db_manager import WebCampaignTask
         from sqlalchemy import update
         async with AsyncSessionLocal() as session:
-            # pending -> failed
-            await session.execute(
-                update(WebCampaignTask)
-                .where(
-                    WebCampaignTask.telegram_account_id == tenant_id,
-                    WebCampaignTask.status == "pending"
-                )
-                .values(status="failed")
-            )
-            # processing -> failed
-            await session.execute(
-                update(WebCampaignTask)
-                .where(
-                    WebCampaignTask.telegram_account_id == tenant_id,
-                    WebCampaignTask.status == "processing"
-                )
-                .values(status="failed")
-            )
+            # pending -> failed (exclude current web_task_id)
+            stmt_p = update(WebCampaignTask).where(WebCampaignTask.telegram_account_id == tenant_id, WebCampaignTask.status == "pending")
+            stmt_proc = update(WebCampaignTask).where(WebCampaignTask.telegram_account_id == tenant_id, WebCampaignTask.status == "processing")
+            if web_task_id:
+                stmt_p = stmt_p.where(WebCampaignTask.id != web_task_id)
+                stmt_proc = stmt_proc.where(WebCampaignTask.id != web_task_id)
+            await session.execute(stmt_p.values(status="failed"))
+            await session.execute(stmt_proc.values(status="failed"))
             # active -> completed (since manual clear is deleting them)
             await session.execute(
                 update(WebCampaignTask)
@@ -4762,24 +4752,14 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
         from db_manager import WebCampaignTask
         from sqlalchemy import update
         async with AsyncSessionLocal() as session:
-            # pending -> failed
-            await session.execute(
-                update(WebCampaignTask)
-                .where(
-                    WebCampaignTask.telegram_account_id == tenant_id,
-                    WebCampaignTask.status == "pending"
-                )
-                .values(status="failed")
-            )
-            # processing -> failed
-            await session.execute(
-                update(WebCampaignTask)
-                .where(
-                    WebCampaignTask.telegram_account_id == tenant_id,
-                    WebCampaignTask.status == "processing"
-                )
-                .values(status="failed")
-            )
+            # pending -> failed (exclude current web_task_id)
+            stmt_p = update(WebCampaignTask).where(WebCampaignTask.telegram_account_id == tenant_id, WebCampaignTask.status == "pending")
+            stmt_proc = update(WebCampaignTask).where(WebCampaignTask.telegram_account_id == tenant_id, WebCampaignTask.status == "processing")
+            if web_task_id:
+                stmt_p = stmt_p.where(WebCampaignTask.id != web_task_id)
+                stmt_proc = stmt_proc.where(WebCampaignTask.id != web_task_id)
+            await session.execute(stmt_p.values(status="failed"))
+            await session.execute(stmt_proc.values(status="failed"))
             # active -> completed (since manual clear is deleting them)
             await session.execute(
                 update(WebCampaignTask)
