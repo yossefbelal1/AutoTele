@@ -454,9 +454,10 @@ async function loadAdminUsers() {
         </div>
       `;
 
+      const userDisplayName = user.full_name ? `<strong style="color: #fff;">${escapeHtml(user.full_name)}</strong><br><small style="color: #708499; font-size: 11px;">${escapeHtml(user.email)}</small>` : escapeHtml(user.email);
       tr.innerHTML = `
         <td>${user.id}</td>
-        <td>${escapeHtml(user.email)}</td>
+        <td>${userDisplayName}</td>
         <td class="${roleClass}">${roleText}</td>
         <td>${planText}</td>
         <td class="${statusClass}">${statusText}</td>

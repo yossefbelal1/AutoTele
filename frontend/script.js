@@ -306,6 +306,8 @@ async function handleLogin(e) {
 async function handleSignup(e) {
   e.preventDefault();
   
+  const nameEl = document.getElementById("signup-name");
+  const full_name = nameEl ? nameEl.value.trim() : "";
   const email = document.getElementById("signup-email").value.trim();
   const password = document.getElementById("signup-password").value;
 
@@ -314,7 +316,7 @@ async function handleSignup(e) {
   try {
     const data = await apiRequest("/auth/signup", {
       method: "POST",
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ email, password, full_name })
     });
 
     if (data.status === "success") {
@@ -431,7 +433,19 @@ async function syncDashboardData() {
     checkStatusBotLinking(response);
     
     // 1. Update user metadata
-    document.getElementById("user-email-display").textContent = response.email || "user@domain.com";
+    const displayName = response.full_name || response.email || "user@domain.com";
+    document.getElementById("user-email-display").textContent = displayName;
+    const avatarEl = document.querySelector(".user-avatar");
+    if (avatarEl) {
+      const parts = displayName.trim().split(/\s+/);
+      let initials = "AD";
+      if (parts.length >= 2) {
+        initials = (parts[0][0] + parts[1][0]).toUpperCase();
+      } else if (parts.length === 1 && parts[0].length >= 2) {
+        initials = parts[0].substring(0, 2).toUpperCase();
+      }
+      avatarEl.textContent = initials;
+    }
     
     // Map plan to readable Arabic tag
     let planText = "باقة تجريبية";

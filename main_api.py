@@ -189,6 +189,7 @@ active_handshakes: Dict[str, Dict[str, Any]] = {}
 class UserAuth(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=6)
+    full_name: Optional[str] = None
 
 class Token(BaseModel):
     access_token: str
@@ -321,8 +322,11 @@ async def signup(user_data: UserAuth, request: Request):
         assigned_host = await get_least_used_proxy(session)
         
         trial_end = datetime.now(timezone.utc) + timedelta(days=2)
+        raw_name = (user_data.full_name or "").strip()
+        name = raw_name if raw_name else user_data.email.split('@')[0]
         new_user = User(
             email=user_data.email, 
+            full_name=name,
             password_hash=bcrypt.hashpw(user_data.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'),
             subscription_plan="trial",
             subscription_end=trial_end,
@@ -441,8 +445,10 @@ async def google_login(req: GoogleAuthReq, request: Request):
             assigned_host = await get_least_used_proxy(session)
             
             trial_end = datetime.now(timezone.utc) + timedelta(days=2)
+            google_name = (user_info.get("name") or user_info.get("given_name") or email.split('@')[0]).strip()
             user = User(
                 email=email,
+                full_name=google_name,
                 password_hash=password_hash,
                 subscription_plan="trial",
                 subscription_end=trial_end,
@@ -507,6 +513,7 @@ async def get_user_subscription(user_id: int = Depends(get_current_user)):
         
         return {
             "email": user.email,
+            "full_name": user.full_name or user.email.split('@')[0],
             "plan": user.subscription_plan,
             "status": sub_status,
             "start_date": user.subscription_start.strftime("%Y-%m-%d"),
