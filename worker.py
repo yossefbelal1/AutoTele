@@ -332,7 +332,7 @@ async def get_chat_total_invite_joins(client: Client, chat_id: int, me_peer) -> 
         total_joins = 0
         for inv in invites_list:
             if not getattr(inv, "revoked", False):
-                cnt = getattr(inv, "joined", 0) or 0
+                cnt = getattr(inv, "usage", 0) or 0
                 total_joins += cnt
         return total_joins
     except Exception:
@@ -2095,7 +2095,8 @@ async def run_bulk_campaign_logic(
     ad_lifespan: int, 
     status_msg: Optional[Message] = None,
     resume_index: int = 0,
-    folder_number: Optional[int] = None
+    folder_number: Optional[int] = None,
+    web_task_id: Optional[int] = None
 ):
     curr_task = asyncio.current_task()
     if tenant_id not in active_running_tasks:
@@ -2136,21 +2137,167 @@ async def run_bulk_campaign_logic(
                 await log_tenant_event(tenant_id, f"فشل حملة الفولدر: مجلد '{folder_label}' فارغ في الكاش.")
                 return
 
-        last_target_raw = await redis_client.get(f"tenant:{tenant_id}:last_processed_bulk_target")
-        if last_target_raw and resume_index == 0:
+        # Smart Sorting: Fetch invite link joins for all targets and sort ascending (lowest joins first)
+        if campaign_ids:
             try:
-                last_target = int(last_target_raw)
-                if last_target in campaign_ids:
-                    idx = campaign_ids.index(last_target)
-                    next_idx = (idx + 1) % len(campaign_ids)
-                    campaign_ids = campaign_ids[next_idx:] + campaign_ids[:next_idx]
-                    logger.info(f"[Bulk Campaign] Rotated target list for tenant {tenant_id}. Last target was {last_target}, starting with {campaign_ids[0]}")
-            except Exception as re:
-                logger.error(f"Failed to rotate bulk campaign targets for tenant {tenant_id}: {re}")
+                me_peer = await client.resolve_peer("me")
+            except Exception:
+                me_peer = None
             
+            if status_msg:
+                try:
+                    await safe_edit_message(status_msg, f"⏳ **جاري حساب إحصائيات روابط الدعوة وترتيب القنوات المستهدفة...**")
+                except Exception:
+                    pass
+            
+            target_scores = []
+            for cid in campaign_ids:
+                joins = await get_chat_total_invite_joins(client, cid, me_peer) if me_peer else 0
+                target_scores.append((joins, cid))
+                await asyncio.sleep(0.05)
+            
+            # Sort by joins ascending
+            target_scores.sort(key=lambda x: x[0])
+            campaign_ids = [cid for joins, cid in target_scores]
+            logger.info(f"Tenant {tenant_id}: Sorted {len(campaign_ids)} bulk targets by joins: {campaign_ids}")
+
         total_targets = len(campaign_ids)
-        if status_msg:
-            await safe_edit_message(status_msg, f"🎯 **بدء نشر حملة الفولدر المجمعة لـ {total_targets} قناة...**" if resume_index == 0 else f"🔄 **جاري استئناف نشر حملة الفولدر المجمعة (الهدف {resume_index + 1} من {total_targets})...**")
+        start_time = datetime.now(timezone.utc)
+        
+        # Pre-resolve all target titles and usernames once at start from cached channels to avoid PeerIdInvalid
+        from cache_manager import get_channels_cache
+        channels_cache = await get_channels_cache(tenant_id)
+        ch_map = {ch["id"]: ch for ch in channels_cache if isinstance(ch, dict)} if channels_cache else {}
+        
+        targets_info = []
+        for tid in campaign_ids:
+            if tid in ch_map:
+                title = ch_map[tid].get("title") or "قناة"
+                username = ch_map[tid].get("username")
+                link = ch_map[tid].get("invite_link")
+                if not link:
+                    tid_str = str(tid)
+                    if tid_str.startswith("-100"):
+                        link = f"https://t.me/{username}" if username else f"https://t.me/c/{tid_str[4:]}"
+                    else:
+                        link = f"https://t.me/{username}" if username else f"https://t.me/c/{tid_str[1:] if tid_str.startswith('-') else tid_str}"
+                targets_info.append({"id": tid, "title": title, "link": link})
+            else:
+                try:
+                    chat = await client.get_chat(tid)
+                    title = chat.title or "قناة"
+                    username = getattr(chat, "username", None)
+                    tid_str = str(tid)
+                    if tid_str.startswith("-100"):
+                        fallback = f"https://t.me/{username}" if username else f"https://t.me/c/{tid_str[4:]}"
+                    else:
+                        fallback = f"https://t.me/{username}" if username else f"https://t.me/c/{tid_str[1:] if tid_str.startswith('-') else tid_str}"
+                    link = await resolve_best_channel_link(client, tid, fallback)
+                    targets_info.append({"id": tid, "title": title, "link": link})
+                except Exception as e:
+                    logger.warning(f"Could not resolve target chat {tid}: {e}")
+                    targets_info.append({"id": tid, "title": f"قناة [{tid}]", "link": f"https://t.me/c/{str(tid)[4:] if str(tid).startswith('-100') else str(tid)}"})
+
+        target_states = {}  # tid -> str ("skipped", "success", "failed")
+
+        def format_time(dt: datetime) -> str:
+            # Egypt/Middle East timezone (UTC+3)
+            egypt_dt = dt + timedelta(hours=3)
+            return egypt_dt.strftime("%I:%M %p")
+
+        def generate_checklist_markdown(current_idx: int, target_posting_status: str, sleep_countdown: int) -> str:
+            lines = []
+            for j, info in enumerate(targets_info):
+                title = info["title"]
+                expected_start = start_time + timedelta(minutes=j * delay_between_channels)
+                expected_delete = expected_start + timedelta(minutes=ad_lifespan)
+                
+                start_str = format_time(expected_start)
+                delete_str = format_time(expected_delete) if ad_lifespan > 0 else "دائم"
+                
+                state = target_states.get(info["id"], None)
+                if state == "skipped":
+                    status_label = "⚠️ [تم التخطي]"
+                elif state == "failed":
+                    status_label = "❌ [فشل]"
+                elif j < current_idx:
+                    # Past target
+                    if ad_lifespan > 0 and datetime.now(timezone.utc) >= expected_delete:
+                        status_label = "🗑️ [تم المسح]"
+                    else:
+                        status_label = "✅ [تم النشر]"
+                elif j == current_idx:
+                    # Current target
+                    if target_posting_status == "posting":
+                        status_label = "🚀 [جاري النشر]"
+                    elif target_posting_status == "sleeping":
+                        status_label = "✅ [تم النشر]"
+                    else:
+                        status_label = "⏳ [انتظار]"
+                else:
+                    # Future target
+                    status_label = "⏳ [انتظار]"
+                
+                lines.append(f"{j+1}. {status_label} **{title}**\n   • البدء: `{start_str}` | الحذف: `{delete_str}`")
+            return "\n".join(lines)
+
+        async def update_status_message(current_idx: int, target_posting_status: str, sleep_countdown: int = 0, current_post_info: str = ""):
+            if not status_msg:
+                # If no status message but we have a web task, update status text on web UI still
+                if web_task_id:
+                    expected_end = start_time + timedelta(minutes=(total_targets - 1) * delay_between_channels + ad_lifespan)
+                    end_time_str = format_time(expected_end)
+                    checklist_str = generate_checklist_markdown(current_idx, target_posting_status, sleep_countdown)
+                    report = (
+                        f"⏳ **لوحة متابعة حملة المجلد المجمعة (.حملات)**\n"
+                        f"🏁 الوقت المتوقع لانتهاء الحملة: `{end_time_str}` (توقيت القاهرة)\n\n"
+                        f"{checklist_str}"
+                    )
+                    await update_task_progress_in_db(web_task_id, report)
+                return
+                
+            if target_posting_status == "completed":
+                general_status = "✅ **اكتملت الحملة بالكامل وتم المسح!**"
+                countdown_line = ""
+            elif target_posting_status == "sleeping":
+                general_status = "⏳ **جاري الانتظار بين الأهداف...**"
+                minutes = sleep_countdown // 60
+                seconds = sleep_countdown % 60
+                countdown_line = f"⏱️ **الوقت المتبقي للهدف التالي:** `{minutes:02d}:{seconds:02d}`\n"
+            elif target_posting_status == "waiting_final_clean":
+                general_status = "🧹 **جاري انتظار المسح التلقائي للهدف الأخير...**"
+                minutes = sleep_countdown // 60
+                seconds = sleep_countdown % 60
+                countdown_line = f"⏱️ **الوقت المتبقي لمسح الإعلانات الأخيرة:** `{minutes:02d}:{seconds:02d}`\n"
+            else:
+                general_status = "🚀 **جاري تشغيل النشر للحملة المجمعة...**"
+                countdown_line = ""
+                
+            expected_end = start_time + timedelta(minutes=(total_targets - 1) * delay_between_channels + ad_lifespan)
+            end_time_str = format_time(expected_end)
+            
+            checklist_str = generate_checklist_markdown(current_idx, target_posting_status, sleep_countdown)
+            
+            report = (
+                f"⏳ **لوحة متابعة حملة المجلد المجمعة (.حملات)**\n"
+                f"--------------------------------------------\n"
+                f"📊 **الحالة العامة:** {general_status}\n"
+                f"{countdown_line}"
+                f"🏁 **الوقت المتوقع لانتهاء الحملة بالكامل:** `{end_time_str}` (توقيت القاهرة)\n\n"
+                f"📋 **مخطط سير الحملة (Checklist):**\n"
+                f"{checklist_str}\n"
+            )
+            
+            if current_post_info:
+                report += f"\n📈 **تفاصيل النشر للهدف الحالي:**\n{current_post_info}"
+                
+            try:
+                await safe_edit_message(status_msg, report)
+            except Exception as e:
+                logger.error(f"Failed to update status message: {e}")
+                
+            if web_task_id:
+                await update_task_progress_in_db(web_task_id, report)
 
         status_msg_chat_id = status_msg.chat.id if status_msg else None
         status_msg_id = status_msg.id if status_msg else None
@@ -2167,6 +2314,7 @@ async def run_bulk_campaign_logic(
         }
         await save_active_campaign_state(tenant_id, state_data)
             
+        count = 0
         for index, target_id in enumerate(campaign_ids):
             if index < resume_index:
                 continue
@@ -2177,25 +2325,18 @@ async def run_bulk_campaign_logic(
                 await redis_client.set(f"tenant:{tenant_id}:last_processed_bulk_target", str(target_id))
             except Exception as se:
                 logger.error(f"Failed to save last processed target for tenant {tenant_id}: {se}")
+            
             try:
                 is_admin = await check_admin_rights_dynamic(client, target_id, tenant_id, require_posting_rights=False)
                 if not is_admin:
                     await log_tenant_event(tenant_id, f"⚠️ تم تخطي الترويج للقناة ذات المعرف [{target_id}] في حملة المجلد لأنك لست مشرفاً (Admin) فيها.")
+                    target_states[target_id] = "skipped"
+                    await update_status_message(index, "posting")
                     continue
-                chat = await client.get_chat(target_id)
                 
-
-                    
-                username = getattr(chat, "username", None)
-                target_id_str = str(target_id)
-                if target_id_str.startswith("-100"):
-                    fallback_link = f"https://t.me/{username}" if username else f"https://t.me/c/{target_id_str[4:]}"
-                else:
-                    fallback_link = f"https://t.me/{username}" if username else f"https://t.me/c/{target_id_str[1:] if target_id_str.startswith('-') else target_id_str}"
-                target_link = await resolve_best_channel_link(client, target_id, fallback_link)
-                target_title = chat.title or "القناة"
-                
-                # ad_body will be generated dynamically per host channel to randomize templates
+                info = targets_info[index]
+                target_title = info["title"]
+                target_link = info["link"]
                 
                 channels = await get_channels_cache(tenant_id)
                 if not channels:
@@ -2215,11 +2356,9 @@ async def run_bulk_campaign_logic(
                 random.shuffle(eligible_ch)
                 total_ch = len(eligible_ch)
                 
-                count = 0
                 for ch_idx, ch in enumerate(eligible_ch, 1):
                     cid = ch["id"]
                     try:
-
                         async with AsyncSessionLocal() as db_session:
                             acc = (await db_session.execute(
                                 select(TelegramAccount).where(TelegramAccount.id == tenant_id)
@@ -2230,18 +2369,14 @@ async def run_bulk_campaign_logic(
                             else:
                                 ad_body = format_user_template(ad_text_custom, target_title, target_link)
                         
-                        # No dynamic proxy modifications on the shared client instance
-                            
                         sticker_msg_id = None
                         if tenant_id not in tenant_semaphores:
                             tenant_semaphores[tenant_id] = asyncio.Semaphore(1)
                         async with tenant_semaphores[tenant_id]:
-                            # Pre-publish safety cleanup
                             async with AsyncSessionLocal() as clean_session:
                                 await delete_active_ads_in_channel(clean_session, client, tenant_id, cid)
                                 
                             sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
-                                    
                             msg = await client.send_message(chat_id=cid, text=ad_body, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
                             async with AsyncSessionLocal() as db_session:
                                 await add_ad_record(
@@ -2258,19 +2393,12 @@ async def run_bulk_campaign_logic(
                         await log_tenant_event(tenant_id, f"تم نشر إعلان المجلد المجمع في قناة: {ch.get('title')} (المستهدف: {target_title})")
                         decrease_or_reset_tenant_backoff(tenant_id)
                         
-                        if status_msg:
-                            total_account_channels = len(channels)
-                            excluded_channels_count = len(exclude_ids & {ch["id"] for ch in channels})
-                            await safe_edit_message(
-                                status_msg,
-                                f"⏳ **جاري تشغيل حملة المجلد المجمعة (.حملات):**\n\n"
-                                f"• القناة المستهدفة الحالية (`{index+1}` من `{total_targets}`): **{target_title}**\n"
-                                f"• إجمالي قنوات الحساب: `{total_account_channels}` قناة.\n"
-                                f"• قنوات مستبعدة (حظر/استثناء/أهداف): `{excluded_channels_count}` قناة.\n"
-                                f"• قنوات النشر المتاحة: `{total_ch}` قناة.\n"
-                                f"• نشر الإعلان في: `{ch_idx}` من `{total_ch}` قناة مروجة.\n"
-                                f"• مدة الاعلان: `{ad_lifespan}` دقيقة."
-                            )
+                        current_post_info = (
+                            f"• إجمالي القنوات المتاحة: `{total_ch}` قناة\n"
+                            f"• تم النشر في: `{ch_idx}` من `{total_ch}` قناة مروجة\n"
+                            f"• القناة المستهدفة الحالية: **{target_title}**"
+                        )
+                        await update_status_message(index, "posting", current_post_info=current_post_info)
                         
                         sleep_time = max(get_safe_min_delay(tenant_id), get_adaptive_delay(tenant_id))
                         await asyncio.sleep(sleep_time)
@@ -2296,11 +2424,17 @@ async def run_bulk_campaign_logic(
                                         sticker_msg_id=sticker_msg_id
                                     )
                             count += 1
-                            await log_tenant_event(tenant_id, f"تم نشر إعلان المجلد المجمع في قناة: {ch.get('title')} (بعد فك القيود)")
+                            await log_tenant_event(tenant_id, f"تم نشر إعلان المجلد المجمع في قناة: {ch.get('title')} (بعد فك وضع البطء)")
                             decrease_or_reset_tenant_backoff(tenant_id)
-                        except Exception as e:
-                            await log_tenant_event(tenant_id, f"❌ فشل النشر في قناة [{ch.get('title')}] بعد فك القيود: {e}")
-                            await handle_posting_error_and_clean_cache(tenant_id, cid, e)
+                            current_post_info = (
+                                f"• إجمالي القنوات المتاحة: `{total_ch}` قناة\n"
+                                f"• تم النشر في: `{ch_idx}` من `{total_ch}` قناة مروجة\n"
+                                f"• القناة المستهدفة الحالية: **{target_title}**"
+                            )
+                            await update_status_message(index, "posting", current_post_info=current_post_info)
+                        except Exception as err:
+                            await log_tenant_event(tenant_id, f"❌ فشل النشر في قناة [{ch.get('title')}] بعد فك وضع البطء: {err}")
+                            await handle_posting_error_and_clean_cache(tenant_id, cid, err)
                         sleep_time = max(get_safe_min_delay(tenant_id), get_adaptive_delay(tenant_id))
                         await asyncio.sleep(sleep_time)
                     except SlowmodeWait as sw:
@@ -2327,17 +2461,12 @@ async def run_bulk_campaign_logic(
                             count += 1
                             await log_tenant_event(tenant_id, f"تم نشر إعلان المجلد المجمع في قناة: {ch.get('title')} (بعد فك وضع البطء)")
                             decrease_or_reset_tenant_backoff(tenant_id)
-                            if status_msg:
-                                await safe_edit_message(
-                                    status_msg,
-                                    f"⏳ **جاري تشغيل حملة المجلد المجمعة (.حملات):**\n\n"
-                                    f"• القناة المستهدفة الحالية (`{index+1}` من `{total_targets}`): **{target_title}**\n"
-                                    f"• إجمالي قنوات الحساب: `{total_account_channels}` قناة.\n"
-                                    f"• قنوات مستبعدة (حظر/استثناء/أهداف): `{excluded_channels_count}` قناة.\n"
-                                    f"• قنوات النشر المتاحة: `{total_ch}` قناة.\n"
-                                    f"• نشر الإعلان في: `{ch_idx}` من `{total_ch}` قناة مروجة.\n"
-                                    f"• مدة الاعلان: `{ad_lifespan}` دقيقة."
-                                )
+                            current_post_info = (
+                                f"• إجمالي القنوات المتاحة: `{total_ch}` قناة\n"
+                                f"• تم النشر في: `{ch_idx}` من `{total_ch}` قناة مروجة\n"
+                                f"• القناة المستهدفة الحالية: **{target_title}**"
+                            )
+                            await update_status_message(index, "posting", current_post_info=current_post_info)
                         except Exception as err:
                             await log_tenant_event(tenant_id, f"❌ فشل النشر في قناة [{ch.get('title')}] بعد فك وضع البطء: {err}")
                             await handle_posting_error_and_clean_cache(tenant_id, cid, err)
@@ -2355,45 +2484,61 @@ async def run_bulk_campaign_logic(
                         await handle_posting_error_and_clean_cache(tenant_id, cid, e)
                         await asyncio.sleep(max(get_safe_min_delay(tenant_id), get_adaptive_delay(tenant_id)))
                 
+                target_states[target_id] = "success"
             except Exception as e:
                 logger.error(f"Failed to process campaign target {target_id}: {e}")
+                target_states[target_id] = "failed"
             
             if delay_between_channels > 0 and index < total_targets - 1:
                 await log_tenant_event(tenant_id, f"انتهى الهدف [{target_title}]. سيبدأ الهدف التالي بعد {delay_between_channels} دقيقة...")
-                if status_msg:
-                    await safe_edit_message(
-                        status_msg,
-                        f"⏳ **جاري الانتظار بين الأهداف (.حملات):**\n\n"
-                        f"• اكتمل الهدف `{index+1}` من `{total_targets}`: **{target_title}**\n"
-                        f"• سيبدأ الهدف التالي بعد `{delay_between_channels}` دقيقة.\n"
-                        f"• مدة الاعلان: `{ad_lifespan}` دقيقة."
-                    )
-                # Update status index to index + 1 before sleeping, so if we restart during the sleep, we resume at the NEXT target!
                 state_data["current_target_index"] = index + 1
                 await save_active_campaign_state(tenant_id, state_data)
-                await asyncio.sleep(delay_between_channels * 60)
                 
-        if status_msg:
-            if ad_lifespan > 0:
-                report = (
-                    f"📌 **تم نشر حملة المجلد المجمعة**\n"
-                    f"✅ تم الانتهاء من النشر بالكامل.\n"
-                    f"⏳ سيتم حذف الإعلانات تلقائياً بعد `{ad_lifespan}` دقيقة.\n"
-                    f"✅ ستتحول المهمة إلى (مكتمل) بعد الحذف الفعلي."
-                )
-            else:
-                report = f"📣 **إشعار اكتمال حملة الفولدر المجمعة (دائم):**\n✅ تم الانتهاء من معالجة ونشر الحملة بالكامل."
+                sleep_time_seconds = delay_between_channels * 60
+                while sleep_time_seconds > 0:
+                    await update_status_message(index, "sleeping", sleep_countdown=sleep_time_seconds)
+                    step = min(15, sleep_time_seconds)
+                    await asyncio.sleep(step)
+                    sleep_time_seconds -= step
+
+        if ad_lifespan > 0 and count > 0:
+            await log_tenant_event(tenant_id, f"اكتمل نشر جميع الأهداف. جاري انتظار مسح إعلانات الهدف الأخير ({ad_lifespan} دقيقة)...")
+            clean_time_seconds = ad_lifespan * 60
+            while clean_time_seconds > 0:
+                await update_status_message(total_targets - 1, "waiting_final_clean", sleep_countdown=clean_time_seconds)
+                step = min(15, clean_time_seconds)
+                await asyncio.sleep(step)
+                clean_time_seconds -= step
+
+        await update_status_message(total_targets - 1, "completed")
+        
+        # Mark web task as completed in database
+        if web_task_id:
             try:
-                await safe_edit_message(status_msg, report)
-            except Exception:
-                pass
+                async with AsyncSessionLocal() as session:
+                    from datetime import datetime as _dt
+                    done_time = _dt.now(timezone.utc).strftime("%H:%M")
+                    completion_text = (
+                        f"✅ **اكتملت حملة المجلد المجمعة بالكامل**\n"
+                        f"📌 تم النشر ثم الحذف التلقائي للإعلانات بنجاح.\n"
+                        f"🕐 وقت الانتهاء: {done_time}"
+                    )
+                    await session.execute(
+                        update(WebCampaignTask)
+                        .where(WebCampaignTask.id == web_task_id)
+                        .values(status="completed", result_summary=completion_text)
+                    )
+                    await session.commit()
+            except Exception as e:
+                logger.error(f"Failed to mark web task as completed in db: {e}")
+        
         if count == 0:
             raise Exception("تعذر النشر في أي قناة بنجاح.")
         await log_tenant_event(tenant_id, f"تم نشر حملة المجلد المجمعة! تم نشر {count} إعلان في القنوات المروجة.")
         try:
             from status_bot import notify_user_by_tenant_id
             if ad_lifespan > 0:
-                await notify_user_by_tenant_id(tenant_id, f"📌 **تم نشر حملة المجلد المجمعة!**\n\n⏳ سيتم حذف الإعلانات بعد `{ad_lifespan}` دقيقة.")
+                await notify_user_by_tenant_id(tenant_id, f"📌 **تم نشر حملة المجلد المجمعة بالكامل!**\n\n🗑️ تم مسح كافة الإعلانات تلقائياً بنجاح.")
             else:
                 await notify_user_by_tenant_id(tenant_id, f"✅ **اكتملت حملة المجلد المجمعة بنجاح!**\n\n📌 تم النشر بنجاح لجميع الأهداف المحددة في مجلد 'حملات'.")
         except Exception as nfe:
@@ -2404,6 +2549,17 @@ async def run_bulk_campaign_logic(
         logger.error(f"Error in execute_bulk_campaign logic: {e}")
         if status_msg:
             await safe_edit_message(status_msg, f"❌ **فشل تنفيذ حملة المجلد بسبب خطأ داخلي: {e}**")
+        if web_task_id:
+            try:
+                async with AsyncSessionLocal() as session:
+                    await session.execute(
+                        update(WebCampaignTask)
+                        .where(WebCampaignTask.id == web_task_id)
+                        .values(status="failed", result_summary=f"❌ فشلت حملة المجلد: {e}")
+                    )
+                    await session.commit()
+            except Exception:
+                pass
         await log_tenant_event(tenant_id, f"فشلت حملة المجلد المجمعة بسبب خطأ: {str(e)}")
         raise e
 
@@ -2890,7 +3046,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         status_msg = None
         if not campaign_ids:
             if await is_crawl_in_progress(tenant_id):
-                await message.reply_text("⏳ **جاري تحديث كاش قنواتك ومجلداتك حالياً... يرجى الانتظار لحين اكتمال التحديث وتلقي إشعار النج.**")
+                await message.reply_text("⏳ **جاري تحديث كاش قنواتك ومجلداتك حالياً... يرجى الانتظار لحين اكتمال التحديث وتلقي إشعار النجاح.**")
                 return
             status_msg = await message.reply_text("⏳ **كاش المجلد فارغ. جاري تحديث ومزامنة القنوات تلقائياً (التشافي الذاتي)...**")
             await crawl_and_cache_tenant_channels(tenant_id, client, status_msg)
@@ -2906,11 +3062,27 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         ad_text_custom = "\n".join(ad_text_lines).strip()
         
         if delay_start == 0:
+            # Create active task in database so it shows up on website
+            async with AsyncSessionLocal() as db_session:
+                new_task = WebCampaignTask(
+                    telegram_account_id=tenant_id,
+                    campaign_type="bulk",
+                    delay_start=0,
+                    delay_between_channels=delay_between_channels,
+                    ad_lifespan=ad_lifespan,
+                    custom_text=ad_text_custom,
+                    status="active",
+                    result_summary="🚀 جاري بدء حملة المجلد المجمعة..."
+                )
+                db_session.add(new_task)
+                await db_session.commit()
+                web_task_id = new_task.id
+
             if status_msg:
                 await edit_or_reply(status_msg, f"🚀 **جاري بدء حملة المجلد المجمعة فوراً...**")
             else:
                 status_msg = await message.reply_text(f"🚀 **جاري بدء حملة المجلد المجمعة فوراً...**")
-            create_safe_task(run_bulk_campaign_logic(tenant_id, client, ad_text_custom, delay_between_channels, ad_lifespan, status_msg))
+            create_safe_task(run_bulk_campaign_logic(tenant_id, client, ad_text_custom, delay_between_channels, ad_lifespan, status_msg, web_task_id=web_task_id))
         else:
             async with AsyncSessionLocal() as db_session:
                 new_task = WebCampaignTask(
@@ -2924,46 +3096,45 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 )
                 db_session.add(new_task)
                 await db_session.commit()
-                task_id = new_task.id
-            
-            rep_text = (
-                f"⏳ **تم جدولة حملة الفولدر المجمعة (معرف: db-{task_id}):**\n"
-                f"• ستبدأ بعد `{delay_start}` دقيقة.\n"
-                f"• فاصل الوقت الزمني بين الحملات: `{delay_between_channels}` دقيقة\n"
-                f"• مدة الاعلان: `{ad_lifespan}` دقيقة"
-            )
-            if status_msg:
-                await edit_or_reply(status_msg, rep_text)
-            else:
-                await message.reply_text(rep_text)
+                await log_tenant_event(tenant_id, f"📅 تم جدولة حملة مجلد مجمعة لتبدأ بعد {delay_start} دقيقة.")
+                if status_msg:
+                    await edit_or_reply(status_msg, f"📅 **تم جدولة حملة المجلد المجمعة بنجاح!**\n\n• ستنطلق الحملة تلقائياً بعد `{delay_start}` دقيقة.")
+                else:
+                    await message.reply_text(f"📅 **تم جدولة حملة المجلد المجمعة بنجاح!**\n\n• ستنطلق الحملة تلقائياً بعد `{delay_start}` دقيقة.")
 
     async def handle_حملات_مجلد(message: Message, text: str, parts: List[str]):
-        clean_parts = [_re.sub(r'[\u200e\u200f\u202a-\u202e\ufeff]', '', p).strip() for p in parts if p.strip()]
         folder_num = 1
-        numbers = [int(x) for x in clean_parts if x.isdigit()]
-        
-        cmd_first = clean_parts[0].replace('.', '').replace('/', '').replace('\\', '').strip()
-        match_cmd_num = _re.search(r'\d+', cmd_first)
-        if match_cmd_num:
-            folder_num = int(match_cmd_num.group(0))
-        elif numbers:
-            folder_num = numbers[0]
-            numbers = numbers[1:]
-            
+        numbers = []
+        for p in parts:
+            if p.isdigit():
+                numbers.append(int(p))
+            else:
+                match = _re.search(r'(?:my_?channels|mychannels|قنواتي)[\s_-]*(\d+)', p.lower())
+                if match:
+                    folder_num = int(match.group(1))
+
         delay_start = 0
         delay_between_channels = 15
         ad_lifespan = 10
-        
-        if len(numbers) >= 3:
-            delay_start = numbers[0]
-            delay_between_channels = numbers[1]
-            ad_lifespan = numbers[2]
+
+        if len(numbers) >= 4:
+            folder_num = numbers[0]
+            delay_start = numbers[1]
+            delay_between_channels = numbers[2]
+            ad_lifespan = numbers[3]
+        elif len(numbers) == 3:
+            folder_num = numbers[0]
+            delay_start = numbers[1]
+            delay_between_channels = numbers[2]
         elif len(numbers) == 2:
-            delay_between_channels = numbers[0]
-            ad_lifespan = numbers[1]
+            folder_num = numbers[0]
+            delay_start = numbers[1]
         elif len(numbers) == 1:
-            ad_lifespan = numbers[0]
-            
+            if parts[0].isdigit():
+                folder_num = numbers[0]
+            else:
+                delay_start = numbers[0]
+
         from cache_manager import redis_client
         raw_campaign = await redis_client.get(f"tenant:{tenant_id}:my_channels:{folder_num}")
         campaign_ids = json.loads(raw_campaign) if raw_campaign else []
@@ -2971,7 +3142,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         status_msg = None
         if not campaign_ids:
             if await is_crawl_in_progress(tenant_id):
-                await message.reply_text("⏳ **جاري تحديث كاش قنواتك ومجلداتك حالياً... يرجى الانتظار لحين اكتمال التحديث وتلقي إشعار النجاح.**")
+                await message.reply_text(f"⏳ **جاري تحديث كاش قنواتك ومجلداتك حالياً... يرجى الانتظار.**")
                 return
             status_msg = await message.reply_text(f"⏳ **كاش المجلد 'My_channels{folder_num}' فارغ. جاري تحديث ومزامنة القنوات تلقائياً (التشافي الذاتي)...**")
             await crawl_and_cache_tenant_channels(tenant_id, client, status_msg)
@@ -2987,11 +3158,28 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         ad_text_custom = "\n".join(ad_text_lines).strip()
         
         if delay_start == 0:
+            # Create active task in database so it shows up on website
+            async with AsyncSessionLocal() as db_session:
+                new_task = WebCampaignTask(
+                    telegram_account_id=tenant_id,
+                    campaign_type="custom_folder",
+                    target_link=str(folder_num),
+                    delay_start=0,
+                    delay_between_channels=delay_between_channels,
+                    ad_lifespan=ad_lifespan,
+                    custom_text=ad_text_custom,
+                    status="active",
+                    result_summary=f"🚀 جاري بدء حملة المجلد (My_channels{folder_num})..."
+                )
+                db_session.add(new_task)
+                await db_session.commit()
+                web_task_id = new_task.id
+
             if status_msg:
                 await edit_or_reply(status_msg, f"🚀 **جاري بدء حملة المجلد (My_channels{folder_num}) فوراً...**")
             else:
                 status_msg = await message.reply_text(f"🚀 **جاري بدء حملة المجلد (My_channels{folder_num}) فوراً...**")
-            create_safe_task(run_bulk_campaign_logic(tenant_id, client, ad_text_custom, delay_between_channels, ad_lifespan, status_msg, folder_number=folder_num))
+            create_safe_task(run_bulk_campaign_logic(tenant_id, client, ad_text_custom, delay_between_channels, ad_lifespan, status_msg, folder_number=folder_num, web_task_id=web_task_id))
         else:
             async with AsyncSessionLocal() as db_session:
                 new_task = WebCampaignTask(
@@ -3006,219 +3194,11 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 )
                 db_session.add(new_task)
                 await db_session.commit()
-                task_id = new_task.id
-            
-            rep_text = (
-                f"⏳ **تم جدولة حملة المجلد (My_channels{folder_num}) (معرف: db-{task_id}):**\n"
-                f"• ستبدأ بعد `{delay_start}` دقيقة.\n"
-                f"• فاصل الوقت الزمني بين الحملات: `{delay_between_channels}` دقيقة\n"
-                f"• مدة الاعلان: `{ad_lifespan}` دقيقة"
-            )
-            if status_msg:
-                await edit_or_reply(status_msg, rep_text)
-            else:
-                await message.reply_text(rep_text)
-
-    async def handle_بنج(message: Message):
-        import pytz
-        try:
-            async with AsyncSessionLocal() as session:
-                from db_manager import ActiveAd
-                from sqlalchemy import func
-                stmt_active = select(func.count(ActiveAd.id)).where(ActiveAd.telegram_account_id == tenant_id)
-                active_ads_count = (await session.execute(stmt_active)).scalar() or 0
-                
-                state_val = await get_setting(session, tenant_id, "bot_system_state")
-                state_val = state_val if state_val else "stopped"
-                
-                tz_setting = await get_setting(session, tenant_id, "timezone")
-                tz_name = tz_setting if tz_setting else "Africa/Cairo"
-                tz = pytz.timezone(tz_name)
-                now_tz = datetime.now(tz)
-                midnight_tz = now_tz.replace(hour=0, minute=0, second=0, microsecond=0)
-                midnight_utc = midnight_tz.astimezone(timezone.utc)
-                
-                from db_manager import PublishLog
-                stmt_pushed = select(func.count(PublishLog.id)).where(
-                    PublishLog.telegram_account_id == tenant_id,
-                    PublishLog.created_at >= midnight_utc
-                )
-                pushed_today = (await session.execute(stmt_pushed)).scalar() or 0
-                
-                stmt_wiped = select(func.count(PublishLog.id)).where(
-                    PublishLog.telegram_account_id == tenant_id,
-                    PublishLog.status == "deleted",
-                    PublishLog.created_at >= midnight_utc
-                )
-                wiped_today = (await session.execute(stmt_wiped)).scalar() or 0
-                
-            from cache_manager import redis_client
-            raw_banned = await redis_client.get(f"tenant:{tenant_id}:banned")
-            raw_no_post = await redis_client.get(f"tenant:{tenant_id}:no_post")
-            raw_campaign = await redis_client.get(f"tenant:{tenant_id}:campaign")
-            raw_only_post = await redis_client.get(f"tenant:{tenant_id}:only_post")
-            raw_channels = await redis_client.get(f"tenant:{tenant_id}:channels")
-            
-            banned_count = len(json.loads(raw_banned)) if raw_banned else 0
-            no_post_count = len(json.loads(raw_no_post)) if raw_no_post else 0
-            campaign_count = len(json.loads(raw_campaign)) if raw_campaign else 0
-            only_post_count = len(json.loads(raw_only_post)) if raw_only_post else 0
-            channels_count = len(json.loads(raw_channels)) if raw_channels else 0
-            
-            status_emoji = "✅ يعمل بنشاط" if state_val == "active" else "⏸️ موقوف مؤقتاً"
-            
-            status_text = (
-                f"🏓 **حالة تشغيل البوت والنشاط اليومي:**\n\n"
-                f"• حالة النظام: {status_emoji}\n"
-                f"• الإعلانات النشطة حالياً بالقنوات: `{active_ads_count}` إعلان\n"
-                f"• إجمالي ما تم نشره اليوم: `{pushed_today}` إعلان\n"
-                f"• إجمالي ما تم مسحه اليوم: `{wiped_today}` إعلان\n"
-                f"• القنوات المشتركة (كاش): `{channels_count}` قناة\n\n"
-                f"📁 **مجلدات تليجرام المكتشفة:**\n"
-                f"• مجلد الاستثناءات (`No_Post`): `{no_post_count}` شات\n"
-                f"• مجلد الحظر البوت (`BANNED`): `{banned_count}` شات\n"
-                f"• مجلد أهداف الحملة (`CAMPAIGN`): `{campaign_count}` شات\n"
-                f"• مجلد إعلان فقط (`Only_Post`): `{only_post_count}` شات\n\n"
-                f"🕒 التوقيت المحلي للحساب: `{now_tz.strftime('%I:%M %p')}`\n"
-                f"💡 تتصفر الإحصائيات تلقائياً كل يوم الساعة 12:00 منتصف الليل."
-            )
-            await message.reply_text(status_text)
-        except Exception as e:
-            logger.error(f"Error in ping handler: {e}")
-            await message.reply_text(f"❌ **فشل عرض حالة النظام: {e}**")
-
-    async def handle_المهام(message: Message):
-        try:
-            jobs = scheduled_jobs.get(tenant_id, [])
-            
-            async with AsyncSessionLocal() as session:
-                db_wave = await get_setting(session, tenant_id, "wave_interval")
-                wave_interval = int(db_wave) if db_wave else 420
-                state_val = await get_setting(session, tenant_id, "bot_system_state")
-                state_val = state_val if state_val else "stopped"
-                
-                # Fetch pending/processing web tasks
-                from db_manager import WebCampaignTask
-                stmt = select(WebCampaignTask).where(
-                    WebCampaignTask.telegram_account_id == tenant_id,
-                    WebCampaignTask.status.in_(["pending", "processing"])
-                )
-                web_tasks = (await session.execute(stmt)).scalars().all()
-                
-            report_lines = []
-            
-            if state_val == "active" and tenant_id in last_wave_time:
-                next_wave = last_wave_time[tenant_id] + timedelta(seconds=wave_interval)
-                rem_seconds = (next_wave - datetime.now(timezone.utc)).total_seconds()
-                if rem_seconds > 0:
-                    report_lines.append(f"🔄 **موجة التبادل التلقائي القادمة:** بعد `{int(rem_seconds // 60)}` دقيقة و `{int(rem_seconds % 60)}` ثانية.")
+                await log_tenant_event(tenant_id, f"📅 تم جدولة حملة المجلد (My_channels{folder_num}) لتبدأ بعد {delay_start} دقيقة.")
+                if status_msg:
+                    await edit_or_reply(status_msg, f"📅 **تم جدولة حملة المجلد (My_channels{folder_num}) بنجاح!**\n\n• ستنطلق الحملة تلقائياً بعد `{delay_start}` دقيقة.")
                 else:
-                    report_lines.append(f"🔄 **موجة التبادل التلقائي القادمة:** جاري إطلاقها الآن...")
-            elif state_val == "stopped":
-                report_lines.append(f"🔄 **التبادل التلقائي:** متوقف مؤقتاً بـ `.بريك`")
-            else:
-                report_lines.append(f"🔄 **التبادل التلقائي:** لم تبدأ الموجة الأولى بعد (اكتب `.يلا`).")
-                
-            all_reported_jobs = []
-            
-            # 1. Add Telegram-scheduled memory jobs
-            for j in jobs:
-                rem_mins = (j["start_time"] - datetime.now(timezone.utc)).total_seconds() / 60
-                all_reported_jobs.append({
-                    "id": f"tg-{j['id']}",
-                    "type": j['type'],
-                    "rem_mins": rem_mins,
-                    "details": j['details']
-                })
-                
-            # 2. Add Web-scheduled database jobs
-            campaign_type_names = {
-                "wave": "تبادل عشوائي",
-                "single": "حملة فردية",
-                "bulk": "حملة مجلد مجمع",
-                "timed_post": "نشر مؤقت",
-                "clear": "مسح سريع وتنظيف",
-                "deep_clear": "مسح عميق وتطهير",
-                "update": "تحديث المحرك",
-                "clear_logs": "مسح سجل الأحداث",
-                "activate_exchange": "تفعيل التبادل التلقائي"
-            }
-            for wt in web_tasks:
-                created_at = wt.created_at
-                if created_at.tzinfo is None:
-                    created_at = created_at.replace(tzinfo=timezone.utc)
-                scheduled_time = created_at + timedelta(minutes=wt.delay_start)
-                rem_seconds = (scheduled_time - datetime.now(timezone.utc)).total_seconds()
-                rem_mins = rem_seconds / 60
-                
-                type_name = campaign_type_names.get(wt.campaign_type, wt.campaign_type)
-                details = f"قناة الهدف: {wt.target_link}" if wt.target_link else ""
-                
-                if rem_seconds > 0:
-                    status_desc = f"مجدولة تبدأ بعد {int(rem_mins)} دقيقة"
-                else:
-                    status_desc = "جاري التنفيذ..."
-                    rem_mins = 0
-                    
-                all_reported_jobs.append({
-                    "id": f"db-{wt.id}",
-                    "type": type_name,
-                    "rem_mins": rem_mins,
-                    "details": f"{status_desc} {details}".strip()
-                })
-                
-            if all_reported_jobs:
-                report_lines.append("\n📅 **المهام المجدولة النشطة:**")
-                for j in all_reported_jobs:
-                    report_lines.append(
-                        f"• معرف المهمة: `{j['id']}`\n"
-                        f"  نوع المهمة: `{j['type']}`\n"
-                        f"  الوقت المتبقي: `{int(j['rem_mins'])}` دقيقة\n"
-                        f"  التفاصيل: {j['details']}"
-                    )
-            else:
-                report_lines.append("\n📅 لا توجد حملات أو مهام مؤجلة مجدولة حالياً.")
-                
-            await message.reply_text("\n".join(report_lines))
-        except Exception as e:
-            logger.error(f"Error in tasks report: {e}")
-            await message.reply_text(f"❌ **فشل عرض جدول المهام: {e}**")
-
-    async def handle_ادمن(message: Message):
-        try:
-            channels = await get_channels_cache(tenant_id)
-            status_msg = None
-            if not channels:
-                if await is_crawl_in_progress(tenant_id):
-                    await message.reply_text("⏳ **جاري تحديث كاش قنواتك ومجلداتك حالياً لأول مرة... يرجى الانتظار لحين اكتمال التحديث وتلقي إشعار النجاح.**")
-                    return
-                status_msg = await message.reply_text("⏳ **لا توجد قنوات مؤرشفة بالكاش حالياً. جاري سحب وتحديث القنوات تلقائياً (التشافي الذاتي)...**")
-                await crawl_and_cache_tenant_channels(tenant_id, client, status_msg)
-                channels = await get_channels_cache(tenant_id)
-                if not channels:
-                    await edit_or_reply(status_msg, "❌ **فشل عرض دليل القنوات: تعذر سحب القنوات تلقائياً. تأكد من إعدادات حسابك.**")
-                    return
-                try:
-                    await status_msg.delete()
-                except Exception:
-                    pass
-                
-            report = ["👑 **دليل القنوات والجروبات التي تديرها بحسابك:**\n"]
-            for idx, ch in enumerate(channels, 1):
-                link_text = f"[رابط الدخول]({ch['invite_link']})" if ch.get('invite_link') else f"لا يوجد رابط (معرف الحساب: `{ch['id']}`)"
-                status_role = "مالك 👑" if ch.get("is_creator", False) else ("مشرف 🛠️" if ch.get("is_admin", False) else "عضو 📝")
-                report.append(
-                    f"{idx}. **{ch['title']}**\n"
-                    f"   • الحالة: `{status_role}`\n"
-                    f"   • صلاحية النشر: {'نعم ✅' if ch.get('can_send', True) else 'لا ❌ (معطلة)'}\n"
-                    f"   • الأعضاء: `{ch.get('members_count', 0):,}`\n"
-                    f"   • الرابط: {link_text}\n"
-                )
-                
-            await reply_long_message(message, report)
-        except Exception as e:
-            logger.error(f"Error in admin channels map: {e}")
-            await message.reply_text(f"❌ **فشل عرض دليل القنوات: {e}**")
+                    await message.reply_text(f"📅 **تم جدولة حملة المجلد (My_channels{folder_num}) بنجاح!**\n\n• ستنطلق الحملة تلقائياً بعد `{delay_start}` دقيقة.")
 
     async def handle_جدول_حملات(message: Message):
         try:
@@ -5293,7 +5273,8 @@ async def run_web_campaign_task(task_id: int):
                     delay_between_channels=task.delay_between_channels,
                     ad_lifespan=task.ad_lifespan,
                     status_msg=status_msg,
-                    folder_number=folder_num
+                    folder_number=folder_num,
+                    web_task_id=task_id
                 )
             elif task.campaign_type == "clear":
                 await run_clear_logic(tenant_id=tenant_id, client=client, web_task_id=task_id)
@@ -5590,6 +5571,15 @@ async def global_cleaner_worker():
                     )).scalars().all()
                     for t in active_tasks:
                         t_id = t.telegram_account_id
+                        
+                        # Fix: Do not auto-complete if the task is actively running in memory
+                        if t_id in active_running_tasks:
+                            continue
+                            
+                        # Fix: Do not auto-complete if task was created very recently (within 2 minutes)
+                        if (datetime.now(timezone.utc) - t.created_at).total_seconds() < 120:
+                            continue
+                            
                         if t.campaign_type == "single":
                             ad_type = "campaign"
                         elif t.campaign_type == "bulk":
