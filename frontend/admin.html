@@ -11,7 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
   
   <!-- CSS Stylesheet -->
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=2.6.0">
 </head>
 <body class="admin-body">
 
@@ -240,6 +240,12 @@
           <div class="card" style="max-width: 800px;">
             <h3 class="card-title" style="margin-bottom: 20px;">صياغة وإرسال رسالة البث الجماعي</h3>
             <form id="admin-broadcast-form">
+              <div class="input-group" style="margin-bottom: 20px;">
+                <label for="broadcast-target" style="margin-bottom: 8px; display: block; font-weight: 600;">المستلم / الفئة المستهدفة:</label>
+                <select id="broadcast-target" style="width: 100%; border: 1px solid rgba(255, 255, 255, 0.08); background-color: #17212b; color: #fff; padding: 12px; border-radius: 8px; font-family: inherit; font-size: 14px; box-sizing: border-box;">
+                  <option value="all">📢 إرسال إلى جميع المشتركين (All Users)</option>
+                </select>
+              </div>
               <div class="input-group" style="margin-bottom: 20px;">
                 <label for="broadcast-message" style="margin-bottom: 8px; display: block; font-weight: 600;">نص الرسالة (يدعم ماركداون تليجرام):</label>
                 <textarea id="broadcast-message" rows="8" required placeholder="مثال:&#10;⚠️ **تنبيه هام:**&#10;سيتم إيقاف الخدمة لإجراء صيانة دورية لمدة ساعتين تبدأ من الساعة 10:00 مساءً بتوقيت مصر." style="width: 100%; border: 1px solid rgba(255, 255, 255, 0.08); background-color: rgba(0, 0, 0, 0.2); color: #fff; padding: 12px; border-radius: 8px; font-family: inherit; font-size: 14px; line-height: 1.6; resize: vertical; box-sizing: border-box;"></textarea>
@@ -560,6 +566,6 @@
   </div>
 
   <!-- JavaScript Admin Script -->
-  <script src="admin.js"></script>
+  <script src="admin.js?v=2.6.0"></script>
 </body>
 </html>

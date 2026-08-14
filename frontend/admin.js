@@ -420,6 +420,22 @@ async function loadAdminUsers() {
     }
 
     tbody.innerHTML = "";
+    
+    // Update broadcast target dropdown
+    const broadcastSelect = document.getElementById("broadcast-target");
+    if (broadcastSelect) {
+      const currentVal = broadcastSelect.value;
+      broadcastSelect.innerHTML = `<option value="all">📢 إرسال إلى جميع المشتركين (All Users)</option>`;
+      users.forEach(u => {
+        const opt = document.createElement("option");
+        opt.value = u.id;
+        const uName = u.full_name || u.email.split('@')[0];
+        opt.textContent = `👤 ${uName} (${u.email}) [ID: ${u.id}]`;
+        broadcastSelect.appendChild(opt);
+      });
+      broadcastSelect.value = currentVal || "all";
+    }
+
     users.forEach(user => {
       const tr = document.createElement("tr");
 
@@ -771,17 +787,26 @@ async function handleAdminBroadcast(e) {
     showToast("يرجى كتابة نص الرسالة أولاً.", "error");
     return;
   }
-  if (!confirm("هل أنت متأكد من رغبتك في إرسال هذه الرسالة التحذيرية لكافة المشتركين النشطين؟")) return;
+  
+  const targetSelect = document.getElementById("broadcast-target");
+  const targetVal = targetSelect ? targetSelect.value : "all";
+  const targetText = targetSelect && targetVal !== "all" ? targetSelect.options[targetSelect.selectedIndex].text : "كافة المشتركين";
+  
+  if (!confirm(`هل أنت متأكد من رغبتك في إرسال هذه الرسالة إلى (${targetText})؟`)) return;
   
   setButtonLoading("btn-send-broadcast", true);
   try {
+    const payload = {
+      message_text: msgText,
+      target_user_id: targetVal === "all" ? null : parseInt(targetVal)
+    };
     const res = await adminApiRequest("/admin/broadcast", {
       method: "POST",
-      body: JSON.stringify({ message_text: msgText })
+      body: JSON.stringify(payload)
     });
     if (res.status === "success") {
-      showToast(res.message || "تم إطلاق البث بنجاح!", "success");
-      document.getElementById("admin-broadcast-form").reset();
+      showToast(res.message || "تم إرسال الرسالة بنجاح!", "success");
+      document.getElementById("broadcast-message").value = "";
     }
   } catch (error) {
     console.error("Broadcast failed:", error);

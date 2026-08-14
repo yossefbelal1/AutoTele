@@ -2112,14 +2112,18 @@ async def delete_user_account(target_user_id: int, admin_user: User = Depends(ch
 
 class BroadcastReq(BaseModel):
     message_text: str
+    target_user_id: Optional[int] = None
 
-async def dispatch_admin_broadcast(text: str):
-    logger.info(f"Starting admin broadcast via Redis: {text[:50]}...")
+async def dispatch_admin_broadcast(text: str, target_user_id: Optional[int] = None):
+    logger.info(f"Starting admin broadcast via Redis (target_user_id={target_user_id}): {text[:50]}...")
     try:
         import json as _json
+        payload = {"message_text": text}
+        if target_user_id:
+            payload["target_user_id"] = target_user_id
         num_subs = await redis_client.publish(
             "saas_admin_broadcast",
-            _json.dumps({"message_text": text})
+            _json.dumps(payload)
         )
         logger.info(f"Broadcast message successfully published to saas_admin_broadcast. Subscribers: {num_subs}")
         return True
@@ -2132,8 +2136,9 @@ async def admin_broadcast(req: BroadcastReq, background_tasks: BackgroundTasks, 
     if not req.message_text.strip():
         raise HTTPException(status_code=400, detail="لا يمكن إرسال رسالة فارغة")
     
-    background_tasks.add_task(dispatch_admin_broadcast, req.message_text.strip())
-    return {"status": "success", "message": "جاري إرسال البث لجميع المشتركين النشطين في الخلفية بنجاح!"}
+    background_tasks.add_task(dispatch_admin_broadcast, req.message_text.strip(), req.target_user_id)
+    dest_msg = f"للمستخدم المحدد (ID: {req.target_user_id})" if req.target_user_id else "لجميع المشتركين"
+    return {"status": "success", "message": f"جاري إرسال الرسالة {dest_msg} في الخلفية بنجاح!"}
 
 @app.get("/admin/logs/stream")
 async def live_logs_stream(tenant_id: Optional[int] = None, admin_user: User = Depends(check_admin_user)):
