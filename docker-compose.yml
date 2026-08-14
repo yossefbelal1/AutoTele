@@ -71,6 +71,7 @@ services:
     container_name: saas_fastapi_api
     volumes:
       - ./main_api.py:/app/main_api.py
+      - ./db_manager.py:/app/db_manager.py
     command: uvicorn main_api:app --host 0.0.0.0 --port 8000
     ports:
       - "127.0.0.1:8001:8000"
@@ -117,6 +118,7 @@ services:
         condition: service_started
     volumes:
       - ./worker.py:/app/worker.py
+      - ./db_manager.py:/app/db_manager.py
     restart: always
     mem_limit: 512m
     mem_reservation: 128m
