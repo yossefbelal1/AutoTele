@@ -1431,6 +1431,7 @@ class AdminLoginReq(BaseModel):
     otp_code: Optional[str] = None
 
 class ModifySubscriptionReq(BaseModel):
+    full_name: Optional[str] = None
     subscription_plan: str
     subscription_status: str
     subscription_end: str  # YYYY-MM-DD or ISO format
@@ -1981,20 +1982,47 @@ async def get_admin_users(admin_user: User = Depends(check_admin_user)):
     async with AsyncSessionLocal() as session:
         users = (await session.execute(select(User).order_by(User.created_at.desc()))).scalars().all()
         
+        now = datetime.now(timezone.utc)
         users_list = []
         for user in users:
-            tg_count = (await session.execute(select(func.count(TelegramAccount.id)).where(TelegramAccount.user_id == user.id))).scalar() or 0
+            stmt_tg = select(TelegramAccount).where(TelegramAccount.user_id == user.id)
+            tg_accounts = (await session.execute(stmt_tg)).scalars().all()
+            
+            phones = [acc.phone for acc in tg_accounts if acc.phone]
+            primary_phone = phones[0] if phones else None
+            
+            accounts_data = [
+                {
+                    "id": acc.id,
+                    "phone": acc.phone,
+                    "status": acc.status
+                }
+                for acc in tg_accounts
+            ]
+            
+            # Compute remaining days
+            sub_end = user.subscription_end
+            if sub_end and sub_end.tzinfo is None:
+                sub_end = sub_end.replace(tzinfo=timezone.utc)
+            rem_days = max(0, int((sub_end - now).total_seconds() / 86400)) if sub_end else 0
             
             users_list.append({
                 "id": user.id,
                 "email": user.email,
+                "full_name": user.full_name or user.email.split('@')[0],
+                "phone": primary_phone,
+                "phones": phones,
+                "telegram_accounts": accounts_data,
+                "telegram_accounts_count": len(tg_accounts),
                 "is_admin": user.is_admin,
                 "subscription_plan": user.subscription_plan,
                 "subscription_status": user.subscription_status,
                 "subscription_start": user.subscription_start.strftime("%Y-%m-%d %H:%M:%S") if user.subscription_start else None,
                 "subscription_end": user.subscription_end.strftime("%Y-%m-%d %H:%M:%S") if user.subscription_end else None,
+                "remaining_days": rem_days,
                 "created_at": user.created_at.strftime("%Y-%m-%d %H:%M:%S") if user.created_at else None,
-                "telegram_accounts_count": tg_count,
+                "credits": user.credits,
+                "status_bot_linked": bool(user.status_bot_chat_id),
                 "proxy_host": user.proxy_host,
                 "proxy_port": user.proxy_port,
                 "proxy_username": user.proxy_username,
@@ -2028,6 +2056,8 @@ async def modify_subscription(target_user_id: int, req: ModifySubscriptionReq, b
         except Exception:
             raise HTTPException(status_code=400, detail="تنسيق التاريخ غير صحيح. استخدم YYYY-MM-DD")
         
+        if req.full_name is not None and req.full_name.strip():
+            user.full_name = req.full_name.strip()
         user.subscription_plan = req.subscription_plan
         user.subscription_status = req.subscription_status
         user.subscription_end = end_dt

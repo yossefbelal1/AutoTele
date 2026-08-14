@@ -11,7 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
   
   <!-- CSS Stylesheet -->
-  <link rel="stylesheet" href="style.css?v=2.6.0">
+  <link rel="stylesheet" href="style.css?v=3.5.0">
 </head>
 <body class="admin-body">
 
@@ -178,13 +178,13 @@
               <table class="admin-table">
                 <thead>
                   <tr>
-                    <th>ID الدفع</th>
-                    <th>الاسم / البريد الإلكتروني</th>
-                    <th>الباقة المطلوبة</th>
-                    <th>رقم المعاملة (TxID)</th>
-                    <th>تاريخ الإرسال</th>
-                    <th>الحالة</th>
-                    <th>الإجراءات</th>
+                    <th style="width: 60px;">ID</th>
+                    <th>بيانات العميل</th>
+                    <th>رقم الهاتف (تليجرام)</th>
+                    <th>الباقة والحالة</th>
+                    <th>صلاحية الاشتراك</th>
+                    <th>محركات البوت</th>
+                    <th style="text-align: center;">الإجراءات</th>
                   </tr>
                 </thead>
                 <tbody id="admin-payments-table-body">
@@ -210,14 +210,13 @@
               <table class="admin-table">
                 <thead>
                   <tr>
-                    <th>ID المستخدم</th>
-                    <th>الاسم / البريد الإلكتروني</th>
-                    <th>النوع</th>
-                    <th>الباقة</th>
-                    <th>الحالة</th>
-                    <th>تاريخ الانتهاء</th>
-                    <th>حسابات التليجرام</th>
-                    <th>الإجراءات</th>
+                    <th style="width: 60px;">ID</th>
+                    <th>بيانات العميل</th>
+                    <th>رقم الهاتف (تليجرام)</th>
+                    <th>الباقة والحالة</th>
+                    <th>صلاحية الاشتراك</th>
+                    <th>محركات البوت</th>
+                    <th style="text-align: center;">الإجراءات</th>
                   </tr>
                 </thead>
                 <tbody id="admin-users-table-body">
@@ -498,8 +497,16 @@
           <input type="hidden" id="edit-user-id">
           
           <div class="input-group">
+            <label for="edit-user-fullname">اسم العميل (Full Name):</label>
+            <input type="text" id="edit-user-fullname" placeholder="أدخل اسم العميل">
+          </div>
+          <div class="input-group">
             <label>البريد الإلكتروني للمستخدم:</label>
             <input type="text" id="edit-user-email" readonly class="readonly-input">
+          </div>
+          <div class="input-group">
+            <label>أرقام الهواتف المربوطة:</label>
+            <input type="text" id="edit-user-phone" readonly class="readonly-input">
           </div>
 
           <div class="input-group">
@@ -566,6 +573,6 @@
   </div>
 
   <!-- JavaScript Admin Script -->
-  <script src="admin.js?v=2.6.0"></script>
+  <script src="admin.js?v=3.5.0"></script>
 </body>
 </html>

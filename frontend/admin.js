@@ -410,17 +410,15 @@ window.rejectCryptoPayment = async function(paymentId) {
 async function loadAdminUsers() {
   const tbody = document.getElementById("admin-users-table-body");
   if (!tbody) return;
-  tbody.innerHTML = `<tr><td colspan="8" class="text-center">جاري تحميل البيانات...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="7" class="text-center" style="padding: 24px; color: #708499;">جاري تحميل بيانات المشتركين...</td></tr>`;
 
   try {
     const users = await adminApiRequest("/admin/users");
     if (users.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="8" class="text-center">لا يوجد مستخدمون مسجلون.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center" style="padding: 24px; color: #708499;">لا يوجد مستخدمون مسجلون حالياً.</td></tr>`;
       return;
     }
 
-    tbody.innerHTML = "";
-    
     // Update broadcast target dropdown
     const broadcastSelect = document.getElementById("broadcast-target");
     if (broadcastSelect) {
@@ -430,32 +428,102 @@ async function loadAdminUsers() {
         const opt = document.createElement("option");
         opt.value = u.id;
         const uName = u.full_name || u.email.split('@')[0];
-        opt.textContent = `👤 ${uName} (${u.email}) [ID: ${u.id}]`;
+        const uPhone = u.phone ? ` [📞 ${u.phone}]` : '';
+        opt.textContent = `👤 ${uName} (${u.email})${uPhone} [ID: ${u.id}]`;
         broadcastSelect.appendChild(opt);
       });
       broadcastSelect.value = currentVal || "all";
     }
 
+    tbody.innerHTML = "";
     users.forEach(user => {
       const tr = document.createElement("tr");
 
-      const roleText = user.is_admin ? "مدير النظام (Admin)" : "مستخدم عادي";
-      const roleClass = user.is_admin ? "blue-text" : "";
+      // 1. ID Badge
+      const idBadge = `<span style="font-family: monospace; font-weight: 700; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.25);">#${user.id}</span>`;
 
-      let planText = "تجريبي";
-      if (user.subscription_plan === "weekly") planText = "أسبوعي";
-      else if (user.subscription_plan === "monthly") planText = "شهري";
-      else if (user.subscription_plan === "half_year") planText = "6 شهور";
-      else if (user.subscription_plan === "yearly") planText = "سنوي";
+      // 2. Client Name & Email with Avatar
+      const rawName = user.full_name || user.email.split('@')[0];
+      const initials = rawName.substring(0, 2).toUpperCase();
+      const roleTag = user.is_admin ? `<span style="background: rgba(225, 29, 72, 0.15); color: #f43f5e; border: 1px solid rgba(225, 29, 72, 0.3); font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 700; margin-right: 6px;">مدير</span>` : '';
+      
+      const clientCell = `
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, #1e293b, #0f172a); border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; color: #38bdf8; flex-shrink: 0; box-shadow: 0 2px 6px rgba(0,0,0,0.3);">
+            ${escapeHtml(initials)}
+          </div>
+          <div>
+            <div style="display: flex; align-items: center;">
+              <strong style="color: #ffffff; font-size: 14px; font-weight: 700;">${escapeHtml(rawName)}</strong>
+              ${roleTag}
+            </div>
+            <div style="color: #708499; font-size: 12px; margin-top: 2px; font-family: monospace;">${escapeHtml(user.email)}</div>
+          </div>
+        </div>
+      `;
 
-      const statusText = user.subscription_status === "active" ? "نشط" : "منتهي";
-      const statusClass = user.subscription_status === "active" ? "green-text" : "red-text";
-
-      let endDateStr = "--";
-      if (user.subscription_end) {
-        endDateStr = user.subscription_end.split(" ")[0];
+      // 3. Phone Numbers
+      let phoneCell = '';
+      if (user.phones && user.phones.length > 0) {
+        phoneCell = user.phones.map(p => `
+          <div style="display: inline-flex; align-items: center; gap: 6px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); color: #10b981; padding: 4px 10px; border-radius: 6px; font-family: monospace; font-size: 13px; font-weight: 700; direction: ltr; margin: 2px 0;">
+            <span style="font-size: 12px;">📞</span>
+            <span>${escapeHtml(p)}</span>
+          </div>
+        `).join('<br>');
+      } else {
+        phoneCell = `<span style="color: #64748b; font-size: 12px; font-style: italic; background: rgba(255,255,255,0.03); padding: 4px 8px; border-radius: 4px;">لا يوجد رقم</span>`;
       }
 
+      // 4. Plan & Status
+      let planBadge = '';
+      if (user.subscription_plan === "yearly") {
+        planBadge = `<span style="background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">👑 سنوي</span>`;
+      } else if (user.subscription_plan === "monthly") {
+        planBadge = `<span style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">💎 شهري</span>`;
+      } else if (user.subscription_plan === "weekly") {
+        planBadge = `<span style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">⚡ أسبوعي</span>`;
+      } else {
+        planBadge = `<span style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">⏳ تجريبي</span>`;
+      }
+
+      const statusBadge = user.subscription_status === "active" 
+        ? `<span style="background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">🟢 نشط</span>`
+        : `<span style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">🔴 منتهي</span>`;
+
+      const planAndStatusCell = `
+        <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-start;">
+          ${planBadge}
+          ${statusBadge}
+        </div>
+      `;
+
+      // 5. Expiry Date & Remaining Days
+      let expiryCell = '--';
+      if (user.subscription_end) {
+        const dateStr = user.subscription_end.split(" ")[0];
+        const remDays = user.remaining_days !== undefined ? user.remaining_days : 0;
+        const remText = user.subscription_status === "active" ? `<small style="color: #38bdf8; font-weight: 700; font-size: 11px; display: block; margin-top: 2px;">باقي ${remDays} يوم</small>` : `<small style="color: #f43f5e; font-size: 11px; display: block; margin-top: 2px;">منتهي</small>`;
+        expiryCell = `
+          <div style="font-family: monospace; font-size: 13px; color: #fff; font-weight: 600;">${dateStr}</div>
+          ${remText}
+        `;
+      }
+
+      // 6. Telegram Accounts
+      let tgEnginesCell = '';
+      if (user.telegram_accounts_count > 0) {
+        tgEnginesCell = `
+          <div style="display: inline-flex; align-items: center; gap: 6px; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.2); padding: 5px 10px; border-radius: 6px;">
+            <span style="font-size: 14px;">🤖</span>
+            <span style="font-weight: 700; color: #38bdf8; font-size: 12px;">${user.telegram_accounts_count} محرك</span>
+          </div>
+        `;
+      } else {
+        tgEnginesCell = `<span style="color: #64748b; font-size: 12px; font-style: italic;">غير مربوط</span>`;
+      }
+
+      // 7. Action Buttons
       const userJson = JSON.stringify(user)
         .replace(/&/g, '&amp;')
         .replace(/"/g, '&quot;')
@@ -463,35 +531,37 @@ async function loadAdminUsers() {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
       const actionButtons = `
-        <div class="action-btn-group">
-          <button type="button" class="btn-table btn-edit" onclick="openAdminEditModal(${userJson})">تعديل</button>
-          <button type="button" class="btn-table btn-reboot" onclick="rebootUserService(${user.id})">ريبوت</button>
-          <button type="button" class="btn-table btn-delete" onclick="deleteUserAccount(${user.id})">حذف</button>
+        <div class="action-btn-group" style="justify-content: center; gap: 6px;">
+          <button type="button" class="btn-table btn-edit" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 5px 10px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="openAdminEditModal(${userJson})">تعديل</button>
+          <button type="button" class="btn-table btn-reboot" style="background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); padding: 5px 10px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="rebootUserService(${user.id})">ريبوت</button>
+          <button type="button" class="btn-table btn-delete" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 5px 10px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="deleteUserAccount(${user.id})">حذف</button>
         </div>
       `;
 
-      const userDisplayName = user.full_name ? `<strong style="color: #fff;">${escapeHtml(user.full_name)}</strong><br><small style="color: #708499; font-size: 11px;">${escapeHtml(user.email)}</small>` : escapeHtml(user.email);
       tr.innerHTML = `
-        <td>${user.id}</td>
-        <td>${userDisplayName}</td>
-        <td class="${roleClass}">${roleText}</td>
-        <td>${planText}</td>
-        <td class="${statusClass}">${statusText}</td>
-        <td style="font-family: monospace;">${endDateStr}</td>
-        <td>${user.telegram_accounts_count} حساب(ات)</td>
-        <td>${actionButtons}</td>
+        <td>${idBadge}</td>
+        <td>${clientCell}</td>
+        <td>${phoneCell}</td>
+        <td>${planAndStatusCell}</td>
+        <td>${expiryCell}</td>
+        <td>${tgEnginesCell}</td>
+        <td style="text-align: center;">${actionButtons}</td>
       `;
       tbody.appendChild(tr);
     });
   } catch (error) {
     console.error("Failed to load admin users:", error);
-    tbody.innerHTML = `<tr><td colspan="8" class="text-center red-text">فشل تحميل قائمة المستخدمين.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center red-text" style="padding: 24px;">فشل تحميل قائمة المستخدمين.</td></tr>`;
   }
 }
 
 function openAdminEditModal(user) {
   document.getElementById("edit-user-id").value = user.id;
   document.getElementById("edit-user-email").value = user.email;
+  const nameInput = document.getElementById("edit-user-fullname");
+  if (nameInput) nameInput.value = user.full_name || '';
+  const phoneInput = document.getElementById("edit-user-phone");
+  if (phoneInput) phoneInput.value = (user.phones && user.phones.length > 0) ? user.phones.join(', ') : 'لا يوجد رقم مربوط';
   document.getElementById("edit-user-plan").value = user.subscription_plan;
   document.getElementById("edit-user-status").value = user.subscription_status;
   
