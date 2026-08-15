@@ -2198,7 +2198,9 @@ async def run_bulk_campaign_logic(
                     logger.warning(f"Could not resolve target chat {tid}: {e}")
                     targets_info.append({"id": tid, "title": f"قناة [{tid}]", "link": f"https://t.me/c/{str(tid)[4:] if str(tid).startswith('-100') else str(tid)}"})
 
-        target_states = {}  # tid -> str ("skipped", "success", "failed")
+        target_states = {}
+        target_actual_starts = {}
+        target_actual_deletes = {}  # tid -> str ("skipped", "success", "failed")
 
         def format_time(dt: datetime) -> str:
             # Egypt/Middle East timezone (UTC+3)
@@ -2207,13 +2209,26 @@ async def run_bulk_campaign_logic(
 
         def generate_checklist_markdown(current_idx: int, target_posting_status: str, sleep_countdown: int) -> str:
             lines = []
+            now_utc = datetime.now(timezone.utc)
             for j, info in enumerate(targets_info):
                 title = info["title"]
-                expected_start = start_time + timedelta(minutes=j * delay_between_channels)
-                expected_delete = expected_start + timedelta(minutes=ad_lifespan)
                 
-                start_str = format_time(expected_start)
-                delete_str = format_time(expected_delete) if ad_lifespan > 0 else "دائم"
+                if j in target_actual_starts:
+                    act_start = target_actual_starts[j]
+                    act_delete = target_actual_deletes.get(j, act_start + timedelta(minutes=ad_lifespan))
+                    start_str = format_time(act_start)
+                    delete_str = format_time(act_delete) if ad_lifespan > 0 else "دائم"
+                elif j == current_idx:
+                    act_start = target_actual_starts.get(j, now_utc)
+                    act_delete = target_actual_deletes.get(j, act_start + timedelta(minutes=ad_lifespan))
+                    start_str = format_time(act_start)
+                    delete_str = format_time(act_delete) if ad_lifespan > 0 else "دائم"
+                else:
+                    future_offset = sleep_countdown + max(0, (j - current_idx - 1)) * (delay_between_channels * 60)
+                    pred_start = now_utc + timedelta(seconds=future_offset)
+                    pred_delete = pred_start + timedelta(minutes=ad_lifespan)
+                    start_str = format_time(pred_start)
+                    delete_str = format_time(pred_delete) if ad_lifespan > 0 else "دائم"
                 
                 state = target_states.get(info["id"], None)
                 if state == "skipped":
@@ -2221,24 +2236,26 @@ async def run_bulk_campaign_logic(
                 elif state == "failed":
                     status_label = "❌ [فشل]"
                 elif j < current_idx:
-                    # Past target
-                    if ad_lifespan > 0 and datetime.now(timezone.utc) >= expected_delete:
+                    act_del = target_actual_deletes.get(j)
+                    if ad_lifespan > 0 and act_del and now_utc >= act_del:
                         status_label = "🗑️ [تم المسح]"
                     else:
                         status_label = "✅ [تم النشر]"
                 elif j == current_idx:
-                    # Current target
-                    if target_posting_status == "posting":
+                    act_del = target_actual_deletes.get(j)
+                    if ad_lifespan > 0 and act_del and now_utc >= act_del:
+                        status_label = "🗑️ [تم المسح]"
+                    elif target_posting_status == "posting":
                         status_label = "🚀 [جاري النشر]"
-                    elif target_posting_status == "sleeping":
+                    elif target_posting_status in ("sleeping", "waiting_final_clean"):
                         status_label = "✅ [تم النشر]"
                     else:
                         status_label = "⏳ [انتظار]"
                 else:
-                    # Future target
                     status_label = "⏳ [انتظار]"
                 
-                lines.append(f"{j+1}. {status_label} **{title}**\n   • البدء: `{start_str}` | الحذف: `{delete_str}`")
+                item_text = f"{j+1}. {status_label} **{title}**\n   • البدء: `{start_str}` | الحذف: `{delete_str}`"
+                lines.append(item_text)
             return "\n".join(lines)
 
         async def update_status_message(current_idx: int, target_posting_status: str, sleep_countdown: int = 0, current_post_info: str = ""):
