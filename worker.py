@@ -2273,7 +2273,9 @@ async def run_bulk_campaign_logic(
                 general_status = "🚀 **جاري تشغيل النشر للحملة المجمعة...**"
                 countdown_line = ""
                 
-            expected_end = start_time + timedelta(minutes=(total_targets - 1) * delay_between_channels + ad_lifespan)
+            # Dynamic calculation of overall campaign end time based on current progress
+            future_end_seconds = sleep_countdown + max(0, (total_targets - 1 - current_idx)) * (delay_between_channels * 60) + (ad_lifespan * 60)
+            expected_end = datetime.now(timezone.utc) + timedelta(seconds=future_end_seconds)
             end_time_str = format_time(expected_end)
             
             checklist_str = generate_checklist_markdown(current_idx, target_posting_status, sleep_countdown)
@@ -2319,6 +2321,11 @@ async def run_bulk_campaign_logic(
             if index < resume_index:
                 continue
                 
+            # Record real actual start and delete timestamps for this target
+            target_now_utc = datetime.now(timezone.utc)
+            target_actual_starts[index] = target_now_utc
+            target_actual_deletes[index] = target_now_utc + timedelta(minutes=ad_lifespan)
+            
             state_data["current_target_index"] = index
             await save_active_campaign_state(tenant_id, state_data)
             try:
