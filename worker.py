@@ -5767,6 +5767,23 @@ async def redis_pubsub_listener():
                                 pass
                         active_running_tasks.pop(tenant_id, None)
                         
+                        # 3. Clear active campaign state from Redis
+                        await clear_active_campaign_state(tenant_id)
+                        
+                        # 4. Cancel all active/pending/processing tasks in DB
+                        async with AsyncSessionLocal() as session:
+                            from db_manager import WebCampaignTask
+                            from sqlalchemy import update
+                            await session.execute(
+                                update(WebCampaignTask)
+                                .where(
+                                    WebCampaignTask.telegram_account_id == tenant_id,
+                                    WebCampaignTask.status.in_(["pending", "processing", "active"])
+                                )
+                                .values(status="failed", result_summary="🚨 تم إيقاف وإلغاء المهمة فوراً بناءً على طلب إيقاف كل شيء.")
+                            )
+                            await session.commit()
+                        
                         # Log cancellation event for the tenant
                         await log_tenant_event(tenant_id, "🚨 تم إيقاف وإلغاء جميع المهام والحملات التلقائية والويب فوراً بناءً على طلب من لوحة التحكم.")
                         

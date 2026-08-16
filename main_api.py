@@ -772,20 +772,15 @@ async def stop_everything(user_id: int = Depends(get_current_user)):
         from datetime import datetime, timezone, timedelta
         now_utc = datetime.now(timezone.utc)
         
-        stmt_tasks = select(WebCampaignTask).where(
+        # Cancel ALL pending, processing, and active WebCampaignTasks in DB immediately
+        stmt_tasks = update(WebCampaignTask).where(
             WebCampaignTask.telegram_account_id == tenant_id,
-            WebCampaignTask.status.in_(["pending", "processing"])
+            WebCampaignTask.status.in_(["pending", "processing", "active"])
+        ).values(
+            status="failed",
+            result_summary="🚨 تم إيقاف وإلغاء المهمة فوراً بناءً على طلب إيقاف كل شيء."
         )
-        tasks_to_check = (await session.execute(stmt_tasks)).scalars().all()
-        for task in tasks_to_check:
-            t_created = task.created_at
-            if t_created.tzinfo is None:
-                t_created = t_created.replace(tzinfo=timezone.utc)
-            scheduled_time = t_created + timedelta(minutes=task.delay_start)
-            if task.status == "processing" or scheduled_time <= now_utc:
-                task.status = "failed"
-                task.result_summary = "🚨 تم إيقاف وإلغاء المهمة فوراً من لوحة التحكم."
-                session.add(task)
+        await session.execute(stmt_tasks)
         await session.commit()
         
         # 3. Publish cancel_jobs to worker via Redis Pub/Sub
@@ -797,6 +792,9 @@ async def stop_everything(user_id: int = Depends(get_current_user)):
         )
         
         # 4. Clear active campaign state in Redis
+        await redis_client.delete(f"tenant:{tenant_id}:active_campaign_state")
+        await redis_client.delete(f"tenant:{tenant_id}:scheduled_jobs")
+        await redis_client.delete(f"tenant:{tenant_id}:last_processed_bulk_target")
         await redis_client.delete(f"active_campaign:{tenant_id}")
         
         # Log event
