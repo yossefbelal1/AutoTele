@@ -2509,6 +2509,42 @@ async def run_bulk_campaign_logic(
                         await asyncio.sleep(max(get_safe_min_delay(tenant_id), get_adaptive_delay(tenant_id)))
                 
                 target_states[target_id] = "success"
+                target_finish_time = datetime.now(timezone.utc)
+                target_actual_deletes[index] = target_finish_time + timedelta(minutes=ad_lifespan)
+                
+                # Dedicated auto delete timer for this specific target
+                if ad_lifespan > 0:
+                    async def auto_delete_target_ads(t_idx=index, t_id=target_id, t_title=target_title, lifespan=ad_lifespan):
+                        try:
+                            await asyncio.sleep(lifespan * 60)
+                            logger.info(f"Target {t_title} lifespan expired ({lifespan}m). Sweeping ads now...")
+                            async with AsyncSessionLocal() as session:
+                                stmt = select(ActiveAd).where(
+                                    ActiveAd.telegram_account_id == tenant_id,
+                                    ActiveAd.expires_at <= datetime.now(timezone.utc)
+                                )
+                                ads_to_del = list((await session.execute(stmt)).scalars().all())
+                            
+                            del_count = 0
+                            for ad in ads_to_del:
+                                try:
+                                    ids = [ad.msg_id]
+                                    if ad.sticker_msg_id: ids.append(ad.sticker_msg_id)
+                                    await client.delete_messages(chat_id=ad.chat_id, message_ids=ids)
+                                    del_count += 1
+                                except Exception: pass
+                                try:
+                                    async with AsyncSessionLocal() as del_sess:
+                                        await remove_ad_record(del_sess, ad.id, tenant_id)
+                                except Exception: pass
+                            
+                            target_actual_deletes[t_idx] = datetime.now(timezone.utc)
+                            await log_tenant_event(tenant_id, f"🗑️ تم مسح إعلانات الهدف بنجاح: {t_title} ({del_count} إعلان).")
+                            await update_status_message(index, "sleeping")
+                        except Exception as sweep_err:
+                            logger.error(f"Error sweeping target {t_title}: {sweep_err}")
+                    
+                    asyncio.create_task(auto_delete_target_ads())
             except Exception as e:
                 logger.error(f"Failed to process campaign target {target_id}: {e}")
                 target_states[target_id] = "failed"
