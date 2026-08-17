@@ -578,6 +578,10 @@ async function syncDashboardData() {
 
   } catch (error) {
     console.error("Dashboard Sync Error:", error);
+    if (error.message && (error.message.includes("Unauthorized") || error.message.includes("401"))) {
+      localStorage.removeItem("access_token");
+      showAuthScreen();
+    }
   }
 }
 
@@ -2450,8 +2454,9 @@ document.addEventListener("DOMContentLoaded", () => {
   function scheduleNextPoll() {
     if (pollingTimer) clearTimeout(pollingTimer);
     
+    const token = localStorage.getItem("access_token");
     const dashboardVisible = !document.getElementById("dashboard-view").classList.contains("hidden");
-    if (!dashboardVisible) {
+    if (!token || !dashboardVisible) {
       pollingTimer = setTimeout(scheduleNextPoll, 5000);
       return;
     }
