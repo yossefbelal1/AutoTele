@@ -252,15 +252,16 @@ async def get_current_user(
         
     try:
         payload = jwt.decode(resolved_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        user_id: int = payload.get("sub")
-        if user_id is None:
+        raw_sub = payload.get("sub")
+        if raw_sub is None:
             raise HTTPException(status_code=401)
-        return user_id
-    except jwt.PyJWTError:
+        return int(raw_sub)
+    except (jwt.PyJWTError, ValueError, TypeError):
         raise HTTPException(status_code=401, detail="رخصة غير صالحة")
 
 async def verify_active_subscription(user_id: int, session: AsyncSession) -> User:
-    stmt = select(User).where(User.id == user_id)
+    uid = int(user_id)
+    stmt = select(User).where(User.id == uid)
     user = (await session.execute(stmt)).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="المستخدم غير موجود.")
