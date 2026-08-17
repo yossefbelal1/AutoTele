@@ -13,6 +13,13 @@ from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr, Field
+class UpdateScheduledJobReq(BaseModel):
+    delay_start: Optional[int] = None
+    delay_between_channels: Optional[int] = None
+    ad_lifespan: Optional[int] = None
+    custom_text: Optional[str] = None
+    target_link: Optional[str] = None
+
 import bcrypt
 from sqlalchemy import select, update, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -992,7 +999,11 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
                 "start_time": scheduled_time_str,
                 "details": details,
                 "expires_at": expires_at_str,
-                "ad_lifespan": ad_lifespan_minutes,
+                "delay_start": task.delay_start,
+                "delay_between_channels": task.delay_between_channels,
+                "ad_lifespan": task.ad_lifespan or ad_lifespan_minutes,
+                "custom_text": task.custom_text or "",
+                "target_link": task.target_link or "",
             })
             
         try:
@@ -1030,6 +1041,107 @@ async def get_user_active_ads(user_id: int = Depends(get_current_user)):
                 "campaign_type": ad.campaign_type
             })
         return {"status": "success", "active_ads": ads}
+
+
+@app.delete("/user/scheduled-jobs/{task_id}")
+async def delete_single_scheduled_job(task_id: int, user_id: int = Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        await verify_active_subscription(user_id, session)
+        tg_account = (await session.execute(
+            select(TelegramAccount).where(TelegramAccount.user_id == user_id, TelegramAccount.status == "active")
+        )).scalars().first()
+        if not tg_account:
+            raise HTTPException(status_code=400, detail="لا يوجد حساب تيليجرام نشط مرتبط.")
+        
+        from db_manager import WebCampaignTask
+        task = (await session.execute(
+            select(WebCampaignTask).where(
+                WebCampaignTask.id == task_id,
+                WebCampaignTask.telegram_account_id == tg_account.id
+            )
+        )).scalars().first()
+        
+        if not task:
+            raise HTTPException(status_code=404, detail="المهمة المجدولة غير موجودة.")
+        
+        task.status = "failed"
+        task.result_summary = "🚨 تم إلغاء المهمة المجدولة بناءً على طلب من لوحة التحكم."
+        await session.commit()
+        
+        try:
+            from cache_manager import redis_client
+            import json as _json
+            await redis_client.publish(
+                "saas_tenant_commands",
+                _json.dumps({"tenant_id": tg_account.id, "command": "cancel_single_job", "task_id": task_id})
+            )
+        except Exception as pe:
+            logger.error(f"Failed to publish cancel_single_job: {pe}")
+            
+        return {
+            "status": "success",
+            "message": f"تم إلغاء المهمة المجدولة #{task_id} بنجاح."
+        }
+
+@app.put("/user/scheduled-jobs/{task_id}")
+async def update_single_scheduled_job(task_id: int, req: UpdateScheduledJobReq, user_id: int = Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        await verify_active_subscription(user_id, session)
+        tg_account = (await session.execute(
+            select(TelegramAccount).where(TelegramAccount.user_id == user_id, TelegramAccount.status == "active")
+        )).scalars().first()
+        if not tg_account:
+            raise HTTPException(status_code=400, detail="لا يوجد حساب تيليجرام نشط مرتبط.")
+        
+        from db_manager import WebCampaignTask
+        task = (await session.execute(
+            select(WebCampaignTask).where(
+                WebCampaignTask.id == task_id,
+                WebCampaignTask.telegram_account_id == tg_account.id
+            )
+        )).scalars().first()
+        
+        if not task:
+            raise HTTPException(status_code=404, detail="المهمة المجدولة غير موجودة.")
+        
+        from datetime import datetime, timezone
+        if req.delay_start is not None:
+            task.delay_start = req.delay_start
+            task.created_at = datetime.now(timezone.utc)
+        if req.delay_between_channels is not None:
+            task.delay_between_channels = req.delay_between_channels
+        if req.ad_lifespan is not None:
+            task.ad_lifespan = req.ad_lifespan
+        if req.custom_text is not None:
+            task.custom_text = req.custom_text
+        if req.target_link is not None:
+            task.target_link = req.target_link
+            
+        await session.commit()
+        
+        try:
+            from cache_manager import redis_client
+            import json as _json
+            await redis_client.publish(
+                "saas_tenant_commands",
+                _json.dumps({
+                    "tenant_id": tg_account.id,
+                    "command": "update_single_job",
+                    "task_id": task_id,
+                    "delay_start": task.delay_start,
+                    "delay_between_channels": task.delay_between_channels,
+                    "ad_lifespan": task.ad_lifespan,
+                    "custom_text": task.custom_text,
+                    "target_link": task.target_link
+                })
+            )
+        except Exception as pe:
+            logger.error(f"Failed to publish update_single_job: {pe}")
+            
+        return {
+            "status": "success",
+            "message": f"تم حفظ تعديلات المهمة المجدولة #{task_id} بنجاح."
+        }
 
 @app.delete("/user/scheduled-jobs")
 async def clear_user_scheduled_jobs(user_id: int = Depends(get_current_user)):

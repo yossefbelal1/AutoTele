@@ -1776,6 +1776,20 @@ async function loadScheduledJobs() {
             </div>
             <div style="color: #94a3b8; font-size: 12px; line-height: 1.5; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 8px;">${escapeHtml(job.details)}</div>
             ${progressHtml}
+            <div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 8px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px;">
+              ${job.is_web && (job.status === "pending" || job.status === "processing" || job.status === "active") ? `
+                <button type="button" class="btn-job-action btn-job-edit" onclick='openEditJobModal(${JSON.stringify(job).replace(/'/g, "&#39;")})' style="background: rgba(59, 130, 246, 0.12); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.2s;">
+                  ✏️ تعديل
+                </button>
+                <button type="button" class="btn-job-action btn-job-delete" onclick="deleteScheduledJob(${job.task_id})" style="background: rgba(239, 68, 68, 0.12); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.2s;">
+                  🗑️ إلغاء
+                </button>
+              ` : (job.is_web ? `
+                <button type="button" class="btn-job-action" onclick="deleteScheduledJob(${job.task_id})" style="background: rgba(148, 163, 184, 0.08); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 6px; padding: 4px 10px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                  🗑️ مسح من السجل
+                </button>
+              ` : '')}
+            </div>
           </div>
         `;
       };
@@ -2828,3 +2842,105 @@ function initMobileHeaderScroll() {
 
 
 
+
+
+// ==========================================
+// SCHEDULED JOBS EDIT & DELETE CONTROLLERS
+// ==========================================
+function openEditJobModal(job) {
+  const modal = document.getElementById("edit-job-modal");
+  if (!modal) return;
+
+  document.getElementById("edit-job-id").value = job.task_id || "";
+  document.getElementById("edit-job-id-badge").textContent = "#" + (job.task_id || "");
+  document.getElementById("edit-job-delay-start").value = job.delay_start !== undefined ? job.delay_start : 0;
+  document.getElementById("edit-job-interval").value = job.delay_between_channels !== undefined ? job.delay_between_channels : "";
+  document.getElementById("edit-job-lifespan").value = job.ad_lifespan !== undefined ? job.ad_lifespan : "";
+  document.getElementById("edit-job-target").value = job.target_link || "";
+  document.getElementById("edit-job-custom-text").value = job.custom_text || "";
+
+  modal.classList.remove("hidden");
+  modal.style.opacity = "1";
+  modal.style.pointerEvents = "auto";
+  const card = modal.querySelector(".modal-card");
+  if (card) card.style.transform = "scale(1)";
+}
+
+function closeEditJobModal() {
+  const modal = document.getElementById("edit-job-modal");
+  if (!modal) return;
+  modal.style.opacity = "0";
+  modal.style.pointerEvents = "none";
+  const card = modal.querySelector(".modal-card");
+  if (card) card.style.transform = "scale(0.95)";
+  setTimeout(() => {
+    modal.classList.add("hidden");
+  }, 300);
+}
+
+async function submitEditJob(e) {
+  e.preventDefault();
+  const taskId = document.getElementById("edit-job-id").value;
+  if (!taskId) return;
+
+  const btn = document.getElementById("btn-save-edit-job");
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "جاري الحفظ...";
+
+  const delayStart = parseInt(document.getElementById("edit-job-delay-start").value) || 0;
+  const intervalVal = document.getElementById("edit-job-interval").value;
+  const lifespanVal = document.getElementById("edit-job-lifespan").value;
+  const targetVal = document.getElementById("edit-job-target").value.trim();
+  const customTextVal = document.getElementById("edit-job-custom-text").value.trim();
+
+  const payload = {
+    delay_start: delayStart,
+    delay_between_channels: intervalVal ? parseInt(intervalVal) : null,
+    ad_lifespan: lifespanVal ? parseInt(lifespanVal) : null,
+    target_link: targetVal || null,
+    custom_text: customTextVal || null
+  };
+
+  try {
+    const res = await apiRequest(`/user/scheduled-jobs/${taskId}`, {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    });
+
+    if (res.status === "success") {
+      showToast(res.message || "تم حفظ تعديلات المهمة بنجاح! 💾", "success");
+      closeEditJobModal();
+      await loadScheduledJobs();
+    } else {
+      showToast(res.detail || res.message || "فشل حفظ التعديلات", "error");
+    }
+  } catch (err) {
+    showToast("حدث خطأ أثناء تعديل المهمة: " + err.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
+}
+
+async function deleteScheduledJob(taskId) {
+  if (!taskId) return;
+  if (!confirm(`هل أنت متأكد من إلغاء/حذف المهمة المجدولة رقم #${taskId}؟`)) {
+    return;
+  }
+
+  try {
+    const res = await apiRequest(`/user/scheduled-jobs/${taskId}`, {
+      method: "DELETE"
+    });
+
+    if (res.status === "success") {
+      showToast(res.message || "تم إلغاء المهمة المجدولة بنجاح! 🗑️", "success");
+      await loadScheduledJobs();
+    } else {
+      showToast(res.detail || res.message || "فشل إلغاء المهمة", "error");
+    }
+  } catch (err) {
+    showToast("حدث خطأ أثناء إلغاء المهمة: " + err.message, "error");
+  }
+}

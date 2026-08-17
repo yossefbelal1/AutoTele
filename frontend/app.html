@@ -1192,5 +1192,53 @@
 
   <!-- JavaScript Main Script -->
   <script src="script.js?v=2.6.0"></script>
+
+  <!-- Edit Scheduled Job Modal -->
+  <div id="edit-job-modal" class="modal-overlay hidden" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 99999; padding: 16px; opacity: 0; pointer-events: none; transition: all 0.3s ease;">
+    <div class="modal-card" style="background: linear-gradient(145deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.98)); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 16px; width: 100%; max-width: 520px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); overflow: hidden; transform: scale(0.95); transition: all 0.3s ease; direction: rtl; text-align: right;">
+      <div style="padding: 18px 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between;">
+        <h3 style="margin: 0; font-size: 17px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px;">
+          <span>✏️</span> تعديل بيانات المهمة المجدولة <span id="edit-job-id-badge" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-family: monospace;">#</span>
+        </h3>
+        <button type="button" onclick="closeEditJobModal()" style="background: none; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; line-height: 1;">&times;</button>
+      </div>
+      
+      <form id="edit-job-form" onsubmit="submitEditJob(event)" style="padding: 20px 24px; display: flex; flex-direction: column; gap: 16px;">
+        <input type="hidden" id="edit-job-id">
+        
+        <div>
+          <label style="display: block; font-size: 13px; font-weight: 600; color: #cbd5e1; margin-bottom: 6px;">⏱️ تأخير موعد البدء (بالدقائق من الآن):</label>
+          <input type="number" id="edit-job-delay-start" min="0" max="10080" style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #fff; font-size: 14px; box-sizing: border-box;" placeholder="0 للبدء الفوري، أو مثلاً 30 للبدء بعد نصف ساعة">
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div>
+            <label style="display: block; font-size: 13px; font-weight: 600; color: #cbd5e1; margin-bottom: 6px;">⏳ الفاصل بين القنوات (د):</label>
+            <input type="number" id="edit-job-interval" min="0" max="1440" style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #fff; font-size: 14px; box-sizing: border-box;" placeholder="بالدقائق">
+          </div>
+          <div>
+            <label style="display: block; font-size: 13px; font-weight: 600; color: #cbd5e1; margin-bottom: 6px;">🗑️ مدة بقاء الإعلان (د):</label>
+            <input type="number" id="edit-job-lifespan" min="0" max="10080" style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #fff; font-size: 14px; box-sizing: border-box;" placeholder="بالدقائق قبل الحذف">
+          </div>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 13px; font-weight: 600; color: #cbd5e1; margin-bottom: 6px;">🎯 الهدف المستهدف (رابط القناة أو رقم المجلد):</label>
+          <input type="text" id="edit-job-target" style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #fff; font-size: 14px; box-sizing: border-box;" placeholder="@channel أو 2 لمجلد My_channels2">
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 13px; font-weight: 600; color: #cbd5e1; margin-bottom: 6px;">📝 نص الإعلان المخصص:</label>
+          <textarea id="edit-job-custom-text" rows="3" style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #fff; font-size: 13.5px; line-height: 1.5; resize: vertical; box-sizing: border-box;" placeholder="اتركه فارغاً لاستخدام الصيغة الافتراضية"></textarea>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px;">
+          <button type="button" onclick="closeEditJobModal()" style="padding: 10px 18px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #cbd5e1; font-size: 13.5px; font-weight: 600; cursor: pointer;">إلغاء</button>
+          <button type="submit" id="btn-save-edit-job" style="padding: 10px 22px; background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; border-radius: 8px; color: #fff; font-size: 13.5px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4);">💾 حفظ التعديلات</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
 </body>
 </html>

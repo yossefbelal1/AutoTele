@@ -3376,6 +3376,186 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             logger.error(f"Error in priorities organizer: {e}")
             await message.reply_text(f"❌ **فشل ترتيب الأولويات: {e}**")
 
+    
+    
+    async def handle_الجدول(message: Message):
+        try:
+            status_msg = await message.reply_text("🔄 **جاري جلب جدول المهام النشطة والمجدولة...**")
+            from db_manager import WebCampaignTask
+            from datetime import datetime, timezone, timedelta
+            
+            async with AsyncSessionLocal() as session:
+                stmt = select(WebCampaignTask).where(
+                    WebCampaignTask.telegram_account_id == tenant_id,
+                    WebCampaignTask.status.in_(["pending", "processing", "active"])
+                ).order_by(WebCampaignTask.created_at.desc())
+                tasks = (await session.execute(stmt)).scalars().all()
+                
+            if not tasks:
+                await edit_or_reply(status_msg, "📭 **لا توجد أي مهام مجدولة أو نشطة حالياً.**\n\n💡 يمكنك جدولة حملة جديدة بأمر:\n`.حملات <تأخير_البدء> <الفاصل> <مدة_الحذف>`")
+                return
+                
+            type_names = {
+                "wave": "حملة التبادل عشوائي",
+                "single": "حملة فردية",
+                "bulk": "حملة مجلد مجمع",
+                "custom_folder": "حملة مجلد مخصص",
+                "timed_post": "نشر مؤقت",
+                "clear": "مسح سريع",
+                "deep_clear": "مسح عميق",
+                "activate_exchange": "تشغيل التبادل التلقائي"
+            }
+            
+            status_emojis = {
+                "pending": "⏳ [مجدولة]",
+                "processing": "🔄 [جاري التنفيذ]",
+                "active": "🚀 [نشطة حالياً]"
+            }
+            
+            now_utc = datetime.now(timezone.utc)
+            lines = [f"📋 **جدول العمليات والمهام النشطة والمجدولة ({len(tasks)}):**\n"]
+            
+            for t in tasks:
+                t_name = type_names.get(t.campaign_type, t.campaign_type)
+                s_icon = status_emojis.get(t.status, t.status)
+                t_created = t.created_at
+                if t_created.tzinfo is None:
+                    t_created = t_created.replace(tzinfo=timezone.utc)
+                target_start = t_created + timedelta(minutes=t.delay_start)
+                rem_mins = max(0, int((target_start - now_utc).total_seconds() // 60))
+                
+                info = [f"🔹 **#{t.id}** | {s_icon} **{t_name}**"]
+                if t.status == "pending":
+                    info.append(f"   ⏱️ متبقي على البدء: `{rem_mins}` دقيقة (تأخير: `{t.delay_start}` د)")
+                if t.delay_between_channels > 0:
+                    info.append(f"   ⏳ الفاصل بين القنوات: `{t.delay_between_channels}` د")
+                if t.ad_lifespan > 0:
+                    info.append(f"   🗑️ مدة بقاء الإعلان: `{t.ad_lifespan}` د")
+                if t.target_link:
+                    info.append(f"   🎯 الهدف: `{t.target_link}`")
+                lines.append("\n".join(info))
+                lines.append("")
+                
+            lines.append("──────────────────────")
+            lines.append("🛠️ **أوامر التحكم بالمهام:**")
+            lines.append("❌ لإلغاء مهمة محددة: `.مسح_مهمة <رقم_المهمة>`")
+            lines.append("✏️ لتعديل توقيت مهمة: `.تعديل_مهمة <رقم_المهمة> <تأخير_البدء> [الفاصل] [مدة_الحذف]`")
+            
+            await edit_or_reply(status_msg, "\n".join(lines))
+        except Exception as e:
+            logger.error(f"Error in handle_الجدول: {e}")
+            await message.reply_text(f"❌ **حدث خطأ أثناء جلب الجدول: {e}**")
+
+    async def handle_مسح_مهمة(message: Message, parts: list):
+        try:
+            task_id = None
+            for p in parts[1:]:
+                clean_p = p.replace('#', '').replace('db-', '').replace('web_', '').strip()
+                if clean_p.isdigit():
+                    task_id = int(clean_p)
+                    break
+                    
+            if not task_id:
+                await message.reply_text("⚠️ **يرجى تحديد رقم المهمة لإلغائها!**\nمثال: `.مسح_مهمة 123`")
+                return
+                
+            from db_manager import WebCampaignTask
+            from sqlalchemy import select, update
+            
+            async with AsyncSessionLocal() as session:
+                task = (await session.execute(
+                    select(WebCampaignTask).where(
+                        WebCampaignTask.id == task_id,
+                        WebCampaignTask.telegram_account_id == tenant_id
+                    )
+                )).scalars().first()
+                
+                if not task:
+                    await message.reply_text(f"❌ **لم يتم العثور على المهمة رقم #{task_id}!**\nاستخدم أمر `.جدول` لمعرفة أرقام المهام النشطة.")
+                    return
+                    
+                task.status = "failed"
+                task.result_summary = "🚨 تم إلغاء المهمة بأمر من التيليجرام."
+                await session.commit()
+                
+            jobs = scheduled_jobs.get(tenant_id, [])
+            for j in jobs:
+                if j.get("id") == f"web_{task_id}" or j.get("task_id") == task_id:
+                    try:
+                        j["task"].cancel()
+                    except Exception:
+                        pass
+            scheduled_jobs[tenant_id] = [j for j in jobs if j.get("id") != f"web_{task_id}" and j.get("task_id") != task_id]
+            await save_scheduled_jobs(tenant_id)
+            
+            await log_tenant_event(tenant_id, f"🗑️ تم إلغاء المهمة المجدولة #{task_id} بنجاح.")
+            await message.reply_text(f"🗑️ **تم إلغاء وحذف المهمة المجدولة رقم `#{task_id}` بنجاح!**")
+        except Exception as e:
+            logger.error(f"Error in handle_مسح_مهمة: {e}")
+            await message.reply_text(f"❌ **حدث خطأ أثناء إلغاء المهمة: {e}**")
+
+    async def handle_تعديل_مهمة(message: Message, parts: list):
+        try:
+            numbers = []
+            for p in parts[1:]:
+                clean_p = p.replace('#', '').replace('db-', '').replace('web_', '').strip()
+                if clean_p.isdigit():
+                    numbers.append(int(clean_p))
+                    
+            if len(numbers) < 2:
+                await message.reply_text(
+                    "⚠️ **طريقة الاستخدام الصحيحة لتعديل المهمة:**\n"
+                    "`.تعديل_مهمة <رقم_المهمة> <تأخير_البدء_بالدقائق> [الفاصل] [مدة_الحذف]`\n\n"
+                    "💡 **مثال:** `.تعديل_مهمة 123 15 10 20`\n"
+                    "(لتعديل المهمة 123 لتبدأ بعد 15 دقيقة، بفاصل 10 دقائق ومدة بقاء 20 دقيقة)."
+                )
+                return
+                
+            task_id = numbers[0]
+            new_delay_start = numbers[1]
+            new_interval = numbers[2] if len(numbers) > 2 else None
+            new_lifespan = numbers[3] if len(numbers) > 3 else None
+            
+            from db_manager import WebCampaignTask
+            from datetime import datetime, timezone
+            
+            async with AsyncSessionLocal() as session:
+                task = (await session.execute(
+                    select(WebCampaignTask).where(
+                        WebCampaignTask.id == task_id,
+                        WebCampaignTask.telegram_account_id == tenant_id
+                    )
+                )).scalars().first()
+                
+                if not task:
+                    await message.reply_text(f"❌ **لم يتم العثور على المهمة رقم #{task_id}!**\nاستخدم أمر `.جدول` لمعرفة أرقام المهام.")
+                    return
+                    
+                task.delay_start = new_delay_start
+                task.created_at = datetime.now(timezone.utc)
+                if new_interval is not None:
+                    task.delay_between_channels = new_interval
+                if new_lifespan is not None:
+                    task.ad_lifespan = new_lifespan
+                    
+                await session.commit()
+                
+            await log_tenant_event(tenant_id, f"✏️ تم تعديل توقيت المهمة المجدولة #{task_id} (بدء بعد: {new_delay_start} د).")
+            
+            report = [
+                f"✅ **تم تعديل بيانات المهمة رقم `#{task_id}` بنجاح!**",
+                f"⏱️ **موعد البدء الجديد:** بعد `{new_delay_start}` دقيقة من الآن."
+            ]
+            if new_interval is not None:
+                report.append(f"⏳ **الفاصل بين القنوات:** `{new_interval}` دقيقة")
+            if new_lifespan is not None:
+                report.append(f"🗑️ **مدة بقاء الإعلان:** `{new_lifespan}` دقيقة")
+                
+            await message.reply_text("\n".join(report))
+        except Exception as e:
+            logger.error(f"Error in handle_تعديل_مهمة: {e}")
+            await message.reply_text(f"❌ **حدث خطأ أثناء تعديل المهمة: {e}**")
+
     async def handle_اوامر(message: Message):
         text = (
             "📖 **قائمة أوامر البوت المتاحة** (مرتبة من الأكثر إلى الأقل استخداماً):\n\n"
@@ -5781,7 +5961,24 @@ async def redis_pubsub_listener():
                 elif channel == "saas_tenant_commands":
                     tenant_id = data.get("tenant_id")
                     command = data.get("command")
-                    if command == "cancel_jobs":
+                    if command == "cancel_single_job":
+                        task_id = data.get("task_id")
+                        logger.info(f"Received cancel_single_job command for tenant {tenant_id}, task {task_id}")
+                        jobs = scheduled_jobs.get(tenant_id, [])
+                        for j in jobs:
+                            if j.get("id") == f"web_{task_id}" or j.get("task_id") == task_id:
+                                try:
+                                    j["task"].cancel()
+                                except Exception:
+                                    pass
+                        scheduled_jobs[tenant_id] = [j for j in jobs if j.get("id") != f"web_{task_id}" and j.get("task_id") != task_id]
+                        await save_scheduled_jobs(tenant_id)
+                        await log_tenant_event(tenant_id, f"🗑️ تم إلغاء المهمة المجدولة #{task_id} من لوحة التحكم.")
+                    elif command == "update_single_job":
+                        task_id = data.get("task_id")
+                        logger.info(f"Received update_single_job command for tenant {tenant_id}, task {task_id}")
+                        await log_tenant_event(tenant_id, f"✏️ تم تعديل بيانات المهمة المجدولة #{task_id} من لوحة التحكم.")
+                    elif command == "cancel_jobs":
                         logger.info(f"Received cancel_jobs command via Redis Pub/Sub for tenant {tenant_id}")
                         
                         # 1. Cancel delayed scheduled jobs
