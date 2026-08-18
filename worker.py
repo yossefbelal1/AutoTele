@@ -605,10 +605,13 @@ def format_user_template(template: str, title: str, link: str, extra_link: Optio
     safe_link = _html.escape(link)
     safe_extra = _html.escape(extra_link) if extra_link else ""
 
-    res = template.replace("{title}", safe_title).replace("{link}", safe_link)
-    res = res.replace("{TITLE}", safe_title).replace("{LINK}", safe_link)
-    res = res.replace("[title]", safe_title).replace("[link]", safe_link)
-    res = res.replace("[TITLE]", safe_title).replace("[LINK]", safe_link)
+    # Combined link string with both links stacked directly one after the other
+    combined_link = f"{safe_link}\n{safe_extra}" if safe_extra else safe_link
+
+    res = template.replace("{title}", safe_title).replace("{link}", combined_link)
+    res = res.replace("{TITLE}", safe_title).replace("{LINK}", combined_link)
+    res = res.replace("[title]", safe_title).replace("[link]", combined_link)
+    res = res.replace("[TITLE]", safe_title).replace("[LINK]", combined_link)
 
     if extra_link:
         res = res.replace("{extra_link}", safe_extra).replace("{extra_target_link}", safe_extra)
@@ -618,13 +621,7 @@ def format_user_template(template: str, title: str, link: str, extra_link: Optio
     has_link = ("{link}" in lower_tmpl or "[link]" in lower_tmpl)
 
     if not has_link and link:
-        res = res + "\n\n🔗 " + safe_link
-
-    if extra_link and "{extra_link}" not in lower_tmpl and "[extra_link]" not in lower_tmpl and "{extra_target_link}" not in lower_tmpl and "[extra_target_link]" not in lower_tmpl:
-        if "t.me/addlist/" in extra_link:
-            res = res + "\n\n📁 <b>رابط المجلد المجمع:</b>\n" + safe_extra
-        else:
-            res = res + "\n\n🎯 <b>رابط إضافي:</b>\n" + safe_extra
+        res = res + f"\n\n{combined_link}"
 
     return res
 
@@ -744,12 +741,9 @@ async def get_formatted_ad_message(session, tenant_id: int, target_title: str, t
         return format_user_template(chosen_template, target_title, target_link, extra_link=extra_link)
     except Exception as e:
         logger.error(f"Error in templates engine: {e}")
-        base_text = f"📢 تابعوا شات {target_title} من هنا: {target_link}"
+        base_text = f"📢 تابعوا شات {target_title} من هنا:\n{target_link}"
         if extra_link:
-            if "t.me/addlist/" in extra_link:
-                base_text += f"\n\n📁 رابط المجلد المجمع:\n{extra_link}"
-            else:
-                base_text += f"\n\n🎯 رابط إضافي:\n{extra_link}"
+            base_text += f"\n{extra_link}"
         return base_text
 
 # ==========================================
