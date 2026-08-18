@@ -3083,7 +3083,14 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             )
 
     async def handle_حملات(message: Message, text: str, parts: List[str]):
-        numbers = [int(x) for x in parts if x.isdigit()]
+        extra_target_link = None
+        numbers = []
+        for p in parts[1:]:
+            clean_p = p.strip()
+            if clean_p.startswith("http://") or clean_p.startswith("https://") or clean_p.startswith("t.me/") or (clean_p.startswith("@") and len(clean_p) > 1):
+                extra_target_link = clean_p
+            elif clean_p.isdigit():
+                numbers.append(int(clean_p))
         
         delay_start = 0
         delay_between_channels = 15  # default 15 minutes
@@ -3127,6 +3134,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 new_task = WebCampaignTask(
                     telegram_account_id=tenant_id,
                     campaign_type="bulk",
+                    target_link=extra_target_link,
                     delay_start=0,
                     delay_between_channels=delay_between_channels,
                     ad_lifespan=ad_lifespan,
@@ -3142,12 +3150,13 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 await edit_or_reply(status_msg, f"🚀 **جاري بدء حملة المجلد المجمعة فوراً...**")
             else:
                 status_msg = await message.reply_text(f"🚀 **جاري بدء حملة المجلد المجمعة فوراً...**")
-            create_safe_task(run_bulk_campaign_logic(tenant_id, client, ad_text_custom, delay_between_channels, ad_lifespan, status_msg, web_task_id=web_task_id))
+            create_safe_task(run_bulk_campaign_logic(tenant_id, client, ad_text_custom, delay_between_channels, ad_lifespan, status_msg, web_task_id=web_task_id, extra_target_link=extra_target_link))
         else:
             async with AsyncSessionLocal() as db_session:
                 new_task = WebCampaignTask(
                     telegram_account_id=tenant_id,
                     campaign_type="bulk",
+                    target_link=extra_target_link,
                     delay_start=delay_start,
                     delay_between_channels=delay_between_channels,
                     ad_lifespan=ad_lifespan,
@@ -3164,12 +3173,16 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
 
     async def handle_حملات_مجلد(message: Message, text: str, parts: List[str]):
         folder_num = 1
+        extra_target_link = None
         numbers = []
-        for p in parts:
-            if p.isdigit():
-                numbers.append(int(p))
+        for p in parts[1:]:
+            clean_p = p.strip()
+            if clean_p.startswith("http://") or clean_p.startswith("https://") or clean_p.startswith("t.me/") or (clean_p.startswith("@") and len(clean_p) > 1):
+                extra_target_link = clean_p
+            elif clean_p.isdigit():
+                numbers.append(int(clean_p))
             else:
-                match = _re.search(r'(?:my_?channels|mychannels|قنواتي)[\s_-]*(\d+)', p.lower())
+                match = _re.search(r'(?:my_?channels|mychannels|قنواتي)[\s_-]*(\d+)', clean_p.lower())
                 if match:
                     folder_num = int(match.group(1))
 
@@ -3239,7 +3252,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 await edit_or_reply(status_msg, f"🚀 **جاري بدء حملة المجلد (My_channels{folder_num}) فوراً...**")
             else:
                 status_msg = await message.reply_text(f"🚀 **جاري بدء حملة المجلد (My_channels{folder_num}) فوراً...**")
-            create_safe_task(run_bulk_campaign_logic(tenant_id, client, ad_text_custom, delay_between_channels, ad_lifespan, status_msg, folder_number=folder_num, web_task_id=web_task_id))
+            create_safe_task(run_bulk_campaign_logic(tenant_id, client, ad_text_custom, delay_between_channels, ad_lifespan, status_msg, folder_number=folder_num, web_task_id=web_task_id, extra_target_link=extra_target_link))
         else:
             async with AsyncSessionLocal() as db_session:
                 new_task = WebCampaignTask(
@@ -5505,7 +5518,19 @@ async def run_web_campaign_task(task_id: int):
                     status_msg=status_msg
                 )
             elif task.campaign_type in ["bulk", "custom_folder"]:
-                folder_num = int(task.target_link) if (task.campaign_type == "custom_folder" and task.target_link and task.target_link.isdigit()) else None
+                folder_num = None
+                extra_link = None
+                if task.campaign_type == "custom_folder" and task.target_link:
+                    if "|" in task.target_link:
+                        f_str, extra_link = task.target_link.split("|", 1)
+                        folder_num = int(f_str) if f_str.isdigit() else 1
+                    elif task.target_link.isdigit():
+                        folder_num = int(task.target_link)
+                    else:
+                        extra_link = task.target_link
+                elif task.campaign_type == "bulk" and task.target_link:
+                    extra_link = task.target_link
+
                 await run_bulk_campaign_logic(
                     tenant_id=tenant_id,
                     client=client,
@@ -5514,7 +5539,8 @@ async def run_web_campaign_task(task_id: int):
                     ad_lifespan=task.ad_lifespan,
                     status_msg=status_msg,
                     folder_number=folder_num,
-                    web_task_id=task_id
+                    web_task_id=task_id,
+                    extra_target_link=extra_link
                 )
             elif task.campaign_type == "clear":
                 await run_clear_logic(tenant_id=tenant_id, client=client, web_task_id=task_id)
