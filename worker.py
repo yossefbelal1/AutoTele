@@ -599,28 +599,32 @@ def normalize_digits(text: str) -> str:
         text = text.replace(p, e)
     return text
 
-def format_user_template(template: str, title: str, link: str) -> str:
-    """
-    Safely substitute formatting template with support for custom animated emojis via HTML.
-    - The template is stored as HTML containing custom emoji tags.
-    - Title and link are HTML-escaped before insertion to prevent injection.
-    - The final output is formatted for parse_mode=HTML.
-    """
+def format_user_template(template: str, title: str, link: str, extra_link: Optional[str] = None) -> str:
     import html as _html
     safe_title = _html.escape(title)
-    safe_link   = _html.escape(link)
+    safe_link = _html.escape(link)
+    safe_extra = _html.escape(extra_link) if extra_link else ""
 
     res = template.replace("{title}", safe_title).replace("{link}", safe_link)
     res = res.replace("{TITLE}", safe_title).replace("{LINK}", safe_link)
     res = res.replace("[title]", safe_title).replace("[link]", safe_link)
     res = res.replace("[TITLE]", safe_title).replace("[LINK]", safe_link)
 
-    # Check if any link placeholder existed in the original template (case-insensitive)
+    if extra_link:
+        res = res.replace("{extra_link}", safe_extra).replace("{extra_target_link}", safe_extra)
+        res = res.replace("[extra_link]", safe_extra).replace("[extra_target_link]", safe_extra)
+
     lower_tmpl = template.lower()
     has_link = ("{link}" in lower_tmpl or "[link]" in lower_tmpl)
 
     if not has_link and link:
-        res = f"{res}\n\n🔗 {safe_link}"
+        res = res + "\n\n🔗 " + safe_link
+
+    if extra_link and "{extra_link}" not in lower_tmpl and "[extra_link]" not in lower_tmpl and "{extra_target_link}" not in lower_tmpl and "[extra_target_link]" not in lower_tmpl:
+        if "t.me/addlist/" in extra_link:
+            res = res + "\n\n📁 <b>رابط المجلد المجمع:</b>\n" + safe_extra
+        else:
+            res = res + "\n\n🎯 <b>رابط إضافي:</b>\n" + safe_extra
 
     return res
 
@@ -732,15 +736,21 @@ async def reply_long_message(message: Message, text_lines: List[str]):
         except Exception as e:
             logger.error(f"Error sending final chunk in reply_long_message: {e}")
 
-async def get_formatted_ad_message(session, tenant_id: int, target_title: str, target_link: str) -> str:
+async def get_formatted_ad_message(session, tenant_id: int, target_title: str, target_link: str, extra_link: Optional[str] = None) -> str:
     try:
         db_templates = await get_active_templates_for_tenant(session, telegram_account_id=tenant_id)
         templates = (db_templates or []) + DEFAULT_TEMPLATES
         chosen_template = random.choice(templates)
-        return format_user_template(chosen_template, target_title, target_link)
+        return format_user_template(chosen_template, target_title, target_link, extra_link=extra_link)
     except Exception as e:
         logger.error(f"Error in templates engine: {e}")
-        return f"📢 تابعوا شات {target_title} من هنا: {target_link}"
+        base_text = f"📢 تابعوا شات {target_title} من هنا: {target_link}"
+        if extra_link:
+            if "t.me/addlist/" in extra_link:
+                base_text += f"\n\n📁 رابط المجلد المجمع:\n{extra_link}"
+            else:
+                base_text += f"\n\n🎯 رابط إضافي:\n{extra_link}"
+        return base_text
 
 # ==========================================
 # ==========================================
@@ -2390,9 +2400,9 @@ async def run_bulk_campaign_logic(
                             )).scalar_one_or_none()
                             
                             if not ad_text_custom:
-                                ad_body = await get_formatted_ad_message(db_session, tenant_id, target_title, target_link)
+                                ad_body = await get_formatted_ad_message(db_session, tenant_id, target_title, target_link, extra_link=extra_target_link)
                             else:
-                                ad_body = format_user_template(ad_text_custom, target_title, target_link)
+                                ad_body = format_user_template(ad_text_custom, target_title, target_link, extra_link=extra_target_link)
                         
                         sticker_msg_id = None
                         if tenant_id not in tenant_semaphores:
