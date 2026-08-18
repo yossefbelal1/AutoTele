@@ -653,8 +653,12 @@ async def safe_edit_message(message: Optional[Message], text: str):
             await message.edit_text(text, disable_web_page_preview=True)
         except Exception:
             pass
-    except Exception:
-        pass
+    except Exception as e:
+        # Fallback without markdown parsing if entity syntax is malformed
+        try:
+            await message.edit_text(text, parse_mode=None, disable_web_page_preview=True)
+        except Exception:
+            pass
 
     try:
         chat_id = message.chat.id if message.chat else None
@@ -2181,7 +2185,9 @@ async def run_bulk_campaign_logic(
             lines = []
             now_utc = datetime.now(timezone.utc)
             for j, info in enumerate(targets_info):
-                title = info["title"]
+                raw_title = info["title"]
+                # Escape markdown special characters in channel titles
+                title = raw_title.replace('*', '').replace('`', '').replace('_', ' ')
                 
                 if j in target_actual_starts:
                     act_start = target_actual_starts[j]
