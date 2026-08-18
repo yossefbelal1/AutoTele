@@ -2146,6 +2146,35 @@ async def run_bulk_campaign_logic(
                 await log_tenant_event(tenant_id, f"فشل حملة الفولدر: مجلد '{folder_label}' فارغ في الكاش.")
                 return
 
+        # Smart Sorting: Fetch invite link joins for all targets concurrently and sort ascending (lowest joins first)
+        if campaign_ids:
+            try:
+                me_peer = await client.resolve_peer("me")
+            except Exception:
+                me_peer = None
+            
+            if status_msg:
+                try:
+                    await safe_edit_message(status_msg, f"⏳ **جاري حساب إحصائيات روابط الدعوة وترتيب القنوات المستهدفة...**")
+                except Exception:
+                    pass
+            
+            async def _fetch_target_joins(cid):
+                try:
+                    joins = await asyncio.wait_for(get_chat_total_invite_joins(client, cid, me_peer), timeout=5.0) if me_peer else 0
+                except Exception:
+                    joins = 0
+                return (joins, cid)
+            
+            try:
+                target_scores = await asyncio.gather(*[_fetch_target_joins(cid) for cid in campaign_ids])
+                # Sort by joins ascending (lowest joins first)
+                target_scores_sorted = sorted(target_scores, key=lambda x: x[0])
+                campaign_ids = [cid for joins, cid in target_scores_sorted]
+                logger.info(f"Tenant {tenant_id}: Sorted {len(campaign_ids)} bulk targets by joins ascending: {target_scores_sorted}")
+            except Exception as sort_err:
+                logger.warning(f"Tenant {tenant_id}: Failed to sort targets by joins: {sort_err}")
+
         total_targets = len(campaign_ids)
         start_time = datetime.now(timezone.utc)
         
