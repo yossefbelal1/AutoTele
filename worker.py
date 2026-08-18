@@ -2096,7 +2096,8 @@ async def run_bulk_campaign_logic(
     status_msg: Optional[Message] = None,
     resume_index: int = 0,
     folder_number: Optional[int] = None,
-    web_task_id: Optional[int] = None
+    web_task_id: Optional[int] = None,
+    extra_target_link: Optional[str] = None
 ):
     curr_task = asyncio.current_task()
     if tenant_id not in active_running_tasks:

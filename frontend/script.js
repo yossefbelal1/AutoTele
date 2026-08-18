@@ -2199,6 +2199,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const selectedType = campaignTypeSelect.value;
       if (selectedType === "single") {
         groupTargetLink.style.display = "block";
+        const groupBulkExtra = document.getElementById("group-bulk-extra-link");
+        if (groupBulkExtra) groupBulkExtra.style.display = "none";
         if (groupPinChannels) groupPinChannels.style.display = "none";
         groupCustomText.style.display = "block";
         if (groupDelayBetween) groupDelayBetween.style.display = "none";
@@ -2217,11 +2219,9 @@ document.addEventListener("DOMContentLoaded", () => {
         resetTimedPostDropdowns();
         fetchUserChannels();
       } else if (selectedType === "bulk") {
-        groupTargetLink.style.display = "block";
-        const targetLabel = groupTargetLink.querySelector("label");
-        if (targetLabel) targetLabel.textContent = "🎯 رابط إضافي مروج مع كل قناة (اختياري - مثل رابط مجلد مجمع أو قناة ثانية):";
-        const targetInput = document.getElementById("web-target-link");
-        if (targetInput) targetInput.placeholder = "https://t.me/addlist/... أو @channel (اختياري)";
+        groupTargetLink.style.display = "none";
+        const groupBulkExtra = document.getElementById("group-bulk-extra-link");
+        if (groupBulkExtra) groupBulkExtra.style.display = "block";
         if (groupPinChannels) groupPinChannels.style.display = "none";
         groupCustomText.style.display = "block";
         if (groupDelayBetween) groupDelayBetween.style.display = "block";
@@ -2229,6 +2229,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (groupDelayStart) groupDelayStart.style.display = "block";
       } else if (selectedType === "deep_clear" || selectedType === "clear" || selectedType === "stop_everything") {
         groupTargetLink.style.display = "none";
+        const groupBulkExtra = document.getElementById("group-bulk-extra-link");
+        if (groupBulkExtra) groupBulkExtra.style.display = "none";
         if (groupPinChannels) groupPinChannels.style.display = "none";
         groupCustomText.style.display = "none";
         if (groupDelayBetween) groupDelayBetween.style.display = "none";
@@ -2236,6 +2238,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (groupDelayStart) groupDelayStart.style.display = "block";
       } else {
         groupTargetLink.style.display = "none";
+        const groupBulkExtra = document.getElementById("group-bulk-extra-link");
+        if (groupBulkExtra) groupBulkExtra.style.display = "none";
         if (groupPinChannels) groupPinChannels.style.display = "none";
         groupCustomText.style.display = "none";
         if (groupDelayBetween) groupDelayBetween.style.display = "block";
