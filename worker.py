@@ -2142,34 +2142,10 @@ async def run_bulk_campaign_logic(
                 await log_tenant_event(tenant_id, f"فشل حملة الفولدر: مجلد '{folder_label}' فارغ في الكاش.")
                 return
 
-        # Smart Sorting: Fetch invite link joins for all targets and sort ascending (lowest joins first)
-        if campaign_ids:
-            try:
-                me_peer = await client.resolve_peer("me")
-            except Exception:
-                me_peer = None
-            
-            if status_msg:
-                try:
-                    await safe_edit_message(status_msg, f"⏳ **جاري حساب إحصائيات روابط الدعوة وترتيب القنوات المستهدفة...**")
-                except Exception:
-                    pass
-            
-            target_scores = []
-            for cid in campaign_ids:
-                joins = await get_chat_total_invite_joins(client, cid, me_peer) if me_peer else 0
-                target_scores.append((joins, cid))
-                await asyncio.sleep(0.05)
-            
-            # Sort by joins ascending
-            target_scores.sort(key=lambda x: x[0])
-            campaign_ids = [cid for joins, cid in target_scores]
-            logger.info(f"Tenant {tenant_id}: Sorted {len(campaign_ids)} bulk targets by joins: {campaign_ids}")
-
         total_targets = len(campaign_ids)
         start_time = datetime.now(timezone.utc)
         
-        # Pre-resolve all target titles and usernames once at start from cached channels to avoid PeerIdInvalid
+        # Pre-resolve all target titles and usernames instantly from memory cache
         from cache_manager import get_channels_cache
         channels_cache = await get_channels_cache(tenant_id)
         ch_map = {ch["id"]: ch for ch in channels_cache if isinstance(ch, dict)} if channels_cache else {}
@@ -2188,20 +2164,9 @@ async def run_bulk_campaign_logic(
                         link = f"https://t.me/{username}" if username else f"https://t.me/c/{tid_str[1:] if tid_str.startswith('-') else tid_str}"
                 targets_info.append({"id": tid, "title": title, "link": link})
             else:
-                try:
-                    chat = await client.get_chat(tid)
-                    title = chat.title or "قناة"
-                    username = getattr(chat, "username", None)
-                    tid_str = str(tid)
-                    if tid_str.startswith("-100"):
-                        fallback = f"https://t.me/{username}" if username else f"https://t.me/c/{tid_str[4:]}"
-                    else:
-                        fallback = f"https://t.me/{username}" if username else f"https://t.me/c/{tid_str[1:] if tid_str.startswith('-') else tid_str}"
-                    link = await resolve_best_channel_link(client, tid, fallback)
-                    targets_info.append({"id": tid, "title": title, "link": link})
-                except Exception as e:
-                    logger.warning(f"Could not resolve target chat {tid}: {e}")
-                    targets_info.append({"id": tid, "title": f"قناة [{tid}]", "link": f"https://t.me/c/{str(tid)[4:] if str(tid).startswith('-100') else str(tid)}"})
+                tid_str = str(tid)
+                fallback = f"https://t.me/c/{tid_str[4:] if tid_str.startswith('-100') else (tid_str[1:] if tid_str.startswith('-') else tid_str)}"
+                targets_info.append({"id": tid, "title": f"قناة [{tid}]", "link": fallback})
 
         target_states = {}
         target_actual_starts = {}
@@ -2325,6 +2290,12 @@ async def run_bulk_campaign_logic(
 
         status_msg_chat_id = status_msg.chat.id if status_msg else None
         status_msg_id = status_msg.id if status_msg else None
+
+        # Display full checklist dashboard immediately at startup
+        try:
+            await update_status_message(resume_index, "posting")
+        except Exception as _e:
+            logger.debug(f"Initial checklist render: {_e}")
         
         state_data = {
             "campaign_type": "bulk",
