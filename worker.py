@@ -3986,21 +3986,23 @@ async def supervisor_loop():
                         except Exception as p_ex:
                             logger.warning(f"Tenant {acc.id} client ping failed: {p_ex}. Treating as disconnected.")
                             
-                    if (not client or not is_connected) and acc.id not in starting_tenants:
-                        if client:
-                            logger.warning(f"Tenant {acc.id} client is disconnected. Stopping and restarting worker...")
-                            try:
-                                await stop_tenant_worker(acc.id, session, reason="Client Disconnected")
-                            except Exception as stop_ex:
-                                logger.error(f"Error stopping disconnected client for tenant {acc.id}: {stop_ex}")
-                        starting_tenants.add(acc.id)
-                        asyncio.create_task(start_tenant_worker(acc))
+                    if not is_connected:
+                        if acc.id not in starting_tenants:
+                            if client:
+                                logger.warning(f"Tenant {acc.id} client is disconnected. Stopping and restarting worker...")
+                                try:
+                                    await stop_tenant_worker(acc.id, session, reason="Client Disconnected")
+                                except Exception as stop_ex:
+                                    logger.error(f"Error stopping disconnected client for tenant {acc.id}: {stop_ex}")
+                            starting_tenants.add(acc.id)
+                            asyncio.create_task(start_tenant_worker(acc))
                     else:
-                        client = running_clients[acc.id]
-                        last_t = last_crawl_time.get(acc.id)
-                        if not last_t or now - last_t > timedelta(hours=12):
-                            last_crawl_time[acc.id] = now
-                            asyncio.create_task(crawl_and_cache_tenant_channels(acc.id, client))
+                        client = running_clients.get(acc.id)
+                        if client:
+                            last_t = last_crawl_time.get(acc.id)
+                            if not last_t or now - last_t > timedelta(hours=12):
+                                last_crawl_time[acc.id] = now
+                                asyncio.create_task(crawl_and_cache_tenant_channels(acc.id, client))
                             
         except Exception as e:
             logger.error(f"Error in Supervisor Loop: {e}")
@@ -4043,7 +4045,27 @@ async def start_tenant_worker(account: TelegramAccount):
             workers=2  # Limit update handling thread pool per client to save RAM/CPU context switching
         )
         
-        await client.start()
+        try:
+            await asyncio.wait_for(client.start(), timeout=12.0)
+        except Exception as start_err:
+            if proxy_config:
+                logger.warning(f"Tenant {tenant_id}: Failed to start with proxy ({start_err}). Falling back to direct connection...")
+                try:
+                    await client.stop()
+                except Exception:
+                    pass
+                client = Client(
+                    name=f"tenant_session_{tenant_id}",
+                    api_id=account.api_id,
+                    api_hash=account.api_hash,
+                    session_string=account.string_session,
+                    in_memory=True,
+                    workers=2
+                )
+                await asyncio.wait_for(client.start(), timeout=15.0)
+            else:
+                raise
+
         running_clients[tenant_id] = client
         
         # Instantiate tenant semaphore, wave lock, and reset backoff multiplier
@@ -5730,8 +5752,7 @@ async def poll_web_campaign_tasks():
             async with AsyncSessionLocal() as session:
                 # Find all pending tasks alongside their user subscription info
                 stmt = (
-                    select(WebCampaignTask,
-    AccountNotification, User.subscription_status, User.subscription_end)
+                    select(WebCampaignTask, User.subscription_status, User.subscription_end)
                     .join(TelegramAccount, WebCampaignTask.telegram_account_id == TelegramAccount.id)
                     .join(User, TelegramAccount.user_id == User.id)
                     .where(WebCampaignTask.status == "pending")
