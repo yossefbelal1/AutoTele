@@ -158,6 +158,7 @@ function showSignupScreen() {
 }
 
 function showDashboardScreen() {
+  initNotificationCenter();
   document.getElementById("auth-view").classList.add("hidden");
   document.getElementById("signup-view").classList.add("hidden");
   document.getElementById("dashboard-view").classList.remove("hidden");
@@ -2957,3 +2958,159 @@ async function deleteScheduledJob(taskId) {
     showToast("حدث خطأ أثناء إلغاء المهمة: " + err.message, "error");
   }
 }
+
+
+// ==========================================
+// NOTIFICATION CENTER MODULE
+// ==========================================
+
+let notificationsData = [];
+let notifPollInterval = null;
+
+function initNotificationCenter() {
+  const btnBell = document.getElementById("btn-notif-bell");
+  const dropdown = document.getElementById("notif-dropdown");
+  const btnMarkAll = document.getElementById("btn-mark-all-read");
+
+  if (!btnBell || !dropdown) return;
+
+  btnBell.addEventListener("click", (e) => {
+    e.stopPropagation();
+    dropdown.classList.toggle("hidden");
+    if (!dropdown.classList.contains("hidden")) {
+      fetchNotifications();
+    }
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!dropdown.contains(e.target) && !btnBell.contains(e.target)) {
+      dropdown.classList.add("hidden");
+    }
+  });
+
+  if (btnMarkAll) {
+    btnMarkAll.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await markNotificationsAsRead(null, true);
+    });
+  }
+
+  fetchNotifications();
+  if (notifPollInterval) clearInterval(notifPollInterval);
+  notifPollInterval = setInterval(fetchNotifications, 25000);
+}
+
+async function fetchNotifications() {
+  const token = localStorage.getItem("access_token");
+  if (!token) return;
+
+  try {
+    const res = await fetch("/api/user/notifications", {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      renderNotifications(data.notifications || [], data.unread_count || 0);
+    }
+  } catch (e) {
+    console.error("Failed to fetch notifications:", e);
+  }
+}
+
+function formatNotifTime(isoStr) {
+  if (!isoStr) return "";
+  try {
+    const d = new Date(isoStr);
+    return d.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) + ' ' + d.toLocaleDateString('ar-EG', { month: 'numeric', day: 'numeric' });
+  } catch (e) {
+    return isoStr;
+  }
+}
+
+function renderNotifications(notifications, unreadCount) {
+  notificationsData = notifications;
+  const badge = document.getElementById("notif-badge-count");
+  const listContainer = document.getElementById("notif-list-container");
+
+  if (badge) {
+    if (unreadCount > 0) {
+      badge.textContent = unreadCount > 99 ? "+99" : unreadCount;
+      badge.style.display = "flex";
+    } else {
+      badge.style.display = "none";
+    }
+  }
+
+  if (!listContainer) return;
+
+  if (!notifications || notifications.length === 0) {
+    listContainer.innerHTML = '<div class="notif-empty">لا توجد تنبيهات جديدة حالياً ✨</div>';
+    return;
+  }
+
+  listContainer.innerHTML = notifications.map(n => {
+    const isUnread = !n.is_read;
+    const timeStr = formatNotifTime(n.created_at);
+    const actorHtml = n.actor_username ? `@${escapeHtml(n.actor_username)}` : escapeHtml(n.actor_name || "مسؤول القناة");
+
+    return `
+      <div class="notif-item ${isUnread ? 'unread' : ''}" onclick="handleNotifClick(${n.id}, ${isUnread})">
+        <div class="notif-icon-box">🚨</div>
+        <div class="notif-content">
+          <div class="notif-title">${escapeHtml(n.title)}</div>
+          <div class="notif-desc">${escapeHtml(n.message)}</div>
+          <div class="notif-meta">
+            <span>بواسطة: <span class="notif-actor">${actorHtml}</span></span>
+            <span>${timeStr}</span>
+          </div>
+        </div>
+        <button type="button" class="btn-notif-delete" onclick="handleDeleteNotif(event, ${n.id})" title="حذف">✕</button>
+      </div>
+    `;
+  }).join('');
+}
+
+window.handleNotifClick = async function(notifId, isUnread) {
+  if (isUnread) {
+    await markNotificationsAsRead(notifId, false);
+  }
+};
+
+window.handleDeleteNotif = async function(e, notifId) {
+  e.stopPropagation();
+  const token = localStorage.getItem("access_token");
+  if (!token) return;
+
+  try {
+    const res = await fetch(`/api/user/notifications/${notifId}`, {
+      method: "DELETE",
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (res.ok) {
+      fetchNotifications();
+    }
+  } catch (err) {
+    console.error("Failed to delete notification:", err);
+  }
+};
+
+window.markNotificationsAsRead = async function(notifId = null, all = false) {
+  const token = localStorage.getItem("access_token");
+  if (!token) return;
+
+  try {
+    const res = await fetch("/api/user/notifications/mark-read", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ notification_id: notifId, all: all })
+    });
+    if (res.ok) {
+      fetchNotifications();
+    }
+  } catch (err) {
+    console.error("Failed to mark notifications read:", err);
+  }
+};

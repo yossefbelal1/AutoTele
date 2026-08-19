@@ -21,12 +21,12 @@ class UpdateScheduledJobReq(BaseModel):
     target_link: Optional[str] = None
 
 import bcrypt
-from sqlalchemy import select, update, delete, func
+from sqlalchemy import select, update, delete, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from pyrogram import Client
 from pyrogram.errors import SessionPasswordNeeded, PhoneCodeInvalid, PhoneCodeExpired, FloodWait
 
-from db_manager import get_db, User, TelegramAccount, AsyncSessionLocal, CryptoPayment, AdTemplate, WebCampaignTask, apply_pyrogram_patches
+from db_manager import get_db, User, TelegramAccount, AsyncSessionLocal, CryptoPayment, AdTemplate, WebCampaignTask, apply_pyrogram_patches, AccountNotification
 from cache_manager import is_rate_limited, is_key_rate_limited, redis_client, clear_tenant_cache, get_channels_cache
 
 import redis
@@ -2330,3 +2330,84 @@ async def live_logs_stream(tenant_id: Optional[int] = None, admin_user: User = D
             "Connection": "keep-alive"
         }
     )
+
+# ========================================# ==========================================
+# NOTIFICATIONS API
+# ==========================================
+
+@app.get("/user/notifications")
+async def get_user_notifications(current_user_id: int = Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        # Fetch notifications for current user's accounts
+        res = await session.execute(
+            select(AccountNotification)
+            .where(AccountNotification.user_id == current_user_id)
+            .order_by(desc(AccountNotification.created_at))
+            .limit(50)
+        )
+        notifications = res.scalars().all()
+        
+        unread_count = sum(1 for n in notifications if not n.is_read)
+        
+        items = []
+        for n in notifications:
+            items.append({
+                "id": n.id,
+                "type": n.notification_type,
+                "title": n.title,
+                "message": n.message,
+                "actor_name": n.actor_name or "مسؤول القناة",
+                "actor_username": n.actor_username,
+                "chat_title": n.chat_title or "قناة غير معروفة",
+                "chat_id": n.chat_id,
+                "is_read": n.is_read,
+                "created_at": n.created_at.isoformat() if n.created_at else None
+            })
+            
+        return {
+            "status": "success",
+            "unread_count": unread_count,
+            "notifications": items
+        }
+
+class MarkReadReq(BaseModel):
+    notification_id: Optional[int] = None
+    all: bool = False
+
+@app.post("/user/notifications/mark-read")
+async def mark_notifications_read(req: MarkReadReq, current_user_id: int = Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        if req.all:
+            await session.execute(
+                update(AccountNotification)
+                .where(AccountNotification.user_id == current_user_id)
+                .values(is_read=True)
+            )
+        elif req.notification_id:
+            await session.execute(
+                update(AccountNotification)
+                .where(AccountNotification.id == req.notification_id, AccountNotification.user_id == current_user_id)
+                .values(is_read=True)
+            )
+        await session.commit()
+        return {"status": "success", "message": "تم تحديث حالة الإشعارات"}
+
+@app.delete("/user/notifications/{notification_id}")
+async def delete_notification(notification_id: int, current_user_id: int = Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            delete(AccountNotification)
+            .where(AccountNotification.id == notification_id, AccountNotification.user_id == current_user_id)
+        )
+        await session.commit()
+        return {"status": "success", "message": "تم حذف الإشعار"}
+
+@app.delete("/user/notifications")
+async def clear_all_notifications(current_user_id: int = Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            delete(AccountNotification)
+            .where(AccountNotification.user_id == current_user_id)
+        )
+        await session.commit()
+        return {"status": "success", "message": "تم تفريغ كافة الإشعارات"}

@@ -436,3 +436,20 @@ def apply_pyrogram_patches():
     except Exception as e:
         logger.error(f"Error applying Pyrogram monkey patches: {e}")
 
+
+
+class AccountNotification(Base):
+    __tablename__ = "account_notifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telegram_account_id: Mapped[int] = mapped_column(ForeignKey("telegram_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    notification_type: Mapped[str] = mapped_column(String(50), default="channel_demotion", nullable=False)  # channel_demotion, channel_kick, system_alert
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    actor_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    actor_username: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    chat_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    chat_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), nullable=False)

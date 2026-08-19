@@ -11,7 +11,7 @@ import pytz
 import concurrent.futures
 
 from pyrogram import Client, filters
-from pyrogram.types import Message
+from pyrogram.types import Message, ChatMemberUpdated
 from pyrogram.enums import ParseMode
 from pyrogram.errors import FloodWait, RPCError, Unauthorized, UserDeactivated, SlowmodeWait
 from sqlalchemy import select, update, delete
@@ -25,6 +25,7 @@ from db_manager import (
     AdTemplate,
     Blacklist,
     WebCampaignTask,
+    AccountNotification,
     add_ad_record,
     remove_ad_record,
     get_expired_ads,
@@ -402,25 +403,48 @@ async def check_admin_rights_dynamic(client: Client, chat_id: int, tenant_id: in
         logger.warning(f"Dynamic admin check failed for chat {chat_id} (tenant {tenant_id}): {e}")
     return False
 
-async def remove_channel_from_cache_on_demotion(telegram_account_id: int, chat_id: int):
+async def remove_channel_from_cache_on_demotion(telegram_account_id: int, chat_id: int, actor_name: Optional[str] = None, actor_username: Optional[str] = None, action_label: str = "سحب صلاحيات النشر / إزالة من الإشراف"):
 
     try:
         channels = await get_channels_cache(telegram_account_id)
         updated_channels = [ch for ch in channels if ch["id"] != chat_id]
+        ch_title = f"[{chat_id}]"
+        ch_username = None
+        for ch in channels:
+            if ch["id"] == chat_id:
+                ch_title = ch.get("title", ch_title)
+                ch_username = ch.get("username")
+                break
+        
         if len(channels) != len(updated_channels):
-            ch_title = f"[{chat_id}]"
-            for ch in channels:
-                if ch["id"] == chat_id:
-                    ch_title = ch.get("title", ch_title)
-                    break
             await save_channels_cache(telegram_account_id, updated_channels)
             logger.info(f"Successfully removed channel {chat_id} from cache for tenant {telegram_account_id} due to demotion.")
             await log_tenant_event(telegram_account_id, f"🧹 تم حذف القناة {ch_title} تلقائياً من الكاش لعدم وجود صلاحيات نشر بها.")
-            try:
-                from status_bot import notify_user_by_tenant_id
-                await notify_user_by_tenant_id(telegram_account_id, f"⚠️ **تنبيه هام:** تم إزالة صلاحيات النشر لحسابك في القناة/المجموعة: **{ch_title}**. تم إخراجها من قائمة النشر تلقائياً.")
-            except Exception as nfe:
-                logger.error(f"Failed to send bot notification: {nfe}")
+        
+        # Save to DB AccountNotification
+        try:
+            async with AsyncSessionLocal() as db_session:
+                acc_obj = (await db_session.execute(
+                    select(TelegramAccount).where(TelegramAccount.id == telegram_account_id)
+                )).scalar_one_or_none()
+                if acc_obj:
+                    notif = AccountNotification(
+                        telegram_account_id=telegram_account_id,
+                        user_id=acc_obj.user_id,
+                        notification_type="channel_demotion",
+                        title=f"🚨 تنبيه: {action_label}",
+                        message=f"تم رصد سحب رتبة أو إزالة في القناة: {ch_title}",
+                        actor_name=actor_name or "مسؤول القناة",
+                        actor_username=actor_username,
+                        chat_title=ch_title,
+                        chat_id=chat_id,
+                        is_read=False
+                    )
+                    db_session.add(notif)
+                    await db_session.commit()
+        except Exception as db_err:
+            logger.error(f"Failed to record AccountNotification in DB: {db_err}")
+
     except Exception as ex:
         logger.error(f"Error removing channel {chat_id} from cache: {ex}")
 
@@ -2643,6 +2667,86 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         if not message.chat or message.chat.id != message.from_user.id:
             return False
         return True
+
+    
+    @client.on_chat_member_updated()
+    async def chat_member_updated_handler(cls, event: ChatMemberUpdated):
+        try:
+            me = cls.me or await cls.get_me()
+            target_user = event.new_chat_member.user if event.new_chat_member else (event.old_chat_member.user if event.old_chat_member else None)
+            if not target_user or target_user.id != me.id:
+                return
+
+            old_member = event.old_chat_member
+            new_member = event.new_chat_member
+
+            old_status = old_member.status if old_member else None
+            new_status = new_member.status if new_member else None
+
+            old_can_post = getattr(old_member.privileges, "can_post_messages", False) if (old_member and old_member.privileges) else False
+            new_can_post = getattr(new_member.privileges, "can_post_messages", False) if (new_member and new_member.privileges) else False
+
+            was_admin = old_status in (ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR)
+            is_admin = new_status in (ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR)
+
+            is_demoted = False
+            is_kicked = False
+            action_label = ""
+            notif_type = ""
+
+            if was_admin and not is_admin:
+                is_demoted = True
+                action_label = "تنزيل من مشرف إلى عضو عادي (سحب صلاحيات الإشراف)"
+                notif_type = "channel_demotion"
+            elif was_admin and is_admin and old_can_post and not new_can_post:
+                is_demoted = True
+                action_label = "سحب صلاحية نشر الرسائل (Post Messages Permission Revoked)"
+                notif_type = "channel_demotion"
+            elif new_status in (ChatMemberStatus.BANNED, ChatMemberStatus.RESTRICTED) or (new_status == ChatMemberStatus.LEFT and old_status != ChatMemberStatus.LEFT):
+                is_kicked = True
+                action_label = "طرد / حظر أو إزالة من القناة"
+                notif_type = "channel_kick"
+
+            if not (is_demoted or is_kicked):
+                return
+
+            chat_title = event.chat.title or "قناة بدون اسم"
+            chat_username = getattr(event.chat, "username", None)
+            chat_id = event.chat.id
+
+            actor = event.from_user
+            actor_name = "مسؤول القناة"
+            actor_username = None
+            if actor:
+                actor_name = f"{actor.first_name or ''} {actor.last_name or ''}".strip() or "مسؤول القناة"
+                actor_username = actor.username
+
+            # 1. Update Channels Cache and DB
+            await remove_channel_from_cache_on_demotion(tenant_id, chat_id, actor_name=actor_name, actor_username=actor_username, action_label=action_label)
+
+            # 2. Send Alert to Saved Messages
+            time_str = (datetime.now(timezone.utc) + timedelta(hours=3)).strftime("%I:%M %p")
+            actor_display = f"**{actor_name}**" + (f" (@{actor_username})" if actor_username else "")
+            channel_display = f"**{chat_title}**" + (f" (@{chat_username})" if chat_username else f" `[{chat_id}]`")
+
+            alert_text = (
+                f"🚨 **تنبيه أمني فوري: تم رصد تغيير في صلاحياتك!**\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"📢 **القناة / المجموعة:** {channel_display}\n"
+                f"👤 **المسؤول الذي قام بالإجراء:** {actor_display}\n"
+                f"⚠️ **نوع الإجراء:** `{action_label}`\n"
+                f"⏰ **التوقيت:** `{time_str}` (توقيت القاهرة)\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"ℹ️ _تم تحديث وتطهير قائمة قنواتك تلقائياً لمنع أي أخطاء أثناء النشر الآلي._"
+            )
+            try:
+                await cls.send_message("me", alert_text, disable_web_page_preview=True)
+            except Exception as sm_err:
+                logger.error(f"Failed to send Saved Messages demotion alert: {sm_err}")
+
+            logger.warning(f"Tenant {tenant_id}: Detected {notif_type} in {chat_title} by {actor_name}")
+        except Exception as e:
+            logger.error(f"Error in chat_member_updated_handler for tenant {tenant_id}: {e}", exc_info=True)
 
     @client.on_message(filters.private)
     async def unified_handler(cls, message: Message):
@@ -5626,7 +5730,8 @@ async def poll_web_campaign_tasks():
             async with AsyncSessionLocal() as session:
                 # Find all pending tasks alongside their user subscription info
                 stmt = (
-                    select(WebCampaignTask, User.subscription_status, User.subscription_end)
+                    select(WebCampaignTask,
+    AccountNotification, User.subscription_status, User.subscription_end)
                     .join(TelegramAccount, WebCampaignTask.telegram_account_id == TelegramAccount.id)
                     .join(User, TelegramAccount.user_id == User.id)
                     .where(WebCampaignTask.status == "pending")
