@@ -2185,7 +2185,7 @@ async def run_bulk_campaign_logic(
             
             async def _fetch_target_joins(cid):
                 try:
-                    joins = await asyncio.wait_for(get_chat_total_invite_joins(client, cid, me_peer), timeout=5.0) if me_peer else 0
+                    joins = await asyncio.wait_for(get_chat_total_invite_joins(client, cid, me_peer, tenant_id=tenant_id), timeout=2.0) if me_peer else 0
                 except Exception:
                     joins = 0
                 return (joins, cid)
