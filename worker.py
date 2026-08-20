@@ -285,59 +285,48 @@ async def delete_active_ads_in_channel(session: AsyncSession, client: Client, te
     except Exception as ge:
         logger.error(f"Error in delete_active_ads_in_channel for tenant {tenant_id} on chat {chat_id}: {ge}")
 
-async def get_chat_total_invite_joins(client: Client, chat_id: int, me_peer) -> int:
-    try:
-        from pyrogram.raw import functions, types
-        peer = await client.resolve_peer(chat_id)
-        invites_list = []
-        seen_links = set()
-        
-        # 1. Fetch invites created by me (Primary + custom admin links)
-        if me_peer:
-            try:
-                res1 = await client.invoke(
-                    functions.messages.GetExportedChatInvites(
-                        peer=peer,
-                        admin_id=me_peer,
-                        limit=50
-                    ),
-                    sleep_threshold=10
-                )
-                for inv in getattr(res1, "invites", []):
-                    link = getattr(inv, "link", None)
-                    if link and link not in seen_links:
-                        seen_links.add(link)
-                        invites_list.append(inv)
-            except Exception:
-                pass
-
-        # 2. Fetch all exported chat invites (Primary link + other admin links)
+async def get_chat_total_invite_joins(client: Client, chat_id: int, me_peer=None, tenant_id: Optional[int] = None) -> int:
+    from cache_manager import redis_client
+    cache_key = f"tenant:{tenant_id}:joins:{chat_id}" if tenant_id else None
+    if cache_key:
         try:
-            res2 = await client.invoke(
-                functions.messages.GetExportedChatInvites(
-                    peer=peer,
-                    admin_id=types.InputUserEmpty(),
-                    limit=50
-                ),
-                sleep_threshold=10
-            )
-            for inv in getattr(res2, "invites", []):
-                link = getattr(inv, "link", None)
-                if link and link not in seen_links:
-                    seen_links.add(link)
-                    invites_list.append(inv)
+            cached_val = await redis_client.get(cache_key)
+            if cached_val is not None:
+                return int(cached_val)
         except Exception:
             pass
 
-        # Calculate sum of joined members across all links (7 + 19 = 26)
-        total_joins = 0
-        for inv in invites_list:
-            if not getattr(inv, "revoked", False):
-                cnt = getattr(inv, "usage", 0) or 0
-                total_joins += cnt
-        return total_joins
-    except Exception:
-        return 0
+    total_joins = 0
+    try:
+        from pyrogram.raw import functions, types
+        peer = await client.resolve_peer(chat_id)
+        
+        # types.InputUserSelf() fetches all links created by the userbot with exact usage count
+        res = await client.invoke(
+            functions.messages.GetExportedChatInvites(
+                peer=peer,
+                admin_id=types.InputUserSelf(),
+                limit=50
+            ),
+            sleep_threshold=2
+        )
+        seen_links = set()
+        for inv in getattr(res, "invites", []):
+            link = getattr(inv, "link", None)
+            if link and link not in seen_links:
+                seen_links.add(link)
+                usage = getattr(inv, "usage", 0) or 0
+                total_joins += usage
+    except Exception as e:
+        logger.debug(f"Could not get exported chat invites for {chat_id}: {e}")
+
+    if cache_key:
+        try:
+            await redis_client.set(cache_key, str(total_joins), ex=900)
+        except Exception:
+            pass
+
+    return total_joins
 
 async def is_my_sticker_in_recent_history(client: Client, chat_id: int, tenant_id: int, limit: int = 5) -> bool:
     try:
