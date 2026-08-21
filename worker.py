@@ -364,33 +364,40 @@ async def send_sticker_if_needed(client: Client, chat_id: int, tenant_id: int) -
     return None
 
 async def check_admin_rights_dynamic(client: Client, chat_id: int, tenant_id: int, require_posting_rights: bool = True) -> bool:
-
     try:
-        is_broadcast = None
-        channels = await get_channels_cache(tenant_id)
-        for ch in channels:
-            if ch["id"] == chat_id:
-                is_broadcast = ch.get("is_broadcast", True)
-                break
-        
-        if is_broadcast is None:
-            chat = await client.get_chat(chat_id)
-            from pyrogram.enums import ChatType
-            is_broadcast = (chat.type == ChatType.CHANNEL)
-            
         member = await client.get_chat_member(chat_id, "me")
         from pyrogram.enums import ChatMemberStatus
-        if member.status == ChatMemberStatus.OWNER:
+        if member.status in (ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR):
             return True
-        if member.status == ChatMemberStatus.ADMINISTRATOR:
-            if require_posting_rights and is_broadcast:
-                if member.privileges and getattr(member.privileges, "can_post_messages", False):
-                    return True
-                return False
-            return True
+        return False
     except Exception as e:
         logger.warning(f"Dynamic admin check failed for chat {chat_id} (tenant {tenant_id}): {e}")
     return False
+
+async def verify_is_truly_demoted(client: Client, chat_id: int) -> tuple:
+    """
+    Performs a live double-check on Telegram to verify if the user is truly demoted/kicked.
+    Never flags an active Administrator or Owner as demoted.
+    """
+    try:
+        member = await client.get_chat_member(chat_id, "me")
+        from pyrogram.enums import ChatMemberStatus
+        if member.status in (ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR):
+            return False, ""
+        if member.status == ChatMemberStatus.BANNED:
+            return True, "طرد وحظر من القناة"
+        if member.status == ChatMemberStatus.LEFT:
+            return True, "إزالة من القناة"
+        if member.status == ChatMemberStatus.MEMBER:
+            return True, "تنزيل من مشرف إلى عضو عادي"
+        if member.status == ChatMemberStatus.RESTRICTED:
+            return True, "تقييد الصلاحيات في القناة"
+    except Exception as e:
+        err_str = str(e).upper()
+        if any(x in err_str for x in ["CHAT_ADMIN_REQUIRED", "CHANNEL_PRIVATE", "USER_NOT_PARTICIPANT"]):
+            return True, "فقدان صلاحيات الإشراف أو الخروج من القناة"
+        return False, ""
+    return False, ""
 
 async def remove_channel_from_cache_on_demotion(telegram_account_id: int, chat_id: int, actor_name: Optional[str] = None, actor_username: Optional[str] = None, action_label: str = "سحب صلاحيات النشر / إزالة من الإشراف"):
 
@@ -2750,7 +2757,6 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             return False
         return True
 
-    
     @client.on_chat_member_updated()
     async def chat_member_updated_handler(cls, event: ChatMemberUpdated):
         try:
@@ -2759,42 +2765,16 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             if not target_user or target_user.id != me.id:
                 return
 
-            old_member = event.old_chat_member
-            new_member = event.new_chat_member
-
-            old_status = old_member.status if old_member else None
-            new_status = new_member.status if new_member else None
-
-            old_can_post = getattr(old_member.privileges, "can_post_messages", False) if (old_member and old_member.privileges) else False
-            new_can_post = getattr(new_member.privileges, "can_post_messages", False) if (new_member and new_member.privileges) else False
-
-            was_admin = old_status in (ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR)
-            is_admin = new_status in (ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR)
-
-            is_demoted = False
-            is_kicked = False
-            action_label = ""
-            notif_type = ""
-
-            if was_admin and not is_admin:
-                is_demoted = True
-                action_label = "تنزيل من مشرف إلى عضو عادي (سحب صلاحيات الإشراف)"
-                notif_type = "channel_demotion"
-            elif was_admin and is_admin and old_can_post and not new_can_post:
-                is_demoted = True
-                action_label = "سحب صلاحية نشر الرسائل (Post Messages Permission Revoked)"
-                notif_type = "channel_demotion"
-            elif new_status in (ChatMemberStatus.BANNED, ChatMemberStatus.RESTRICTED) or (new_status == ChatMemberStatus.LEFT and old_status != ChatMemberStatus.LEFT):
-                is_kicked = True
-                action_label = "طرد / حظر أو إزالة من القناة"
-                notif_type = "channel_kick"
-
-            if not (is_demoted or is_kicked):
+            chat_id = event.chat.id
+            
+            # LIVE VERIFICATION: Double-check if the user is truly demoted/kicked
+            is_demoted, action_label = await verify_is_truly_demoted(cls, chat_id)
+            if not is_demoted:
+                # User is STILL an active Administrator or Owner! Ignore false alarm!
                 return
 
             chat_title = event.chat.title or "قناة بدون اسم"
             chat_username = getattr(event.chat, "username", None)
-            chat_id = event.chat.id
 
             actor = event.from_user
             actor_name = "مسؤول القناة"
@@ -2803,30 +2783,32 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 actor_name = f"{actor.first_name or ''} {actor.last_name or ''}".strip() or "مسؤول القناة"
                 actor_username = actor.username
 
+            logger.warning(f"Tenant {tenant_id}: Demotion confirmed in chat {chat_id} ('{chat_title}') by {actor_name}. Action: {action_label}")
+
             # 1. Update Channels Cache and DB
             await remove_channel_from_cache_on_demotion(tenant_id, chat_id, actor_name=actor_name, actor_username=actor_username, action_label=action_label)
 
             # 2. Send Alert to Saved Messages
             time_str = (datetime.now(timezone.utc) + timedelta(hours=3)).strftime("%I:%M %p")
-            actor_display = f"**{actor_name}**" + (f" (@{actor_username})" if actor_username else "")
-            channel_display = f"**{chat_title}**" + (f" (@{chat_username})" if chat_username else f" `[{chat_id}]`")
+            actor_disp = f"@{actor_username}" if actor_username else actor_name
+            channel_disp = f"@{chat_username}" if chat_username else chat_title
 
-            alert_text = (
-                f"🚨 **تنبيه أمني فوري: تم رصد تغيير في صلاحياتك!**\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"📢 **القناة / المجموعة:** {channel_display}\n"
-                f"👤 **المسؤول الذي قام بالإجراء:** {actor_display}\n"
-                f"⚠️ **نوع الإجراء:** `{action_label}`\n"
-                f"⏰ **التوقيت:** `{time_str}` (توقيت القاهرة)\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"ℹ️ _تم تحديث وتطهير قائمة قنواتك تلقائياً لمنع أي أخطاء أثناء النشر الآلي._"
-            )
+            lines = [
+                "🚨 **تنبيه أمان: تم سحب رتبتك في قناة!**",
+                "━━━━━━━━━━━━━━━━━━━━",
+                f"📌 **القناة:** `{channel_disp}`",
+                f"👤 **المسؤول:** `{actor_disp}`",
+                f"⚠️ **نوع الإجراء:** {action_label}",
+                f"⏰ **التوقيت:** `{time_str}`",
+                "━━━━━━━━━━━━━━━━━━━━",
+                "ℹ️ *تم استبعاد القناة تلقائياً من جداول النشر والحملات لحماية حسابك.*"
+            ]
+            alert_msg = "\n".join(lines)
             try:
-                await cls.send_message("me", alert_text, disable_web_page_preview=True)
-            except Exception as sm_err:
-                logger.error(f"Failed to send Saved Messages demotion alert: {sm_err}")
+                await cls.send_message("me", alert_msg)
+            except Exception as send_err:
+                logger.error(f"Failed to send demotion alert to Saved Messages: {send_err}")
 
-            logger.warning(f"Tenant {tenant_id}: Detected {notif_type} in {chat_title} by {actor_name}")
         except Exception as e:
             logger.error(f"Error in chat_member_updated_handler for tenant {tenant_id}: {e}", exc_info=True)
 
@@ -4361,9 +4343,13 @@ async def run_wave_execution(
                 f"لأن صلاحيات الأدمن مفقودة في إحداهما أو كلتيهما (صلاحية A: {is_admin_a}، صلاحية B: {is_admin_b})."
             )
             if not is_admin_a:
-                await remove_channel_from_cache_on_demotion(tenant_id, ch_a["id"])
+                is_truly_demoted, _ = await verify_is_truly_demoted(client, ch_a["id"])
+                if is_truly_demoted:
+                    await remove_channel_from_cache_on_demotion(tenant_id, ch_a["id"])
             if not is_admin_b:
-                await remove_channel_from_cache_on_demotion(tenant_id, ch_b["id"])
+                is_truly_demoted, _ = await verify_is_truly_demoted(client, ch_b["id"])
+                if is_truly_demoted:
+                    await remove_channel_from_cache_on_demotion(tenant_id, ch_b["id"])
             continue
         
         cid_b_str = str(ch_b.get("id"))
