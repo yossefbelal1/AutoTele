@@ -445,11 +445,34 @@ async def remove_channel_from_cache_on_demotion(telegram_account_id: int, chat_i
         logger.error(f"Error removing channel {chat_id} from cache: {ex}")
 
 async def handle_posting_error_and_clean_cache(tenant_id: int, chat_id: int, e: Exception):
-
+    """
+    Handles posting errors gracefully without sending false demotion alarms to the user.
+    If posting is forbidden/restricted, marks can_send=False silently in cache.
+    """
     err_str = str(e).upper()
-    if any(err in err_str for err in ["CHAT_ADMIN_REQUIRED", "CHAT_WRITE_FORBIDDEN", "CHANNEL_PRIVATE"]):
-        await remove_channel_from_cache_on_demotion(tenant_id, chat_id)
-
+    if any(err in err_str for err in ["CHAT_ADMIN_REQUIRED", "CHAT_WRITE_FORBIDDEN", "SLOWMODE_WAIT"]):
+        logger.info(f"Tenant {tenant_id}: Chat {chat_id} is read-only or posting restricted ({err_str}). Marking can_send=False silently.")
+        try:
+            channels = await get_channels_cache(tenant_id)
+            if channels:
+                updated = False
+                for ch in channels:
+                    if ch.get("id") == chat_id:
+                        ch["can_send"] = False
+                        updated = True
+                if updated:
+                    await save_channels_cache(tenant_id, channels)
+        except Exception as ex:
+            logger.debug(f"Failed to update can_send in cache for chat {chat_id}: {ex}")
+    elif any(err in err_str for err in ["CHANNEL_PRIVATE", "USER_NOT_PARTICIPANT"]):
+        logger.info(f"Tenant {tenant_id}: Chat {chat_id} is inaccessible. Removing from cache silently.")
+        try:
+            channels = await get_channels_cache(tenant_id)
+            if channels:
+                new_channels = [ch for ch in channels if ch.get("id") != chat_id]
+                await save_channels_cache(tenant_id, new_channels)
+        except Exception as ex:
+            logger.debug(f"Failed to clean inaccessible chat {chat_id} from cache: {ex}")
 
 # Global state to track scheduled tasks and last wave execution timestamp per tenant
 scheduled_jobs: Dict[int, List[dict]] = {}
