@@ -1710,6 +1710,88 @@ async def run_timed_post_logic(
         raise e
 
 
+async def resolve_target_channel_info(client: Client, tenant_id: int, lnk: str, channels: list) -> tuple:
+    """
+    Accurately resolves target chat ID, title, and link for single campaign targeting.
+    Guarantees private invite links (+...) are resolved and matched to the channel entity
+    so it is NEVER published into itself.
+    """
+    target_chat_id = 0
+    target_title = "القناة"
+    resolved_link = str(lnk).strip()
+    
+    if "addlist" in resolved_link:
+        return 0, "المجلد", resolved_link
+        
+    link_clean = resolved_link.strip()
+    norm = link_clean.lower().rstrip('/')
+    clean_user = norm.replace('@', '').split('/')[-1]
+    
+    # Extract invite hash if + or joinchat
+    inv_hash = None
+    if "+" in link_clean:
+        inv_hash = link_clean.split("+")[-1].split("/")[-1].split("?")[0].strip()
+    elif "joinchat/" in link_clean:
+        inv_hash = link_clean.split("joinchat/")[-1].split("?")[0].strip()
+
+    # 1. Match from channels cache (fastest & most accurate)
+    for ch in channels:
+        ch_id = ch.get("id")
+        ch_user = str(ch.get("username") or "").lower()
+        ch_invite = str(ch.get("invite_link") or "").lower().rstrip('/')
+        
+        if ch_invite:
+            if norm == ch_invite or (inv_hash and inv_hash in ch_invite):
+                target_chat_id = int(ch_id)
+                target_title = ch.get("title") or "القناة"
+                break
+        if ch_user and clean_user == ch_user:
+            target_chat_id = int(ch_id)
+            target_title = ch.get("title") or "القناة"
+            break
+
+    # 2. MTProto CheckChatInvite for invite links
+    if not target_chat_id and inv_hash:
+        try:
+            from pyrogram.raw import functions, types
+            from pyrogram import utils
+            res = await client.invoke(functions.messages.CheckChatInvite(hash=inv_hash))
+            chat_obj = getattr(res, "chat", None)
+            if chat_obj:
+                target_chat_id = utils.get_channel_id(chat_obj.id)
+                target_title = getattr(chat_obj, "title", target_title)
+            elif hasattr(res, "title"):
+                target_title = res.title
+                # Match title against channels cache
+                for ch in channels:
+                    c_title = ch.get("title", "")
+                    if c_title and (c_title.strip() == target_title.strip() or target_title in c_title or c_title in target_title):
+                        target_chat_id = int(ch["id"])
+                        target_title = c_title
+                        break
+        except Exception as e:
+            logger.debug(f"CheckChatInvite for {inv_hash} failed: {e}")
+
+    # 3. Fallback: Pyrogram get_chat
+    if not target_chat_id:
+        try:
+            chat = await client.get_chat(clean_user if not clean_user.startswith("http") else link_clean)
+            target_chat_id = chat.id
+            target_title = chat.title or target_title
+        except Exception:
+            pass
+
+    # 4. If target channel is found, resolve best user tracking link
+    if target_chat_id:
+        try:
+            lnk_resolved = await resolve_best_channel_link(client, target_chat_id, resolved_link)
+            if lnk_resolved:
+                resolved_link = lnk_resolved
+        except Exception:
+            pass
+
+    return target_chat_id, target_title, resolved_link
+
 async def run_single_campaign_logic(tenant_id: int, client: Client, target_link: str, ad_text_custom: Optional[str], delay_between_channels: int, ad_lifespan: int, status_msg: Optional[Message] = None):
     curr_task = asyncio.current_task()
     if tenant_id not in active_running_tasks:
@@ -1758,30 +1840,15 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
         target_chat_ids_list = []
         
         for lnk in target_links:
-            target_chat_id = 0
-            is_addlist = "addlist" in lnk
-            target_title = "المجلد" if is_addlist else "القناة"
-            try:
-                if not is_addlist:
-                    chat = await client.get_chat(lnk)
-                    target_chat_id = chat.id
-                    target_title = chat.title or "القناة"
-            except Exception as e:
-                logger.warning(f"Could not resolve target chat {lnk}: {e}")
-                
+            target_chat_id, target_title, lnk_resolved = await resolve_target_channel_info(client, tenant_id, lnk, channels)
             if target_chat_id:
-                is_admin = await check_admin_rights_dynamic(client, target_chat_id, tenant_id, require_posting_rights=False)
-                if is_admin:
-                    lnk_resolved = await resolve_best_channel_link(client, target_chat_id, lnk)
-                    exclude_ids.add(target_chat_id)
-                    resolved_links.append(lnk_resolved)
-                    target_chat_ids_list.append(target_chat_id)
-                else:
-                    resolved_links.append(lnk)
-            else:
-                resolved_links.append(lnk)
+                # STRICT GUARANTEE: ALWAYS exclude the target channel from posting targets!
+                exclude_ids.add(target_chat_id)
+                target_chat_ids_list.append(target_chat_id)
+                logger.info(f"Tenant {tenant_id}: Target channel '{target_title}' [{target_chat_id}] EXCLUDED from posting.")
+            resolved_links.append(lnk_resolved)
             target_titles.append(target_title)
-            
+        
         if not resolved_links:
             if status_msg:
                 await safe_edit_message(status_msg, "⚠️ **فشل إطلاق الحملة: لم يتم العثور على أي روابط مستهدفة صالحة.**")
