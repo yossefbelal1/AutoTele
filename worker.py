@@ -775,12 +775,15 @@ async def get_formatted_ad_message(session, tenant_id: int, target_title: str, t
 
 async def resolve_best_channel_link(client: Client, chat_id: int, general_fallback_link: str) -> str:
     """
-    Retrieve the tracking invite link created by THIS userbot for the specified channel.
-    Always prioritize links created by the userbot (InputUserSelf) over the channel's general public link.
+    Retrieve the best private tracking invite link for the channel when user didn't specify one:
+    1. First priority: Private custom invite link created by THIS user (InputUserSelf).
+    2. Second priority: Channel's Primary private invite link (export_chat_invite_link / primary invite).
+    3. Third priority: Try creating a new tracking invite link.
+    4. Fallback: general_fallback_link.
     """
     from pyrogram.raw import functions, types
     
-    # 1. Check if userbot created an invite link in this chat
+    # 1. Custom invite link created by THIS user (InputUserSelf)
     try:
         peer = await client.resolve_peer(chat_id)
         res = await client.invoke(
@@ -799,7 +802,15 @@ async def resolve_best_channel_link(client: Client, chat_id: int, general_fallba
     except Exception as e:
         logger.debug(f"Failed to fetch user invite links for {chat_id}: {e}")
 
-    # 2. Try creating a new tracking invite link if possible
+    # 2. Primary private invite link of the channel
+    try:
+        primary_link = await client.export_chat_invite_link(chat_id)
+        if primary_link:
+            return primary_link
+    except Exception as e:
+        logger.debug(f"Failed to export chat invite link for {chat_id}: {e}")
+
+    # 3. Try creating a new tracking invite link if possible
     try:
         new_link_obj = await client.create_chat_invite_link(chat_id)
         if new_link_obj and new_link_obj.invite_link:
@@ -807,7 +818,7 @@ async def resolve_best_channel_link(client: Client, chat_id: int, general_fallba
     except Exception as e:
         logger.debug(f"Failed to create new invite link for chat {chat_id}: {e}")
 
-    # 3. Fallback to general link or public username
+    # 4. Fallback
     return general_fallback_link
 
 async def get_average_views(client: Client, chat_id: int, limit: int = 10) -> int:
@@ -1006,7 +1017,15 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                             except Exception:
                                 pass
 
-                            invite_link = custom_link or (f"https://t.me/{username}" if username else None)
+                            # If no custom link created by user, fetch primary private invite link
+                            primary_link = None
+                            if not custom_link:
+                                try:
+                                    primary_link = await client.export_chat_invite_link(chat_id)
+                                except Exception:
+                                    pass
+
+                            invite_link = custom_link or primary_link or (f"https://t.me/{username}" if username else None)
                                 
                             avg_views = 0
                             quality_score = 0
