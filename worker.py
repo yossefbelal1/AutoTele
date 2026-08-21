@@ -768,33 +768,31 @@ async def get_formatted_ad_message(session, tenant_id: int, target_title: str, t
 
 async def resolve_best_channel_link(client: Client, chat_id: int, general_fallback_link: str) -> str:
     """
-    Retrieve the tracking link created by this userbot for the specified channel.
-    Prefer non-primary custom links as they represent tracking links.
+    Retrieve the tracking invite link created by THIS userbot for the specified channel.
+    Always prioritize links created by the userbot (InputUserSelf) over the channel's general public link.
     """
-    if general_fallback_link and ("+" in general_fallback_link or "joinchat" in general_fallback_link):
-        return general_fallback_link
-        
+    from pyrogram.raw import functions, types
+    
+    # 1. Check if userbot created an invite link in this chat
     try:
-        primary_link = None
-        async for link in client.get_chat_admin_invite_links(chat_id=chat_id, admin_id="me", revoked=False):
-            if link.invite_link:
-                if not link.is_primary:
-                    return link.invite_link
-                else:
-                    primary_link = link.invite_link
-                    
-        if primary_link:
-            return primary_link
+        peer = await client.resolve_peer(chat_id)
+        res = await client.invoke(
+            functions.messages.GetExportedChatInvites(
+                peer=peer,
+                admin_id=types.InputUserSelf(),
+                limit=30
+            ),
+            sleep_threshold=2
+        )
+        for inv in getattr(res, "invites", []):
+            if not getattr(inv, "revoked", False) and not getattr(inv, "expired", False):
+                lnk = getattr(inv, "link", None)
+                if lnk:
+                    return lnk
     except Exception as e:
-        logger.debug(f"Failed to fetch admin invite links for chat {chat_id}: {e}")
+        logger.debug(f"Failed to fetch user invite links for {chat_id}: {e}")
 
-    try:
-        chat = await client.get_chat(chat_id)
-        if chat.invite_link:
-            return chat.invite_link
-    except Exception as e:
-        logger.debug(f"Failed to get_chat invite link for {chat_id}: {e}")
-
+    # 2. Try creating a new tracking invite link if possible
     try:
         new_link_obj = await client.create_chat_invite_link(chat_id)
         if new_link_obj and new_link_obj.invite_link:
@@ -802,6 +800,7 @@ async def resolve_best_channel_link(client: Client, chat_id: int, general_fallba
     except Exception as e:
         logger.debug(f"Failed to create new invite link for chat {chat_id}: {e}")
 
+    # 3. Fallback to general link or public username
     return general_fallback_link
 
 async def get_average_views(client: Client, chat_id: int, limit: int = 10) -> int:
@@ -976,12 +975,31 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                             views_count = getattr(top_msg, "views", 0) or 0
                             
                             username = getattr(raw_chat, "username", None)
-                            invite_link = f"https://t.me/{username}" if username else None
                             members_count = getattr(raw_chat, "participants_count", 0)
                             
-                            if not invite_link:
-                                # Try to resolve or generate invite link
-                                invite_link = await resolve_best_channel_link(client, chat_id, "")
+                            # Prioritize userbot's own custom invite link over public channel username
+                            custom_link = None
+                            try:
+                                channel_access_hash = getattr(raw_chat, "access_hash", 0) or 0
+                                raw_peer = types.InputPeerChannel(channel_id=raw_chat.id, access_hash=channel_access_hash)
+                                res_inv = await client.invoke(
+                                    functions.messages.GetExportedChatInvites(
+                                        peer=raw_peer,
+                                        admin_id=types.InputUserSelf(),
+                                        limit=20
+                                    ),
+                                    sleep_threshold=2
+                                )
+                                for inv in getattr(res_inv, "invites", []):
+                                    if not getattr(inv, "revoked", False) and not getattr(inv, "expired", False):
+                                        lnk = getattr(inv, "link", None)
+                                        if lnk:
+                                            custom_link = lnk
+                                            break
+                            except Exception:
+                                pass
+
+                            invite_link = custom_link or (f"https://t.me/{username}" if username else None)
                                 
                             avg_views = 0
                             quality_score = 0
@@ -2208,6 +2226,14 @@ async def run_bulk_campaign_logic(
                         link = f"https://t.me/{username}" if username else f"https://t.me/c/{tid_str[4:]}"
                     else:
                         link = f"https://t.me/{username}" if username else f"https://t.me/c/{tid_str[1:] if tid_str.startswith('-') else tid_str}"
+                # Ensure link is the user's tracking link
+                if not link or not ("+" in str(link) or "joinchat" in str(link)):
+                    try:
+                        resolved_user_link = await resolve_best_channel_link(client, tid, link or "")
+                        if resolved_user_link:
+                            link = resolved_user_link
+                    except Exception:
+                        pass
                 targets_info.append({"id": tid, "title": title, "link": link})
             else:
                 tid_str = str(tid)
