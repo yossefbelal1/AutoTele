@@ -1719,9 +1719,9 @@ async def run_timed_post_logic(
 
 async def resolve_target_channel_info(client: Client, tenant_id: int, lnk: str, channels: list) -> tuple:
     """
-    Accurately resolves target chat ID, title, and link for single campaign targeting.
-    Guarantees private invite links (+...) are resolved and matched to the channel entity
-    so it is NEVER published into itself.
+    Accurately resolves target chat ID and title for single campaign targeting.
+    STRICT RULE: The user's explicitly provided link is NEVER altered or overridden.
+    Resolves target_chat_id to guarantee the channel is EXCLUDED from posting to itself.
     """
     target_chat_id = 0
     target_title = "القناة"
@@ -1779,7 +1779,7 @@ async def resolve_target_channel_info(client: Client, tenant_id: int, lnk: str, 
         except Exception as e:
             logger.debug(f"CheckChatInvite for {inv_hash} failed: {e}")
 
-    # 3. Fallback: Pyrogram get_chat
+    # 3. Fallback: Pyrogram get_chat for public usernames
     if not target_chat_id:
         try:
             chat = await client.get_chat(clean_user if not clean_user.startswith("http") else link_clean)
@@ -1788,15 +1788,7 @@ async def resolve_target_channel_info(client: Client, tenant_id: int, lnk: str, 
         except Exception:
             pass
 
-    # 4. If target channel is found, resolve best user tracking link
-    if target_chat_id:
-        try:
-            lnk_resolved = await resolve_best_channel_link(client, target_chat_id, resolved_link)
-            if lnk_resolved:
-                resolved_link = lnk_resolved
-        except Exception:
-            pass
-
+    # STRICT: Return the EXACT user-provided link (resolved_link) untouched!
     return target_chat_id, target_title, resolved_link
 
 async def run_single_campaign_logic(tenant_id: int, client: Client, target_link: str, ad_text_custom: Optional[str], delay_between_channels: int, ad_lifespan: int, status_msg: Optional[Message] = None):
