@@ -799,14 +799,15 @@ async def get_formatted_ad_message(session, tenant_id: int, target_title: str, t
 async def resolve_best_channel_link(client: Client, chat_id: int, general_fallback_link: str) -> str:
     """
     Retrieve the best private tracking invite link for the channel when user didn't specify one:
-    1. First priority: Private custom invite link created by THIS user (InputUserSelf).
-    2. Second priority: Channel's Primary private invite link (export_chat_invite_link / primary invite).
-    3. Third priority: Try creating a new tracking invite link.
-    4. Fallback: general_fallback_link.
+    1. First priority (TOP): Custom named tracking link created by THIS user (title is set or non-permanent).
+    2. Second priority: Permanent primary invite link created by THIS user.
+    3. Third priority: Channel's exported primary private invite link.
+    4. Fourth priority: Try creating a new tracking invite link.
+    5. Fallback: general_fallback_link.
     """
     from pyrogram.raw import functions, types
     
-    # 1. Custom invite link created by THIS user (InputUserSelf)
+    # 1. Fetch all user invites (InputUserSelf)
     try:
         peer = await client.resolve_peer(chat_id)
         res = await client.invoke(
@@ -817,15 +818,39 @@ async def resolve_best_channel_link(client: Client, chat_id: int, general_fallba
             ),
             sleep_threshold=2
         )
-        for inv in getattr(res, "invites", []):
-            if not getattr(inv, "revoked", False) and not getattr(inv, "expired", False):
-                lnk = getattr(inv, "link", None)
-                if lnk:
-                    return lnk
+        invites = getattr(res, "invites", [])
+        custom_named_links = []
+        permanent_links = []
+        
+        for inv in invites:
+            if getattr(inv, "revoked", False) or getattr(inv, "expired", False):
+                continue
+            lnk = getattr(inv, "link", None)
+            if not lnk:
+                continue
+            title = getattr(inv, "title", None)
+            permanent = getattr(inv, "permanent", False)
+            usage = getattr(inv, "usage", 0)
+            
+            if title or not permanent:
+                custom_named_links.append((usage, lnk))
+            else:
+                permanent_links.append((usage, lnk))
+                
+        # Priority 1: User's custom named tracking link (sorted by highest usage)
+        if custom_named_links:
+            custom_named_links.sort(key=lambda x: x[0], reverse=True)
+            return custom_named_links[0][1]
+            
+        # Priority 2: User's permanent primary link
+        if permanent_links:
+            permanent_links.sort(key=lambda x: x[0], reverse=True)
+            return permanent_links[0][1]
+            
     except Exception as e:
         logger.debug(f"Failed to fetch user invite links for {chat_id}: {e}")
 
-    # 2. Primary private invite link of the channel
+    # 3. Channel's exported primary invite link
     try:
         primary_link = await client.export_chat_invite_link(chat_id)
         if primary_link:
@@ -833,7 +858,7 @@ async def resolve_best_channel_link(client: Client, chat_id: int, general_fallba
     except Exception as e:
         logger.debug(f"Failed to export chat invite link for {chat_id}: {e}")
 
-    # 3. Try creating a new tracking invite link if possible
+    # 4. Try creating a new tracking invite link
     try:
         new_link_obj = await client.create_chat_invite_link(chat_id)
         if new_link_obj and new_link_obj.invite_link:
@@ -841,7 +866,7 @@ async def resolve_best_channel_link(client: Client, chat_id: int, general_fallba
     except Exception as e:
         logger.debug(f"Failed to create new invite link for chat {chat_id}: {e}")
 
-    # 4. Fallback
+    # 5. General Fallback
     return general_fallback_link
 
 async def get_average_views(client: Client, chat_id: int, limit: int = 10) -> int:
@@ -1018,8 +1043,8 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                             username = getattr(raw_chat, "username", None)
                             members_count = getattr(raw_chat, "participants_count", 0)
                             
-                            # Prioritize userbot's own custom invite link over public channel username
-                            custom_link = None
+                            # Prioritize user's own custom named tracking link, then primary link
+                            chosen_invite_link = None
                             try:
                                 channel_access_hash = getattr(raw_chat, "access_hash", 0) or 0
                                 raw_peer = types.InputPeerChannel(channel_id=raw_chat.id, access_hash=channel_access_hash)
@@ -1027,28 +1052,44 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                                     functions.messages.GetExportedChatInvites(
                                         peer=raw_peer,
                                         admin_id=types.InputUserSelf(),
-                                        limit=20
+                                        limit=30
                                     ),
                                     sleep_threshold=2
                                 )
-                                for inv in getattr(res_inv, "invites", []):
-                                    if not getattr(inv, "revoked", False) and not getattr(inv, "expired", False):
-                                        lnk = getattr(inv, "link", None)
-                                        if lnk:
-                                            custom_link = lnk
-                                            break
+                                invites = getattr(res_inv, "invites", [])
+                                custom_named = []
+                                permanent = []
+                                for inv in invites:
+                                    if getattr(inv, "revoked", False) or getattr(inv, "expired", False):
+                                        continue
+                                    lnk = getattr(inv, "link", None)
+                                    if not lnk:
+                                        continue
+                                    t = getattr(inv, "title", None)
+                                    p = getattr(inv, "permanent", False)
+                                    u = getattr(inv, "usage", 0)
+                                    if t or not p:
+                                        custom_named.append((u, lnk))
+                                    else:
+                                        permanent.append((u, lnk))
+                                        
+                                if custom_named:
+                                    custom_named.sort(key=lambda x: x[0], reverse=True)
+                                    chosen_invite_link = custom_named[0][1]
+                                elif permanent:
+                                    permanent.sort(key=lambda x: x[0], reverse=True)
+                                    chosen_invite_link = permanent[0][1]
                             except Exception:
                                 pass
 
-                            # If no custom link created by user, fetch primary private invite link
-                            primary_link = None
-                            if not custom_link:
+                            # If no link from user invites, try primary exported invite link
+                            if not chosen_invite_link:
                                 try:
-                                    primary_link = await client.export_chat_invite_link(chat_id)
+                                    chosen_invite_link = await client.export_chat_invite_link(chat_id)
                                 except Exception:
                                     pass
 
-                            invite_link = custom_link or primary_link or (f"https://t.me/{username}" if username else None)
+                            invite_link = chosen_invite_link or (f"https://t.me/{username}" if username else None)
                                 
                             avg_views = 0
                             quality_score = 0
