@@ -5969,7 +5969,7 @@ async def poll_web_campaign_tasks():
                     t.add_done_callback(make_cleanup(tenant_id, task.id))
         except Exception as e:
             logger.error(f"Error in poll_web_campaign_tasks: {e}")
-        await asyncio.sleep(10)
+        await asyncio.sleep(1.0)
 
 async def global_cleaner_worker():
     while global_worker_running:
