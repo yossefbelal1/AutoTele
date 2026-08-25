@@ -9,8 +9,8 @@ PROXY_POOL = [
     "85.120.129.8"
 ]
 PROXY_PORT = 50101
-PROXY_USERNAME = "kamelyossef111"
-PROXY_PASSWORD = "zXAi3FHU7B"
+PROXY_USERNAME = os.getenv("DEFAULT_PROXY_USERNAME", "")
+PROXY_PASSWORD = os.getenv("DEFAULT_PROXY_PASSWORD", "")
 
 async def main():
     async with AsyncSessionLocal() as session:
