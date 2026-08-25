@@ -13,7 +13,7 @@ import concurrent.futures
 from pyrogram import Client, filters
 from pyrogram.types import Message, ChatMemberUpdated
 from pyrogram.enums import ParseMode
-from pyrogram.errors import FloodWait, RPCError, Unauthorized, UserDeactivated, SlowmodeWait
+from pyrogram.errors import FloodWait, RPCError, UserDeactivated, AuthKeyUnregistered, AuthKeyDuplicated, SessionRevoked, Unauthorized, SessionPasswordNeeded
 from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -129,12 +129,46 @@ tenant_wave_locks: Dict[int, asyncio.Lock] = {}
 # Global semaphore: max 3 tenants can crawl (get_dialogs) simultaneously to protect CPU on t3a.medium
 _GLOBAL_CRAWL_SEMAPHORE = asyncio.Semaphore(2)  # Tuned for 2 vCPU
 
-async def check_proxy_responsive(host: str, port: int, timeout: float = 3.0) -> bool:
+async def check_proxy_responsive(host: str, port: int, username: Optional[str] = None, password: Optional[str] = None, timeout: float = 2.0) -> bool:
+    """
+    Verify that the SOCKS5 proxy is truly alive AND accepts authentication.
+    If auth fails or socket errors, return False so client falls back to direct connection instantly.
+    """
     try:
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(host, int(port)),
             timeout=timeout
         )
+        # SOCKS5 Greeting
+        writer.write(b'\x05\x02\x00\x02')
+        await writer.drain()
+        
+        resp = await asyncio.wait_for(reader.readexactly(2), timeout=timeout)
+        if resp[0] != 5:
+            writer.close()
+            return False
+            
+        method = resp[1]
+        if method == 0x02: # Username/Password Auth Required
+            if not username or not password:
+                writer.close()
+                return False
+            u_bytes = str(username).encode()
+            p_bytes = str(password).encode()
+            auth_msg = b'\x01' + bytes([len(u_bytes)]) + u_bytes + bytes([len(p_bytes)]) + p_bytes
+            writer.write(auth_msg)
+            await writer.drain()
+            
+            auth_resp = await asyncio.wait_for(reader.readexactly(2), timeout=timeout)
+            if auth_resp[1] != 0: # Non-zero means Auth Failed
+                writer.close()
+                return False
+        elif method == 0x00:
+            pass # No auth required
+        else:
+            writer.close()
+            return False
+            
         writer.close()
         await writer.wait_closed()
         return True
@@ -4089,9 +4123,11 @@ async def supervisor_loop():
         try:
             async with AsyncSessionLocal() as session:
                 now = datetime.now(timezone.utc)
+                # Self-healing: include 'active', 'error', 'paused' accounts for users with valid subscriptions
                 stmt = select(TelegramAccount).join(User).where(
-                    TelegramAccount.status == "active",
-                    User.subscription_end > now
+                    TelegramAccount.status.in_(["active", "error", "paused"]),
+                    User.subscription_end > now,
+                    User.subscription_status == "active"
                 )
                 active_accounts = (await session.execute(stmt)).scalars().all()
                 active_db_ids = {acc.id for acc in active_accounts}
@@ -4100,11 +4136,11 @@ async def supervisor_loop():
                 for acc in active_accounts:
                     client = running_clients.get(acc.id)
                     is_conn = client.is_connected if client else None
-                    logger.info(f"  Tenant {acc.id}: client exists={client is not None}, connected={is_conn}")
+                    logger.info(f"  Tenant {acc.id} (status={acc.status}): client exists={client is not None}, connected={is_conn}")
                 
                 for tenant_id in list(running_clients.keys()):
                     if tenant_id not in active_db_ids:
-                        await stop_tenant_worker(tenant_id, session, reason="Subscription Expired")
+                        await stop_tenant_worker(tenant_id, session, reason="Subscription Expired or Inactive")
 
                 for acc in active_accounts:
                     if acc.needs_reboot:
@@ -4120,15 +4156,15 @@ async def supervisor_loop():
                     is_connected = False
                     if client and client.is_connected:
                         try:
-                            await asyncio.wait_for(client.get_chat("me"), timeout=5.0)
+                            await asyncio.wait_for(client.get_chat("me"), timeout=6.0)
                             is_connected = True
                         except Exception as p_ex:
-                            logger.warning(f"Tenant {acc.id} client ping failed: {p_ex}. Treating as disconnected.")
+                            logger.warning(f"Tenant {acc.id} client ping failed: {p_ex}. Treating as disconnected for self-healing.")
                             
                     if not is_connected:
                         if acc.id not in starting_tenants:
                             if client:
-                                logger.warning(f"Tenant {acc.id} client is disconnected. Stopping and restarting worker...")
+                                logger.warning(f"Tenant {acc.id} client is disconnected. Stopping and restarting worker (Self-Healing)...")
                                 try:
                                     await stop_tenant_worker(acc.id, session, reason="Client Disconnected")
                                 except Exception as stop_ex:
@@ -4150,7 +4186,7 @@ async def supervisor_loop():
         import gc
         gc.collect()
         
-        await asyncio.sleep(30)
+        await asyncio.sleep(25)
 
 async def start_tenant_worker(account: TelegramAccount):
     tenant_id = account.id
@@ -4161,7 +4197,7 @@ async def start_tenant_worker(account: TelegramAccount):
         
         proxy_config = None
         if account.proxy_host:
-            is_alive = await check_proxy_responsive(account.proxy_host, account.proxy_port)
+            is_alive = await check_proxy_responsive(account.proxy_host, account.proxy_port, account.proxy_username, account.proxy_password)
             if is_alive:
                 proxy_config = {
                     "scheme": "socks5",
@@ -4207,7 +4243,17 @@ async def start_tenant_worker(account: TelegramAccount):
 
         running_clients[tenant_id] = client
         
-        # Instantiate tenant semaphore, wave lock, and reset backoff multiplier
+        # Auto-heal status in database to active on successful connection
+        try:
+            async with AsyncSessionLocal() as db_sess:
+                db_acc = (await db_sess.execute(select(TelegramAccount).where(TelegramAccount.id == tenant_id))).scalar_one_or_none()
+                if db_acc and db_acc.status != "active":
+                    db_acc.status = "active"
+                    await db_sess.commit()
+                    logger.info(f"Self-healed database status to 'active' for tenant {tenant_id}.")
+        except Exception as dbe:
+            logger.debug(f"Could not update status to active for tenant {tenant_id}: {dbe}")
+        
         tenant_semaphores[tenant_id] = asyncio.Semaphore(1)
         tenant_wave_locks[tenant_id] = asyncio.Lock()
         tenant_backoff_multipliers[tenant_id] = 1.0
@@ -4253,10 +4299,20 @@ async def start_tenant_worker(account: TelegramAccount):
                 logger.error(f"Error resuming active campaign for tenant {tenant_id}: {e}")
         
         asyncio.create_task(try_resume_campaign())
-    except (Unauthorized, UserDeactivated):
-        async with AsyncSessionLocal() as session: await handle_client_error(tenant_id, "banned", session)
     except Exception as e:
-        async with AsyncSessionLocal() as session: await handle_client_error(tenant_id, "error", session)
+        logger.error(f"Failed to start worker for tenant {tenant_id}: {e}")
+        from pyrogram.errors import UserDeactivated, AuthKeyUnregistered, AuthKeyDuplicated, SessionRevoked, Unauthorized
+        err_str = str(e).lower()
+        is_perm_ban = isinstance(e, (UserDeactivated, AuthKeyUnregistered, AuthKeyDuplicated, SessionRevoked, Unauthorized)) or any(k in err_str for k in ["deactivated", "auth_key_unregistered", "auth_key_duplicated", "session_revoked", "user_deactivated", "unauthorized"])
+        try:
+            async with AsyncSessionLocal() as db_sess:
+                db_acc = (await db_sess.execute(select(TelegramAccount).where(TelegramAccount.id == tenant_id))).scalar_one_or_none()
+                if db_acc:
+                    db_acc.status = "banned" if is_perm_ban else "error"
+                    await db_sess.commit()
+                    logger.info(f"Updated tenant {tenant_id} status to '{db_acc.status}' in DB.")
+        except Exception as dbe:
+            logger.error(f"Could not update status in DB for tenant {tenant_id}: {dbe}")
     finally:
         starting_tenants.discard(tenant_id)
 
