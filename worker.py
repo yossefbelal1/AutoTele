@@ -515,7 +515,7 @@ async def load_scheduled_jobs_from_redis():
     from cache_manager import redis_client
     import json
     try:
-        keys = await redis_client.keys("tenant:*:scheduled_jobs")
+        keys = [key async for key in redis_client.scan_iter(match="tenant:*:scheduled_jobs")]
         for key in keys:
             try:
                 tenant_id = int(key.split(":")[1])
@@ -5605,7 +5605,7 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
         try:
             from cache_manager import redis_client
             # Clear all settings keys
-            setting_keys = await redis_client.keys(f"tenant:{tenant_id}:setting:*")
+            setting_keys = [k async for k in redis_client.scan_iter(match=f"tenant:{tenant_id}:setting:*")]
             if setting_keys:
                 await redis_client.delete(*setting_keys)
             # Also clear the main cache keys that were attempted earlier

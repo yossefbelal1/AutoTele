@@ -232,6 +232,9 @@ class WebCampaignTask(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     account: Mapped["TelegramAccount"] = relationship("TelegramAccount")
+    __table_args__ = (
+        Index("idx_web_tasks_status_created", "status", "created_at"),
+    )
 
 class PublishLog(Base):
     __tablename__ = "publish_logs"
