@@ -2465,8 +2465,11 @@ async def run_bulk_campaign_logic(
                     start_str = format_time(act_start)
                     delete_str = format_time(act_delete) if ad_lifespan > 0 else "دائم"
                 else:
-                    future_offset = sleep_countdown + max(0, (j - current_idx - 1)) * (delay_between_channels * 60)
-                    pred_start = now_utc + timedelta(seconds=future_offset)
+                    if target_posting_status == "sleeping":
+                        future_offset = sleep_countdown + (j - current_idx - 1) * (delay_between_channels * 60)
+                    else:
+                        future_offset = (j - current_idx) * (delay_between_channels * 60)
+                    pred_start = now_utc + timedelta(seconds=max(0, future_offset))
                     pred_delete = pred_start + timedelta(minutes=ad_lifespan)
                     start_str = format_time(pred_start)
                     delete_str = format_time(pred_delete) if ad_lifespan > 0 else "دائم"
@@ -2532,7 +2535,10 @@ async def run_bulk_campaign_logic(
                 countdown_line = ""
                 
             # Dynamic calculation of overall campaign end time based on current progress
-            future_end_seconds = sleep_countdown + max(0, (total_targets - 1 - current_idx)) * (delay_between_channels * 60) + (ad_lifespan * 60)
+            if target_posting_status == "sleeping":
+                future_end_seconds = sleep_countdown + (total_targets - 1 - current_idx) * (delay_between_channels * 60) + (ad_lifespan * 60)
+            else:
+                future_end_seconds = (total_targets - current_idx) * (delay_between_channels * 60) + (ad_lifespan * 60)
             expected_end = datetime.now(timezone.utc) + timedelta(seconds=future_end_seconds)
             end_time_str = format_time(expected_end)
             
@@ -2581,6 +2587,7 @@ async def run_bulk_campaign_logic(
         await save_active_campaign_state(tenant_id, state_data)
             
         count = 0
+        last_progress_edit_ts = 0.0
         for index, target_id in enumerate(campaign_ids):
             if index < resume_index:
                 continue
@@ -2669,8 +2676,10 @@ async def run_bulk_campaign_logic(
                             f"• تم النشر في: `{ch_idx}` من `{total_ch}` قناة مروجة\n"
                             f"• القناة المستهدفة الحالية: **{target_title}**"
                         )
-                        # Throttle message edits (first, last, and every 4 channels) to prevent Telegram edit FloodWait
-                        if ch_idx == 1 or ch_idx == total_ch or ch_idx % 4 == 0:
+                        # Real-time progress updates with time-based throttle (updates every 2 channels or whenever >= 3s elapsed)
+                        now_ts = time.time()
+                        if ch_idx == 1 or ch_idx == total_ch or ch_idx % 2 == 0 or (now_ts - last_progress_edit_ts >= 3.0):
+                            last_progress_edit_ts = now_ts
                             asyncio.create_task(update_status_message(index, "posting", current_post_info=current_post_info))
                         
                         sleep_time = max(get_safe_min_delay(tenant_id), get_adaptive_delay(tenant_id))
