@@ -1079,6 +1079,56 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                             
                             # Prioritize user's own custom named tracking link, then primary link
                             chosen_invite_link = None
+                            total_channel_joins = 0
+                            try:
+                                channel_access_hash = getattr(raw_chat, "access_hash", 0) or 0
+                                raw_peer = types.InputPeerChannel(channel_id=raw_chat.id, access_hash=channel_access_hash)
+                                res_inv = await client.invoke(
+                                    functions.messages.GetExportedChatInvites(
+                                        peer=raw_peer,
+                                        admin_id=types.InputUserSelf(),
+                                        limit=30
+                                    ),
+                                    sleep_threshold=2
+                                )
+                                invites = getattr(res_inv, "invites", [])
+                                custom_named = []
+                                permanent = []
+                                for inv in invites:
+                                    if getattr(inv, "revoked", False) or getattr(inv, "expired", False):
+                                        continue
+                                    lnk = getattr(inv, "link", None)
+                                    if not lnk:
+                                        continue
+                                    t = getattr(inv, "title", None)
+                                    p = getattr(inv, "permanent", False)
+                                    u = getattr(inv, "usage", 0) or 0
+                                    total_channel_joins += u
+                                    if t or not p:
+                                        custom_named.append((u, lnk))
+                                    else:
+                                        permanent.append((u, lnk))
+                                        
+                                if custom_named:
+                                    custom_named.sort(key=lambda x: x[0], reverse=True)
+                                    chosen_invite_link = custom_named[0][1]
+                                elif permanent:
+                                    permanent.sort(key=lambda x: x[0], reverse=True)
+                                    chosen_invite_link = permanent[0][1]
+                            except Exception:
+                                pass
+
+                            # If no link from user invites, try primary exported invite link
+                            if not chosen_invite_link:
+                                try:
+                                    chosen_invite_link = await client.export_chat_invite_link(chat_id)
+                                except Exception:
+                                    pass
+
+                            invite_link = chosen_invite_link or (f"https://t.me/{username}" if username else None)
+                                
+                            # Prioritize user's own custom named tracking link, then primary link
+                            chosen_invite_link = None
                             try:
                                 channel_access_hash = getattr(raw_chat, "access_hash", 0) or 0
                                 raw_peer = types.InputPeerChannel(channel_id=raw_chat.id, access_hash=channel_access_hash)
@@ -1150,6 +1200,7 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                                 "can_send": can_send,
                                 "latest_views": views_count,
                                 "avg_views": avg_views,
+                                "total_joins": total_channel_joins,
                                 "quality_score": quality_score
                             })
                             
@@ -1976,24 +2027,12 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
         
         eligible_channels = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True)]
         
-        # Smart Sorting: Calculate total invite link joins (Primary + All Custom Links summed)
-        # and sort channels in ASCENDING order (channels with 0 or lowest joins come FIRST!)
-        me_peer = None
-        try:
-            if client and getattr(client, "me", None):
-                me_peer = await client.resolve_peer(client.me.id)
-        except Exception:
-            pass
-
-        channel_scores = []
-        for ch in eligible_channels:
-            joins = await get_chat_total_invite_joins(client, ch["id"], me_peer) if me_peer else 0
-            channel_scores.append((joins, ch))
-            await asyncio.sleep(0.05)
-
+        # Smart Sorting: Sort in memory using cached total_joins (0 or lowest joins come FIRST!)
+        channel_map = {ch["id"]: ch for ch in channels}
+        channel_scores = [(channel_map.get(ch["id"], {}).get("total_joins", 0), ch) for ch in eligible_channels]
         channel_scores.sort(key=lambda item: item[0])
         eligible_channels = [item[1] for item in channel_scores]
-        logger.info(f"Tenant {tenant_id}: Sorted {len(eligible_channels)} channels by total invite joins (ascending).")
+        logger.info(f"Tenant {tenant_id}: Sorted {len(eligible_channels)} channels by total invite joins (ascending in-memory).")
         total = len(eligible_channels)
         
         total_account_channels = len(channels)
@@ -2360,34 +2399,13 @@ async def run_bulk_campaign_logic(
                 await log_tenant_event(tenant_id, f"فشل حملة الفولدر: مجلد '{folder_label}' فارغ في الكاش.")
                 return
 
-        # Smart Sorting: Fetch invite link joins for all targets concurrently and sort ascending (lowest joins first)
+        # Smart Sorting: Sort in memory using cached total_joins (0 or lowest joins come FIRST!)
         if campaign_ids:
-            try:
-                me_peer = await client.resolve_peer("me")
-            except Exception:
-                me_peer = None
-            
-            if status_msg:
-                try:
-                    await safe_edit_message(status_msg, f"⏳ **جاري حساب إحصائيات روابط الدعوة وترتيب القنوات المستهدفة...**")
-                except Exception:
-                    pass
-            
-            async def _fetch_target_joins(cid):
-                try:
-                    joins = await asyncio.wait_for(get_chat_total_invite_joins(client, cid, me_peer, tenant_id=tenant_id), timeout=2.0) if me_peer else 0
-                except Exception:
-                    joins = 0
-                return (joins, cid)
-            
-            try:
-                target_scores = await asyncio.gather(*[_fetch_target_joins(cid) for cid in campaign_ids])
-                # Sort by joins ascending (lowest joins first)
-                target_scores_sorted = sorted(target_scores, key=lambda x: x[0])
-                campaign_ids = [cid for joins, cid in target_scores_sorted]
-                logger.info(f"Tenant {tenant_id}: Sorted {len(campaign_ids)} bulk targets by joins ascending: {target_scores_sorted}")
-            except Exception as sort_err:
-                logger.warning(f"Tenant {tenant_id}: Failed to sort targets by joins: {sort_err}")
+            channel_map = {ch["id"]: ch for ch in channels}
+            target_scores = [(channel_map.get(cid, {}).get("total_joins", 0), cid) for cid in campaign_ids]
+            target_scores.sort(key=lambda x: x[0])
+            campaign_ids = [cid for joins, cid in target_scores]
+            logger.info(f"Tenant {tenant_id}: Sorted {len(campaign_ids)} bulk targets in-memory by joins ascending: {target_scores}")
 
         total_targets = len(campaign_ids)
         start_time = datetime.now(timezone.utc)
