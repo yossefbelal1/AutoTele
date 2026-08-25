@@ -4140,72 +4140,86 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
 async def supervisor_loop():
     while global_worker_running:
         try:
+            # 1. Fast read from database (< 5ms) and close session immediately
+            accounts_data = []
             async with AsyncSessionLocal() as session:
                 now = datetime.now(timezone.utc)
-                # Self-healing: include 'active', 'error', 'paused' accounts for users with valid subscriptions
                 stmt = select(TelegramAccount).join(User).where(
                     TelegramAccount.status.in_(["active", "error", "paused"]),
                     User.subscription_end > now,
                     User.subscription_status == "active"
                 )
                 active_accounts = (await session.execute(stmt)).scalars().all()
-                active_db_ids = {acc.id for acc in active_accounts}
-                
-                logger.info(f"[Supervisor Status Check] Active DB IDs: {active_db_ids} | Running Clients: {list(running_clients.keys())} | Starting Tenants: {list(starting_tenants)}")
                 for acc in active_accounts:
-                    client = running_clients.get(acc.id)
-                    is_conn = client.is_connected if client else None
-                    logger.info(f"  Tenant {acc.id} (status={acc.status}): client exists={client is not None}, connected={is_conn}")
-                
-                for tenant_id in list(running_clients.keys()):
-                    if tenant_id not in active_db_ids:
-                        await stop_tenant_worker(tenant_id, session, reason="Subscription Expired or Inactive")
+                    accounts_data.append({
+                        "id": acc.id,
+                        "user_id": acc.user_id,
+                        "phone": acc.phone,
+                        "api_id": acc.api_id,
+                        "api_hash": acc.api_hash,
+                        "string_session": acc.string_session,
+                        "status": acc.status,
+                        "needs_reboot": acc.needs_reboot,
+                        "proxy_host": acc.proxy_host,
+                        "proxy_port": acc.proxy_port,
+                        "proxy_username": acc.proxy_username,
+                        "proxy_password": acc.proxy_password,
+                    })
 
-                for acc in active_accounts:
-                    if acc.needs_reboot:
-                        logger.info(f"Reboot requested for TelegramAccount {acc.id} ({acc.phone})")
-                        if acc.id in running_clients:
-                            await stop_tenant_worker(acc.id, session, reason="Reboot Requested by Admin")
-                        acc.needs_reboot = False
-                        session.add(acc)
-                        await session.commit()
-                        continue
-                        
-                    client = running_clients.get(acc.id)
-                    is_connected = False
-                    if client and client.is_connected:
-                        try:
-                            await asyncio.wait_for(client.get_chat("me"), timeout=6.0)
-                            is_connected = True
-                        except Exception as p_ex:
-                            logger.warning(f"Tenant {acc.id} client ping failed: {p_ex}. Treating as disconnected for self-healing.")
-                            
-                    if not is_connected:
-                        if acc.id not in starting_tenants:
-                            if client:
-                                logger.warning(f"Tenant {acc.id} client is disconnected. Stopping and restarting worker (Self-Healing)...")
-                                try:
-                                    await stop_tenant_worker(acc.id, session, reason="Client Disconnected")
-                                except Exception as stop_ex:
-                                    logger.error(f"Error stopping disconnected client for tenant {acc.id}: {stop_ex}")
-                            starting_tenants.add(acc.id)
-                            asyncio.create_task(start_tenant_worker(acc))
-                    else:
-                        client = running_clients.get(acc.id)
-                        if client:
-                            last_t = last_crawl_time.get(acc.id)
-                            if not last_t or now - last_t > timedelta(hours=12):
-                                last_crawl_time[acc.id] = now
-                                asyncio.create_task(crawl_and_cache_tenant_channels(acc.id, client))
-                            
+            active_db_ids = {acc["id"] for acc in accounts_data}
+            
+            logger.info(f"[Supervisor Status Check] Active DB IDs: {active_db_ids} | Running Clients: {list(running_clients.keys())} | Starting Tenants: {list(starting_tenants)}")
+            for acc in accounts_data:
+                client = running_clients.get(acc["id"])
+                is_conn = client.is_connected if client else None
+                logger.info(f"  Tenant {acc['id']} (status={acc['status']}): client exists={client is not None}, connected={is_conn}")
+            
+            # Stop any tenants no longer active in DB
+            for tenant_id in list(running_clients.keys()):
+                if tenant_id not in active_db_ids:
+                    await stop_tenant_worker(tenant_id, reason="Subscription Expired or Inactive")
+
+            # Check health and start/heal tenants completely OUTSIDE DB sessions
+            for acc in accounts_data:
+                acc_id = acc["id"]
+                if acc["needs_reboot"]:
+                    logger.info(f"Reboot requested for TelegramAccount {acc_id} ({acc['phone']})")
+                    if acc_id in running_clients:
+                        await stop_tenant_worker(acc_id, reason="Reboot Requested by Admin")
+                    try:
+                        async with AsyncSessionLocal() as session:
+                            await session.execute(
+                                update(TelegramAccount).where(TelegramAccount.id == acc_id).values(needs_reboot=False)
+                            )
+                            await session.commit()
+                    except Exception as rbe:
+                        logger.error(f"Failed to clear needs_reboot flag for {acc_id}: {rbe}")
+                    continue
+                    
+                client = running_clients.get(acc_id)
+                is_connected = False
+                if client and client.is_connected:
+                    try:
+                        await asyncio.wait_for(client.get_chat("me"), timeout=4.0)
+                        is_connected = True
+                    except Exception as p_ex:
+                        logger.warning(f"Tenant {acc_id} client ping failed: {p_ex}. Treating as disconnected for self-healing.")
+
+                # Self-healing: if client is missing or disconnected, restart client
+                if not is_connected and acc_id not in starting_tenants:
+                    logger.info(f"Self-Healing: Triggering worker start for tenant {acc_id} (status was {acc['status']})...")
+                    # Construct clean temporary account object for worker
+                    class TempAcc:
+                        pass
+                    t_acc = TempAcc()
+                    for k, v in acc.items():
+                        setattr(t_acc, k, v)
+                    asyncio.create_task(start_tenant_worker(t_acc))
+                    
         except Exception as e:
-            logger.error(f"Error in Supervisor Loop: {e}")
+            logger.error(f"Supervisor loop encountered error: {e}")
         
-        # Free up unused Python heap memory periodically
-        import gc
-        gc.collect()
-        
-        await asyncio.sleep(25)
+        await asyncio.sleep(15)
 
 async def start_tenant_worker(account: TelegramAccount):
     tenant_id = account.id
@@ -4335,7 +4349,7 @@ async def start_tenant_worker(account: TelegramAccount):
     finally:
         starting_tenants.discard(tenant_id)
 
-async def stop_tenant_worker(tenant_id: int, session: AsyncSession, reason: str):
+async def stop_tenant_worker(tenant_id: int, reason: str = 'Worker Stopped'):
     # Cancel all active publishing tasks (waves, campaigns) to prevent leakage
     running_tasks_list = list(active_running_tasks.get(tenant_id, []))
     for t in running_tasks_list:

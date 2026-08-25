@@ -17,7 +17,7 @@ services:
       -c effective_cache_size=64MB
       -c work_mem=2MB
       -c maintenance_work_mem=16MB
-      -c max_connections=80
+      -c max_connections=200
       -c wal_buffers=2MB
       -c checkpoint_completion_target=0.9
       -c random_page_cost=1.1
@@ -87,8 +87,8 @@ services:
       - REDIS_URL=${REDIS_URL:-redis://redis_cache:6379/0}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required. Set it in .env file.}
       - SESSION_ENCRYPTION_KEY=${SESSION_ENCRYPTION_KEY:?SESSION_ENCRYPTION_KEY is required. Set it in .env file.}
-      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-https://teleauto.com}
-      - FRONTEND_URL=${FRONTEND_URL:-https://teleauto.com}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-https://telegauto.com,https://www.telegauto.com,https://teleauto.com,https://www.teleauto.com}
+      - FRONTEND_URL=${FRONTEND_URL:-https://telegauto.com}
       - PYTHONUNBUFFERED=1
       - STATUS_BOT_TOKEN=${STATUS_BOT_TOKEN:-}
       - STATUS_BOT_USERNAME=${STATUS_BOT_USERNAME:-AutoTeleStatusBot}

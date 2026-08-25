@@ -176,19 +176,40 @@ async def metrics_endpoint():
 
 
 cors_origins_env = os.getenv("CORS_ALLOWED_ORIGINS", "")
-if not cors_origins_env or cors_origins_env.strip() == "*":
-    # Safe production default origins (no wildcards with credentials)
-    allow_origins = ["https://teleauto.com", "https://www.teleauto.com", "http://localhost:3000", "http://127.0.0.1:3000"]
-else:
-    allow_origins = [orig.strip() for orig in cors_origins_env.split(",") if orig.strip()]
+default_origins = [
+    "https://telegauto.com",
+    "https://www.telegauto.com",
+    "https://teleauto.com",
+    "https://www.teleauto.com",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8001"
+]
+if cors_origins_env and cors_origins_env.strip() != "*":
+    for orig in cors_origins_env.split(","):
+        o = orig.strip()
+        if o and o not in default_origins:
+            default_origins.append(o)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allow_origins,
+    allow_origins=default_origins,
+    allow_origin_regex=r"^https?://(.*\.)?teleg?auto\.com(:\d+)?$",
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
+
+def get_client_ip(request: Request) -> str:
+    """Extract real client IP address respecting X-Forwarded-For from reverse proxies."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip.strip()
+    return request.client.host if request.client else "127.0.0.1"
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
@@ -322,8 +343,8 @@ async def get_least_used_proxy(session) -> str:
 
 @app.post("/auth/signup")
 async def signup(user_data: UserAuth, request: Request):
-    ip_key = f"ratelimit:auth_ip:{request.client.host}"
-    if await is_key_rate_limited(ip_key, max_requests=5, window_seconds=60):
+    client_ip = get_client_ip(request)
+    if await is_key_rate_limited(f"ratelimit:auth_ip:{client_ip}", max_requests=30, window_seconds=60):
         raise HTTPException(status_code=429, detail="لقد تجاوزت حد محاولات الدخول/التسجيل المسموح به. يرجى الانتظار دقيقة قبل المحاولة.")
     async with AsyncSessionLocal() as session:
         stmt = select(User).where(User.email == user_data.email)
@@ -352,8 +373,8 @@ async def signup(user_data: UserAuth, request: Request):
 
 @app.post("/auth/login", response_model=Token)
 async def login(user_data: UserAuth, request: Request):
-    ip_key = f"ratelimit:auth_ip:{request.client.host}"
-    if await is_key_rate_limited(ip_key, max_requests=5, window_seconds=60):
+    client_ip = get_client_ip(request)
+    if await is_key_rate_limited(f"ratelimit:auth_ip:{client_ip}", max_requests=30, window_seconds=60):
         raise HTTPException(status_code=429, detail="لقد تجاوزت حد محاولات الدخول/التسجيل المسموح به. يرجى الانتظار دقيقة قبل المحاولة.")
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(User.email == user_data.email))).scalar_one_or_none()
@@ -368,8 +389,8 @@ class ForgotPasswordReq(BaseModel):
 
 @app.post("/auth/forgot-password")
 async def forgot_password(req: ForgotPasswordReq, request: Request):
-    ip_key = f"ratelimit:auth_ip:{request.client.host}"
-    if await is_key_rate_limited(ip_key, max_requests=3, window_seconds=60):
+    client_ip = get_client_ip(request)
+    if await is_key_rate_limited(f"ratelimit:auth_ip:{client_ip}", max_requests=20, window_seconds=60):
         raise HTTPException(status_code=429, detail="لقد تجاوزت حد محاولات استعادة كلمة المرور المسموح بها. يرجى الانتظار دقيقة قبل المحاولة.")
     
     async with AsyncSessionLocal() as session:
@@ -433,8 +454,8 @@ def verify_google_token(id_token: str) -> Optional[dict]:
 
 @app.post("/auth/google-login", response_model=Token)
 async def google_login(req: GoogleAuthReq, request: Request):
-    ip_key = f"ratelimit:auth_ip:{request.client.host}"
-    if await is_key_rate_limited(ip_key, max_requests=5, window_seconds=60):
+    client_ip = get_client_ip(request)
+    if await is_key_rate_limited(f"ratelimit:auth_ip:{client_ip}", max_requests=30, window_seconds=60):
         raise HTTPException(status_code=429, detail="لقد تجاوزت حد محاولات الدخول/التسجيل المسموح به. يرجى الانتظار دقيقة قبل المحاولة.")
     import secrets
     user_info = verify_google_token(req.id_token)

@@ -36,10 +36,10 @@ if not DATABASE_URL:
 async_engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    pool_size=35,
-    max_overflow=25,
-    pool_timeout=15,
-    pool_recycle=900,
+    pool_size=10,
+    max_overflow=15,
+    pool_timeout=10,
+    pool_recycle=300,
     pool_pre_ping=True
 )
 
