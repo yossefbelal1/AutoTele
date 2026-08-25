@@ -175,21 +175,32 @@ async def metrics_endpoint():
     return PlainTextResponse("\n".join(lines))
 
 
-cors_origins_env = os.getenv("CORS_ALLOWED_ORIGINS", "*")
-if cors_origins_env == "*":
-    allow_origins = ["*"]
-    allow_credentials = False
+cors_origins_env = os.getenv("CORS_ALLOWED_ORIGINS", "")
+if not cors_origins_env or cors_origins_env.strip() == "*":
+    # Safe production default origins (no wildcards with credentials)
+    allow_origins = ["https://teleauto.com", "https://www.teleauto.com", "http://localhost:3000", "http://127.0.0.1:3000"]
 else:
     allow_origins = [orig.strip() for orig in cors_origins_env.split(",") if orig.strip()]
-    allow_credentials = True
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,
-    allow_credentials=allow_credentials,
-    allow_methods=["*"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    if request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
 
 active_handshakes: Dict[str, Dict[str, Any]] = {}
 
@@ -287,24 +298,16 @@ async def check_proxy_responsive(host: str, port: int, timeout: float = 3.0) -> 
     except Exception:
         return False
 
-# Pool of proxy servers for automatic load balancing (from env)
+# Pool of proxy servers for automatic load balancing (from environment)
 _proxy_pool_raw = os.getenv("PROXY_POOL", "[]")
-PROXY_POOL = _json.loads(_proxy_pool_raw)
-if not PROXY_POOL:
-    PROXY_POOL = [
-        "85.120.128.180",
-        "85.120.131.44",
-        "85.120.130.123",
-        "85.120.129.8"
-    ]
-    PROXY_PORT = 50101
-    PROXY_USERNAME = "kamelyossef111"
-    PROXY_PASSWORD = "zXAi3FHU7B"
-else:
-    PROXY_PORT = int(os.getenv("PROXY_PORT", "1080"))
-    PROXY_USERNAME = os.getenv("PROXY_USERNAME", "")
-    PROXY_PASSWORD = os.getenv("PROXY_PASSWORD", "")
+try:
+    PROXY_POOL = _json.loads(_proxy_pool_raw) if _proxy_pool_raw else []
+except Exception:
+    PROXY_POOL = []
 
+PROXY_PORT = int(os.getenv("DEFAULT_PROXY_PORT", "50101")) if os.getenv("DEFAULT_PROXY_PORT") else 50101
+PROXY_USERNAME = os.getenv("DEFAULT_PROXY_USERNAME", "")
+PROXY_PASSWORD = os.getenv("DEFAULT_PROXY_PASSWORD", "")
 
 async def get_least_used_proxy(session) -> str:
     # Find the counts of users assigned to each proxy to balance the load
