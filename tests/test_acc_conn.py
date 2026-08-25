@@ -37,5 +37,6 @@ async def test_conn(account_id):
         except Exception as e:
             print(f"CLIENT ERROR: type={type(e).__name__}, msg={e}")
 
-asyncio.run(test_conn(8))
+if __name__ == '__main__':
+    asyncio.run(test_conn(8))
 asyncio.run(test_conn(4))

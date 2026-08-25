@@ -7,4 +7,5 @@ async def test():
             print(f'ID: {acc.id}, Phone: {acc.phone}, StickerFileID: {acc.sticker_file_id}, StickerFileUniqueID: {acc.sticker_file_unique_id}, Status: {acc.status}')
         else:
             print('Account not found')
-asyncio.run(test())
+if __name__ == '__main__':
+    asyncio.run(test())
