@@ -429,18 +429,25 @@ async function syncDashboardData() {
 
   try {
     const response = await apiRequest("/user/subscription");
+    if (!response) return;
     
     // Check status bot link and prompt user if not linked
-    checkStatusBotLinking(response);
+    try {
+      checkStatusBotLinking(response);
+    } catch (e) {
+      console.warn("Status bot prompt error:", e);
+    }
     
-    // 1. Update user metadata
+    // 1. Update user metadata (Null-safe)
     const displayName = response.full_name || response.email || "user@domain.com";
-    document.getElementById("user-email-display").textContent = displayName;
+    const emailDisplayEl = document.getElementById("user-email-display");
+    if (emailDisplayEl) emailDisplayEl.textContent = displayName;
+
     const avatarEl = document.querySelector(".user-avatar");
     if (avatarEl) {
       const parts = displayName.trim().split(/\s+/);
       let initials = "AD";
-      if (parts.length >= 2) {
+      if (parts.length >= 2 && parts[0] && parts[1]) {
         initials = (parts[0][0] + parts[1][0]).toUpperCase();
       } else if (parts.length === 1 && parts[0].length >= 2) {
         initials = parts[0].substring(0, 2).toUpperCase();
@@ -455,8 +462,14 @@ async function syncDashboardData() {
     else if (response.plan === "half_year") planText = "باقة 6 شهور";
     else if (response.plan === "yearly") planText = "باقة سنوية";
     
-    document.getElementById("user-plan-badge").innerHTML = `${planText} | 💰 ${response.credits || 0} نقطة`;
-    document.getElementById("plan-duration-display").textContent = planText;
+    const userPlanBadge = document.getElementById("user-plan-badge");
+    if (userPlanBadge) {
+      userPlanBadge.innerHTML = `${planText} | 💰 ${response.credits || 0} نقطة`;
+    }
+    const planDurationDisplay = document.getElementById("plan-duration-display");
+    if (planDurationDisplay) {
+      planDurationDisplay.textContent = planText;
+    }
 
     // Show/hide admin panel button based on user admin privileges
     const adminNavTab = document.getElementById("admin-nav-tab");
@@ -470,18 +483,21 @@ async function syncDashboardData() {
 
     // 2. Set subscription status badge (Active / Expired)
     const statusBadge = document.getElementById("sub-status-badge");
-    statusBadge.className = "status-badge"; // reset classes
-    if (response.status === "Active") {
-      statusBadge.textContent = "نشط";
-      statusBadge.classList.add("active-badge");
-    } else {
-      statusBadge.textContent = "منتهي";
-      statusBadge.classList.add("expired-badge");
+    if (statusBadge) {
+      statusBadge.className = "status-badge"; // reset classes
+      if (response.status === "Active") {
+        statusBadge.textContent = "نشط";
+        statusBadge.classList.add("active-badge");
+      } else {
+        statusBadge.textContent = "منتهي";
+        statusBadge.classList.add("expired-badge");
+      }
     }
 
     // 3. Central countdown circular SVG ring calculation
     const remainingDays = response.remaining_days || 0;
-    document.getElementById("remaining-days-count").textContent = remainingDays;
+    const remainingDaysEl = document.getElementById("remaining-days-count");
+    if (remainingDaysEl) remainingDaysEl.textContent = remainingDays;
 
     let maxDays = 30; // standard month reference
     if (response.plan === "weekly") maxDays = 7;
@@ -497,8 +513,10 @@ async function syncDashboardData() {
     }
 
     // 4. Update calendars
-    document.getElementById("start-date-display").textContent = response.start_date || "--";
-    document.getElementById("end-date-display").textContent = response.end_date || "--";
+    const startDateEl = document.getElementById("start-date-display");
+    if (startDateEl) startDateEl.textContent = response.start_date || "--";
+    const endDateEl = document.getElementById("end-date-display");
+    if (endDateEl) endDateEl.textContent = response.end_date || "--";
 
     // 5. Core Bot Worker State
     const botStatus = response.bot_status;
@@ -512,24 +530,26 @@ async function syncDashboardData() {
       botCard.className = "card engine-card"; // reset
     }
 
-    if (botStatus === "active") {
-      botDisplay.textContent = "يعمل بنشاط / Running";
-      botDisplay.style.color = "#10b981";
-    } else if (botStatus === "banned") {
-      botDisplay.textContent = "حظر أمني / Banned";
-      botDisplay.style.color = "#f43f5e";
-    } else if (botStatus === "error") {
-      botDisplay.textContent = "خطأ بالنظام / System Error";
-      botDisplay.style.color = "#f59e0b";
-    } else if (botStatus === "inactive") {
-      botDisplay.textContent = "متوقف مؤقتاً / Inactive";
-      botDisplay.style.color = "#708499";
-    } else {
-      botDisplay.textContent = "غير متصل / Disconnected";
-      botDisplay.style.color = "#708499";
+    if (botDisplay) {
+      if (botStatus === "active") {
+        botDisplay.textContent = "يعمل بنشاط / Running";
+        botDisplay.style.color = "#10b981";
+      } else if (botStatus === "banned") {
+        botDisplay.textContent = "حظر أمني / Banned";
+        botDisplay.style.color = "#f43f5e";
+      } else if (botStatus === "error") {
+        botDisplay.textContent = "خطأ بالنظام / System Error";
+        botDisplay.style.color = "#f59e0b";
+      } else if (botStatus === "inactive") {
+        botDisplay.textContent = "متوقف مؤقتاً / Inactive";
+        botDisplay.style.color = "#708499";
+      } else {
+        botDisplay.textContent = "غير متصل / Disconnected";
+        botDisplay.style.color = "#708499";
+      }
     }
     
-    // Update proxy/account status indicators in campaign wizard
+    // Update proxy/account status indicators in campaign wizard (Null-safe)
     const accountStatusDot = document.getElementById("account-status-dot");
     const campaignAccountName = document.getElementById("campaign-account-name");
     const proxyStatusDot = document.getElementById("proxy-status-dot");
@@ -537,22 +557,22 @@ async function syncDashboardData() {
     const submitBtn = document.getElementById("btn-submit-web-campaign");
 
     if (currentTelegramAccountId) {
-      campaignAccountName.textContent = `الحساب: متصل`;
+      if (campaignAccountName) campaignAccountName.textContent = `الحساب: متصل`;
       if (response.needs_reboot) {
-        accountStatusDot.style.backgroundColor = "#eab308"; // yellow
-        campaignAccountName.innerHTML = `الحساب: يحتاج إعادة تشغيل ⚠️`;
+        if (accountStatusDot) accountStatusDot.style.backgroundColor = "#eab308"; // yellow
+        if (campaignAccountName) campaignAccountName.innerHTML = `الحساب: يحتاج إعادة تشغيل ⚠️`;
         if (submitBtn) {
           submitBtn.disabled = true;
           submitBtn.textContent = "⚠️ عطل: الحساب يحتاج لإعادة تشغيل";
         }
       } else if (botStatus === "active") {
-        accountStatusDot.style.backgroundColor = "#10b981"; // green
+        if (accountStatusDot) accountStatusDot.style.backgroundColor = "#10b981"; // green
         if (submitBtn) {
           submitBtn.disabled = false;
           submitBtn.innerHTML = `<span>🚀 إطلاق الحملة السحابية</span><span class="spinner hidden"></span>`;
         }
       } else {
-        accountStatusDot.style.backgroundColor = "#ef4444"; // red
+        if (accountStatusDot) accountStatusDot.style.backgroundColor = "#ef4444"; // red
         if (submitBtn) {
           submitBtn.disabled = true;
           submitBtn.textContent = "⚠️ عطل: المحرك غير نشط";
@@ -560,17 +580,17 @@ async function syncDashboardData() {
       }
 
       if (response.proxy_host) {
-        campaignProxyName.textContent = `الوكيل: ${response.proxy_host}`;
-        proxyStatusDot.style.backgroundColor = "#10b981"; // green
+        if (campaignProxyName) campaignProxyName.textContent = `الوكيل: ${response.proxy_host}`;
+        if (proxyStatusDot) proxyStatusDot.style.backgroundColor = "#10b981"; // green
       } else {
-        campaignProxyName.textContent = "لا يوجد بروكسي مخصص";
-        proxyStatusDot.style.backgroundColor = "#ef4444"; // red
+        if (campaignProxyName) campaignProxyName.textContent = "لا يوجد بروكسي مخصص";
+        if (proxyStatusDot) proxyStatusDot.style.backgroundColor = "#ef4444"; // red
       }
     } else {
-      campaignAccountName.textContent = "الحساب: غير مربوط";
-      accountStatusDot.style.backgroundColor = "#ef4444";
-      campaignProxyName.textContent = "لا يوجد وكيل";
-      proxyStatusDot.style.backgroundColor = "#ef4444";
+      if (campaignAccountName) campaignAccountName.textContent = "الحساب: غير مربوط";
+      if (accountStatusDot) accountStatusDot.style.backgroundColor = "#ef4444";
+      if (campaignProxyName) campaignProxyName.textContent = "لا يوجد وكيل";
+      if (proxyStatusDot) proxyStatusDot.style.backgroundColor = "#ef4444";
       if (submitBtn) {
         submitBtn.disabled = true;
         submitBtn.textContent = "يرجى ربط تليجرام أولاً";
