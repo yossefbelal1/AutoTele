@@ -2428,14 +2428,9 @@ async def run_bulk_campaign_logic(
                         link = f"https://t.me/{username}" if username else f"https://t.me/c/{tid_str[4:]}"
                     else:
                         link = f"https://t.me/{username}" if username else f"https://t.me/c/{tid_str[1:] if tid_str.startswith('-') else tid_str}"
-                # Ensure link is the user's tracking link
-                if not link or not ("+" in str(link) or "joinchat" in str(link)):
-                    try:
-                        resolved_user_link = await resolve_best_channel_link(client, tid, link or "")
-                        if resolved_user_link:
-                            link = resolved_user_link
-                    except Exception:
-                        pass
+                # Use in-memory tracking link directly without blocking network calls
+                if not link:
+                    link = f"https://t.me/{username}" if username else f"https://t.me/c/{str(tid)[4:] if str(tid).startswith('-100') else str(tid)}"
                 targets_info.append({"id": tid, "title": title, "link": link})
             else:
                 tid_str = str(tid)
@@ -2674,7 +2669,9 @@ async def run_bulk_campaign_logic(
                             f"• تم النشر في: `{ch_idx}` من `{total_ch}` قناة مروجة\n"
                             f"• القناة المستهدفة الحالية: **{target_title}**"
                         )
-                        await update_status_message(index, "posting", current_post_info=current_post_info)
+                        # Throttle message edits (first, last, and every 4 channels) to prevent Telegram edit FloodWait
+                        if ch_idx == 1 or ch_idx == total_ch or ch_idx % 4 == 0:
+                            asyncio.create_task(update_status_message(index, "posting", current_post_info=current_post_info))
                         
                         sleep_time = max(get_safe_min_delay(tenant_id), get_adaptive_delay(tenant_id))
                         await asyncio.sleep(sleep_time)
@@ -2707,7 +2704,8 @@ async def run_bulk_campaign_logic(
                                 f"• تم النشر في: `{ch_idx}` من `{total_ch}` قناة مروجة\n"
                                 f"• القناة المستهدفة الحالية: **{target_title}**"
                             )
-                            await update_status_message(index, "posting", current_post_info=current_post_info)
+                            if ch_idx == 1 or ch_idx == total_ch or ch_idx % 4 == 0:
+                                asyncio.create_task(update_status_message(index, "posting", current_post_info=current_post_info))
                         except Exception as err:
                             await log_tenant_event(tenant_id, f"❌ فشل النشر في قناة [{ch.get('title')}] بعد فك وضع البطء: {err}")
                             await handle_posting_error_and_clean_cache(tenant_id, cid, err)
@@ -2742,7 +2740,8 @@ async def run_bulk_campaign_logic(
                                 f"• تم النشر في: `{ch_idx}` من `{total_ch}` قناة مروجة\n"
                                 f"• القناة المستهدفة الحالية: **{target_title}**"
                             )
-                            await update_status_message(index, "posting", current_post_info=current_post_info)
+                            if ch_idx == 1 or ch_idx == total_ch or ch_idx % 4 == 0:
+                                asyncio.create_task(update_status_message(index, "posting", current_post_info=current_post_info))
                         except Exception as err:
                             await log_tenant_event(tenant_id, f"❌ فشل النشر في قناة [{ch.get('title')}] بعد فك وضع البطء: {err}")
                             await handle_posting_error_and_clean_cache(tenant_id, cid, err)
