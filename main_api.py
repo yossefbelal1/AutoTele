@@ -134,7 +134,8 @@ async def health_check():
             await session.execute(text("SELECT 1"))
         health_status["database"] = "connected"
     except Exception as e:
-        health_status["database"] = f"unhealthy: {str(e)}"
+        logger.error(f"Health check database failure: {e}")
+        health_status["database"] = "unhealthy"
         health_status["status"] = "unhealthy"
         
     # 2. Check Redis connection
@@ -142,11 +143,12 @@ async def health_check():
         await redis_client.ping()
         health_status["redis"] = "connected"
     except Exception as e:
-        health_status["redis"] = f"unhealthy: {str(e)}"
+        logger.error(f"Health check redis failure: {e}")
+        health_status["redis"] = "unhealthy"
         health_status["status"] = "unhealthy"
         
     if health_status["status"] == "unhealthy":
-        raise HTTPException(status_code=500, detail=health_status)
+        raise HTTPException(status_code=500, detail={"status": "unhealthy"})
     return health_status
 
 @app.get("/config")
@@ -154,7 +156,16 @@ async def get_config():
     return {"google_client_id": GOOGLE_CLIENT_ID or ""}
 
 @app.get("/metrics")
-async def metrics_endpoint():
+async def metrics_endpoint(request: Request):
+    client_ip = get_client_ip(request)
+    metrics_secret = os.getenv("METRICS_AUTH_SECRET", "")
+    req_secret = request.headers.get("X-Metrics-Secret", "")
+    
+    # Allow internal network / localhost, or valid secret
+    is_internal = client_ip in ["127.0.0.1", "::1", "localhost"] or client_ip.startswith("172.") or client_ip.startswith("10.") or client_ip.startswith("192.168.")
+    if not is_internal and (not metrics_secret or req_secret != metrics_secret):
+        raise HTTPException(status_code=403, detail="Forbidden: Metrics endpoint is internal only")
+        
     lines = []
     try:
         async with AsyncSessionLocal() as session:
@@ -168,7 +179,7 @@ async def metrics_endpoint():
         lines.append(f"teleauto_pending_payments {pending_pm}")
         lines.append(f"teleauto_active_handshakes_total {len(active_handshakes)}")
     except Exception as e:
-        lines.append(f"teleauto_metrics_error 1")
+        lines.append("teleauto_metrics_error 1")
         logger.error(f"Error generating metrics: {e}")
         
     from fastapi.responses import PlainTextResponse
