@@ -1,15 +1,15 @@
-# Optimized for ultra-cheap VPS (1GB - 2GB RAM) - tuned for up to 15 tenants × 300 channels
+# AutoTele SaaS - Hardened Production Docker Compose
+# Architecture: Internal Network Isolation with Environment-Driven Secrets
 
 services:
-  # 1. مكعب قاعدة البيانات (PostgreSQL) - optimized for low memory footprint
+  # 1. PostgreSQL Database Service
   postgres_db:
     image: postgres:15-alpine
     container_name: saas_postgres
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: local_secure_password_2026
-      POSTGRES_DB: ad_exchange
-      # Tune PostgreSQL for very small memory footprint
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required in .env file}
+      POSTGRES_DB: ${POSTGRES_DB:-ad_exchange}
       POSTGRES_INITDB_ARGS: "--encoding=UTF8"
     command: >
       postgres
@@ -25,10 +25,13 @@ services:
       -c synchronous_commit=off
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # Bind to localhost only for admin management; not exposed to public internet
     ports:
       - "127.0.0.1:5433:5432"
+    networks:
+      - teleauto_internal_network
     restart: always
-    mem_limit: 192m
+    mem_limit: 256m
     mem_reservation: 96m
     logging:
       driver: "json-file"
@@ -36,12 +39,12 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # 2. مكعب الكاش والـ Rate Limiter (Redis) - capped at 64MB with LRU eviction
+  # 2. Redis Cache & Messaging Service
   redis_cache:
     image: redis:7-alpine
     container_name: saas_redis
@@ -52,12 +55,15 @@ services:
       --maxmemory-policy allkeys-lru
       --save 900 1
       --save 300 10
+    # Bind to localhost only for debugging; not exposed to public internet
     ports:
       - "127.0.0.1:6380:6379"
     volumes:
       - redis_data:/data
+    networks:
+      - teleauto_internal_network
     restart: always
-    mem_limit: 96m
+    mem_limit: 128m
     mem_reservation: 48m
     logging:
       driver: "json-file"
@@ -65,31 +71,40 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # 3. مكعب الباك إند والـ APIs (FastAPI)
+  # 3. FastAPI Application Backend
   fastapi_api:
     build: .
     container_name: saas_fastapi_api
     volumes:
-      - ./main_api.py:/app/main_api.py
-      - ./db_manager.py:/app/db_manager.py
+      - ./main_api.py:/app/main_api.py:ro
+      - ./db_manager.py:/app/db_manager.py:ro
+      - ./cache_manager.py:/app/cache_manager.py:ro
     command: uvicorn main_api:app --host 0.0.0.0 --port 8000
     ports:
       - "127.0.0.1:8001:8000"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:local_secure_password_2026@postgres_db:5432/ad_exchange
-      - REDIS_URL=redis://redis_cache:6379/0
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required in .env file}
+      - REDIS_URL=${REDIS_URL:-redis://redis_cache:6379/0}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required. Set it in .env file.}
       - SESSION_ENCRYPTION_KEY=${SESSION_ENCRYPTION_KEY:?SESSION_ENCRYPTION_KEY is required. Set it in .env file.}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-https://teleauto.com}
+      - FRONTEND_URL=${FRONTEND_URL:-https://teleauto.com}
       - PYTHONUNBUFFERED=1
       - STATUS_BOT_TOKEN=${STATUS_BOT_TOKEN:-}
       - STATUS_BOT_USERNAME=${STATUS_BOT_USERNAME:-AutoTeleStatusBot}
+      - PROXY_POOL=${PROXY_POOL:-[]}
+      - DEFAULT_PROXY_PORT=${DEFAULT_PROXY_PORT:-50101}
+      - DEFAULT_PROXY_USERNAME=${DEFAULT_PROXY_USERNAME:-}
+      - DEFAULT_PROXY_PASSWORD=${DEFAULT_PROXY_PASSWORD:-}
     depends_on:
       postgres_db:
         condition: service_healthy
       redis_cache:
         condition: service_started
+    networks:
+      - teleauto_internal_network
     restart: always
-    mem_limit: 192m
+    mem_limit: 256m
     mem_reservation: 96m
     tmpfs:
       - /tmp
@@ -99,14 +114,14 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # 4. مكعب المحرك والمشرف المركزي (Core Worker) - optimized for low RAM
+  # 4. Core Worker Engine
   core_worker:
     build: .
     container_name: saas_core_worker
     command: python worker.py
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:local_secure_password_2026@postgres_db:5432/ad_exchange
-      - REDIS_URL=redis://redis_cache:6379/0
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required in .env file}
+      - REDIS_URL=${REDIS_URL:-redis://redis_cache:6379/0}
       - SESSION_ENCRYPTION_KEY=${SESSION_ENCRYPTION_KEY:?SESSION_ENCRYPTION_KEY is required. Set it in .env file.}
       - PYTHONUNBUFFERED=1
       - STATUS_BOT_TOKEN=${STATUS_BOT_TOKEN:-}
@@ -117,8 +132,11 @@ services:
       redis_cache:
         condition: service_started
     volumes:
-      - ./worker.py:/app/worker.py
-      - ./db_manager.py:/app/db_manager.py
+      - ./worker.py:/app/worker.py:ro
+      - ./db_manager.py:/app/db_manager.py:ro
+      - ./cache_manager.py:/app/cache_manager.py:ro
+    networks:
+      - teleauto_internal_network
     restart: always
     mem_limit: 512m
     mem_reservation: 128m
@@ -130,23 +148,29 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # 5. مكعب الشاشة والواجهة (Frontend Nginx UI)
+  # 5. Frontend Static Nginx UI & Reverse Proxy
   frontend_ui:
     image: nginx:alpine
     container_name: saas_frontend
     ports:
       - "127.0.0.1:3000:80"
     volumes:
-      - ./frontend:/usr/share/nginx/html
+      - ./frontend:/usr/share/nginx/html:ro
       - ./frontend/default.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - teleauto_internal_network
     restart: always
-    mem_limit: 32m
+    mem_limit: 64m
     mem_reservation: 16m
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+
+networks:
+  teleauto_internal_network:
+    driver: bridge
 
 volumes:
   postgres_data:
