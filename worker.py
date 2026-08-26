@@ -12,8 +12,17 @@ import concurrent.futures
 
 from pyrogram import Client, filters
 from pyrogram.types import Message, ChatMemberUpdated
-from pyrogram.enums import ParseMode
-from pyrogram.errors import FloodWait, RPCError, UserDeactivated, AuthKeyUnregistered, AuthKeyDuplicated, SessionRevoked, Unauthorized, SessionPasswordNeeded
+from pyrogram.errors import (
+    FloodWait,
+    SlowmodeWait,
+    RPCError,
+    UserDeactivated,
+    AuthKeyUnregistered,
+    AuthKeyDuplicated,
+    SessionRevoked,
+    Unauthorized,
+    SessionPasswordNeeded
+)
 from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -2444,7 +2453,8 @@ async def run_bulk_campaign_logic(
         def format_time(dt: datetime) -> str:
             # Egypt/Middle East timezone (UTC+3)
             egypt_dt = dt + timedelta(hours=3)
-            return egypt_dt.strftime("%I:%M %p")
+            period = "مساءً" if egypt_dt.strftime("%p") == "PM" else "صباحاً"
+            return f"{egypt_dt.strftime('%I:%M')} {period}"
 
         def generate_checklist_markdown(current_idx: int, target_posting_status: str, sleep_countdown: int) -> str:
             lines = []
@@ -2492,7 +2502,12 @@ async def run_bulk_campaign_logic(
                     elif target_posting_status == "posting":
                         status_label = "🚀 [جاري النشر]"
                     elif target_posting_status in ("sleeping", "waiting_final_clean"):
-                        status_label = "✅ [تم النشر]"
+                        if state == "failed":
+                            status_label = "❌ [فشل]"
+                        elif state == "skipped":
+                            status_label = "⚠️ [تم التخطي]"
+                        else:
+                            status_label = "✅ [تم النشر]"
                     else:
                         status_label = "⏳ [انتظار]"
                 else:
