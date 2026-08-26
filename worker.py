@@ -12,6 +12,7 @@ import concurrent.futures
 
 from pyrogram import Client, filters
 from pyrogram.types import Message, ChatMemberUpdated
+from pyrogram.enums import ParseMode
 from pyrogram.errors import (
     FloodWait,
     SlowmodeWait,
