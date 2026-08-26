@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import json
 import re
 import logging
@@ -294,13 +295,10 @@ async def delete_active_ads_in_channel(session: AsyncSession, client: Client, te
         stmt = select(ActiveAd).where(ActiveAd.telegram_account_id == tenant_id, ActiveAd.chat_id == chat_id).order_by(ActiveAd.id.asc())
         ads = list((await session.execute(stmt)).scalars().all())
         
-        if len(ads) < 2:
+        if not ads:
             return
             
-        num_to_delete = len(ads) - 1
-        ads_to_delete = ads[:num_to_delete]
-        
-        for ad in ads_to_delete:
+        for ad in ads:
             try:
                 ids_to_delete = [ad.msg_id]
                 if getattr(ad, "sticker_msg_id", None):
@@ -4325,6 +4323,23 @@ async def start_tenant_worker(account: TelegramAccount):
         # Check and resume active campaign if persisted in Redis
         async def try_resume_campaign():
             try:
+                # 1. Guard against duplicate running tasks for this tenant
+                if tenant_id in active_running_tasks and active_running_tasks[tenant_id]:
+                    logger.info(f"Tenant {tenant_id} already has running tasks, skipping duplicate campaign resumption.")
+                    return
+
+                # 2. Guard against duplicate execution if poll_web_campaign_tasks is handling this tenant
+                async with AsyncSessionLocal() as chk_sess:
+                    has_db_task = (await chk_sess.execute(
+                        select(WebCampaignTask.id).where(
+                            WebCampaignTask.telegram_account_id == tenant_id,
+                            WebCampaignTask.status.in_(["pending", "processing"])
+                        )
+                    )).scalar_one_or_none()
+                    if has_db_task:
+                        logger.info(f"Tenant {tenant_id} has active DB campaign task {has_db_task}, skipping duplicate Redis resumption.")
+                        return
+
                 state = await get_active_campaign_state(tenant_id)
                 if state:
                     logger.info(f"Detected active campaign state in Redis for tenant {tenant_id}: {state}")
