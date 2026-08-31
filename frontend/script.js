@@ -192,9 +192,12 @@ function switchTab(tabId, selectedPlan = null) {
   const panels = document.querySelectorAll(".tab-panel");
   panels.forEach(panel => panel.classList.add("hidden"));
 
-  // Deactivate all nav buttons
+  // Deactivate all nav buttons & drawer items
   const navTabs = document.querySelectorAll(".nav-tab");
   navTabs.forEach(tab => tab.classList.remove("active"));
+
+  const drawerTabs = document.querySelectorAll(".drawer-nav-item[data-tab]");
+  drawerTabs.forEach(tab => tab.classList.remove("active"));
 
   // Show selected panel & activate button
   const activePanel = document.getElementById(tabId);
@@ -205,6 +208,23 @@ function switchTab(tabId, selectedPlan = null) {
   const activeNav = document.querySelector(`.nav-tab[data-tab="${tabId}"]`);
   if (activeNav) {
     activeNav.classList.add("active");
+  }
+
+  const activeDrawerNav = document.querySelector(`.drawer-nav-item[data-tab="${tabId}"]`);
+  if (activeDrawerNav) {
+    activeDrawerNav.classList.add("active");
+  }
+
+  // Update Dynamic Page Title on Mobile Top App Bar
+  const titleMap = {
+    "tab-subscription": "اشتراكي",
+    "tab-plans": "الخطط والترقية",
+    "tab-connect": "ربط المحرك",
+    "tab-templates": "مكتبة الصيغ"
+  };
+  const pageTitleEl = document.getElementById("mobile-page-title");
+  if (pageTitleEl && titleMap[tabId]) {
+    pageTitleEl.textContent = titleMap[tabId];
   }
 
   // Pre-select plan in payment dropdown if redirected from pricing plans
@@ -443,17 +463,19 @@ async function syncDashboardData() {
     const emailDisplayEl = document.getElementById("user-email-display");
     if (emailDisplayEl) emailDisplayEl.textContent = displayName;
 
-    const avatarEl = document.querySelector(".user-avatar");
-    if (avatarEl) {
-      const parts = displayName.trim().split(/\s+/);
-      let initials = "AD";
-      if (parts.length >= 2 && parts[0] && parts[1]) {
-        initials = (parts[0][0] + parts[1][0]).toUpperCase();
-      } else if (parts.length === 1 && parts[0].length >= 2) {
-        initials = parts[0].substring(0, 2).toUpperCase();
-      }
-      avatarEl.textContent = initials;
+    const drawerEmailEl = document.getElementById("drawer-email-display");
+    if (drawerEmailEl) drawerEmailEl.textContent = displayName;
+
+    const parts = displayName.trim().split(/\s+/);
+    let initials = "AD";
+    if (parts.length >= 2 && parts[0] && parts[1]) {
+      initials = (parts[0][0] + parts[1][0]).toUpperCase();
+    } else if (parts.length === 1 && parts[0].length >= 2) {
+      initials = parts[0].substring(0, 2).toUpperCase();
     }
+
+    const avatars = document.querySelectorAll(".user-avatar");
+    avatars.forEach(el => el.textContent = initials);
     
     // Map plan to readable Arabic tag
     let planText = "باقة تجريبية";
@@ -3134,3 +3156,70 @@ window.markNotificationsAsRead = async function(notifId = null, all = false) {
     console.error("Failed to mark notifications read:", err);
   }
 };
+
+
+// ==========================================
+// MOBILE DRAWER CONTROLLER
+// ==========================================
+function openMobileDrawer() {
+  const drawer = document.getElementById("mobile-nav-drawer");
+  const backdrop = document.getElementById("mobile-drawer-backdrop");
+  if (drawer && backdrop) {
+    drawer.classList.add("open");
+    backdrop.classList.remove("hidden");
+    backdrop.classList.add("active");
+    document.body.classList.add("drawer-open");
+  }
+}
+
+function closeMobileDrawer() {
+  const drawer = document.getElementById("mobile-nav-drawer");
+  const backdrop = document.getElementById("mobile-drawer-backdrop");
+  if (drawer && backdrop) {
+    drawer.classList.remove("open");
+    backdrop.classList.remove("active");
+    backdrop.classList.add("hidden");
+    document.body.classList.remove("drawer-open");
+  }
+}
+
+function toggleMobileDrawer() {
+  const drawer = document.getElementById("mobile-nav-drawer");
+  if (drawer && drawer.classList.contains("open")) {
+    closeMobileDrawer();
+  } else {
+    openMobileDrawer();
+  }
+}
+
+// Bind mobile drawer listeners on DOM load
+document.addEventListener("DOMContentLoaded", () => {
+  const btnToggleDrawer = document.getElementById("btn-toggle-mobile-drawer");
+  const btnCloseDrawer = document.getElementById("btn-close-drawer");
+  const backdrop = document.getElementById("mobile-drawer-backdrop");
+  const btnLogoutDrawer = document.getElementById("btn-logout-drawer");
+
+  if (btnToggleDrawer) btnToggleDrawer.addEventListener("click", toggleMobileDrawer);
+  if (btnCloseDrawer) btnCloseDrawer.addEventListener("click", closeMobileDrawer);
+  if (backdrop) backdrop.addEventListener("click", closeMobileDrawer);
+  if (btnLogoutDrawer) {
+    btnLogoutDrawer.addEventListener("click", () => {
+      closeMobileDrawer();
+      const logoutBtn = document.getElementById("btn-logout");
+      if (logoutBtn) logoutBtn.click();
+    });
+  }
+
+  // Mobile Notification Bell Trigger
+  const btnNotifMobile = document.getElementById("btn-notif-bell-mobile");
+  const notifDropdown = document.getElementById("notif-dropdown");
+  if (btnNotifMobile && notifDropdown) {
+    btnNotifMobile.addEventListener("click", (e) => {
+      e.stopPropagation();
+      notifDropdown.classList.toggle("hidden");
+      if (!notifDropdown.classList.contains("hidden")) {
+        fetchNotifications();
+      }
+    });
+  }
+});

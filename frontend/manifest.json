@@ -1,0 +1,26 @@
+{
+  "name": "AutoTele - Telegram SaaS Engine",
+  "short_name": "AutoTele",
+  "description": "منصة إدارة وتبادل إعلانات تليجرام السحابية الذكية",
+  "start_url": "/app.html",
+  "display": "standalone",
+  "background_color": "#17212b",
+  "theme_color": "#17212b",
+  "orientation": "any",
+  "dir": "rtl",
+  "lang": "ar",
+  "icons": [
+    {
+      "src": "logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
