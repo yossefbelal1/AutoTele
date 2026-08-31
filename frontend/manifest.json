@@ -3,6 +3,7 @@
   "short_name": "AutoTele",
   "description": "منصة إدارة وتبادل إعلانات تليجرام السحابية الذكية",
   "start_url": "/app.html",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#17212b",
   "theme_color": "#17212b",
@@ -11,8 +12,14 @@
   "lang": "ar",
   "icons": [
     {
-      "src": "logo.png",
+      "src": "icon-192.png",
       "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
     },

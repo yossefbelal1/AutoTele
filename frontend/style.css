@@ -3138,3 +3138,58 @@ button, input, select, textarea, a, .nav-tab, .drawer-nav-item {
     gap: 20px !important;
   }
 }
+
+/* Enhanced Touch Targets & Clean Card Actions */
+.btn-close-drawer {
+  width: 44px !important;
+  height: 44px !important;
+  min-width: 44px !important;
+  min-height: 44px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 10px !important;
+  font-size: 28px !important;
+  cursor: pointer !important;
+}
+
+#btn-refresh-jobs, #btn-clear-jobs, #btn-refresh-logs, #btn-clear-logs-web {
+  min-height: 38px !important;
+  padding: 6px 14px !important;
+  border-radius: 8px !important;
+  font-size: 12.5px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  transition: all 0.2s ease !important;
+}
+
+#btn-refresh-jobs:hover, #btn-refresh-logs:hover {
+  background: rgba(59, 130, 246, 0.15) !important;
+  border-color: rgba(59, 130, 246, 0.3) !important;
+}
+
+#btn-clear-jobs:hover, #btn-clear-logs-web:hover {
+  background: rgba(239, 68, 68, 0.15) !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+}
+
+#btn-refresh-channels {
+  min-width: 38px !important;
+  min-height: 38px !important;
+}
+
+.channel-filter-tab, .promo-filter-tab, .target-filter-tab {
+  min-height: 34px !important;
+  padding: 6px 14px !important;
+}
+
+#btn-submit-web-campaign, #btn-send-code, #btn-verify-code, #btn-add-template, #btn-submit-payment {
+  min-height: 48px !important;
+  width: 100% !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+}
