@@ -192,30 +192,23 @@ function switchTab(tabId, selectedPlan = null) {
   const panels = document.querySelectorAll(".tab-panel");
   panels.forEach(panel => panel.classList.add("hidden"));
 
-  // Deactivate all nav buttons & drawer items
-  const navTabs = document.querySelectorAll(".nav-tab");
-  navTabs.forEach(tab => tab.classList.remove("active"));
+  // Deactivate desktop tabs, mobile bottom nav items, and drawer items
+  document.querySelectorAll(".nav-tab").forEach(t => t.classList.remove("active"));
+  document.querySelectorAll(".bottom-nav-item").forEach(t => t.classList.remove("active"));
+  document.querySelectorAll(".drawer-nav-item").forEach(t => t.classList.remove("active"));
 
-  const drawerTabs = document.querySelectorAll(".drawer-nav-item[data-tab]");
-  drawerTabs.forEach(tab => tab.classList.remove("active"));
-
-  // Show selected panel & activate button
+  // Show selected panel
   const activePanel = document.getElementById(tabId);
   if (activePanel) {
     activePanel.classList.remove("hidden");
   }
 
-  const activeNav = document.querySelector(`.nav-tab[data-tab="${tabId}"]`);
-  if (activeNav) {
-    activeNav.classList.add("active");
-  }
+  // Activate matching navigation elements
+  document.querySelectorAll(`.nav-tab[data-tab="${tabId}"]`).forEach(t => t.classList.add("active"));
+  document.querySelectorAll(`.bottom-nav-item[data-tab="${tabId}"]`).forEach(t => t.classList.add("active"));
+  document.querySelectorAll(`.drawer-nav-item[data-tab="${tabId}"]`).forEach(t => t.classList.add("active"));
 
-  const activeDrawerNav = document.querySelector(`.drawer-nav-item[data-tab="${tabId}"]`);
-  if (activeDrawerNav) {
-    activeDrawerNav.classList.add("active");
-  }
-
-  // Update Dynamic Page Title on Mobile Top App Bar
+  // Update dynamic page title in mobile header
   const titleMap = {
     "tab-subscription": "اشتراكي",
     "tab-plans": "الخطط والترقية",
