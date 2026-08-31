@@ -1414,14 +1414,53 @@ async def _crawl_and_cache_tenant_channels_inner(tenant_id: int, client: Client,
         campaign_ids = list(set(campaign_ids))
         only_post_ids = list(set(only_post_ids))
 
+        # Forensic Audit & Anti-Shrink Snapshot Guard for Campaign and Custom Folders
+        async def safe_cache_folder(key: str, new_ids: list, folder_label: str) -> list:
+            try:
+                raw_prev = await redis_client.get(key)
+                prev_ids = json.loads(raw_prev) if raw_prev else []
+                prev_count = len(prev_ids)
+                new_count = len(new_ids)
+                
+                added = list(set(new_ids) - set(prev_ids))
+                removed = list(set(prev_ids) - set(new_ids))
+                
+                # Structured Forensic Logging
+                logger.info(
+                    f"[FOLDER_AUDIT] tenant={tenant_id} folder={folder_label} "
+                    f"previous_count={prev_count} new_count={new_count} "
+                    f"added={len(added)} removed={len(removed)} key={key}"
+                )
+                
+                # Anti-Shrink Guard: If previous snapshot had >= 10 items and new read shrunk by >= 50%
+                if prev_count >= 10 and new_count < int(prev_count * 0.5):
+                    logger.error(
+                        f"🚨 CRITICAL FOLDER SHRINK DETECTED: tenant={tenant_id} folder={folder_label} "
+                        f"previous={prev_count} new={new_count} removed={len(removed)} "
+                        f"action=UPDATE_REJECTED (Retaining previous snapshot in cache)"
+                    )
+                    await log_tenant_event(
+                        tenant_id, 
+                        f"🛡️ [حماية المجلدات] تم اكتشاف انخفاض مفاجئ في قنوات مجلد '{folder_label}' "
+                        f"(من {prev_count} إلى {new_count} قناة). تم رفض تحديث الكاش وحفظ النسخة الكاملة تلقائياً."
+                    )
+                    return prev_ids
+                
+                await redis_client.set(key, json.dumps(new_ids))
+                return new_ids
+            except Exception as se:
+                logger.error(f"Error in safe_cache_folder for key {key}: {se}")
+                await redis_client.set(key, json.dumps(new_ids))
+                return new_ids
+
+        campaign_ids = await safe_cache_folder(f"tenant:{tenant_id}:campaign", campaign_ids, "Campaigns/حملات")
         await redis_client.set(f"tenant:{tenant_id}:no_post", json.dumps(no_post_ids))
         await redis_client.set(f"tenant:{tenant_id}:banned", json.dumps(banned_ids))
-        await redis_client.set(f"tenant:{tenant_id}:campaign", json.dumps(campaign_ids))
         await redis_client.set(f"tenant:{tenant_id}:only_post", json.dumps(only_post_ids))
         
         custom_folder_numbers = sorted(list(custom_my_channels.keys()))
         for folder_num, ch_ids in custom_my_channels.items():
-            await redis_client.set(f"tenant:{tenant_id}:my_channels:{folder_num}", json.dumps(ch_ids))
+            await safe_cache_folder(f"tenant:{tenant_id}:my_channels:{folder_num}", ch_ids, f"My_channels{folder_num}")
         await redis_client.set(f"tenant:{tenant_id}:my_channels_list", json.dumps(custom_folder_numbers))
         
         logger.info(f"Folders synced for tenant {tenant_id}: No_Post={len(no_post_ids)} | BANNED={len(banned_ids)} | CAMPAIGN={len(campaign_ids)} | ONLY_POST={len(only_post_ids)} | MY_CHANNELS={custom_folder_numbers}")

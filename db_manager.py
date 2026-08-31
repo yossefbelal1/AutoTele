@@ -435,9 +435,36 @@ def apply_pyrogram_patches():
                 kwargs["disable_web_page_preview"] = True
             return await orig_edit(self, *args, **kwargs)
         Message.edit = patched_edit
+
+        # 7. Global Hard Security Guard against Telegram Folder / Channel Mutations
+        orig_invoke = Client.invoke
+        FORBIDDEN_RAW_MUTATIONS = (
+            "UpdateDialogFilter",
+            "UpdateDialogFiltersOrder",
+            "DeleteDialogFilter",
+            "EditPeerFolders",
+            "LeaveChatlist",
+            "LeaveChannel",
+            "DeleteChannel",
+            "DeleteChat"
+        )
+        async def guarded_invoke(self, query, *args, **kwargs):
+            query_type = type(query).__name__
+            for forbidden in FORBIDDEN_RAW_MUTATIONS:
+                if forbidden in query_type:
+                    import traceback
+                    tb_str = "".join(traceback.format_stack())
+                    err_msg = (
+                        f"🚨 [CRITICAL HARD GUARD BLOCKED] Attempted forbidden Telegram mutation: {query_type}\n"
+                        f"Stack Trace:\n{tb_str}"
+                    )
+                    logger.critical(err_msg)
+                    raise RuntimeError(f"FORBIDDEN_TELEGRAM_MUTATION_BLOCKED: {query_type} is prohibited by AutoTele Security Policy.")
+            return await orig_invoke(self, query, *args, **kwargs)
+        Client.invoke = guarded_invoke
         
         _patches_applied = True
-        logger.info("Successfully applied Pyrogram monkey patches.")
+        logger.info("Successfully applied Pyrogram monkey patches and Hard Security Guards.")
     except Exception as e:
         logger.error(f"Error applying Pyrogram monkey patches: {e}")
 
