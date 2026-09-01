@@ -2428,12 +2428,37 @@ async def run_bulk_campaign_logic(
             period = "مساءً" if egypt_dt.strftime("%p") == "PM" else "صباحاً"
             return f"{egypt_dt.strftime('%I:%M')} {period}"
 
-        def generate_checklist_markdown(current_idx: int, target_posting_status: str, sleep_countdown: int) -> str:
+        def generate_checklist_markdown(current_idx: int, target_posting_status: str, sleep_countdown: int) -> tuple:
             lines = []
             now_utc = datetime.now(timezone.utc)
+            
+            # STABLE TIMELINE ANCHOR:
+            # If sleeping, target (current_idx + 1) starts exactly when the countdown reaches 0 (now_utc + sleep_countdown)
+            # This ensures (now_utc + sleep_countdown) is perfectly constant throughout the entire sleep duration!
+            if target_posting_status == "sleeping":
+                next_target_start = now_utc + timedelta(seconds=sleep_countdown)
+            elif target_posting_status == "waiting_final_clean":
+                next_target_start = now_utc
+            else:
+                # When posting target current_idx, next target will start after delay_between_channels from current start
+                cur_start = target_actual_starts.get(current_idx, now_utc)
+                next_target_start = cur_start + timedelta(minutes=delay_between_channels)
+            
+            # Calculate fixed final campaign completion time
+            if total_targets > 0:
+                if total_targets == 1:
+                    last_start = target_actual_starts.get(0, now_utc)
+                elif (total_targets - 1) in target_actual_starts:
+                    last_start = target_actual_starts[total_targets - 1]
+                else:
+                    offset_to_last = max(0, (total_targets - 1) - (current_idx + 1))
+                    last_start = next_target_start + timedelta(minutes=offset_to_last * delay_between_channels)
+                final_completion_dt = last_start + timedelta(minutes=ad_lifespan)
+            else:
+                final_completion_dt = now_utc
+
             for j, info in enumerate(targets_info):
                 raw_title = info["title"]
-                # Escape markdown special characters in channel titles
                 title = raw_title.replace('*', '').replace('`', '').replace('_', ' ')
                 
                 if j in target_actual_starts:
@@ -2447,11 +2472,9 @@ async def run_bulk_campaign_logic(
                     start_str = format_time(act_start)
                     delete_str = format_time(act_delete) if ad_lifespan > 0 else "دائم"
                 else:
-                    if target_posting_status == "sleeping":
-                        future_offset = sleep_countdown + (j - current_idx - 1) * (delay_between_channels * 60)
-                    else:
-                        future_offset = (j - current_idx) * (delay_between_channels * 60)
-                    pred_start = now_utc + timedelta(seconds=max(0, future_offset))
+                    # Future target: offset mathematically from next_target_start anchor (100% STABLE, ZERO JITTER)
+                    future_offset_min = (j - (current_idx + 1)) * delay_between_channels if j > current_idx else 0
+                    pred_start = next_target_start + timedelta(minutes=future_offset_min)
                     pred_delete = pred_start + timedelta(minutes=ad_lifespan)
                     start_str = format_time(pred_start)
                     delete_str = format_time(pred_delete) if ad_lifespan > 0 else "دائم"
@@ -2487,18 +2510,35 @@ async def run_bulk_campaign_logic(
                 
                 item_text = f"{j+1}. {status_label} **{title}**\n   • البدء: `{start_str}` | الحذف: `{delete_str}`"
                 lines.append(item_text)
-            return "\n".join(lines)
+            return "\n".join(lines), final_completion_dt
 
         async def update_status_message(current_idx: int, target_posting_status: str, sleep_countdown: int = 0, current_post_info: str = ""):
+            checklist_str, final_completion_dt = generate_checklist_markdown(current_idx, target_posting_status, sleep_countdown)
+            end_time_str = format_time(final_completion_dt)
+            
+            current_target_title = targets_info[current_idx]["title"] if current_idx < len(targets_info) else "الأهداف"
+            # Progress percentage calculation
+            if target_posting_status == "completed":
+                done_targets = total_targets
+                pct = 100
+            elif target_posting_status in ("sleeping", "waiting_final_clean"):
+                done_targets = current_idx + 1
+                pct = min(99, max(1, round((done_targets / total_targets) * 100)))
+            else:
+                done_targets = current_idx
+                pct = min(95, max(1, round(((done_targets + 0.5) / total_targets) * 100)))
+                
+            progress_header_line = f"📊 **التقدم الحالي:** تم إنجاز `{done_targets}` من `{total_targets}` هدف ({current_target_title}) — `{pct}%`\n"
+
             if not status_msg:
                 # If no status message but we have a web task, update status text on web UI still
                 if web_task_id:
-                    expected_end = start_time + timedelta(minutes=(total_targets - 1) * delay_between_channels + ad_lifespan)
-                    end_time_str = format_time(expected_end)
-                    checklist_str = generate_checklist_markdown(current_idx, target_posting_status, sleep_countdown)
                     report = (
                         f"⏳ **لوحة متابعة حملة المجلد المجمعة (.حملات)**\n"
-                        f"🏁 الوقت المتوقع لانتهاء الحملة: `{end_time_str}` (توقيت القاهرة)\n\n"
+                        f"--------------------------------------------\n"
+                        f"{progress_header_line}"
+                        f"🏁 **الوقت المتوقع لانتهاء الحملة بالكامل:** `{end_time_str}` (توقيت القاهرة)\n\n"
+                        f"📋 **مخطط سير الحملة (Checklist):**\n"
                         f"{checklist_str}"
                     )
                     await update_task_progress_in_db(web_task_id, report)
@@ -2520,21 +2560,12 @@ async def run_bulk_campaign_logic(
             else:
                 general_status = "🚀 **جاري تشغيل النشر للحملة المجمعة...**"
                 countdown_line = ""
-                
-            # Dynamic calculation of overall campaign end time based on current progress
-            if target_posting_status == "sleeping":
-                future_end_seconds = sleep_countdown + (total_targets - 1 - current_idx) * (delay_between_channels * 60) + (ad_lifespan * 60)
-            else:
-                future_end_seconds = (total_targets - current_idx) * (delay_between_channels * 60) + (ad_lifespan * 60)
-            expected_end = datetime.now(timezone.utc) + timedelta(seconds=future_end_seconds)
-            end_time_str = format_time(expected_end)
-            
-            checklist_str = generate_checklist_markdown(current_idx, target_posting_status, sleep_countdown)
             
             report = (
                 f"⏳ **لوحة متابعة حملة المجلد المجمعة (.حملات)**\n"
                 f"--------------------------------------------\n"
                 f"📊 **الحالة العامة:** {general_status}\n"
+                f"{progress_header_line}"
                 f"{countdown_line}"
                 f"🏁 **الوقت المتوقع لانتهاء الحملة بالكامل:** `{end_time_str}` (توقيت القاهرة)\n\n"
                 f"📋 **مخطط سير الحملة (Checklist):**\n"

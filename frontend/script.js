@@ -2725,7 +2725,7 @@ function updateCampaignProgressBar() {
   let activeTask = null;
   
   cards.forEach(card => {
-    if (card.innerHTML.includes("🔄 جاري التنفيذ...")) {
+    if (card.innerHTML.includes("🔄 جاري التنفيذ...") || card.innerHTML.includes("📌 إعلان حي") || card.innerHTML.includes("حملة مجلد") || card.innerHTML.includes("لوحة متابعة") || card.innerHTML.includes("التبادل التلقائي")) {
       activeTask = card;
     }
   });
@@ -2746,29 +2746,40 @@ function updateCampaignProgressBar() {
     let hintStr = "البوت يقوم بتنفيذ الإجراء وتحديث الإحصائيات لحظياً...";
     
     if (summaryText) {
-      const matchOf = summaryText.match(/(?:النشر بنجاح في|تم النشر في|تم نشر|مكتملة|التقدم الحالي:)\s*`?(\d+)`?\s*من\s*`?(\d+)`?/);
-      if (matchOf) {
-        publishedCount = parseInt(matchOf[1]);
-        totalCount = parseInt(matchOf[2]);
-        pct = Math.round((publishedCount / totalCount) * 100);
-        titleStr = `جاري النشر التبادلي والتلقائي...`;
-        hintStr = `تم النشر بنجاح في ${publishedCount} من أصل ${totalCount} قناة مستهدفة.`;
+      // 1. Match bulk folder campaign progress: "تم إنجاز 2 من 11 هدف (قناة X) — 18%"
+      const matchBulk = summaryText.match(/(?:تم إنجاز|الهدف|أهداف)\s*`?(\d+)`?\s*من\s*`?(\d+)`?\s*(?:هدف|قناة)?(?:\s*\(([^)]+)\))?(?:.*?`?(\d+)%`?)?/);
+      if (matchBulk) {
+        publishedCount = parseInt(matchBulk[1]);
+        totalCount = parseInt(matchBulk[2]);
+        pct = matchBulk[4] ? parseInt(matchBulk[4]) : Math.round((publishedCount / totalCount) * 100);
+        const curTarget = matchBulk[3] ? ` (${matchBulk[3]})` : "";
+        titleStr = `جاري تنفيذ حملة المجلد المجمعة${curTarget}...`;
+        hintStr = `تم إنجاز ${publishedCount} من أصل ${totalCount} هدف. النشر والحذف التلقائي نشط.`;
       } else {
-        const matchCrawl = summaryText.match(/تم فحص\s*`?(\d+)`?\s*قناة/);
-        if (matchCrawl) {
-          publishedCount = parseInt(matchCrawl[1]);
-          totalCount = 19; 
-          pct = Math.min(100, Math.round((publishedCount / totalCount) * 100));
-          titleStr = `جاري فحص وتحديث كاش القنوات والمجلدات...`;
-          hintStr = `تم فحص ومزامنة ${publishedCount} قنوات حتى الآن وتجديد المجموعات.`;
+        const matchOf = summaryText.match(/(?:النشر بنجاح في|تم النشر في|تم نشر|مكتملة|التقدم الحالي:)\s*`?(\d+)`?\s*من\s*`?(\d+)`?/);
+        if (matchOf) {
+          publishedCount = parseInt(matchOf[1]);
+          totalCount = parseInt(matchOf[2]);
+          pct = Math.round((publishedCount / totalCount) * 100);
+          titleStr = `جاري النشر التبادلي والتلقائي...`;
+          hintStr = `تم النشر بنجاح في ${publishedCount} من أصل ${totalCount} قناة مستهدفة.`;
         } else {
-          const matchDelete = summaryText.match(/تم حذف\s*`?(\d+)`?\s*(?:إعلان|رسالة)/);
-          if (matchDelete) {
-            publishedCount = parseInt(matchDelete[1]);
-            totalCount = 12;
+          const matchCrawl = summaryText.match(/تم فحص\s*`?(\d+)`?\s*قناة/);
+          if (matchCrawl) {
+            publishedCount = parseInt(matchCrawl[1]);
+            totalCount = 19; 
             pct = Math.min(100, Math.round((publishedCount / totalCount) * 100));
-            titleStr = `جاري إطلاق مكنسة التنظيف وإلغاء الحملات...`;
-            hintStr = `تم حذف وتطهير ${publishedCount} إعلانات نشطة من القنوات.`;
+            titleStr = `جاري فحص وتحديث كاش القنوات والمجلدات...`;
+            hintStr = `تم فحص ومزامنة ${publishedCount} قنوات حتى الآن وتجديد المجموعات.`;
+          } else {
+            const matchDelete = summaryText.match(/تم حذف\s*`?(\d+)`?\s*(?:إعلان|رسالة)/);
+            if (matchDelete) {
+              publishedCount = parseInt(matchDelete[1]);
+              totalCount = 12;
+              pct = Math.min(100, Math.round((publishedCount / totalCount) * 100));
+              titleStr = `جاري إطلاق مكنسة التنظيف وإلغاء الحملات...`;
+              hintStr = `تم حذف وتطهير ${publishedCount} إعلانات نشطة من القنوات.`;
+            }
           }
         }
       }
