@@ -1077,23 +1077,7 @@
               <button class="btn btn-secondary btn-select-plan" onclick="switchTab('tab-connect')">ابدأ الفترة التجريبية مجاناً</button>
             </div>
 
-            <!-- Plan 2: Weekly -->
-            <div class="price-card" data-plan="weekly">
-              <div class="plan-header">
-                <span class="plan-badge discount" style="background: #8b5cf6;">وفر $15</span>
-                <h3 class="plan-name">اشتراك أسبوعي</h3>
-                <div class="plan-price">
-                  <span style="text-decoration: line-through; color: #708499; font-size: 16px; margin-left: 8px;">$35</span>20$ <span class="period">/ أسبوع</span>
-                </div>
-              </div>
-              <ul class="plan-features">
-                <li>نشر ذكي مضاد لحظر تليجرام</li>
-                <li>نشر في أكثر من 100 قناة بلحظة</li>
-                <li>حذف الإعلانات تلقائياً بدقة ثانية</li>
-                <li>سيرفر خاص بسرعات اتصال فائقة</li>
-              </ul>
-              <button class="btn btn-primary btn-select-plan" onclick="switchTab('tab-plans', 'weekly')">اختر هذه الباقة للترقية</button>
-            </div>
+
 
             <!-- Plan 3: Monthly -->
             <div class="price-card popular" data-plan="monthly">
@@ -1116,14 +1100,14 @@
             <!-- Plan 4: 6-Months -->
             <div class="price-card" data-plan="half_year">
               <div class="plan-header">
-                <span class="plan-badge discount">وفر $280 (شهرين مجاناً 🎁)</span>
+                <span class="plan-badge discount">وفر $210 (وفر 44%)</span>
                 <h3 class="plan-name">اشتراك 6 شهور</h3>
                 <div class="plan-price">
-                  <span style="text-decoration: line-through; color: #708499; font-size: 16px; margin-left: 8px;">$480</span>200$ <span class="period">/ 6 شهور</span>
+                  <span style="text-decoration: line-through; color: #708499; font-size: 16px; margin-left: 8px;">$480</span>270$ <span class="period">/ 6 شهور</span>
                 </div>
               </div>
               <ul class="plan-features">
-                <li>توفير قيمة شهرين مجاناً 🎁 ($33/شهر فقط)</li>
+                <li>توفير كبير بمعدل ($45/شهر فقط)</li>
                 <li>خوادم خاصة فائقة السرعة للعميل</li>
                 <li>دعم كامل لوكيل (Proxy SOCKS5) خاص</li>
                 <li>دعم فني مخصص ومباشر 24/7</li>
@@ -1134,14 +1118,14 @@
             <!-- Plan 5: Yearly -->
             <div class="price-card gold" data-plan="yearly">
               <div class="plan-header">
-                <span class="plan-badge discount-gold">وفر $610 (5 شهور مجاناً 👑)</span>
+                <span class="plan-badge discount-gold">وفر 50% ($480 توفير ضخم 👑)</span>
                 <h3 class="plan-name">اشتراك سنوي</h3>
                 <div class="plan-price">
-                  <span style="text-decoration: line-through; color: #708499; font-size: 16px; margin-left: 8px;">$960</span>350$ <span class="period">/ سنة</span>
+                  <span style="text-decoration: line-through; color: #708499; font-size: 16px; margin-left: 8px;">$960</span>480$ <span class="period">/ سنة</span>
                 </div>
               </div>
               <ul class="plan-features">
-                <li>توفير قيمة 5 شهور مجاناً 🎁 ($29/شهر فقط)</li>
+                <li>خصم 50% كامل بنصف السعر ($40/شهر فقط)</li>
                 <li>نشر وإدارة قنوات غير محدودة</li>
                 <li>بروكسي SOCKS5 مخصص مجاني مدمج</li>
                 <li>مستشار ومدير حساب مخصص بالكامل</li>
@@ -1190,10 +1174,9 @@
                     <label for="payment-plan-select">الباقة المراد تفعيلها</label>
                     <select id="payment-plan-select" required>
                       <option value="" disabled selected>-- اختر الباقة التي قمت بتحويل قيمتها --</option>
-                      <option value="weekly">اشتراك أسبوعي ($20)</option>
                       <option value="monthly">اشتراك شهري ($50)</option>
-                      <option value="half_year">اشتراك 6 شهور ($200)</option>
-                      <option value="yearly">اشتراك سنوي ($350)</option>
+                      <option value="half_year">اشتراك 6 شهور ($270)</option>
+                      <option value="yearly">اشتراك سنوي ($480 - خصم 50%)</option>
                     </select>
                   </div>
 

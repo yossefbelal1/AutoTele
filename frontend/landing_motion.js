@@ -114,29 +114,30 @@ const PLANS = [
     isPrimary: false, btnText: 'ابدأ التجربة المجانية',
   },
   {
-    id: 'weekly', badge: 'وفر $15', badgeColor: '#8b5cf6', name: 'أسبوعي', price: '$20', original: '$35', period: '/ أسبوع', saving: 'وفّر $15',
-    features: ['نشر ذكي مضاد لحظر تليجرام', 'نشر في أكثر من 100 قناة بلحظة', 'حذف الإعلانات تلقائياً بدقة ثانية', 'سيرفر خاص بسرعات اتصال فائقة'],
-    isPrimary: false, btnText: 'تفعيل الباقة الأسبوعية',
-  },
-  {
-    id: 'monthly', badge: '⭐ الأكثر طلباً - وفر $30', badgeColor: '#00c8ff', name: 'شهري', price: '$50', original: '$80', period: '/ شهر', saving: 'وفّر $30',
+    id: 'monthly',
+    badge: '⭐ الأكثر طلباً - وفر $30', badgeColor: '#00c8ff',
+    name: 'شهري', price: '$50', original: '$80', period: '/ شهر', saving: 'وفّر $30',
     features: ['نشر في أكثر من 100 قناة بضغطة زر', 'مزامنة المجلدات وحظر القنوات تلقائياً', 'حذف الإعلانات أوتوماتيكياً بدقة ثانية', 'تفعيل استيكر مخصص مانع للحظر'],
     isPrimary: true, btnText: 'تفعيل الباقة الشهرية',
   },
   {
-    id: 'half_year', badge: 'وفر $280', badgeColor: '#f59e0b', name: '6 شهور', price: '$200', original: '$480', period: '/ 6 شهور', saving: 'وفّر $280',
-    features: ['توفير قيمة شهرين مجاناً 🎁', 'خوادم خاصة فائقة السرعة للعميل', 'دعم كامل لوكيل (Proxy SOCKS5) خاص', 'دعم فني مخصص ومباشر 24/7'],
+    id: 'half_year',
+    badge: 'وفر $210 (وفر 44%)', badgeColor: '#f59e0b',
+    name: '6 شهور', price: '$270', original: '$480', period: '/ 6 شهور', saving: 'وفّر $210',
+    features: ['توفير كبير بمعدل ($45/شهر فقط)', 'خوادم خاصة فائقة السرعة للعميل', 'دعم كامل لوكيل (Proxy SOCKS5) خاص', 'دعم فني مخصص ومباشر 24/7'],
     isPrimary: false, btnText: 'تفعيل باقة 6 شهور',
   },
   {
-    id: 'yearly', badge: 'وفر $610 (5 شهور مجاناً 👑)', badgeColor: '#f59e0b', name: 'سنوي', price: '$350', original: '$960', period: '/ سنة', saving: 'وفّر $610',
-    features: ['توفير قيمة 4 شهور مجاناً 🎁', 'نشر وإدارة قنوات غير محدودة', 'بروكسي SOCKS5 مخصص مجاني مدمج', 'مستشار ومدير حساب مخصص بالكامل'],
+    id: 'yearly',
+    badge: 'خصم 50% ($480 توفير 👑)', badgeColor: '#f59e0b',
+    name: 'سنوي', price: '$480', original: '$960', period: '/ سنة', saving: 'وفّر 50% ($480)',
+    features: ['خصم 50% كامل بنصف السعر ($40/شهر)', 'نشر وإدارة قنوات غير محدودة', 'بروكسي SOCKS5 مخصص مجاني مدمج', 'مستشار ومدير حساب مخصص بالكامل'],
     isPrimary: false, btnText: 'تفعيل الباقة السنوية',
   },
 ];
 
 function Pricing3DCarousel({ onGoToApp, isMobile }) {
-  const [active, setActive] = useState(2);
+  const [active, setActive] = useState(1);
   const touchStart = useRef(null);
   const n = PLANS.length;
 
