@@ -161,7 +161,7 @@ async def is_key_rate_limited(key: str, max_requests: int = 5, window_seconds: i
     
     try:
         # استخدام Redis Pipeline لضمان تنفيذ كل العمليات في Network Round Trip واحدة وبسرعة قصوى
-        async with redis_client.pipeline(transaction=True) as pipe:
+        async with redis_client.pipeline(transaction=False) as pipe:
             # 1. إزالة الطلبات القديمة التي خرجت عن نطاق النافذة الزمنية الحالية
             pipe.zremrangebyscore(key, 0, cutoff)
             # 2. إضافة الطلب الحالي بالـ Timestamp بتاعه
@@ -192,4 +192,4 @@ async def is_rate_limited(telegram_account_id: int, max_requests: int = 5, windo
     النتيجة: True لو الحساب تخطى الحد المسموح (Rate Limited)، و False لو الطلب آمن ويمكن تمريره.
     """
     key = f"tenant:{telegram_account_id}:ratelimit"
-    return await is_key_rate_limited(key, max_requests, window_seconds)
+    return await is_key_rate_limited(key, max_requests, window_seconds)

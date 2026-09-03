@@ -359,11 +359,22 @@ async def get_least_used_proxy(session) -> Optional[str]:
 @app.post("/auth/signup")
 async def signup(user_data: UserAuth, request: Request):
     client_ip = get_client_ip(request)
-    if await is_key_rate_limited(f"ratelimit:auth_ip:{client_ip}", max_requests=30, window_seconds=60):
-        raise HTTPException(status_code=429, detail="لقد تجاوزت حد محاولات الدخول/التسجيل المسموح به. يرجى الانتظار دقيقة قبل المحاولة.")
+    logger.info(f"==> [SIGNUP] Request from IP: {client_ip}, Email: {user_data.email}")
+    
+    try:
+        if await asyncio.wait_for(is_key_rate_limited(f"ratelimit:auth_ip:{client_ip}", max_requests=30, window_seconds=60), timeout=2.0):
+            raise HTTPException(status_code=429, detail="لقد تجاوزت حد محاولات الدخول/التسجيل المسموح به. يرجى الانتظار دقيقة قبل المحاولة.")
+    except asyncio.TimeoutError:
+        logger.warning(f"Rate limiter check timed out for IP {client_ip}, bypassing...")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Rate limiter check error for IP {client_ip}: {e}")
+        
     async with AsyncSessionLocal() as session:
         stmt = select(User).where(User.email == user_data.email)
-        if (await session.execute(stmt)).scalar_one_or_none():
+        existing = (await session.execute(stmt)).scalar_one_or_none()
+        if existing:
             raise HTTPException(status_code=400, detail="البريد مسجل بالفعل")
         
         assigned_host = await get_least_used_proxy(session)
@@ -371,10 +382,13 @@ async def signup(user_data: UserAuth, request: Request):
         trial_end = datetime.now(timezone.utc) + timedelta(days=2)
         raw_name = (user_data.full_name or "").strip()
         name = raw_name if raw_name else user_data.email.split('@')[0]
+        
+        pw_hash = bcrypt.hashpw(user_data.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        
         new_user = User(
             email=user_data.email, 
             full_name=name,
-            password_hash=bcrypt.hashpw(user_data.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'),
+            password_hash=pw_hash,
             subscription_plan="trial",
             subscription_end=trial_end,
             proxy_host=assigned_host,
@@ -384,19 +398,31 @@ async def signup(user_data: UserAuth, request: Request):
         )
         session.add(new_user)
         await session.commit()
+        logger.info(f"==> [SIGNUP SUCCESS] Created user ID {new_user.id} ({user_data.email})")
         return {"status": "success", "message": "تم إنشاء الحساب وتفعيل الفترة التجريبية (يومين) بنجاح!"}
 
 @app.post("/auth/login", response_model=Token)
 async def login(user_data: UserAuth, request: Request):
     client_ip = get_client_ip(request)
-    if await is_key_rate_limited(f"ratelimit:auth_ip:{client_ip}", max_requests=30, window_seconds=60):
-        raise HTTPException(status_code=429, detail="لقد تجاوزت حد محاولات الدخول/التسجيل المسموح به. يرجى الانتظار دقيقة قبل المحاولة.")
+    logger.info(f"==> [LOGIN] Request from IP: {client_ip}, Email: {user_data.email}")
+    
+    try:
+        if await asyncio.wait_for(is_key_rate_limited(f"ratelimit:auth_ip:{client_ip}", max_requests=30, window_seconds=60), timeout=2.0):
+            raise HTTPException(status_code=429, detail="لقد تجاوزت حد محاولات الدخول/التسجيل المسموح به. يرجى الانتظار دقيقة قبل المحاولة.")
+    except asyncio.TimeoutError:
+        logger.warning(f"Rate limiter check timed out for IP {client_ip}, bypassing...")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Rate limiter check error for IP {client_ip}: {e}")
+        
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(User.email == user_data.email))).scalar_one_or_none()
         if not user or not bcrypt.checkpw(user_data.password.encode('utf-8'), user.password_hash.encode('utf-8')):
             raise HTTPException(status_code=401, detail="بيانات خاطئة")
         
         access_token = jwt.encode({"sub": user.id, "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)}, JWT_SECRET, algorithm=JWT_ALGORITHM)
+        logger.info(f"==> [LOGIN SUCCESS] User ID {user.id} ({user_data.email}) logged in successfully")
         return {"access_token": access_token, "token_type": "bearer"}
 
 class ForgotPasswordReq(BaseModel):
