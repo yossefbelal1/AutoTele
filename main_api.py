@@ -155,6 +155,11 @@ async def health_check():
 async def get_config():
     return {"google_client_id": GOOGLE_CLIENT_ID or ""}
 
+@app.post("/test-post")
+async def test_post_endpoint(req: Request):
+    body = await req.json()
+    return {"status": "ok", "received": body}
+
 @app.get("/metrics")
 async def metrics_endpoint(request: Request):
     client_ip = get_client_ip(request)
