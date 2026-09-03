@@ -151,6 +151,22 @@ async def health_check():
         raise HTTPException(status_code=500, detail={"status": "unhealthy"})
     return health_status
 
+@app.post("/test-post-pydantic")
+async def test_post_pydantic(user_data: UserAuth):
+    return {"status": "pydantic_ok", "email": user_data.email}
+
+@app.post("/test-post-db")
+async def test_post_db(user_data: UserAuth):
+    async with AsyncSessionLocal() as session:
+        stmt = select(User).where(User.email == user_data.email)
+        res = (await session.execute(stmt)).scalar_one_or_none()
+        return {"status": "db_ok", "found": res is not None}
+
+@app.post("/test-post-bcrypt")
+async def test_post_bcrypt(user_data: UserAuth):
+    pw = bcrypt.hashpw(user_data.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    return {"status": "bcrypt_ok"}
+
 @app.get("/config")
 async def get_config():
     return {"google_client_id": GOOGLE_CLIENT_ID or ""}
