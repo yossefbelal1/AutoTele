@@ -341,7 +341,9 @@ PROXY_PORT = int(os.getenv("DEFAULT_PROXY_PORT", "50101")) if os.getenv("DEFAULT
 PROXY_USERNAME = os.getenv("DEFAULT_PROXY_USERNAME", "")
 PROXY_PASSWORD = os.getenv("DEFAULT_PROXY_PASSWORD", "")
 
-async def get_least_used_proxy(session) -> str:
+async def get_least_used_proxy(session) -> Optional[str]:
+    if not PROXY_POOL:
+        return None
     # Find the counts of users assigned to each proxy to balance the load
     proxy_counts = {ip: 0 for ip in PROXY_POOL}
     stmt_counts = select(User.proxy_host, func.count(User.id)).where(User.proxy_host.in_(PROXY_POOL)).group_by(User.proxy_host)
@@ -349,6 +351,8 @@ async def get_least_used_proxy(session) -> str:
     for host, count in counts_res:
         if host in proxy_counts:
             proxy_counts[host] = count
+    if not proxy_counts:
+        return None
     # Choose the proxy with the minimum count
     return min(proxy_counts, key=proxy_counts.get)
 
@@ -374,9 +378,9 @@ async def signup(user_data: UserAuth, request: Request):
             subscription_plan="trial",
             subscription_end=trial_end,
             proxy_host=assigned_host,
-            proxy_port=PROXY_PORT,
-            proxy_username=PROXY_USERNAME,
-            proxy_password=PROXY_PASSWORD
+            proxy_port=PROXY_PORT if assigned_host else None,
+            proxy_username=PROXY_USERNAME if assigned_host else None,
+            proxy_password=PROXY_PASSWORD if assigned_host else None
         )
         session.add(new_user)
         await session.commit()
@@ -496,9 +500,9 @@ async def google_login(req: GoogleAuthReq, request: Request):
                 subscription_plan="trial",
                 subscription_end=trial_end,
                 proxy_host=assigned_host,
-                proxy_port=PROXY_PORT,
-                proxy_username=PROXY_USERNAME,
-                proxy_password=PROXY_PASSWORD
+                proxy_port=PROXY_PORT if assigned_host else None,
+                proxy_username=PROXY_USERNAME if assigned_host else None,
+                proxy_password=PROXY_PASSWORD if assigned_host else None
             )
             session.add(user)
             await session.commit()
@@ -1964,9 +1968,9 @@ async def verify_payment(req: VerifyPaymentReq, background_tasks: BackgroundTask
             if not user.proxy_host:
                 assigned_host = await get_least_used_proxy(session)
                 user.proxy_host = assigned_host
-                user.proxy_port = PROXY_PORT
-                user.proxy_username = PROXY_USERNAME
-                user.proxy_password = PROXY_PASSWORD
+                user.proxy_port = PROXY_PORT if assigned_host else None
+                user.proxy_username = PROXY_USERNAME if assigned_host else None
+                user.proxy_password = PROXY_PASSWORD if assigned_host else None
                 
             session.add(user)
             
