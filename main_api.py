@@ -155,11 +155,6 @@ async def health_check():
 async def get_config():
     return {"google_client_id": GOOGLE_CLIENT_ID or ""}
 
-@app.post("/test-post")
-async def test_post_endpoint(req: Request):
-    body = await req.json()
-    return {"status": "ok", "received": body}
-
 @app.get("/metrics")
 async def metrics_endpoint(request: Request):
     client_ip = get_client_ip(request)
@@ -259,22 +254,6 @@ class UserAuth(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=6)
     full_name: Optional[str] = None
-
-@app.post("/test-post-pydantic")
-async def test_post_pydantic(user_data: UserAuth):
-    return {"status": "pydantic_ok", "email": user_data.email}
-
-@app.post("/test-post-db")
-async def test_post_db(user_data: UserAuth):
-    async with AsyncSessionLocal() as session:
-        stmt = select(User).where(User.email == user_data.email)
-        res = (await session.execute(stmt)).scalar_one_or_none()
-        return {"status": "db_ok", "found": res is not None}
-
-@app.post("/test-post-bcrypt")
-async def test_post_bcrypt(user_data: UserAuth):
-    pw = bcrypt.hashpw(user_data.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-    return {"status": "bcrypt_ok"}
 
 class Token(BaseModel):
     access_token: str

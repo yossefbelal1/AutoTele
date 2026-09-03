@@ -271,24 +271,6 @@ async def init_db() -> None:
     try:
         async with async_engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-            from sqlalchemy import text
-            await conn.execute(text("ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS needs_reboot BOOLEAN DEFAULT FALSE;"))
-            await conn.execute(text("ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS sticker_file_id TEXT;"))
-            await conn.execute(text("ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS sticker_enabled BOOLEAN DEFAULT TRUE;"))
-            await conn.execute(text("ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS sticker_file_unique_id TEXT;"))
-            await conn.execute(text("ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS proxy_host VARCHAR(255);"))
-            await conn.execute(text("ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS proxy_port INTEGER;"))
-            await conn.execute(text("ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS proxy_username VARCHAR(255);"))
-            await conn.execute(text("ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS proxy_password VARCHAR(255);"))
-            await conn.execute(text("ALTER TABLE active_ads ADD COLUMN IF NOT EXISTS sticker_msg_id INTEGER;"))
-            await conn.execute(text("ALTER TABLE publish_logs ADD COLUMN IF NOT EXISTS sticker_msg_id INTEGER;"))
-            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS credits INTEGER DEFAULT 500;"))
-            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_alert_2d_sent BOOLEAN DEFAULT FALSE;"))
-            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_alert_24h_sent BOOLEAN DEFAULT FALSE;"))
-            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_alert_expired_sent BOOLEAN DEFAULT FALSE;"))
-            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_shutdown_executed BOOLEAN DEFAULT FALSE;"))
-            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS status_bot_chat_id BIGINT;"))
-            await conn.execute(text("ALTER TABLE web_campaign_tasks ADD COLUMN IF NOT EXISTS result_summary TEXT;"))
         logger.info("Database initialized successfully.")
     except Exception as e:
         logger.critical(f"Failed to initialize database: {e}"); raise
