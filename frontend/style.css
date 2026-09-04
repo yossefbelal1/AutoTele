@@ -1857,3 +1857,117 @@ body.drawer-open {
 }
 
 
+
+
+/* ==========================================================================
+   Consolidated Subscription, Plan & Engine Overview Box
+   ========================================================================== */
+.subscription-summary-card,
+.engine-card.subscription-summary-card {
+  margin-top: 10px;
+  margin-bottom: 20px;
+  padding: 18px 24px;
+  background: rgba(30, 41, 59, 0.45) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 16px !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.summary-card-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.summary-section {
+  flex: 1;
+  min-width: 0;
+}
+
+.summary-section.engine-section {
+  flex: 1.1;
+}
+
+.summary-section.plan-section {
+  flex: 1.4;
+}
+
+.summary-section.days-section {
+  flex: 0.9;
+}
+
+.summary-divider {
+  width: 1px;
+  height: 52px;
+  background: rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+.btn-link-bot-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 9999px;
+  color: #60a5fa;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+}
+
+.btn-link-bot-pill:hover {
+  background: rgba(59, 130, 246, 0.22);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #93c5fd;
+  transform: translateY(-1px);
+}
+
+/* ==========================================================================
+   API Stepper Modal Styles
+   ========================================================================== */
+.api-stepper-track .stepper-step {
+  transition: all 0.2s ease;
+}
+
+.api-stepper-track .stepper-step:hover {
+  background: rgba(30, 41, 59, 0.8) !important;
+  border-color: rgba(59, 130, 246, 0.5) !important;
+}
+
+/* ==========================================================================
+   Responsive Rules
+   ========================================================================== */
+@media (max-width: 768px) {
+  .summary-card-inner {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+  }
+  
+  .summary-divider {
+    width: 100%;
+    height: 1px;
+  }
+
+  .api-stepper-track {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  
+  .api-guide-cta-card {
+    flex-direction: column;
+    align-items: stretch !important;
+    text-align: center;
+  }
+  
+  .api-guide-cta-card button {
+    width: 100%;
+    justify-content: center;
+  }
+}

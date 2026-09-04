@@ -506,62 +506,68 @@
             </div>
           </div>
           
-          <div class="metrics-grid">
-            <!-- Central Countdown Ring -->
-            <div class="card status-card">
-              <h3 class="card-title">الأيام المتبقية</h3>
-              <div class="circular-progress-wrapper">
-                <svg class="circular-progress" width="160" height="160" viewBox="0 0 160 160">
-                  <circle class="circle-bg" cx="80" cy="80" r="70"></circle>
-                  <circle id="countdown-ring" class="circle-val" cx="80" cy="80" r="70" stroke-dasharray="440" stroke-dashoffset="440"></circle>
-                </svg>
-                <div class="circular-label">
-                  <span id="remaining-days-count" class="number">--</span>
-                  <span class="lbl">يوم متبقي</span>
+          <!-- Consolidated Subscription, Plan & Engine Overview Box -->
+          <div class="card engine-card subscription-summary-card" style="margin-top: 10px; margin-bottom: 20px; padding: 18px 24px; background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; backdrop-filter: blur(10px);">
+            <div class="summary-card-inner">
+              
+              <!-- 1. Engine Status -->
+              <div class="summary-section engine-section">
+                <div class="summary-section-header" style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+                  <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981;"></span>
+                  <span class="summary-label" style="font-size: 11.5px; font-weight: 700; color: #94a3b8;">حالة المحرك السحابي:</span>
                 </div>
-              </div>
-            </div>
-
-            <!-- Stats Metadata Card -->
-            <div class="card info-card">
-              <h3 class="card-title">بيانات الباقة الحالية</h3>
-              <div class="info-list">
-                <div class="info-item">
-                  <span class="info-label">اسم الباقة:</span>
-                  <span id="plan-duration-display" class="info-value font-highlight">--</span>
+                <div class="summary-main-val">
+                  <h4 id="bot-status-display" class="engine-status-text font-mono" style="margin: 0; font-size: 14px; font-weight: 700; color: #10b981;">جاري الاستعلام...</h4>
                 </div>
-                <div class="info-item">
-                  <span class="info-label">حالة الاشتراك:</span>
-                  <span id="sub-status-badge" class="status-badge">جاري التحميل...</span>
-                </div>
-                <div class="info-item">
-                  <span class="info-label">تاريخ البداية:</span>
-                  <span id="start-date-display" class="info-value font-mono">--</span>
-                </div>
-                <div class="info-item">
-                  <span class="info-label">تاريخ الانتهاء:</span>
-                  <span id="end-date-display" class="info-value font-mono">--</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Bot Engine Status Card -->
-            <div class="card engine-card">
-              <h3 class="card-title">حالة تشغيل المحرك السحابي</h3>
-              <div class="engine-status-wrapper">
-                <div class="engine-icon-glow">
-                  <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
-                </div>
-                <div class="engine-details">
-                  <span class="engine-label">حالة المحرك:</span>
-                  <h3 id="bot-status-display" class="engine-status">جاري الاستعلام...</h3>
-                  <p class="engine-hint">يتحكم هذا المحرك في جدولة نشر إعلاناتك وجلب القنوات وتوزيع التبادل تلقائياً.</p>
-                  <button id="btn-link-status-bot" class="btn-link-bot" style="margin-top: 16px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(37, 99, 235, 0.2); border: 1px solid #2563eb; color: #fff; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: all 0.2s; outline: none;">
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-                    ربط المساعد الإشعاري (تليجرام) 🔔
+                <div class="summary-sub-actions" style="margin-top: 6px;">
+                  <button id="btn-link-status-bot" type="button" class="btn-link-bot-pill">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                    <span>المساعد الإشعاري 🔔</span>
                   </button>
                 </div>
               </div>
+
+              <!-- Divider -->
+              <div class="summary-divider"></div>
+
+              <!-- 2. Plan Info -->
+              <div class="summary-section plan-section">
+                <div class="summary-section-header" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px;">
+                  <span class="summary-label" style="font-size: 11.5px; font-weight: 700; color: #94a3b8;">بيانات الباقة الحالية:</span>
+                  <span id="sub-status-badge" class="status-badge" style="font-size: 11px; padding: 2px 8px;">جاري التحميل...</span>
+                </div>
+                <div class="summary-main-val">
+                  <span id="plan-duration-display" class="plan-name-text font-highlight" style="font-weight: 800; font-size: 15px; color: #fff;">--</span>
+                </div>
+                <div class="summary-dates" style="margin-top: 4px; font-size: 11px; color: #94a3b8; display: flex; gap: 8px; flex-wrap: wrap;">
+                  <span>من: <strong id="start-date-display" class="font-mono" style="color: #cbd5e1;">--</strong></span>
+                  <span class="date-sep">•</span>
+                  <span>إلى: <strong id="end-date-display" class="font-mono" style="color: #cbd5e1;">--</strong></span>
+                </div>
+              </div>
+
+              <!-- Divider -->
+              <div class="summary-divider"></div>
+
+              <!-- 3. Remaining Days -->
+              <div class="summary-section days-section">
+                <div class="summary-section-header" style="margin-bottom: 4px;">
+                  <span class="summary-label" style="font-size: 11.5px; font-weight: 700; color: #94a3b8;">الأيام المتبقية:</span>
+                </div>
+                <div class="days-display-wrap" style="display: flex; align-items: center; gap: 10px;">
+                  <div class="mini-circular-progress" style="width: 44px; height: 44px; position: relative; display: flex; align-items: center; justify-content: center;">
+                    <svg width="44" height="44" viewBox="0 0 160 160" style="transform: rotate(-90deg);">
+                      <circle class="circle-bg" cx="80" cy="80" r="70" style="fill: none; stroke: rgba(255,255,255,0.08); stroke-width: 14;"></circle>
+                      <circle id="countdown-ring" class="circle-val" cx="80" cy="80" r="70" stroke-dasharray="440" stroke-dashoffset="440" style="fill: none; stroke: #38bdf8; stroke-width: 14; stroke-linecap: round; transition: stroke-dashoffset 0.8s ease;"></circle>
+                    </svg>
+                  </div>
+                  <div class="days-num-box">
+                    <span id="remaining-days-count" class="days-number font-mono" style="font-size: 22px; font-weight: 800; color: #38bdf8; line-height: 1;">--</span>
+                    <span class="days-unit" style="font-size: 11px; color: #94a3b8; margin-right: 4px;">يوم متبقي</span>
+                  </div>
+                </div>
+              </div>
+
             </div>
           </div>
 
@@ -1264,141 +1270,60 @@
             
             <!-- STEP 1 Layout -->
             <div id="connect-step-1" class="wizard-step">
-              <div class="wizard-header">
-                <div class="step-badge" id="badge-step-1">الخطوة 1 من 3</div>
-                <h3>أدخل بيانات الاتصال الرسمية لحسابك</h3>
-                
-                <!-- Info Trigger Link -->
-                <button type="button" id="btn-trigger-guide" class="info-link-btn">
-                  💡 كيف يمكنني الحصول على الـ API ID والـ API Hash؟
-                </button>
+              <div class="wizard-header" style="text-align: center; margin-bottom: 20px;">
+                <div class="step-badge" id="badge-step-1" style="display: inline-block; margin-bottom: 8px;">الخطوة 1 من 3</div>
+                <h3 style="margin: 0 0 6px 0; font-size: 19px; font-weight: 800; color: #fff;">ربط محرك تليجرام السحابي</h3>
+                <p style="margin: 0; font-size: 12.5px; color: #94a3b8;">اربط حسابك للبدء في جدولة ونشر حملاتك الإعلانية تلقائياً على مدار الساعة</p>
               </div>
 
-              <!-- Step 1 Explanatory Info Box -->
-              <div class="wizard-info-box">
-                <div class="wizard-info-icon">⚡</div>
-                <div class="wizard-info-content">
-                  <h4>خطوات ربط المحرك في دقيقة واحدة:</h4>
-                  <p>1. أدخل رقم هاتفك بالصيغة الدولية مع مفتاح الدولة (مثال: <code>+20...</code> لمصر أو <code>+966...</code> للسعودية).</p>
-                  <p>2. استخرج الـ <b>API ID</b> والـ <b>API Hash</b> مجاناً لمرة واحدة من موقع تليجرام الرسمي <a href="https://my.telegram.org" target="_blank" style="color: var(--brand-accent); text-decoration: underline;">my.telegram.org</a>.</p>
+              <!-- Clean Top CTA Banner to Open Stepper Modal -->
+              <div class="api-guide-cta-card" style="background: rgba(37, 99, 235, 0.08); border: 1px solid rgba(37, 99, 235, 0.25); border-radius: 12px; padding: 14px 18px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="font-size: 24px;">🔑</span>
+                  <div>
+                    <strong style="font-size: 13.5px; color: #fff; display: block;">استخراج الـ API ID والـ API Hash مجاناً</strong>
+                    <span style="font-size: 12px; color: #94a3b8;">شرح الخطوات الأربع البسيطة لمرة واحدة فقط عبر my.telegram.org</span>
+                  </div>
                 </div>
+                <button type="button" id="btn-open-api-wizard-modal" class="btn btn-primary btn-sm" style="font-weight: 700; padding: 8px 18px; font-size: 13px;">
+                  <span>✨ ابدأ ربط حسابك الآن (دليل الخطوات) ←</span>
+                </button>
               </div>
 
               <form id="connect-form-step1">
                 <div class="input-group">
-                  <label for="telegram-phone">رقم الهاتف المرتبط بالتليجرام</label>
+                  <label for="telegram-phone">1. رقم الهاتف المرتبط بالتليجرام</label>
                   <input type="tel" id="telegram-phone" required placeholder="+201XXXXXXXXX" dir="ltr">
-                  <p class="input-hint">أدخل رقم الهاتف مسبوقاً بمفتاح الدولة الدولي (مثال: +20... لمصر أو +966... للسعودية)</p>
+                  <p class="input-hint">اكتب رقمك بالصيغة الدولية مسبوقاً بمفتاح دولتك (مثال: +20... لمصر أو +966... للسعودية)</p>
                 </div>
 
-                <!-- Dedicated Step-by-Step API Guide Card for Mobile & Desktop -->
-                <div class="api-instructions-card">
-                  <div class="api-instructions-header" id="toggle-api-instructions" style="cursor: pointer;">
-                    <div class="api-header-title-box">
-                      <div class="api-badge-row">
-                        <span class="api-tag-free">مجاني ورسمي 100%</span>
-                        <span class="api-tag-once">لمرة واحدة فقط</span>
-                      </div>
-                      <h4 class="api-title-text">
-                        📖 كيف تستخرج الـ API ID والـ API Hash في دقيقة واحدة؟
-                      </h4>
-                      <p class="api-subtitle-text">
-                        شرح الخطوات الـ 4 بالتفصيل للموبايل والكمبيوتر (اضغط للتصغير/التوسيع) 📱
-                      </p>
-                    </div>
-                    <span class="api-toggle-icon" id="icon-toggle-api">▲</span>
-                  </div>
-
-                  <div class="api-instructions-body" id="body-api-instructions">
-                    <!-- Direct Link Button -->
-                    <div class="api-cta-box">
-                      <a href="https://my.telegram.org" target="_blank" rel="noopener noreferrer" class="btn-open-telegram-org">
-                        <span>🌐 اضغط هنا لفتح موقع my.telegram.org في نافذة جديدة</span>
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                      </a>
-                      <p class="api-notice-hint">
-                        💡 بعد فتح الرابط في متصفحك، اتبع الـ 4 خطوات الموضحة أدناه:
-                      </p>
-                    </div>
-
-                    <!-- 4 Steps Visual Flow -->
-                    <div class="api-steps-flow">
-                      
-                      <!-- Step 1 -->
-                      <div class="api-flow-step">
-                        <div class="flow-step-number">1</div>
-                        <div class="flow-step-body">
-                          <h5>1️⃣ تسجيل الدخول برقم هاتفك:</h5>
-                          <p>
-                            في خانة <b>Your Phone Number</b>، اكتب رقم هاتفك مسبوقاً بمفتاح دولتك (مثال: <code>+2010...</code> أو <code>+9665...</code>) ثم اضغط على زر <b>Next</b>.
-                          </p>
-                        </div>
-                      </div>
-
-                      <!-- Step 2 -->
-                      <div class="api-flow-step">
-                        <div class="flow-step-number">2</div>
-                        <div class="flow-step-body">
-                          <h5>2️⃣ نسخ كود التأكيد من تطبيق تليجرام:</h5>
-                          <p>
-                            افتح تطبيق تليجرام على هاتفك؛ ستصلك رسالة رسمية من حساب <b>Telegram</b> فيها كود التأكيد (Confirmation code). انسخ الكود والصقه في خانة الكود بالموقع ثم اضغط <b>Sign In</b>.
-                          </p>
-                        </div>
-                      </div>
-
-                      <!-- Step 3 -->
-                      <div class="api-flow-step">
-                        <div class="flow-step-number">3</div>
-                        <div class="flow-step-body">
-                          <h5>3️⃣ الضغط على أدوات التطوير (API development tools):</h5>
-                          <p>
-                            اضغط على أول خيار يظهر لك: <b>API development tools</b>. سيظهر لك نموذج صغير، املأ الخانتين بالإنجليزية (أي كلمة تريدها):
-                            <br>• خانة <b>App title</b>: اكتب أي اسم (مثال: <code>AutoTeleApp</code>).
-                            <br>• خانة <b>Short name</b>: اكتب أي كلمة قصيرة (مثال: <code>app1</code>).
-                            <br>• اترك باقي الخانات كما هي، ثم اضغط الزر الأزرق بالأسفل <b>Create application</b>.
-                          </p>
-                        </div>
-                      </div>
-
-                      <!-- Step 4 -->
-                      <div class="api-flow-step success-highlight">
-                        <div class="flow-step-number">4</div>
-                        <div class="flow-step-body">
-                          <h5>4️⃣ نسخ المفتاحين ولصقهما في الخانات بالأسفل:</h5>
-                          <p>
-                            مبروك! ستظهر لك صفحة جديدة بها مستطيلان:
-                            <br>• <b>App api_id</b>: (أرقام فقط) ⬅️ انسخ الرقم والصقه في خانة <b>Telegram API ID</b> أدناه.
-                            <br>• <b>App api_hash</b>: (حروف وأرقام إنجليزية) ⬅️ انسخه والصقه في خانة <b>Telegram API Hash</b> أدناه.
-                          </p>
-                        </div>
-                      </div>
-
-                    </div>
-
-                    <!-- Button to open screenshot carousel -->
-                    <div class="api-gallery-trigger-box">
-                      <button type="button" id="btn-show-photo-guide" class="btn btn-secondary btn-block-mobile">
-                        📸 تفضل رؤية الخطوات بالصور التوضيحية للشاشات؟ اضغط هنا
-                      </button>
-                    </div>
-
-                  </div>
+                <!-- API Fields Header with Trigger Link -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; margin-bottom: 6px;">
+                  <span style="font-size: 12.5px; font-weight: 700; color: #cbd5e1;">بيانات الـ API الرسمية (من موقع my.telegram.org):</span>
+                  <button type="button" id="btn-trigger-guide" class="info-link-btn" style="font-size: 11.5px; color: #38bdf8; background: none; border: none; cursor: pointer; text-decoration: underline; padding: 0;">
+                    💡 كيف أستخرج الـ API ID و Hash؟
+                  </button>
                 </div>
 
                 <div class="input-group">
-                  <label for="telegram-api-id">Telegram API ID (الأرقام المستخرجة من الخطوة 4)</label>
-                  <input type="number" id="telegram-api-id" required placeholder="مثال: 1234567" dir="ltr">
+                  <label for="telegram-api-id">2. Telegram API ID</label>
+                  <input type="number" id="telegram-api-id" required placeholder="مثال: 1234567 (أرقام فقط)" dir="ltr">
                 </div>
 
                 <div class="input-group">
-                  <label for="telegram-api-hash">Telegram API Hash (الكود المستخرج من الخطوة 4)</label>
-                  <input type="text" id="telegram-api-hash" required placeholder="مثال: abcde123456fghijk..." dir="ltr" autocomplete="off">
+                  <label for="telegram-api-hash">3. Telegram API Hash</label>
+                  <input type="text" id="telegram-api-hash" required placeholder="مثال: abcde123456fghijk... (كود إنجليزي)" dir="ltr" autocomplete="off">
                 </div>
 
+                <!-- Hidden compatibility elements -->
+                <div style="display: none;">
+                  <div id="toggle-api-instructions"></div>
+                  <div id="body-api-instructions"></div>
+                  <span id="icon-toggle-api"></span>
+                </div>
 
-
-                <button type="submit" id="btn-send-code" class="btn btn-primary">
-                  <span class="btn-text">إرسال كود التحقق الآمن</span>
+                <button type="submit" id="btn-send-code" class="btn btn-primary" style="margin-top: 10px; width: 100%; font-size: 15px; font-weight: 700; padding: 13px;">
+                  <span class="btn-text">إرسال كود التحقق الآمن 📨</span>
                   <span class="spinner hidden"></span>
                 </button>
               </form>
@@ -1753,6 +1678,162 @@
     </div>
   </div>
 
+
+  <!-- ==========================================
+       5. MODAL: API Steps Wizard Progress Modal
+       ========================================== -->
+  <div id="api-steps-modal" class="modal-overlay hidden">
+    <div class="modal-card" style="background: linear-gradient(145deg, #1e293b, #0f172a); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 18px; width: 100%; max-width: 620px; max-height: 90vh; overflow-y: auto; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6); direction: rtl; text-align: right; padding: 0;">
+      
+      <!-- Modal Header -->
+      <div style="padding: 20px 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 24px;">🔑</span>
+          <div>
+            <h3 style="margin: 0; font-size: 17px; font-weight: 800; color: #fff;">خطوات استخراج الـ API ID والـ API Hash</h3>
+            <span style="font-size: 12px; color: #94a3b8;">إعداد مجاني لمرة واحدة فقط يستغرق دقيقة واحدة</span>
+          </div>
+        </div>
+        <button type="button" id="btn-close-api-wizard" class="close-btn" style="background: none; border: none; color: #94a3b8; font-size: 24px; cursor: pointer; line-height: 1; padding: 4px 8px;">&times;</button>
+      </div>
+
+      <div style="padding: 20px 24px;">
+        
+        <!-- Direct Telegram Org Link Banner -->
+        <div style="background: rgba(37, 99, 235, 0.12); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 12px; padding: 14px 16px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 20px;">🌐</span>
+            <span style="font-size: 13px; font-weight: 700; color: #93c5fd;">الموقع الرسمي لمطوري تليجرام:</span>
+          </div>
+          <a href="https://my.telegram.org" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; background: #2563eb; color: #fff; font-size: 13px; font-weight: 700; border-radius: 8px; text-decoration: none; box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);">
+            <span>فتح my.telegram.org ↗</span>
+          </a>
+        </div>
+
+        <!-- Progress Stepper Track -->
+        <div class="api-stepper-track" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 20px; position: relative;">
+          <div class="stepper-step" style="text-align: center; padding: 8px 4px; background: rgba(30, 41, 59, 0.6); border-radius: 8px; border: 1px solid rgba(59, 130, 246, 0.3);">
+            <div style="width: 24px; height: 24px; border-radius: 50%; background: #2563eb; color: #fff; display: flex; align-items: center; justify-content: center; margin: 0 auto 4px auto; font-size: 12px; font-weight: 800;">1</div>
+            <span style="font-size: 11px; font-weight: 700; color: #93c5fd; display: block;">رقم الهاتف</span>
+          </div>
+          <div class="stepper-step" style="text-align: center; padding: 8px 4px; background: rgba(30, 41, 59, 0.6); border-radius: 8px; border: 1px solid rgba(59, 130, 246, 0.3);">
+            <div style="width: 24px; height: 24px; border-radius: 50%; background: #2563eb; color: #fff; display: flex; align-items: center; justify-content: center; margin: 0 auto 4px auto; font-size: 12px; font-weight: 800;">2</div>
+            <span style="font-size: 11px; font-weight: 700; color: #93c5fd; display: block;">كود التأكيد</span>
+          </div>
+          <div class="stepper-step" style="text-align: center; padding: 8px 4px; background: rgba(30, 41, 59, 0.6); border-radius: 8px; border: 1px solid rgba(59, 130, 246, 0.3);">
+            <div style="width: 24px; height: 24px; border-radius: 50%; background: #2563eb; color: #fff; display: flex; align-items: center; justify-content: center; margin: 0 auto 4px auto; font-size: 12px; font-weight: 800;">3</div>
+            <span style="font-size: 11px; font-weight: 700; color: #93c5fd; display: block;">إنشاء التطبيق</span>
+          </div>
+          <div class="stepper-step" style="text-align: center; padding: 8px 4px; background: rgba(30, 41, 59, 0.6); border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.3);">
+            <div style="width: 24px; height: 24px; border-radius: 50%; background: #10b981; color: #fff; display: flex; align-items: center; justify-content: center; margin: 0 auto 4px auto; font-size: 12px; font-weight: 800;">4</div>
+            <span style="font-size: 11px; font-weight: 700; color: #6ee7b7; display: block;">نسخ المفاتيح</span>
+          </div>
+        </div>
+
+        <!-- 4 Step Cards Details -->
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          
+          <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 10px; padding: 12px 14px; display: flex; gap: 12px; align-items: flex-start;">
+            <span style="font-size: 18px; line-height: 1;">1️⃣</span>
+            <div>
+              <h5 style="margin: 0 0 4px 0; font-size: 13.5px; font-weight: 700; color: #fff;">تسجيل الدخول برقم الهاتف:</h5>
+              <p style="margin: 0; font-size: 12px; color: #cbd5e1; line-height: 1.5;">اكتب رقم هاتفك مسبوقاً بمفتاح دولتك (مثال: <code>+2010...</code> أو <code>+9665...</code>) في خانة <b>Your Phone Number</b> ثم اضغط <b>Next</b>.</p>
+            </div>
+          </div>
+
+          <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 10px; padding: 12px 14px; display: flex; gap: 12px; align-items: flex-start;">
+            <span style="font-size: 18px; line-height: 1;">2️⃣</span>
+            <div>
+              <h5 style="margin: 0 0 4px 0; font-size: 13.5px; font-weight: 700; color: #fff;">كود التأكيد في تطبيق تليجرام:</h5>
+              <p style="margin: 0; font-size: 12px; color: #cbd5e1; line-height: 1.5;">افتح تطبيق تليجرام على هاتفك؛ ستجد رسالة في شات <b>Telegram</b> الرسمي بها كود التأكيد. انسخه والصقه في الموقع ثم اضغط <b>Sign In</b>.</p>
+            </div>
+          </div>
+
+          <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 10px; padding: 12px 14px; display: flex; gap: 12px; align-items: flex-start;">
+            <span style="font-size: 18px; line-height: 1;">3️⃣</span>
+            <div>
+              <h5 style="margin: 0 0 4px 0; font-size: 13.5px; font-weight: 700; color: #fff;">أدوات التطوير (API development tools):</h5>
+              <p style="margin: 0; font-size: 12px; color: #cbd5e1; line-height: 1.5;">اضغط على <b>API development tools</b>، واكتب أي اسم في خانة <b>App title</b> (مثال: <code>AutoApp</code>) وخانة <b>Short name</b> (مثال: <code>app1</code>)، ثم اضغط <b>Create application</b>.</p>
+            </div>
+          </div>
+
+          <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 10px; padding: 12px 14px; display: flex; gap: 12px; align-items: flex-start;">
+            <span style="font-size: 18px; line-height: 1;">4️⃣</span>
+            <div>
+              <h5 style="margin: 0 0 4px 0; font-size: 13.5px; font-weight: 700; color: #6ee7b7;">نسخ المفتاحين:</h5>
+              <p style="margin: 0; font-size: 12px; color: #cbd5e1; line-height: 1.5;">
+                مبروك! ستجد الآن:
+                <br>• <b>App api_id</b> (أرقام فقط) ⬅️ انسخه.
+                <br>• <b>App api_hash</b> (كود إنجليزي طويل) ⬅️ انسخه.
+              </p>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Optional Screenshot Carousel Link -->
+        <div style="margin-top: 14px; text-align: center;">
+          <button type="button" id="btn-show-photo-guide" class="btn btn-secondary" style="font-size: 12px; padding: 8px 16px; background: rgba(255,255,255,0.05);">
+            📸 هل تفضل رؤية لقطات الشاشة بالصور؟ اضغط هنا
+          </button>
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div style="padding: 16px 24px; border-top: 1px solid rgba(255, 255, 255, 0.08); display: flex; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.4);">
+        <button type="button" id="btn-close-api-wizard-footer" class="btn btn-secondary" style="padding: 8px 16px; font-size: 13px;">إغلاق</button>
+        <button type="button" id="btn-finish-api-steps" class="btn btn-primary" style="padding: 10px 24px; background: linear-gradient(135deg, #10b981, #059669); border: none; border-radius: 8px; color: #fff; font-size: 14px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4); display: inline-flex; align-items: center; gap: 6px;">
+          <span>تم، حصلت على الـ API والـ Hash ✓</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ==========================================
+       6. MODAL: 2FA Cloud Password Dedicated Popup Modal
+       ========================================== -->
+  <div id="modal-2fa-password" class="modal-overlay hidden">
+    <div class="modal-card" style="background: linear-gradient(145deg, #1e293b, #0f172a); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 18px; width: 100%; max-width: 480px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); direction: rtl; text-align: right; overflow: hidden;">
+      
+      <div style="padding: 20px 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 24px;">🔐</span>
+          <div>
+            <h3 style="margin: 0; font-size: 17px; font-weight: 800; color: #fff;">كلمة مرور التحقق بخطوتين (2FA)</h3>
+            <span style="font-size: 12px; color: #f59e0b;">حساب تليجرام محمي بكلمة مرور إضافية</span>
+          </div>
+        </div>
+        <button type="button" id="btn-close-2fa-modal" class="close-btn" style="background: none; border: none; color: #94a3b8; font-size: 24px; cursor: pointer; line-height: 1; padding: 4px 8px;">&times;</button>
+      </div>
+
+      <div style="padding: 20px 24px;">
+        <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 10px; padding: 12px 14px; margin-bottom: 18px; font-size: 12.5px; color: #fde68a; line-height: 1.5;">
+          حسابك مفعل به ميزة <b>Two-Step Verification</b> السحابية. يرجى إدخال كلمة المرور للمتابعة وإتمام الربط بأمان تام.
+        </div>
+
+        <div class="input-group" style="margin-bottom: 8px;">
+          <label for="modal-2fa-input" style="display: block; font-size: 13px; font-weight: 700; color: #cbd5e1; margin-bottom: 8px;">كلمة مرور تليجرام السحابية (2FA):</label>
+          <div style="position: relative; display: flex; align-items: center;">
+            <input type="password" id="modal-2fa-input" placeholder="أدخل كلمة مرور حسابك هنا..." dir="ltr" autocomplete="off" style="width: 100%; padding: 12px 42px 12px 14px; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 10px; color: #fff; font-size: 15px; box-sizing: border-box;">
+            <button type="button" id="btn-toggle-modal-2fa-visibility" style="position: absolute; left: 10px; background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 16px; padding: 4px;">👁️</button>
+          </div>
+        </div>
+
+        <div id="modal-2fa-error-msg" style="display: none; color: #f87171; font-size: 12px; margin-top: 8px; font-weight: 600;"></div>
+      </div>
+
+      <div style="padding: 16px 24px; border-top: 1px solid rgba(255, 255, 255, 0.08); display: flex; justify-content: flex-end; gap: 10px; background: rgba(15, 23, 42, 0.4);">
+        <button type="button" id="btn-cancel-2fa-modal" class="btn btn-secondary" style="padding: 8px 16px; font-size: 13px;">إلغاء</button>
+        <button type="button" id="btn-submit-2fa-modal" class="btn btn-primary" style="padding: 10px 24px; background: linear-gradient(135deg, #f59e0b, #d97706); border: none; border-radius: 8px; color: #fff; font-size: 14px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 14px rgba(245, 158, 11, 0.4); display: inline-flex; align-items: center; gap: 6px;">
+          <span class="btn-text">تأكيد والربط الآن 🚀</span>
+          <span class="spinner hidden"></span>
+        </button>
+      </div>
+
+    </div>
+  </div>
 
   <!-- JavaScript Main Script -->
   <script src="script.js?_t=1787019024&v=3.2.94"></script>

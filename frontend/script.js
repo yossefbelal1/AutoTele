@@ -551,7 +551,7 @@ async function syncDashboardData() {
     currentTelegramAccountId = response.telegram_account_id;
 
     if (botCard) {
-      botCard.className = "card engine-card"; // reset
+      botCard.className = "card engine-card subscription-summary-card"; // reset
     }
 
     if (botDisplay) {
@@ -960,6 +960,7 @@ async function handleTelegramVerifyCode(e) {
       // Sync fresh dashboard data in background
       syncDashboardData();
     } else if (data.status === "password_needed") {
+      open2FaModal(data.message || "الحساب محمي بكلمة مرور التحقق بخطوتين (2FA). أدخل كلمة المرور للمتابعة.");
       showToast(data.message || "الحساب محمي بكلمة مرور التحقق بخطوتين (2FA). يرجى إدخالها في الحقل المخصص أدناه.", "warning");
       const faLabel = document.querySelector("label[for='telegram-2fa']");
       if (faLabel) {
@@ -975,6 +976,7 @@ async function handleTelegramVerifyCode(e) {
   } catch (error) {
     console.error("Telegram Verify Code Error:", error);
     if (error && error.message && error.message.includes("2FA")) {
+      open2FaModal(error.message);
       const faInput = document.getElementById("telegram-2fa");
       if (faInput) {
         faInput.focus();
@@ -985,6 +987,44 @@ async function handleTelegramVerifyCode(e) {
   } finally {
     setButtonLoading("btn-verify-code", false);
   }
+}
+
+// ==========================================
+// 7B. API WIZARD PROGRESS & 2FA MODALS
+// ==========================================
+function openApiWizardModal() {
+  const modal = document.getElementById("api-steps-modal");
+  if (modal) modal.classList.remove("hidden");
+}
+
+function closeApiWizardModal() {
+  const modal = document.getElementById("api-steps-modal");
+  if (modal) modal.classList.add("hidden");
+}
+
+function open2FaModal(errMsg = "") {
+  const modal = document.getElementById("modal-2fa-password");
+  const input = document.getElementById("modal-2fa-input");
+  const errBox = document.getElementById("modal-2fa-error-msg");
+  if (errBox) {
+    if (errMsg) {
+      errBox.textContent = errMsg;
+      errBox.style.display = "block";
+    } else {
+      errBox.style.display = "none";
+    }
+  }
+  if (input) {
+    const existingVal = document.getElementById("telegram-2fa")?.value || "";
+    input.value = existingVal;
+    setTimeout(() => input.focus(), 150);
+  }
+  if (modal) modal.classList.remove("hidden");
+}
+
+function close2FaModal() {
+  const modal = document.getElementById("modal-2fa-password");
+  if (modal) modal.classList.add("hidden");
 }
 
 // ==========================================
@@ -2671,8 +2711,84 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // E. Walkthrough Guide Modal controls
-  document.getElementById("btn-trigger-guide").addEventListener("click", openGuideModal);
+  // E. Walkthrough Guide & API Wizard Modal controls
+  const btnOpenApiWizard = document.getElementById("btn-open-api-wizard-modal");
+  if (btnOpenApiWizard) {
+    btnOpenApiWizard.addEventListener("click", openApiWizardModal);
+  }
+  const btnTriggerGuide = document.getElementById("btn-trigger-guide");
+  if (btnTriggerGuide) {
+    btnTriggerGuide.addEventListener("click", openApiWizardModal);
+  }
+  const btnCloseApiWizard = document.getElementById("btn-close-api-wizard");
+  if (btnCloseApiWizard) btnCloseApiWizard.addEventListener("click", closeApiWizardModal);
+  const btnCloseApiWizardFooter = document.getElementById("btn-close-api-wizard-footer");
+  if (btnCloseApiWizardFooter) btnCloseApiWizardFooter.addEventListener("click", closeApiWizardModal);
+
+  const btnFinishApiSteps = document.getElementById("btn-finish-api-steps");
+  if (btnFinishApiSteps) {
+    btnFinishApiSteps.addEventListener("click", () => {
+      closeApiWizardModal();
+      const phoneInput = document.getElementById("telegram-phone");
+      const apiIdInput = document.getElementById("telegram-api-id");
+      if (phoneInput && !phoneInput.value.trim()) {
+        phoneInput.focus();
+      } else if (apiIdInput) {
+        apiIdInput.focus();
+      }
+      showToast("جاهز للربط! الصق الـ API ID والـ API Hash واضغط إرسال الكود", "info");
+    });
+  }
+
+  // 2FA Dedicated Modal Controls
+  const btnClose2FaModal = document.getElementById("btn-close-2fa-modal");
+  if (btnClose2FaModal) btnClose2FaModal.addEventListener("click", close2FaModal);
+  const btnCancel2FaModal = document.getElementById("btn-cancel-2fa-modal");
+  if (btnCancel2FaModal) btnCancel2FaModal.addEventListener("click", close2FaModal);
+
+  const btnToggle2FaVis = document.getElementById("btn-toggle-modal-2fa-visibility");
+  if (btnToggle2FaVis) {
+    btnToggle2FaVis.addEventListener("click", () => {
+      const inp = document.getElementById("modal-2fa-input");
+      if (inp) {
+        inp.type = inp.type === "password" ? "text" : "password";
+        btnToggle2FaVis.textContent = inp.type === "password" ? "👁️" : "🙈";
+      }
+    });
+  }
+
+  const btnSubmit2FaModal = document.getElementById("btn-submit-2fa-modal");
+  if (btnSubmit2FaModal) {
+    btnSubmit2FaModal.addEventListener("click", () => {
+      const inp = document.getElementById("modal-2fa-input");
+      const val = inp ? inp.value.trim() : "";
+      if (!val) {
+        const errBox = document.getElementById("modal-2fa-error-msg");
+        if (errBox) {
+          errBox.textContent = "يرجى كتابة كلمة مرور 2FA للمتابعة";
+          errBox.style.display = "block";
+        }
+        inp?.focus();
+        return;
+      }
+      const faInput = document.getElementById("telegram-2fa");
+      if (faInput) faInput.value = val;
+      close2FaModal();
+      const connectFormStep2 = document.getElementById("connect-form-step2");
+      if (connectFormStep2) {
+        connectFormStep2.dispatchEvent(new Event("submit", { cancelable: true }));
+      }
+    });
+  }
+  const modal2FaInput = document.getElementById("modal-2fa-input");
+  if (modal2FaInput) {
+    modal2FaInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        btnSubmit2FaModal?.click();
+      }
+    });
+  }
   const btnOpenEngineGuide = document.getElementById("btn-open-engine-guide-modal");
   if (btnOpenEngineGuide) {
     btnOpenEngineGuide.addEventListener("click", showEngineOnboardingModal);
