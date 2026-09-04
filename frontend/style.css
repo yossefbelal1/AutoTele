@@ -1070,3 +1070,171 @@ body.drawer-open {
     -webkit-overflow-scrolling: touch !important;
   }
 }
+
+/* ==========================================
+   WIZARD STEPPER & LIVE PROGRESS ARCHITECTURE
+   ========================================== */
+.wizard-stepper-container {
+  margin-bottom: 24px;
+  padding: 16px 20px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+}
+
+.wizard-progress-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 16px;
+  position: relative;
+}
+
+.wizard-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #2481cc 0%, #38bdf8 100%);
+  border-radius: 999px;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1), background 0.4s ease;
+}
+
+.wizard-steps-list {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.wizard-step-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  opacity: 0.5;
+  transition: all 0.3s ease;
+}
+
+.wizard-step-item.active {
+  opacity: 1;
+}
+
+.wizard-step-item.completed {
+  opacity: 1;
+}
+
+.wizard-step-circle {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  transition: all 0.3s ease;
+}
+
+.wizard-step-item.active .wizard-step-circle {
+  background: var(--brand-blue);
+  border-color: var(--brand-accent);
+  color: #fff;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
+}
+
+.wizard-step-item.completed .wizard-step-circle {
+  background: #10b981;
+  border-color: #34d399;
+  color: #fff;
+}
+
+.wizard-step-item.completed .step-num {
+  display: none;
+}
+
+.wizard-step-item.completed .step-check {
+  display: inline !important;
+}
+
+.wizard-step-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.wizard-step-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.3;
+}
+
+.wizard-step-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.wizard-info-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: rgba(36, 129, 204, 0.08);
+  border: 1px solid rgba(36, 129, 204, 0.2);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+}
+
+.wizard-info-box.warning-theme {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.25);
+}
+
+.wizard-info-icon {
+  font-size: 22px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.wizard-info-content h4 {
+  margin: 0 0 4px 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.wizard-info-content p {
+  margin: 0 0 4px 0;
+  font-size: 12px;
+  color: #cbd5e1;
+  line-height: 1.5;
+}
+
+.wizard-info-content p:last-child {
+  margin-bottom: 0;
+}
+
+@media (max-width: 640px) {
+  .wizard-steps-list {
+    flex-direction: row;
+    gap: 6px;
+  }
+  .wizard-step-desc {
+    display: none;
+  }
+  .wizard-step-title {
+    font-size: 11px;
+  }
+  .wizard-step-circle {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
+  }
+  .wizard-stepper-container {
+    padding: 12px 14px;
+  }
+}
+

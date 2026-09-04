@@ -1198,12 +1198,58 @@
 
         <!-- Tab 4: ربط المحرك (Telegram 2-Step Handshake) -->
         <section id="tab-connect" class="tab-panel hidden">
-          <div class="panel-header">
-            <h1 class="panel-title">معالج ربط المحرك السحابي الآمن لتليجرام</h1>
-            <p class="panel-subtitle">نربط حسابك عبر بروتوكول تليجرام الرسمي مباشرة لجدولة وإرسال الرسائل بدقة</p>
+          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px;">
+            <div>
+              <h1 class="panel-title">معالج ربط المحرك السحابي الآمن لتليجرام</h1>
+              <p class="panel-subtitle">نربط حسابك عبر بروتوكول تليجرام الرسمي مباشرة لجدولة وإرسال الرسائل بدقة</p>
+            </div>
+            <button type="button" id="btn-open-engine-guide-modal" class="btn btn-secondary" style="font-size: 13px; display: inline-flex; align-items: center; gap: 6px;">
+              <span>📖 شرح خطوات الربط بالتفصيل والـ Progress</span>
+            </button>
           </div>
 
           <div class="connection-wizard-layout card">
+
+            <!-- Wizard Stepper & Live Progress Architecture -->
+            <div class="wizard-stepper-container">
+              <div class="wizard-progress-track">
+                <div class="wizard-progress-bar" id="wizard-progress-bar" style="width: 33%;"></div>
+              </div>
+              <div class="wizard-steps-list">
+                <div class="wizard-step-item active" id="wizard-step-node-1" onclick="switchWizardStep(1)" style="cursor: pointer;">
+                  <div class="wizard-step-circle">
+                    <span class="step-num">1</span>
+                    <span class="step-check hidden">✓</span>
+                  </div>
+                  <div class="wizard-step-text">
+                    <span class="wizard-step-title">البيانات والـ API</span>
+                    <span class="wizard-step-desc">الرقم ومفاتيح الربط</span>
+                  </div>
+                </div>
+
+                <div class="wizard-step-item" id="wizard-step-node-2">
+                  <div class="wizard-step-circle">
+                    <span class="step-num">2</span>
+                    <span class="step-check hidden">✓</span>
+                  </div>
+                  <div class="wizard-step-text">
+                    <span class="wizard-step-title">كود التحقق و 2FA</span>
+                    <span class="wizard-step-desc">تأكيد ملكية الحساب</span>
+                  </div>
+                </div>
+
+                <div class="wizard-step-item" id="wizard-step-node-3">
+                  <div class="wizard-step-circle">
+                    <span class="step-num">3</span>
+                    <span class="step-check hidden">✓</span>
+                  </div>
+                  <div class="wizard-step-text">
+                    <span class="wizard-step-title">المزامنة والتشغيل</span>
+                    <span class="wizard-step-desc">فحص القنوات وبدء العمل</span>
+                  </div>
+                </div>
+              </div>
+            </div>
             
             <!-- STEP 1 Layout -->
             <div id="connect-step-1" class="wizard-step">
@@ -1215,6 +1261,16 @@
                 <button type="button" id="btn-trigger-guide" class="info-link-btn">
                   💡 كيف يمكنني الحصول على الـ API ID والـ API Hash؟
                 </button>
+              </div>
+
+              <!-- Step 1 Explanatory Info Box -->
+              <div class="wizard-info-box">
+                <div class="wizard-info-icon">⚡</div>
+                <div class="wizard-info-content">
+                  <h4>خطوات ربط المحرك في دقيقة واحدة:</h4>
+                  <p>1. أدخل رقم هاتفك بالصيغة الدولية مع مفتاح الدولة (مثال: <code>+20...</code> لمصر أو <code>+966...</code> للسعودية).</p>
+                  <p>2. استخرج الـ <b>API ID</b> والـ <b>API Hash</b> مجاناً لمرة واحدة من موقع تليجرام الرسمي <a href="https://my.telegram.org" target="_blank" style="color: var(--brand-accent); text-decoration: underline;">my.telegram.org</a>.</p>
+                </div>
               </div>
 
               <form id="connect-form-step1">
@@ -1249,6 +1305,16 @@
                 <div class="step-badge success">الخطوة 2 من 2</div>
                 <h3>أدخل كود التأكيد المرسل إليك</h3>
                 <p id="phone-display-label" class="step-description">تم إرسال الكود إلى الرقم: --</p>
+              </div>
+
+              <!-- Step 2 Explanatory Info Box -->
+              <div class="wizard-info-box warning-theme">
+                <div class="wizard-info-icon">📩</div>
+                <div class="wizard-info-content">
+                  <h4>أين تجد كود التأكيد وباسورد 2FA؟</h4>
+                  <p>افتح تطبيق تليجرام على هاتفك أو حاسوبك؛ ستجد الكود مرسلاً في شات <b>Telegram</b> الرسمي (وليس رسالة SMS).</p>
+                  <p>إذا كان حسابك مفعلاً به التحقق بخطوتين (2FA)، أدخل باسورد تليجرام السحابي في الحقل الثاني بالأسفل.</p>
+                </div>
               </div>
 
               <form id="connect-form-step2">
