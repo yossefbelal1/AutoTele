@@ -673,8 +673,50 @@ async function handleCryptoPayment(e) {
 // ==========================================
 // 7. TELEGRAM CONNECTION HANDSHAKE WIZARD
 // ==========================================
+let resendTimerInterval = null;
+let currentWizardStep = 1;
+
+function startResendTimer(durationSeconds = 90) {
+  if (resendTimerInterval) clearInterval(resendTimerInterval);
+  
+  const timerLabel = document.getElementById("resend-timer-label");
+  const countdownEl = document.getElementById("resend-countdown");
+  const resendBtn = document.getElementById("btn-resend-code");
+
+  if (!countdownEl || !resendBtn) return;
+
+  let remaining = durationSeconds;
+  if (timerLabel) timerLabel.classList.remove("hidden");
+  resendBtn.classList.add("hidden");
+
+  function updateDisplay() {
+    const mins = Math.floor(remaining / 60);
+    const secs = remaining % 60;
+    countdownEl.textContent = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  }
+
+  updateDisplay();
+
+  resendTimerInterval = setInterval(() => {
+    remaining--;
+    if (remaining <= 0) {
+      clearInterval(resendTimerInterval);
+      resendTimerInterval = null;
+      if (timerLabel) timerLabel.classList.add("hidden");
+      if (resendBtn) resendBtn.classList.remove("hidden");
+    } else {
+      updateDisplay();
+    }
+  }, 1000);
+}
+
 function updateWizardProgress(step) {
+  currentWizardStep = step;
   const progressBar = document.getElementById("wizard-progress-bar");
+  const stepBadge = document.getElementById("wizard-current-step-badge");
+  const stepLabel = document.getElementById("wizard-current-step-label");
+  const percentPill = document.getElementById("wizard-percentage-pill");
+
   const step1Node = document.getElementById("wizard-step-node-1");
   const step2Node = document.getElementById("wizard-step-node-2");
   const step3Node = document.getElementById("wizard-step-node-3");
@@ -684,38 +726,136 @@ function updateWizardProgress(step) {
   if (step === 1) {
     progressBar.style.width = "33%";
     progressBar.style.background = "linear-gradient(90deg, #2481cc 0%, #38bdf8 100%)";
-    if (step1Node) { step1Node.className = "wizard-step-item active"; }
-    if (step2Node) { step2Node.className = "wizard-step-item"; }
-    if (step3Node) { step3Node.className = "wizard-step-item"; }
+    if (stepBadge) {
+      stepBadge.textContent = "الخطوة 1 من 3";
+      stepBadge.className = "wizard-step-pill-badge";
+    }
+    if (stepLabel) stepLabel.textContent = "إدخال البيانات ومفاتيح الربط";
+    if (percentPill) percentPill.textContent = "33% مكتمل";
+
+    if (step1Node) {
+      step1Node.className = "wizard-step-item active";
+      step1Node.style.cursor = "pointer";
+    }
+    if (step2Node) {
+      step2Node.className = "wizard-step-item";
+      step2Node.style.cursor = "default";
+    }
+    if (step3Node) {
+      step3Node.className = "wizard-step-item";
+      step3Node.style.cursor = "default";
+    }
   } else if (step === 2) {
     progressBar.style.width = "66%";
     progressBar.style.background = "linear-gradient(90deg, #2481cc 0%, #f59e0b 100%)";
-    if (step1Node) { step1Node.className = "wizard-step-item completed"; }
-    if (step2Node) { step2Node.className = "wizard-step-item active"; }
-    if (step3Node) { step3Node.className = "wizard-step-item"; }
+    if (stepBadge) {
+      stepBadge.textContent = "الخطوة 2 من 3";
+      stepBadge.className = "wizard-step-pill-badge step-2";
+    }
+    if (stepLabel) stepLabel.textContent = "تأكيد ملكية الحساب وكود 2FA";
+    if (percentPill) percentPill.textContent = "66% مكتمل";
+
+    if (step1Node) {
+      step1Node.className = "wizard-step-item completed";
+      step1Node.style.cursor = "pointer";
+    }
+    if (step2Node) {
+      step2Node.className = "wizard-step-item active";
+      step2Node.style.cursor = "pointer";
+    }
+    if (step3Node) {
+      step3Node.className = "wizard-step-item";
+      step3Node.style.cursor = "default";
+    }
   } else if (step === 3) {
     progressBar.style.width = "100%";
     progressBar.style.background = "linear-gradient(90deg, #10b981 0%, #059669 100%)";
-    if (step1Node) { step1Node.className = "wizard-step-item completed"; }
-    if (step2Node) { step2Node.className = "wizard-step-item completed"; }
-    if (step3Node) { step3Node.className = "wizard-step-item completed"; }
+    if (stepBadge) {
+      stepBadge.textContent = "الخطوة 3 من 3";
+      stepBadge.className = "wizard-step-pill-badge step-3";
+    }
+    if (stepLabel) stepLabel.textContent = "المزامنة والتشغيل الاحترافي";
+    if (percentPill) percentPill.textContent = "100% مكتمل 🎉";
+
+    if (step1Node) {
+      step1Node.className = "wizard-step-item completed";
+      step1Node.style.cursor = "pointer";
+    }
+    if (step2Node) {
+      step2Node.className = "wizard-step-item completed";
+      step2Node.style.cursor = "pointer";
+    }
+    if (step3Node) {
+      step3Node.className = "wizard-step-item completed active";
+      step3Node.style.cursor = "pointer";
+    }
   }
 }
 
 window.switchWizardStep = function(targetStep) {
+  // Guard conditions
+  if (targetStep === 2 && currentWizardStep < 2) {
+    showToast("يرجى إرسال كود التحقق أولاً للانتقال للخطوة التالية.", "warning");
+    return;
+  }
+  if (targetStep === 3 && currentWizardStep < 3) {
+    showToast("يرجى إدخال كود التحقق وتأكيده أولاً.", "warning");
+    return;
+  }
+
+  const step1 = document.getElementById("connect-step-1");
+  const step2 = document.getElementById("connect-step-2");
+  const step3 = document.getElementById("connect-step-3");
+
   if (targetStep === 1) {
-    document.getElementById("connect-step-2").classList.add("hidden");
-    document.getElementById("connect-step-1").classList.remove("hidden");
+    if (step1) step1.classList.remove("hidden");
+    if (step2) step2.classList.add("hidden");
+    if (step3) step3.classList.add("hidden");
     updateWizardProgress(1);
+  } else if (targetStep === 2) {
+    if (step1) step1.classList.add("hidden");
+    if (step2) step2.classList.remove("hidden");
+    if (step3) step3.classList.add("hidden");
+    updateWizardProgress(2);
+    setTimeout(() => {
+      const codeInput = document.getElementById("telegram-code");
+      if (codeInput) codeInput.focus();
+    }, 100);
+  } else if (targetStep === 3) {
+    if (step1) step1.classList.add("hidden");
+    if (step2) step2.classList.add("hidden");
+    if (step3) step3.classList.remove("hidden");
+    updateWizardProgress(3);
   }
 };
 
 async function handleTelegramSendCode(e) {
-  e.preventDefault();
+  if (e && e.preventDefault) e.preventDefault();
 
   const phone = document.getElementById("telegram-phone").value.trim().replace(/\s+/g, "");
   const apiId = parseInt(document.getElementById("telegram-api-id").value);
   const apiHash = document.getElementById("telegram-api-hash").value.trim();
+
+  if (!phone || !phone.startsWith("+")) {
+    showToast("يرجى إدخال رقم الهاتف مسبوقاً بمفتاح الدولة الدولي (مثال: +20... أو +966...).", "warning");
+    const pInput = document.getElementById("telegram-phone");
+    if (pInput) pInput.focus();
+    return;
+  }
+
+  if (!apiId || isNaN(apiId)) {
+    showToast("يرجى إدخال الـ Telegram API ID (أرقام فقط مستخرجة من الخطوة 4).", "warning");
+    const idInput = document.getElementById("telegram-api-id");
+    if (idInput) idInput.focus();
+    return;
+  }
+
+  if (!apiHash || apiHash.length < 10) {
+    showToast("يرجى إدخال الـ Telegram API Hash الصحيح المستخرج من الخطوة 4.", "warning");
+    const hashInput = document.getElementById("telegram-api-hash");
+    if (hashInput) hashInput.focus();
+    return;
+  }
 
   setButtonLoading("btn-send-code", true);
 
@@ -730,21 +870,31 @@ async function handleTelegramSendCode(e) {
     });
 
     if (data.status === "code_sent") {
-      showToast("تم إرسال كود التأكيد الآمن لتطبيق تليجرام الخاص بك.", "success");
+      showToast("تم إرسال كود التأكيد الآمن لتطبيق تليجرام الخاص بك 📲", "success");
       
-      // Update label and switch steps
-      document.getElementById("phone-display-label").innerHTML = `تم إرسال الكود إلى الرقم: <span dir="ltr" style="unicode-bidi: embed; font-weight: 700;">${phone}</span>`;
-      document.getElementById("connect-step-1").classList.add("hidden");
-      document.getElementById("connect-step-2").classList.remove("hidden");
-      
-      // Advance wizard progress to step 2 (66%)
+      // Update phone display label
+      const phoneLabel = document.getElementById("phone-display-label");
+      if (phoneLabel) {
+        phoneLabel.innerHTML = `تم إرسال الكود إلى الرقم: <span dir="ltr" style="unicode-bidi: embed; font-weight: 700; color: var(--brand-accent);">${phone}</span>`;
+      }
+
+      // Switch to Step 2
+      const step1 = document.getElementById("connect-step-1");
+      const step2 = document.getElementById("connect-step-2");
+      const step3 = document.getElementById("connect-step-3");
+      if (step1) step1.classList.add("hidden");
+      if (step2) step2.classList.remove("hidden");
+      if (step3) step3.classList.add("hidden");
       updateWizardProgress(2);
 
-      // Focus on code input
+      // Start 90s countdown for resend
+      startResendTimer(90);
+
+      // Focus code input
       setTimeout(() => {
         const codeInput = document.getElementById("telegram-code");
         if (codeInput) codeInput.focus();
-      }, 100);
+      }, 150);
     }
   } catch (error) {
     console.error("Telegram Send Code Error:", error);
@@ -754,7 +904,7 @@ async function handleTelegramSendCode(e) {
 }
 
 async function handleTelegramVerifyCode(e) {
-  e.preventDefault();
+  if (e && e.preventDefault) e.preventDefault();
 
   const phone = document.getElementById("telegram-phone").value.trim().replace(/\s+/g, "");
   const code = document.getElementById("telegram-code").value.trim().replace(/\D/g, "");
@@ -762,6 +912,8 @@ async function handleTelegramVerifyCode(e) {
 
   if (!code || code.length < 5) {
     showToast("يرجى إدخال كود التحقق المكون من 5 أرقام بدقة.", "warning");
+    const codeInput = document.getElementById("telegram-code");
+    if (codeInput) codeInput.focus();
     return;
   }
 
@@ -778,22 +930,35 @@ async function handleTelegramVerifyCode(e) {
     });
 
     if (data.status === "success") {
+      // Clear resend timer
+      if (resendTimerInterval) {
+        clearInterval(resendTimerInterval);
+        resendTimerInterval = null;
+      }
+
+      // Update Step 3 connected account summary
+      const step3Phone = document.getElementById("step3-connected-phone");
+      if (step3Phone) {
+        step3Phone.textContent = phone;
+      }
+
+      // Switch directly to Step 3 (Celebration & Live Sync screen)
+      const step1 = document.getElementById("connect-step-1");
+      const step2 = document.getElementById("connect-step-2");
+      const step3 = document.getElementById("connect-step-3");
+      if (step1) step1.classList.add("hidden");
+      if (step2) step2.classList.add("hidden");
+      if (step3) step3.classList.remove("hidden");
       updateWizardProgress(3);
-      showToast("تم ربط وتفعيل المحرك بنجاح تام!", "success");
+
+      showToast("🎉 تم تفعيل وربط المحرك السحابي بنجاح تام!", "success");
+
+      // Reset form inputs for clean state
       document.getElementById("connect-form-step1").reset();
       document.getElementById("connect-form-step2").reset();
-      
-      // Reset wizard view back to step 1 for future accounts
-      document.getElementById("connect-step-2").classList.add("hidden");
-      document.getElementById("connect-step-1").classList.remove("hidden");
-      updateWizardProgress(1);
 
-      // Go back to dashboard stats tab
-      switchTab("tab-subscription");
+      // Sync fresh dashboard data in background
       syncDashboardData();
-
-      // Automatically launch the folders guide carousel for the user right after connection success
-      openFoldersGuideModal();
     } else if (data.status === "password_needed") {
       showToast(data.message || "الحساب محمي بكلمة مرور التحقق بخطوتين (2FA). يرجى إدخالها في الحقل المخصص أدناه.", "warning");
       const faLabel = document.querySelector("label[for='telegram-2fa']");
@@ -2151,9 +2316,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnBackStep1 = document.getElementById("btn-back-to-step1");
   if (btnBackStep1) {
     btnBackStep1.addEventListener("click", () => {
-      document.getElementById("connect-step-2").classList.add("hidden");
-      document.getElementById("connect-step-1").classList.remove("hidden");
-      updateWizardProgress(1);
+      switchWizardStep(1);
       const faLabel = document.querySelector("label[for='telegram-2fa']");
       if (faLabel) {
         faLabel.textContent = "باسورد التحقق بخطوتين (2FA) - اختياري";
@@ -2165,6 +2328,41 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
   }
+
+  // Resend code button
+  const btnResendCode = document.getElementById("btn-resend-code");
+  if (btnResendCode) {
+    btnResendCode.addEventListener("click", () => {
+      handleTelegramSendCode(null);
+    });
+  }
+
+  // Step 3 Actions
+  const btnStep3Dashboard = document.getElementById("btn-step3-go-dashboard");
+  if (btnStep3Dashboard) {
+    btnStep3Dashboard.addEventListener("click", () => {
+      switchTab("tab-subscription");
+      syncDashboardData();
+    });
+  }
+
+  const btnStep3Folders = document.getElementById("btn-step3-open-folders");
+  if (btnStep3Folders) {
+    btnStep3Folders.addEventListener("click", () => {
+      openFoldersGuideModal();
+    });
+  }
+
+  const btnStep3ConnectAnother = document.getElementById("btn-step3-connect-another");
+  if (btnStep3ConnectAnother) {
+    btnStep3ConnectAnother.addEventListener("click", () => {
+      document.getElementById("connect-form-step1").reset();
+      document.getElementById("connect-form-step2").reset();
+      currentWizardStep = 1;
+      switchWizardStep(1);
+    });
+  }
+
   document.getElementById("template-add-form").addEventListener("submit", handleTemplateAdd);
 
   // Campaign form submission

@@ -1212,6 +1212,17 @@
 
             <!-- Wizard Stepper & Live Progress Architecture -->
             <div class="wizard-stepper-container">
+              <!-- Live Progress Top Status Bar -->
+              <div class="wizard-header-status-row">
+                <div class="wizard-status-left">
+                  <span class="wizard-step-pill-badge" id="wizard-current-step-badge">الخطوة 1 من 3</span>
+                  <span class="wizard-step-label-text" id="wizard-current-step-label">إدخال البيانات ومفاتيح الربط</span>
+                </div>
+                <div class="wizard-status-right">
+                  <span class="wizard-percentage-pill" id="wizard-percentage-pill">33% مكتمل</span>
+                </div>
+              </div>
+
               <div class="wizard-progress-track">
                 <div class="wizard-progress-bar" id="wizard-progress-bar" style="width: 33%;"></div>
               </div>
@@ -1227,7 +1238,7 @@
                   </div>
                 </div>
 
-                <div class="wizard-step-item" id="wizard-step-node-2">
+                <div class="wizard-step-item" id="wizard-step-node-2" onclick="switchWizardStep(2)">
                   <div class="wizard-step-circle">
                     <span class="step-num">2</span>
                     <span class="step-check hidden">✓</span>
@@ -1238,14 +1249,14 @@
                   </div>
                 </div>
 
-                <div class="wizard-step-item" id="wizard-step-node-3">
+                <div class="wizard-step-item" id="wizard-step-node-3" onclick="switchWizardStep(3)">
                   <div class="wizard-step-circle">
                     <span class="step-num">3</span>
                     <span class="step-check hidden">✓</span>
                   </div>
                   <div class="wizard-step-text">
                     <span class="wizard-step-title">المزامنة والتشغيل</span>
-                    <span class="wizard-step-desc">فحص القنوات وبدء العمل</span>
+                    <span class="wizard-step-desc">جاهزية المحرك السحابي</span>
                   </div>
                 </div>
               </div>
@@ -1254,7 +1265,7 @@
             <!-- STEP 1 Layout -->
             <div id="connect-step-1" class="wizard-step">
               <div class="wizard-header">
-                <div class="step-badge">الخطوة 1 من 2</div>
+                <div class="step-badge" id="badge-step-1">الخطوة 1 من 3</div>
                 <h3>أدخل بيانات الاتصال الرسمية لحسابك</h3>
                 
                 <!-- Info Trigger Link -->
@@ -1396,7 +1407,7 @@
             <!-- STEP 2 Layout (Hidden initially) -->
             <div id="connect-step-2" class="wizard-step hidden">
               <div class="wizard-header">
-                <div class="step-badge success">الخطوة 2 من 2</div>
+                <div class="step-badge success" id="badge-step-2">الخطوة 2 من 3</div>
                 <h3>أدخل كود التأكيد المرسل إليك</h3>
                 <p id="phone-display-label" class="step-description">تم إرسال الكود إلى الرقم: --</p>
               </div>
@@ -1418,6 +1429,16 @@
                   <p class="input-hint">افتح تطبيق تليجرام على هاتفك أو حاسوبك؛ ستجد الكود مرسلاً من حساب Telegram الرسمي (وليس رسالة SMS).</p>
                 </div>
 
+                <!-- Resend Timer & Action -->
+                <div class="resend-code-wrapper">
+                  <span id="resend-timer-label">
+                    لم يصلك الكود؟ يمكنك طلب كود جديد بعد: <strong id="resend-countdown">01:30</strong>
+                  </span>
+                  <button type="button" id="btn-resend-code" class="btn-resend-link hidden">
+                    🔄 إعادة إرسال كود التأكيد الآن
+                  </button>
+                </div>
+
                 <div class="input-group">
                   <label for="telegram-2fa">باسورد التحقق بخطوتين (2FA) - اختياري</label>
                   <input type="password" id="telegram-2fa" placeholder="أدخل باسورد الـ 2FA إذا كان حسابك محمياً بها..." dir="ltr" autocomplete="off">
@@ -1431,6 +1452,77 @@
                   </button>
                 </div>
               </form>
+            </div>
+
+            <!-- STEP 3 Layout: Dedicated Celebration & Sync Step (Hidden initially) -->
+            <div id="connect-step-3" class="wizard-step hidden">
+              <div class="wizard-step-success-card">
+                <div class="success-celebration-header">
+                  <div class="success-icon-pulse">
+                    <div class="success-icon-inner">✓</div>
+                  </div>
+                  <div class="step-badge success" id="badge-step-3" style="margin-top: 14px;">الخطوة 3 من 3: اكتملت العملية بنجاح!</div>
+                  <h2 class="success-title">🎉 تم تفعيل وربط المحرك السحابي بنجاح تام!</h2>
+                  <p class="success-desc">
+                    أصبح حسابك متصلاً الآن بنظام السحابة الآمن، وبإمكانك إطلاق حملاتك الإعلانية وجدولتها تلقائياً 24/7 دون أي انقطاع.
+                  </p>
+                </div>
+
+                <!-- Live Sync & Verification Checklist -->
+                <div class="sync-checkpoints-card">
+                  <h4 class="checkpoints-title">حالة المحرك السحابي والجاهزية الفورية:</h4>
+                  <div class="checkpoint-item completed">
+                    <span class="checkpoint-icon">✓</span>
+                    <div class="checkpoint-text">
+                      <strong>توثيق الجلسة وتشفيرها بنجاح</strong>
+                      <small>تم تشفير جلسة Telegram بتقنية 256-bit AES المقاومة للاختراق.</small>
+                    </div>
+                  </div>
+                  <div class="checkpoint-item completed">
+                    <span class="checkpoint-icon">✓</span>
+                    <div class="checkpoint-text">
+                      <strong>المحرك السحابي متصل ويعمل (Engine Online)</strong>
+                      <small>خوادم AutoTele متصلة ومستعدة لتنفيذ مهام النشر بدقة.</small>
+                    </div>
+                  </div>
+                  <div class="checkpoint-item completed">
+                    <span class="checkpoint-icon">✓</span>
+                    <div class="checkpoint-text">
+                      <strong>جاهز لجدولة ونشر الحملات الإعلانية</strong>
+                      <small>يمكنك الآن إنشاء حملاتك واختيار القنوات والمجلدات المستهدفة.</small>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Connected Account Summary Card -->
+                <div class="connected-account-summary">
+                  <div class="summary-field">
+                    <span class="summary-label">رقم الهاتف المتصل:</span>
+                    <strong class="summary-value" id="step3-connected-phone" dir="ltr">+--</strong>
+                  </div>
+                  <div class="summary-field">
+                    <span class="summary-label">حالة المحرك:</span>
+                    <span class="status-badge-active">🟢 متصل ونشط سحابياً</span>
+                  </div>
+                  <div class="summary-field">
+                    <span class="summary-label">نوع التشفير:</span>
+                    <span class="encryption-tag">🔒 End-to-End Encrypted</span>
+                  </div>
+                </div>
+
+                <!-- Action Buttons Grid -->
+                <div class="step3-actions-grid">
+                  <button type="button" id="btn-step3-go-dashboard" class="btn btn-primary btn-large-app">
+                    <span>🚀 الانتقال إلى لوحة التحكم وبدء أول حملة</span>
+                  </button>
+                  <button type="button" id="btn-step3-open-folders" class="btn btn-secondary btn-large-app">
+                    <span>📂 فتح دليل تهيئة مجلدات تليجرام (حملات، استثناء، حظر)</span>
+                  </button>
+                  <button type="button" id="btn-step3-connect-another" class="btn-text-link">
+                    <span>➕ هل تريد ربط حساب تليجرام إضافي؟</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </section>
