@@ -2479,6 +2479,26 @@ document.addEventListener("DOMContentLoaded", () => {
   if (btnOpenEngineGuide) {
     btnOpenEngineGuide.addEventListener("click", showEngineOnboardingModal);
   }
+
+  // In-page API Instructions toggle & photo button
+  const toggleApiInstructions = document.getElementById("toggle-api-instructions");
+  const bodyApiInstructions = document.getElementById("body-api-instructions");
+  const iconToggleApi = document.getElementById("icon-toggle-api");
+  if (toggleApiInstructions && bodyApiInstructions) {
+    toggleApiInstructions.addEventListener("click", () => {
+      bodyApiInstructions.classList.toggle("collapsed");
+      if (bodyApiInstructions.classList.contains("collapsed")) {
+        if (iconToggleApi) iconToggleApi.textContent = "▼";
+      } else {
+        if (iconToggleApi) iconToggleApi.textContent = "▲";
+      }
+    });
+  }
+  const btnShowPhotoGuide = document.getElementById("btn-show-photo-guide");
+  if (btnShowPhotoGuide) {
+    btnShowPhotoGuide.addEventListener("click", openGuideModal);
+  }
+
   document.getElementById("btn-close-modal").addEventListener("click", closeGuideModal);
   document.getElementById("btn-prev-slide").addEventListener("click", handlePrevSlide);
   document.getElementById("btn-next-slide").addEventListener("click", handleNextSlide);
@@ -2977,17 +2997,25 @@ function showEngineOnboardingModal() {
                 📱
               </div>
               <div style="flex: 1;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                  <h4 style="margin: 0; font-size: 14px; font-weight: 700; color: #fff;">الخطوة الأولى: رقم الهاتف وبيانات الـ API الرسمية</h4>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                  <h4 style="margin: 0; font-size: 14px; font-weight: 700; color: #fff;">الخطوة الأولى: رقم هاتفك وبيانات الـ API الرسمية</h4>
                   <span style="font-size: 11px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 2px 8px; border-radius: 6px; font-weight: 600;">دقيقة واحدة</span>
                 </div>
-                <p style="margin: 0 0 6px 0; font-size: 12.5px; color: #cbd5e1;">
-                  • أدخل رقم هاتفك مسبوقاً بمفتاح الدولة الدولي (مثال: <code style="color: #38bdf8; background: rgba(0,0,0,0.3); padding: 1px 6px; border-radius: 4px;">+20...</code> أو <code style="color: #38bdf8; background: rgba(0,0,0,0.3); padding: 1px 6px; border-radius: 4px;">+966...</code>).<br>
-                  • استخرج الـ <b>API ID</b> والـ <b>API Hash</b> مجاناً لمرة واحدة من موقع تليجرام الرسمي <a href="https://my.telegram.org" target="_blank" style="color: #38bdf8; text-decoration: underline; font-weight: 600;">my.telegram.org</a> لضمان الاتصال المباشر والمستقر.
+                <p style="margin: 0 0 8px 0; font-size: 12px; color: #cbd5e1; line-height: 1.6;">
+                  • <b>كيف تستخرج الـ API ID والـ API Hash في دقيقة واحدة مجاناً؟</b><br>
+                  1️⃣ ادخل على موقع تليجرام الرسمي: <a href="https://my.telegram.org" target="_blank" style="color: #38bdf8; text-decoration: underline; font-weight: 700;">my.telegram.org</a> واكتب رقمك واضغط <b>Next</b>.<br>
+                  2️⃣ سيصلك كود تأكيد في رسائل تطبيق تليجرام، انسخه والصقه في الموقع واضغط <b>Sign In</b>.<br>
+                  3️⃣ اضغط على خيار <b>API development tools</b> واكتب أي كلمة إنجليزية في أول خانتين ثم اضغط <b>Create application</b>.<br>
+                  4️⃣ ستظهر بياناتك: انسخ <b>App api_id</b> (أرقام) و <b>App api_hash</b> (كود) وضعهما في الخانات المخصصة بالأسفل!
                 </p>
-                <button type="button" id="btn-modal-open-guide" style="background: none; border: none; color: #38bdf8; font-size: 12px; font-weight: 600; cursor: pointer; padding: 0; text-decoration: underline;">
-                  💡 اضغط هنا لعرض شرح بالصور خطوة بخطوة
-                </button>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                  <a href="https://my.telegram.org" target="_blank" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; text-decoration: none; border: 1px solid rgba(56, 189, 248, 0.3);">
+                    🌐 فتح my.telegram.org
+                  </a>
+                  <button type="button" id="btn-modal-open-guide" style="background: none; border: none; color: #38bdf8; font-size: 12px; font-weight: 600; cursor: pointer; padding: 4px 0; text-decoration: underline;">
+                    📸 اضغط هنا لعرض شرح بالصور خطوة بخطوة
+                  </button>
+                </div>
               </div>
             </div>
 
