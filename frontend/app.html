@@ -363,51 +363,23 @@
               </div>
             </div>
 
-            <!-- Guided Onboarding Checklist -->
-            <div id="onboarding-checklist-card" class="onboarding-wizard-card">
-              <div class="onboarding-header">
-                <div class="onboarding-icon-wrap">🚀</div>
-                <div>
-                  <h3 class="onboarding-title">مسار الإعداد والتشغيل السريع لمنصتك</h3>
-                  <p class="onboarding-subtitle">أكمل هذه الخطوات البسيطة لتبدأ أتمتة إعلاناتك وجلب النتائج في دقائق معدودة.</p>
-                </div>
-              </div>
-              
-              <div class="onboarding-steps-grid">
-                <div class="onboarding-step-item completed" id="step-item-auth">
-                  <div class="step-num-badge">✓</div>
-                  <div class="step-info">
-                    <div class="step-title">إنشاء الحساب وتأمينه</div>
-                    <div class="step-desc">تم توثيق بريدك الإلكتروني بنجاح وجاهز للاستخدام.</div>
+            <!-- Compact Unlinked Notice (Only visible when NOT connected) -->
+            <div id="unlinked-engine-alert" class="card" style="display: none; padding: 12px 18px; margin-bottom: 16px; border: 1px solid rgba(37, 99, 235, 0.3); background: rgba(37, 99, 235, 0.05); border-radius: var(--radius-md);">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="font-size: 18px;">⚡</span>
+                  <div>
+                    <div style="font-size: 13px; font-weight: 700; color: var(--text-primary);">محرك تليجرام السحابي غير متصل بعد</div>
+                    <div style="font-size: 11.5px; color: var(--text-secondary);">اربط حسابك لتفعيل النشر الآلي والجدولة على مدار الساعة.</div>
                   </div>
                 </div>
-
-                <div class="onboarding-step-item in-progress" id="step-item-engine">
-                  <div class="step-num-badge">2</div>
-                  <div class="step-info">
-                    <div class="step-title">ربط محرك تليجرام السحابي</div>
-                    <div class="step-desc">اربط رقم هاتفك ومفاتيح API الرسمية لتشغيل النشر الآلي.</div>
-                    <div style="margin-top: 8px; display: flex; gap: 8px;">
-                      <button type="button" class="btn btn-primary btn-sm" onclick="switchTab('tab-connect')">ربط المحرك الآن</button>
-                      <button type="button" class="btn btn-ghost btn-sm" onclick="openApiGuideModal()">شرح الخطوات</button>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="onboarding-step-item" id="step-item-channels">
-                  <div class="step-num-badge">3</div>
-                  <div class="step-info">
-                    <div class="step-title">استيراد وتحديد قنوات النشر</div>
-                    <div class="step-desc">اختر القنوات المستهدفة أو مجلدات تليجرام من القائمة.</div>
-                  </div>
-                </div>
-
-                <div class="onboarding-step-item" id="step-item-campaign">
-                  <div class="step-num-badge">4</div>
-                  <div class="step-info">
-                    <div class="step-title">إطلاق أول حملة إعلانية</div>
-                    <div class="step-desc">صمّم إعلانك، حدّد فترات التكرار، ودع المحرك يتولى الباقي.</div>
-                  </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <button type="button" class="btn btn-primary btn-sm" onclick="switchTab('tab-connect')">
+                    <span>ربط المحرك السحابي الآن ←</span>
+                  </button>
+                  <button type="button" class="btn btn-ghost btn-sm" onclick="showEngineOnboardingModal()" title="عرض مسار الإعداد السريع">
+                    <span>مسار الإعداد 📋</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -1221,33 +1193,88 @@
     </div>
   </div>
 
-  <!-- Engine Onboarding Modal -->
-  <div id="engine-onboarding-modal" class="modal-overlay hidden">
-    <div class="modal-card" style="max-width: 500px;">
+  <!-- One-Time Guided Onboarding Modal (مسار الإعداد والتشغيل السريع لمنصتك) -->
+  <div id="engine-onboarding-modal" class="modal-overlay hidden" style="display: none;">
+    <div class="modal-card" style="max-width: 560px;">
+      <!-- Modal Header -->
       <div class="modal-header">
-        <h3 class="modal-title"><span>⚡</span> معالج ربط المحرك السحابي</h3>
-        <button type="button" id="btn-close-engine-onboarding" class="modal-close-btn">&times;</button>
-      </div>
-      <div class="modal-body">
-        <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px;">
-          للبدء في أتمتة إعلاناتك، يحتاج محرك النشر إلى الاتصال بحساب تليجرام المصرح له بالنشر عبر بروتوكول MTProto الرسمي 100%.
-        </p>
-        <div class="auth-trust-banner" style="margin-bottom: 20px;">
-          <span>🔒</span>
-          <div>لا يتم حفظ أو مشاركة أي بيانات حساسة، وجميع الاتصالات مشفرة بكلمة مرور 2FA الخاصة بك.</div>
-        </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-          <button type="button" id="btn-modal-open-guide" class="btn btn-ghost btn-sm" onclick="openApiGuideModal()">
-            📖 شرح الخطوات
-          </button>
-          <div style="display: flex; gap: 8px;">
-            <button type="button" id="btn-dismiss-engine-onboarding" class="btn btn-secondary btn-sm" onclick="document.getElementById('engine-onboarding-modal').classList.add('hidden')">لاحقاً</button>
-            <button type="button" id="btn-start-engine-linking" class="btn btn-primary btn-sm" onclick="document.getElementById('engine-onboarding-modal').classList.add('hidden'); switchTab('tab-connect');">
-              البدء الآن ⚡
-            </button>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div class="onboarding-icon-wrap" style="width: 36px; height: 36px; font-size: 18px; border-radius: var(--radius-md); background: var(--brand-primary-subtle); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">🚀</div>
+          <div>
+            <h3 class="modal-title" style="margin: 0; font-size: 15px; font-weight: 700; color: #fff;">مسار الإعداد والتشغيل السريع لمنصتك</h3>
+            <p style="margin: 2px 0 0; font-size: 11.5px; color: var(--text-secondary);">مرحباً بك! أكمل هذه الخطوات البسيطة لتبدأ أتمتة إعلاناتك وجلب النتائج</p>
           </div>
         </div>
+        <button type="button" id="btn-close-engine-onboarding" class="modal-close-btn" style="background: none; border: none; color: var(--text-muted); font-size: 22px; cursor: pointer; line-height: 1; padding: 4px;">&times;</button>
       </div>
+
+      <!-- Modal Body -->
+      <div class="modal-body" style="padding: 18px 20px; max-height: 72vh; overflow-y: auto;">
+        
+        <div id="onboarding-checklist-card" class="onboarding-wizard-card" style="background: transparent; border: none; padding: 0; margin: 0;">
+          <div class="onboarding-steps-grid">
+            
+            <!-- Step 1 -->
+            <div class="onboarding-step-item completed" id="step-item-auth">
+              <div class="step-num-badge">✓</div>
+              <div class="step-info">
+                <div class="step-title">1. إنشاء الحساب وتأمينه</div>
+                <div class="step-desc">تم توثيق بريدك الإلكتروني بنجاح وجاهز للاستخدام.</div>
+              </div>
+              <span class="badge badge-success" style="font-size: 11px;">مكتمل</span>
+            </div>
+
+            <!-- Step 2 -->
+            <div class="onboarding-step-item in-progress" id="step-item-engine">
+              <div class="step-num-badge">2</div>
+              <div class="step-info">
+                <div class="step-title">2. ربط محرك تليجرام السحابي</div>
+                <div class="step-desc">الخطوة الأهم: اربط رقم هاتفك ومفاتيح API الرسمية لتشغيل الأتمتة السحابية 24/7.</div>
+                <div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
+                  <button type="button" id="btn-start-engine-linking" class="btn btn-primary btn-sm">
+                    <span>ابدأ ربط المحرك الآن ⚡</span>
+                  </button>
+                  <button type="button" id="btn-modal-open-guide" class="btn btn-ghost btn-sm" onclick="openApiGuideModal()">
+                    <span>شرح استخراج API بالصور 📸</span>
+                  </button>
+                </div>
+              </div>
+              <span class="badge badge-info" style="font-size: 11px;">مطلوب</span>
+            </div>
+
+            <!-- Step 3 -->
+            <div class="onboarding-step-item" id="step-item-channels">
+              <div class="step-num-badge">3</div>
+              <div class="step-info">
+                <div class="step-title">3. استيراد وتحديد قنوات النشر</div>
+                <div class="step-desc">اختر القنوات المستهدفة أو مجلدات تليجرام من القائمة بضغطة زر.</div>
+              </div>
+            </div>
+
+            <!-- Step 4 -->
+            <div class="onboarding-step-item" id="step-item-campaign">
+              <div class="step-num-badge">4</div>
+              <div class="step-info">
+                <div class="step-title">4. إطلاق أول حملة إعلانية</div>
+                <div class="step-desc">صمّم إعلانك، حدّد فترات التكرار، ودع المحرك يتولى النشر الآلي.</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="modal-footer" style="padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-subtle); background: var(--bg-surface-subtle);">
+        <button type="button" id="btn-dismiss-engine-onboarding" class="btn btn-secondary btn-sm">
+          <span>فهمت ذلك، استكشف المنصة أولاً</span>
+        </button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="closeEngineOnboardingModal(); switchTab('tab-connect');">
+          <span>ربط المحرك الآن (دقيقتان) ←</span>
+        </button>
+      </div>
+
     </div>
   </div>
 
