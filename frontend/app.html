@@ -17,10 +17,10 @@
   <!-- Google Fonts: Cairo & Tajawal -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
   
   <!-- CSS Stylesheet -->
-  <link rel="stylesheet" href="style.css?v=2.6.0">
+  <link rel="stylesheet" href="style.css?v=3.1.0">
 
   <!-- Google Sign-In API -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -480,6 +480,52 @@
         
         <!-- Tab 1: اشتراكي (Dashboard Metrics) -->
         <section id="tab-subscription" class="tab-panel">
+
+        <!-- Guided Onboarding Checklist -->
+        <div id="onboarding-checklist-card" class="card onboarding-wizard-card" style="margin-bottom: 20px;">
+          <div class="onboarding-header">
+            <div class="onboarding-icon-wrap">🚀</div>
+            <div>
+              <h3 class="onboarding-title">مسار الإعداد والتشغيل السريع لمنصتك</h3>
+              <p class="onboarding-subtitle">أكمل هذه الخطوات البسيطة لتبدأ أتمتة إعلاناتك وجلب النتائج في دقائق معدودة.</p>
+            </div>
+          </div>
+          
+          <div class="onboarding-steps-grid">
+            <div class="onboarding-step-item completed" id="step-item-auth">
+              <div class="step-num-badge">✓</div>
+              <div class="step-info">
+                <div class="step-title">إنشاء الحساب وتأمينه</div>
+                <div class="step-desc">تم توثيق بريدك الإلكتروني بنجاح وجاهز للاستخدام.</div>
+              </div>
+            </div>
+
+            <div class="onboarding-step-item in-progress" id="step-item-engine">
+              <div class="step-num-badge">2</div>
+              <div class="step-info">
+                <div class="step-title">ربط محرك تليجرام السحابي</div>
+                <div class="step-desc">اربط رقم هاتفك ومفاتيح API الرسمية لتشغيل النشر الآلي.</div>
+              </div>
+            </div>
+
+            <div class="onboarding-step-item" id="step-item-channels">
+              <div class="step-num-badge">3</div>
+              <div class="step-info">
+                <div class="step-title">استيراد وتحديد قنوات النشر</div>
+                <div class="step-desc">اختر القنوات المستهدفة أو مجلدات تليجرام من القائمة.</div>
+              </div>
+            </div>
+
+            <div class="onboarding-step-item" id="step-item-campaign">
+              <div class="step-num-badge">4</div>
+              <div class="step-info">
+                <div class="step-title">إطلاق أول حملة إعلانية</div>
+                <div class="step-desc">صمّم إعلانك، حدّد فترات التكرار، ودع المحرك يتولى الباقي.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+    
           <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <h1 class="panel-title" style="margin: 0;">تفاصيل اشتراكك ونشاط المحرك</h1>
             
@@ -994,7 +1040,9 @@
                 <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">العمليات والمهام النشطة حالياً</h3>
               </div>
             </div>
-            <div id="active-jobs-list" style="display: grid; grid-template-columns: 1fr; gap: 12px;">
+            <div id="active-jobs-list">
+            </div>
+            <div id="active-ads-list" style="display: none; style="display: grid; grid-template-columns: 1fr; gap: 12px;">
             </div>
           </div>
 
@@ -1804,5 +1852,65 @@
     </div>
   </div>
 
+
+  <!-- Forgot Password Modal -->
+  <div id="forgot-password-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title"><span>🔑</span> استعادة كلمة المرور</h3>
+        <button type="button" id="btn-close-forgot" class="modal-close-btn">&times;</button>
+      </div>
+      <form id="forgot-password-form" class="modal-body">
+        <p style="font-size: 13.5px; color: var(--text-secondary); margin-bottom: 16px;">
+          أدخل عنوان بريدك الإلكتروني المسجل وسنرسل لك رابطاً مشفراً لتعيين كلمة مرور جديدة لحسابك.
+        </p>
+        <div class="input-group">
+          <label for="forgot-email">البريد الإلكتروني</label>
+          <input type="email" id="forgot-email" required placeholder="name@company.com">
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+          <button type="button" id="btn-cancel-forgot" class="btn btn-secondary">إلغاء</button>
+          <button type="submit" id="btn-submit-forgot" class="btn btn-primary">
+            <span>إرسال تعليمات الاستعادة</span>
+            <span class="spinner hidden"></span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- Engine Onboarding Modal -->
+  <div id="engine-onboarding-modal" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width: 520px;">
+      <div class="modal-header">
+        <h3 class="modal-title"><span>⚡</span> معالج ربط المحرك السحابي الآمن</h3>
+        <button type="button" id="btn-close-engine-onboarding" class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 20px;">
+        <p style="font-size: 13.5px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px;">
+          للبدء في أتمتة إعلاناتك، يحتاج محرك النشر إلى الاتصال بحساب تليجرام المصرح له بالنشر عبر بروتوكول MTProto الآمن 100%.
+        </p>
+        <div class="auth-trust-banner" style="margin-bottom: 20px;">
+          <span>🔒</span>
+          <div>اتصال مشفر ومحمي. لا يتم حفظ أو مشاركة أي بيانات حساسة، وجميع الاتصالات تتم عبر خوادم تليجرام الرسمية.</div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 16px;">
+          <button type="button" id="btn-modal-open-guide" class="btn btn-ghost" style="font-size: 12px;">
+            <span>📖 شرح الخطوات</span>
+          </button>
+          <div style="display: flex; gap: 8px;">
+            <button type="button" id="btn-dismiss-engine-onboarding" class="btn btn-secondary">تخطي مؤقتاً</button>
+            <button type="button" id="btn-start-engine-linking" class="btn btn-primary">
+              <span>البدء في الربط الآن ⚡</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+<div style="display: none;"><span id="sim-msg-content"></span><span id="sim-msg-time"></span></div>
 </body>
 </html>

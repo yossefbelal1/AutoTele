@@ -456,6 +456,7 @@ async function syncDashboardData() {
     // Check if Telegram Engine is linked, and prompt onboarding wizard if not linked
     try {
       checkEngineOnboardingPrompt(response);
+      updateOnboardingChecklist(response);
     } catch (e) {
       console.warn("Engine onboarding prompt error:", e);
     }
@@ -2274,37 +2275,76 @@ document.addEventListener("DOMContentLoaded", () => {
     showAuthScreen();
   });
 
-  // Forgot Password Action
+  // Forgot Password Action (Modal-driven)
   const linkForgotPassword = document.getElementById("link-forgot-password");
-  if (linkForgotPassword) {
-    linkForgotPassword.addEventListener("click", async (e) => {
+  const forgotModal = document.getElementById("forgot-password-modal");
+  const forgotEmailInput = document.getElementById("forgot-email");
+  const btnCloseForgot = document.getElementById("btn-close-forgot");
+  const btnCancelForgot = document.getElementById("btn-cancel-forgot");
+  const forgotForm = document.getElementById("forgot-password-form");
+
+  if (linkForgotPassword && forgotModal) {
+    linkForgotPassword.addEventListener("click", (e) => {
       e.preventDefault();
-      const email = document.getElementById("login-email").value.trim();
-      if (!email) {
-        showToast("يرجى إدخال البريد الإلكتروني الخاص بك أولاً.", "warning");
-        return;
+      const loginEmail = document.getElementById("login-email") ? document.getElementById("login-email").value.trim() : "";
+      if (forgotEmailInput && loginEmail) {
+        forgotEmailInput.value = loginEmail;
       }
-      const confirmReset = confirm(`هل تريد إرسال كلمة مرور مؤقتة إلى حساب تليجرام المرتبط بالبريد الإلكتروني:\n${email}\n؟`);
-      if (!confirmReset) return;
-      
-      showToast("جاري إرسال كلمة المرور المؤقتة...", "info");
-      try {
-        const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email })
-        });
-        const data = await response.json();
-        if (response.ok) {
-          showToast(data.message || "تم إرسال كلمة المرور المؤقتة بنجاح.", "success");
-        } else {
-          showToast(data.detail || "فشل إرسال كلمة المرور.", "error");
-        }
-      } catch (err) {
-        showToast("حدث خطأ أثناء محاولة الاتصال بالخادم.", "error");
-        console.error("Forgot password error:", err);
-      }
+      forgotModal.classList.remove("hidden");
     });
+
+    const closeForgotModal = () => {
+      forgotModal.classList.add("hidden");
+    };
+
+    if (btnCloseForgot) btnCloseForgot.addEventListener("click", closeForgotModal);
+    if (btnCancelForgot) btnCancelForgot.addEventListener("click", closeForgotModal);
+    forgotModal.addEventListener("click", (e) => {
+      if (e.target === forgotModal) closeForgotModal();
+    });
+
+    if (forgotForm) {
+      forgotForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const email = forgotEmailInput ? forgotEmailInput.value.trim() : "";
+        if (!email) {
+          showToast("يرجى إدخال البريد الإلكتروني الخاص بك.", "warning");
+          return;
+        }
+
+        const submitBtn = document.getElementById("btn-submit-forgot");
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          const sp = submitBtn.querySelector(".spinner");
+          if (sp) sp.classList.remove("hidden");
+        }
+
+        showToast("جاري إرسال تعليمات الاستعادة...", "info");
+        try {
+          const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email })
+          });
+          const data = await response.json();
+          if (response.ok) {
+            showToast(data.message || "تم إرسال تعليمات الاستعادة بنجاح.", "success");
+            closeForgotModal();
+          } else {
+            showToast(data.detail || "فشل إرسال تعليمات الاستعادة.", "error");
+          }
+        } catch (err) {
+          showToast("حدث خطأ أثناء محاولة الاتصال بالخادم.", "error");
+          console.error("Forgot password error:", err);
+        } finally {
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            const sp = submitBtn.querySelector(".spinner");
+            if (sp) sp.classList.add("hidden");
+          }
+        }
+      });
+    }
   }
 
   // D. Form Submissions
@@ -3132,6 +3172,29 @@ function checkEngineOnboardingPrompt(response) {
       setTimeout(() => {
         showEngineOnboardingModal();
       }, 500);
+    }
+  }
+}
+
+function updateOnboardingChecklist(response) {
+  const stepEngine = document.getElementById("step-item-engine");
+  const stepChannels = document.getElementById("step-item-channels");
+  const isLinked = response && response.telegram_account_id && response.bot_status && response.bot_status !== "غير مربوط" && response.bot_status !== "Disconnected";
+
+  if (stepEngine) {
+    if (isLinked) {
+      stepEngine.className = "onboarding-step-item completed";
+      const badge = stepEngine.querySelector(".step-num-badge");
+      if (badge) badge.textContent = "✓";
+      const desc = stepEngine.querySelector(".step-desc");
+      if (desc) desc.textContent = "تم ربط وتوثيق محرك تليجرام السحابي بنجاح.";
+      if (stepChannels && !stepChannels.classList.contains("completed")) {
+        stepChannels.className = "onboarding-step-item in-progress";
+      }
+    } else {
+      stepEngine.className = "onboarding-step-item in-progress";
+      const badge = stepEngine.querySelector(".step-num-badge");
+      if (badge) badge.textContent = "2";
     }
   }
 }

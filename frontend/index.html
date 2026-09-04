@@ -2,392 +2,833 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#090d16">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="AutoTele">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>AutoTele | المحرك السحابي لأتمتة التليجرام</title>
-  <meta name="description" content="أتمتة وإدارة قنوات التليجرام 24/7 — نشر تلقائي، مسح ذكي، حملات مجدولة سحابية.">
+  
+  <title>AutoTele Enterprise SaaS | أتمتة إعلانات تليجرام بدقة واحترافية</title>
+  <meta name="description" content="المنصة السحابية المتطورة لإدارة وأتمتة حملات تليجرام الإعلانية والنشر المجدول وتبادل القنوات على مدار الساعة.">
 
-  <!-- Google Fonts -->
+  <!-- Google Fonts: IBM Plex Sans Arabic & Cairo -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@200;300;400;600;700;900&family=Outfit:wght@100;300;400;600;900&family=Tajawal:wght@300;400;700;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-  <!-- Tailwind CSS v3 CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['Cairo', 'Tajawal', 'sans-serif'],
-            outfit: ['Outfit', 'sans-serif'],
-          }
-        }
-      }
-    }
-  </script>
-
-  <!-- React & ReactDOM UMD -->
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-
-  <!-- Framer Motion UMD -->
-  <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js" crossorigin></script>
-
-  <!-- Babel Standalone -->
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script>
-    Babel.registerPreset("react-classic", {
-      presets: [
-        [Babel.availablePresets["react"], { runtime: "classic" }]
-      ]
-    });
-  </script>
+  <!-- CSS Stylesheet -->
+  <link rel="stylesheet" href="style.css?v=3.1.0">
 
   <style>
-    *, *::before, *::after { box-sizing: border-box; }
-
-    html {
-      scroll-behavior: smooth;
+    /* Landing-specific Layout & Visual Accents */
+    .landing-nav {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      background: rgba(9, 13, 22, 0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border-subtle);
+      transition: all var(--transition-normal);
     }
-
-    body {
-      background-color: #020d1f;
-      color: #e8f0ff;
-      font-family: 'Cairo', 'Tajawal', sans-serif;
-      overflow-x: hidden;
-      margin: 0;
-      padding: 0;
+    .landing-nav-inner {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
-
-    /* Blue electric scrollbar */
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: #010a18; }
-    ::-webkit-scrollbar-thumb {
-      background: linear-gradient(180deg, #0066ff, #003dbb);
-      border-radius: 3px;
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: #fff;
     }
-    ::-webkit-scrollbar-thumb:hover { background: #0088ff; }
-
-    /* Loading screen */
-    #loading-screen {
-      position: fixed;
-      inset: 0;
-      z-index: 99999;
-      perspective: 1200px;
-      overflow: hidden;
+    .nav-brand-logo {
+      width: 38px;
+      height: 38px;
+      background: linear-gradient(135deg, var(--brand-primary), #1d4ed8);
+      border-radius: 10px;
       display: flex;
       align-items: center;
       justify-content: center;
-      background: transparent;
-      pointer-events: all;
+      font-size: 20px;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+    }
+    .nav-brand-name {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+      list-style: none;
+    }
+    .nav-link {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 13.5px;
+      font-weight: 500;
+      transition: color var(--transition-fast);
+    }
+    .nav-link:hover {
+      color: #fff;
+    }
+    .nav-cta-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
 
-    .loader-panel {
-      position: absolute;
-      top: 0;
-      height: 100%;
-      width: 50%;
-      background: #020d1f;
-      background-image: 
-        radial-gradient(circle at 100% 50%, rgba(0, 40, 120, 0.15), transparent 60%),
-        radial-gradient(circle at 0% 50%, rgba(0, 40, 120, 0.15), transparent 60%);
-      transition: transform 1.2s cubic-bezier(0.76, 0, 0.24, 1);
-      box-sizing: border-box;
-      z-index: 1;
-    }
-
-    .panel-left {
-      left: 0;
-      transform-origin: left center;
-      border-right: 1px solid rgba(0, 150, 255, 0.08);
-    }
-
-    .panel-right {
-      right: 0;
-      transform-origin: right center;
-      border-left: 1px solid rgba(0, 150, 255, 0.08);
-    }
-
-    /* Swing open like double doors / book */
-    #loading-screen.opened .panel-left {
-      transform: rotateY(-95deg);
-    }
-
-    #loading-screen.opened .panel-right {
-      transform: rotateY(95deg);
-    }
-
-    .loader-content {
+    /* Hero Section */
+    .hero-section {
       position: relative;
-      z-index: 2;
+      padding: 90px 24px 70px;
+      max-width: 1240px;
+      margin: 0 auto;
+      text-align: center;
+      overflow: hidden;
+    }
+    .hero-badge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      background: var(--brand-primary-subtle);
+      border: 1px solid rgba(37, 99, 235, 0.25);
+      border-radius: var(--radius-full);
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--brand-accent);
+      margin-bottom: 24px;
+    }
+    .hero-title {
+      font-size: clamp(34px, 5.5vw, 62px);
+      font-weight: 900;
+      line-height: 1.2;
+      letter-spacing: -1px;
+      color: #ffffff;
+      max-width: 920px;
+      margin: 0 auto 20px;
+    }
+    .hero-title .gradient-text {
+      background: linear-gradient(135deg, #60a5fa 0%, #38bdf8 50%, #93c5fd 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero-subtitle {
+      font-size: clamp(16px, 2vw, 19px);
+      color: var(--text-secondary);
+      max-width: 720px;
+      margin: 0 auto 36px;
+      line-height: 1.65;
+    }
+    .hero-cta-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 30px;
+    }
+    .hero-trust-list {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      flex-wrap: wrap;
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 50px;
+    }
+    .hero-trust-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .hero-trust-item span:first-child {
+      color: var(--color-success);
+      font-weight: 700;
+    }
+
+    /* Hero Live Mockup */
+    .hero-mockup-wrapper {
+      position: relative;
+      max-width: 1000px;
+      margin: 0 auto;
+      border-radius: var(--radius-xl);
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-strong);
+      box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.7), 0 0 50px rgba(37, 99, 235, 0.1);
+      overflow: hidden;
+      text-align: right;
+    }
+    .mockup-window-bar {
+      padding: 12px 18px;
+      background: rgba(15, 23, 42, 0.9);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .mockup-dots {
+      display: flex;
+      gap: 6px;
+    }
+    .mockup-dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+    }
+    .dot-red { background: #ef4444; }
+    .dot-yellow { background: #f59e0b; }
+    .dot-green { background: #10b981; }
+    .mockup-inner-content {
+      padding: 24px;
+      background: var(--bg-app);
+    }
+
+    /* Section Global */
+    .landing-section {
+      padding: 90px 24px;
+      max-width: 1240px;
+      margin: 0 auto;
+    }
+    .section-header {
+      text-align: center;
+      max-width: 700px;
+      margin: 0 auto 54px;
+    }
+    .section-tag {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--brand-accent);
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      margin-bottom: 8px;
+    }
+    .section-title {
+      font-size: clamp(28px, 4vw, 40px);
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 14px;
+      letter-spacing: -0.5px;
+    }
+    .section-desc {
+      font-size: 15.5px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    /* Feature Grid */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 24px;
+    }
+    .feature-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 28px 24px;
+      transition: all var(--transition-normal);
       display: flex;
       flex-direction: column;
-      align-items: center;
-      gap: 20px;
-      transition: all 0.7s cubic-bezier(0.76, 0, 0.24, 1);
-      text-align: center;
-      cursor: pointer;
-      user-select: none;
+      justify-content: space-between;
     }
-
-    #loading-screen.opened .loader-content {
-      opacity: 0;
-      transform: scale(0.7) translateZ(-150px);
-      pointer-events: none;
+    .feature-card:hover {
+      border-color: rgba(37, 99, 235, 0.4);
+      transform: translateY(-3px);
+      box-shadow: var(--shadow-md);
     }
-
-    .loader-panel::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background: 
-        linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
-        linear-gradient(90deg, rgba(0, 200, 255, 0.04), rgba(0, 255, 0, 0.01), rgba(0, 100, 255, 0.04));
-      background-size: 100% 4px, 6px 100%;
-      opacity: 0.65;
-      pointer-events: none;
-    }
-
-    /* Glitch Logo Container */
-    .glitch-wrapper {
-      position: relative;
-      width: 380px;
-      height: 380px;
+    .feature-icon-box {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: var(--brand-primary-subtle);
+      border: 1px solid rgba(37, 99, 235, 0.2);
       display: flex;
       align-items: center;
       justify-content: center;
-      transform: scale(0.5);
-      opacity: 0;
-      animation: glitch-entrance 1.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      font-size: 24px;
+      margin-bottom: 18px;
     }
-
-    @keyframes glitch-entrance {
-      0% {
-        transform: scale(0.3) rotate(-15deg);
-        opacity: 0;
-      }
-      65% {
-        transform: scale(1.15) rotate(6deg);
-        filter: hue-rotate(90deg) saturate(1.8);
-      }
-      85% {
-        transform: scale(0.95) rotate(-2deg);
-      }
-      100% {
-        transform: scale(1.0) rotate(0deg);
-        opacity: 1;
-      }
-    }
-
-    .glitch-img {
-      position: absolute;
-      width: 360px;
-      height: 360px;
-      object-fit: contain;
-      filter: drop-shadow(0 0 35px rgba(0, 180, 255, 0.45));
-      user-select: none;
-      pointer-events: none;
-    }
-
-    /* Main image stays in the center */
-    .main-img {
-      z-index: 3;
-      animation: main-glitch 6.5s infinite step-end;
-    }
-
-    /* Clone 1: Red/Cyan Shift */
-    .clone-1 {
-      z-index: 2;
-      left: 3px;
-      filter: drop-shadow(-4px 0 0 #ff0055) opacity(0.85);
-      animation: glitch-anim-1 3.5s infinite linear alternate-reverse;
-    }
-
-    /* Clone 2: Cyan/Blue Shift */
-    .clone-2 {
-      z-index: 1;
-      left: -3px;
-      filter: drop-shadow(4px 0 0 #00ffff) opacity(0.85);
-      animation: glitch-anim-2 2.5s infinite linear alternate-reverse;
-    }
-
-    /* Glitch Keyframes */
-    @keyframes main-glitch {
-      0%, 94%, 100% { transform: translate(0, 0) skew(0deg); }
-      95% { transform: translate(-4px, 2px) skew(-3deg); }
-      96% { transform: translate(4px, -2px) skew(3deg); }
-      97% { transform: translate(-2px, -3px) skew(-1deg); }
-      98% { transform: translate(3px, 3px) skew(2deg); }
-      99% { transform: translate(-1px, 1px) skew(0deg); }
-    }
-
-    @keyframes glitch-anim-1 {
-      0% {
-        clip-path: inset(35% 0 60% 0);
-        transform: skew(-4deg);
-      }
-      20% {
-        clip-path: inset(88% 0 1% 0);
-        transform: skew(1deg);
-      }
-      40% {
-        clip-path: inset(20% 0 55% 0);
-        transform: skew(-2deg);
-      }
-      60% {
-        clip-path: inset(70% 0 8% 0);
-        transform: skew(4deg);
-      }
-      80% {
-        clip-path: inset(10% 0 78% 0);
-        transform: skew(-3deg);
-      }
-      100% {
-        clip-path: inset(85% 0 3% 0);
-        transform: skew(3deg);
-      }
-    }
-
-    @keyframes glitch-anim-2 {
-      0% {
-        clip-path: inset(10% 0 82% 0);
-        transform: skew(3deg);
-      }
-      20% {
-        clip-path: inset(50% 0 35% 0);
-        transform: skew(-3deg);
-      }
-      40% {
-        clip-path: inset(80% 0 4% 0);
-        transform: skew(4deg);
-      }
-      60% {
-        clip-path: inset(25% 0 62% 0);
-        transform: skew(-2deg);
-      }
-      80% {
-        clip-path: inset(60% 0 18% 0);
-        transform: skew(2deg);
-      }
-      100% {
-        clip-path: inset(3% 0 90% 0);
-        transform: skew(-4deg);
-      }
-    }
-
-    .loader-brand {
-      font-family: 'Cairo', sans-serif;
-      font-size: 19px;
-      font-weight: 900;
-      letter-spacing: 4px;
+    .feature-title {
+      font-size: 18px;
+      font-weight: 700;
       color: #fff;
-      text-shadow: 0 0 15px rgba(0, 200, 255, 0.3);
-      opacity: 0;
-      transform: translateY(15px);
-      animation: slide-up 0.7s 0.3s ease forwards;
+      margin-bottom: 10px;
+    }
+    .feature-desc {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      margin-bottom: 16px;
+    }
+    .feature-pill {
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--brand-accent);
+      background: rgba(56, 189, 248, 0.08);
+      padding: 3px 10px;
+      border-radius: var(--radius-full);
+      align-self: flex-start;
     }
 
-    .loader-hint {
-      font-family: 'Cairo', sans-serif;
-      font-size: 10px;
-      color: rgba(0, 200, 255, 0.45);
-      letter-spacing: 1px;
-      opacity: 0;
-      animation: fade-in 0.8s 0.8s ease forwards;
-      margin-top: 5px;
-    }
-
-    .progress-bar-container {
-      width: 150px;
-      height: 3px;
-      background: rgba(255, 255, 255, 0.05);
-      border-radius: 10px;
-      overflow: hidden;
+    /* How It Works Steps */
+    .steps-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
       position: relative;
     }
-
-    .progress-bar-fill {
-      position: absolute;
-      top: 0;
-      left: 0;
-      height: 100%;
-      width: 0%;
-      background: linear-gradient(90deg, #0055ff, #00c8ff);
-      box-shadow: 0 0 8px #00c8ff;
-      animation: load-progress 3.5s cubic-bezier(0.1, 0.8, 0.2, 1) forwards;
+    .step-box {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 30px 24px;
+      position: relative;
+    }
+    .step-number {
+      font-size: 42px;
+      font-weight: 900;
+      color: rgba(37, 99, 235, 0.2);
+      line-height: 1;
+      margin-bottom: 14px;
+      font-family: ui-monospace, SFMono-Regular, monospace;
+    }
+    .step-box-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 10px;
+    }
+    .step-box-desc {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.6;
     }
 
-    @keyframes load-progress {
-      to { width: 100%; }
+    /* FAQ Accordion */
+    .faq-accordion {
+      max-width: 800px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .faq-item {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      transition: border-color var(--transition-fast);
+    }
+    .faq-item.open {
+      border-color: rgba(37, 99, 235, 0.4);
+    }
+    .faq-trigger {
+      width: 100%;
+      padding: 18px 22px;
+      background: transparent;
+      border: none;
+      color: #fff;
+      font-size: 15px;
+      font-weight: 700;
+      text-align: right;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-family: inherit;
+    }
+    .faq-icon {
+      font-size: 18px;
+      color: var(--text-muted);
+      transition: transform var(--transition-normal);
+    }
+    .faq-item.open .faq-icon {
+      transform: rotate(180deg);
+      color: var(--brand-accent);
+    }
+    .faq-content {
+      display: none;
+      padding: 0 22px 18px;
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.65;
+    }
+    .faq-item.open .faq-content {
+      display: block;
     }
 
-    @keyframes spin {
-      to { transform: rotate(360deg); }
+    /* High-Impact CTA Box */
+    .cta-banner {
+      background: linear-gradient(135deg, rgba(37, 99, 235, 0.15), rgba(15, 23, 42, 0.8));
+      border: 1px solid rgba(37, 99, 235, 0.3);
+      border-radius: var(--radius-xl);
+      padding: 60px 32px;
+      text-align: center;
+      margin-top: 40px;
+      box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.5);
     }
 
-    @keyframes slide-up {
-      to {
-        opacity: 1;
-        transform: translateY(0);
+    /* Landing Footer */
+    .landing-footer {
+      border-top: 1px solid var(--border-subtle);
+      background: var(--bg-surface);
+      padding: 60px 24px 30px;
+    }
+    .footer-inner {
+      max-width: 1240px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 2fr repeat(3, 1fr);
+      gap: 40px;
+    }
+    @media (max-width: 768px) {
+      .footer-inner {
+        grid-template-columns: 1fr;
+      }
+      .nav-links {
+        display: none;
       }
     }
-
-    @keyframes fade-in {
-      to { opacity: 1; }
+    .footer-bottom-bar {
+      max-width: 1240px;
+      margin: 40px auto 0;
+      padding-top: 24px;
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12.5px;
+      color: var(--text-muted);
+      flex-wrap: wrap;
+      gap: 12px;
     }
   </style>
 </head>
 <body>
 
-  <!-- Loading Screen -->
-  <div id="loading-screen" onclick="window.triggerOpen?.()">
-    <div class="loader-panel panel-left"></div>
-    <div class="loader-panel panel-right"></div>
-    
-    <div class="loader-content">
-      <div class="glitch-wrapper">
-        <img src="logo.png" alt="AutoTele Logo" class="glitch-img main-img">
-        <img src="logo.png" alt="AutoTele Logo" class="glitch-img clone-1">
-        <img src="logo.png" alt="AutoTele Logo" class="glitch-img clone-2">
+  <!-- Floating Main Navbar -->
+  <nav class="landing-nav">
+    <div class="landing-nav-inner">
+      <a href="index.html" class="nav-brand">
+        <div class="nav-brand-logo">⚡</div>
+        <div class="nav-brand-name">AutoTele</div>
+      </a>
+
+      <ul class="nav-links">
+        <li><a href="#features" class="nav-link">الميزات</a></li>
+        <li><a href="#product" class="nav-link">المنتج</a></li>
+        <li><a href="#how-it-works" class="nav-link">كيف يعمل</a></li>
+        <li><a href="#pricing" class="nav-link">الأسعار</a></li>
+        <li><a href="#faq" class="nav-link">الأسئلة الشائعة</a></li>
+      </ul>
+
+      <div class="nav-cta-group">
+        <a href="app.html" class="btn btn-ghost" style="font-size: 13px;">دخول المنصة</a>
+        <a href="app.html?mode=signup" class="btn btn-primary" style="font-size: 13px;">
+          <span>ابدأ مجاناً 🚀</span>
+        </a>
       </div>
-      <div class="loader-brand">AUTOTELE</div>
-      <div class="progress-bar-container">
-        <div class="progress-bar-fill"></div>
-      </div>
-      <div class="loader-hint">انقر لتخطي الرسوم المتحركة • Click to skip</div>
     </div>
-  </div>
+  </nav>
 
+  <!-- Hero Section -->
+  <header class="hero-section">
+    <div class="hero-badge-pill">
+      <span>⚡</span>
+      <span>الإصدار 3.0 السحابي المؤسسي متاح الآن</span>
+    </div>
+
+    <h1 class="hero-title">
+      أتمتة إعلانات تليجرام<br>
+      <span class="gradient-text">بدقة واحترافية متناهية</span>
+    </h1>
+
+    <p class="hero-subtitle">
+      اربط حساباتك السحابية، جدول حملاتك الإعلانية، وقم بإدارة مئات القنوات والمجموعات على مدار 24 ساعة دون الحاجة لتدخل بشري أو ترك هاتفك متصلاً.
+    </p>
+
+    <div class="hero-cta-row">
+      <a href="app.html?mode=signup" class="btn btn-primary" style="padding: 14px 34px; font-size: 15px; font-weight: 700;">
+        <span>ابدأ تجربتك المجانية الآن ←</span>
+      </a>
+      <a href="app.html" class="btn btn-secondary" style="padding: 14px 28px; font-size: 15px;">
+        <span>تسجيل الدخول إلى حسابك</span>
+      </a>
+    </div>
+
+    <div class="hero-trust-list">
+      <div class="hero-trust-item"><span>✓</span><span>بدون بطاقة ائتمان</span></div>
+      <div class="hero-trust-item"><span>✓</span><span>إعداد فوري في 3 دقائق</span></div>
+      <div class="hero-trust-item"><span>✓</span><span>بروتوكول MTProto رسمي مشفر 100%</span></div>
+      <div class="hero-trust-item"><span>✓</span><span>حماية متقدمة ضد الحظر التلقائي</span></div>
+    </div>
+
+    <!-- Live Calm Dashboard Mockup -->
+    <div class="hero-mockup-wrapper" id="product">
+      <div class="mockup-window-bar">
+        <div class="mockup-dots">
+          <div class="mockup-dot dot-red"></div>
+          <div class="mockup-dot dot-yellow"></div>
+          <div class="mockup-dot dot-green"></div>
+        </div>
+        <div style="font-size: 12px; color: var(--text-muted); font-family: monospace;">AutoTele Cloud Dashboard v3.0</div>
+        <div style="font-size: 11px; color: var(--color-success); font-weight: 600;">● متصل ويعمل 24/7</div>
+      </div>
+
+      <div class="mockup-inner-content">
+        <!-- Mini Stats Grid -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 20px;">
+          <div class="stat-card" style="padding: 16px;">
+            <div class="stat-content">
+              <span class="stat-label">الحملات النشطة</span>
+              <div class="stat-value font-mono">14 حملة</div>
+              <span class="stat-trend positive">النشر يعمل الآن</span>
+            </div>
+          </div>
+          <div class="stat-card" style="padding: 16px;">
+            <div class="stat-content">
+              <span class="stat-label">إجمالي الرسائل المنشورة</span>
+              <div class="stat-value font-mono">2,480,120</div>
+              <span class="stat-trend positive">تحديث فوري</span>
+            </div>
+          </div>
+          <div class="stat-card" style="padding: 16px;">
+            <div class="stat-content">
+              <span class="stat-label">القنوات المتصلة</span>
+              <div class="stat-value font-mono">342 قناة</div>
+              <span class="stat-trend positive">مستوردة بنجاح</span>
+            </div>
+          </div>
+          <div class="stat-card" style="padding: 16px;">
+            <div class="stat-content">
+              <span class="stat-label">معدل التسليم الناجح</span>
+              <div class="stat-value font-mono">99.8%</div>
+              <span class="stat-trend positive">استقرار مثالي</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mini Active Campaigns Table -->
+        <div class="card" style="padding: 16px; background: var(--bg-surface);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <span style="font-size: 13px; font-weight: 700; color: #fff;">الحملات المجدولة قيد التنفيذ الآن</span>
+            <span class="badge badge-info font-mono">3 مهام جارية</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: rgba(255,255,255,0.02); border-radius: 8px; font-size: 13px;">
+              <div>
+                <strong>حملة الترويج الكبرى (عروض رمضان)</strong>
+                <span style="display: block; font-size: 11px; color: var(--text-muted);">بث مجمع • استهداف 84 قناة • تكرار كل 4 ساعات</span>
+              </div>
+              <span class="badge badge-success">نشطة ومجدولة</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: rgba(255,255,255,0.02); border-radius: 8px; font-size: 13px;">
+              <div>
+                <strong>تبادل إعلاني وتثبيت متبادل (Wave Swap)</strong>
+                <span style="display: block; font-size: 11px; color: var(--text-muted);">نشر وتثبيت لمدة ساعتين ثم حذف تلقائي</span>
+              </div>
+              <span class="badge badge-info">قيد البث</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Core Features Section -->
+  <section class="landing-section" id="features">
+    <div class="section-header">
+      <div class="section-tag">الميزات المتطورة</div>
+      <h2 class="section-title">كل ما تحتاجه لإدارة إعلانات تليجرام في منصة واحدة</h2>
+      <p class="section-desc">صُممت المنصة لتلبي احتياجات المسوقين المحترفين، وكالات الإعلانات، وأصحاب قنوات تليجرام الباحثين عن النمو والأمان التام.</p>
+    </div>
+
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon-box">🤖</div>
+        <div>
+          <h3 class="feature-title">أتمتة سحابية 24/7 دون انقطاع</h3>
+          <p class="feature-desc">جدول رسائلك وحملاتك مرة واحدة، وسيتولى الخادم السحابي إرسالها في الأوقات المحددة بدقة متناهية دون الحاجة لإبقاء هاتفك أو جهازك متصلاً.</p>
+        </div>
+        <span class="feature-pill">تشغيل سحابي مستقل</span>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon-box">🛡️</div>
+        <div>
+          <h3 class="feature-title">حماية متطورة ضد قيود الحظر</h3>
+          <p class="feature-desc">خوارزميات فواصل زمنية ذكية بين الرسائل تحاكي تماماً سلوك المستخدم البشري، مما يحافظ على سلامة حساباتك وقنواتك من قيود تليجرام.</p>
+        </div>
+        <span class="feature-pill">محاكاة بشرية ذكية</span>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon-box">📁</div>
+        <div>
+          <h3 class="feature-title">استيراد مجلدات وقنوات تليجرام</h3>
+          <p class="feature-desc">استورد كافة قنواتك المصنفة داخل مجلدات تليجرام بنقرة واحدة، مع إمكانية البحث السريع والتحديد المتعدد والفلاتر المخصصة.</p>
+        </div>
+        <span class="feature-pill">تنظيم بضغطة واحدة</span>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon-box">🧹</div>
+        <div>
+          <h3 class="feature-title">حذف تلقائي للمنشورات بعد انتهاء وقتها</h3>
+          <p class="feature-desc">حافظ على نظافة وترتيب قنواتك من خلال تحديد فترة بقاء الإعلان (مثلاً ساعتين أو 24 ساعة) ليقوم المحرك بحذفه تلقائياً عند انتهاء المدة.</p>
+        </div>
+        <span class="feature-pill">تنظيف ذكي ومجدول</span>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon-box">📊</div>
+        <div>
+          <h3 class="feature-title">تقارير وسجلات حية لحظة بلحظة</h3>
+          <p class="feature-desc">راقب كل رسالة، وقت وصولها، وحالتها من خلال سجل تفصيلي يوضح أداء كل حملة ونسبة نجاح البث مع خيار التصدير الفوري.</p>
+        </div>
+        <span class="feature-pill">شفافية ودقة 100%</span>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon-box">🔐</div>
+        <div>
+          <h3 class="feature-title">أمان رسمي وتشفير AES-256</h3>
+          <p class="feature-desc">اتصال رسمي عبر بروتوكول MTProto الرسمي لتليجرام، مع تشفير جلسات العمل وتوثيق ثنائي 2FA دون تخزين كلمات المرور الحساسة.</p>
+        </div>
+        <span class="feature-pill">معايير أمان بنكية</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- How It Works Section -->
+  <section class="landing-section" id="how-it-works" style="background: rgba(15, 23, 42, 0.3); border-radius: var(--radius-xl); border: 1px solid var(--border-subtle);">
+    <div class="section-header">
+      <div class="section-tag">خطوات بسيطة وسريعة</div>
+      <h2 class="section-title">كيف تبدأ حملتك الأولى في أقل من 5 دقائق</h2>
+      <p class="section-desc">تصميم سهل وواضح يمنحك السيطرة الكاملة على قنواتك دون أي تعقيدات تقنية.</p>
+    </div>
+
+    <div class="steps-container">
+      <div class="step-box">
+        <div class="step-number">01</div>
+        <h3 class="step-box-title">ربط حسابك السحابي الرسمي</h3>
+        <p class="step-box-desc">أدخل رقم هاتفك ومفاتيح API الرسمية المستخرجة مجاناً من موقع تليجرام، وأكد الرمز لتفعيل المحرك السحابي بأمان.</p>
+      </div>
+
+      <div class="step-box">
+        <div class="step-number">02</div>
+        <h3 class="step-box-title">تحديد القنوات وصياغة الإعلان</h3>
+        <p class="step-box-desc">اختر القنوات المستهدفة من القائمة، أضف نص الإعلان والصور المرفقة، وحدد فترات التكرار ووقت حذف المنشور إن أردت.</p>
+      </div>
+
+      <div class="step-box">
+        <div class="step-number">03</div>
+        <h3 class="step-box-title">إطلاق النشر ومتابعة النتائج</h3>
+        <p class="step-box-desc">اضغط إطلاق، واستمتع بنشر آلي مجدول وموثوق يعمل سحابياً على مدار الساعة مع تقارير وإشعارات لحظية.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing Section -->
+  <section class="landing-section" id="pricing">
+    <div class="section-header">
+      <div class="section-tag">خطط مرنة وواضحة</div>
+      <h2 class="section-title">اختر الباقة المناسبة لحجم أعمالك</h2>
+      <p class="section-desc">جميع الباقات تشمل تجربة مجانية، تحديثات دورية مجانية، ودعماً فنياً متخصصاً.</p>
+    </div>
+
+    <div class="pricing-cards-grid">
+      <div class="pricing-plan-card">
+        <div class="plan-header">
+          <h3 class="plan-name">الخطة الأساسية</h3>
+          <div class="plan-price">149 <span>ريال / شهرياً</span></div>
+          <p class="plan-desc">للأفراد والمتاجر الناشئة الراغبة في تجربة الأتمتة الإعلانية.</p>
+        </div>
+        <ul class="plan-features">
+          <li>✓ حتى 5 حسابات تليجرام متصلة</li>
+          <li>✓ 10,000 رسالة إعلانية شهرياً</li>
+          <li>✓ نشر مجدول وحذف تلقائي للإعلانات</li>
+          <li>✓ فواصل أمان ذكية ضد الحظر</li>
+          <li>✓ دعم فني عبر البريد الإلكتروني</li>
+        </ul>
+        <a href="app.html?mode=signup" class="btn btn-secondary" style="width: 100%; margin-top: 24px;">بدء التجربة المجانية</a>
+      </div>
+
+      <div class="pricing-plan-card featured">
+        <div class="plan-featured-badge">الأكثر شعبية ⭐</div>
+        <div class="plan-header">
+          <h3 class="plan-name">الخطة الاحترافية (Pro)</h3>
+          <div class="plan-price">399 <span>ريال / شهرياً</span></div>
+          <p class="plan-desc">للشركات وفرق التسويق التي تحتاج لنشر كثيف ومستمر.</p>
+        </div>
+        <ul class="plan-features">
+          <li>✓ حتى 50 حساب تليجرام متصل</li>
+          <li>✓ 500,000 رسالة إعلانية شهرياً</li>
+          <li>✓ حملات تبادل وتثبيت غير محدودة</li>
+          <li>✓ استيراد كافة مجلدات وقنوات تليجرام</li>
+          <li>✓ تقارير تفصيلية لحظية وتصدير البيانات</li>
+          <li>✓ دعم فني مباشر عبر واتساب وتليجرام</li>
+        </ul>
+        <a href="app.html?mode=signup" class="btn btn-primary" style="width: 100%; margin-top: 24px;">ابدأ الآن بالخطة الاحترافية</a>
+      </div>
+
+      <div class="pricing-plan-card">
+        <div class="plan-header">
+          <h3 class="plan-name">خطة المؤسسات (Enterprise)</h3>
+          <div class="plan-price">مخصصة</div>
+          <p class="plan-desc">للوكالات التسويقية الكبرى وشبكات القنوات الضخمة.</p>
+        </div>
+        <ul class="plan-features">
+          <li>✓ حسابات تليجرام وقنوات غير محدودة</li>
+          <li>✓ رسائل وإعلانات غير محدودة</li>
+          <li>✓ خوادم سحابية معزولة ومخصصة</li>
+          <li>✓ واجهات برمجة تطبيقات API مخصصة</li>
+          <li>✓ مدير حساب مخصص على مدار 24 ساعة</li>
+        </ul>
+        <a href="app.html?mode=signup" class="btn btn-secondary" style="width: 100%; margin-top: 24px;">تواصل مع فريق المبيعات</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ Section -->
+  <section class="landing-section" id="faq">
+    <div class="section-header">
+      <div class="section-tag">الأسئلة الشائعة</div>
+      <h2 class="section-title">كل ما يدور في ذهنك حول المنصة</h2>
+      <p class="section-desc">إجابات واضحة ومباشرة عن كافة تساؤلات الأمان، وطريقة العمل، والاشتراك.</p>
+    </div>
+
+    <div class="faq-accordion">
+      <div class="faq-item">
+        <button type="button" class="faq-trigger">
+          <span>هل أحتاج لإبقاء جهازي أو هاتفي مفتوحاً أثناء تشغيل الحملة؟</span>
+          <span class="faq-icon">▼</span>
+        </button>
+        <div class="faq-content">
+          لا على الإطلاق! محرك AutoTele يعمل سحابياً بالكامل على خوادم مخصصة 24/7. بمجرد إعداد الحملة وجدولتها، يمكنك إغلاق هاتفك أو حاسوبك وسيتولى النظام تنفيذ كافة عمليات النشر والحذف في مواعيدها بدقة.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button type="button" class="faq-trigger">
+          <span>هل تطلب المنصة كلمة مرور حسابي في تليجرام؟</span>
+          <span class="faq-icon">▼</span>
+        </button>
+        <div class="faq-content">
+          أبداً! المنصة تتصل عبر بروتوكول تليجرام الرسمي MTProto باستخدام رقم هاتفك ومفاتيح API الرسمية المستخرجة من my.telegram.org مع رمز تحقق مؤقت، تماماً كما تسجل دخولك في أي تطبيق رسمي لتليجرام.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button type="button" class="faq-trigger">
+          <span>كيف تحمي المنصة حسابي من قيود تليجرام أو الحظر؟</span>
+          <span class="faq-icon">▼</span>
+        </button>
+        <div class="faq-content">
+          المنصة مزودة بخوارزمية فواصل زمنية ذكية وقابلة للتخصيص تمنع إرسال الرسائل بشكل متتابع مفرط، مما يحاكي السلوك الطبيعي للإنسان ويضمن التوافق الكامل مع معايير الأمان الرسمية في تليجرام.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button type="button" class="faq-trigger">
+          <span>ما هي طرق الدفع المتوفرة لتفعيل الاشتراك؟</span>
+          <span class="faq-icon">▼</span>
+        </button>
+        <div class="faq-content">
+          نوفر تفعيلاً فورياً وآمناً ومجهولاً عبر العملات الرقمية المشفرة مثل USDT (شبكة TRC20) و TON، بالإضافة إلى تفعيل الحسابات التجريبية المجانية لجميع المشتركين الجدد.
+        </div>
+      </div>
+    </div>
+
+    <!-- High Impact Call to Action -->
+    <div class="cta-banner">
+      <h3 style="font-size: clamp(24px, 3.5vw, 36px); font-weight: 800; color: #fff; margin-bottom: 12px;">جاهز لأتمتة تسويقك على تليجرام بأعلى كفاءة؟</h3>
+      <p style="font-size: 15px; color: var(--text-secondary); max-width: 600px; margin: 0 auto 24px;">انضم الآن إلى مئات المسوقين وأصحاب القنوات الذين يوفرون ساعات من العمل اليومي بفضل أتمتة AutoTele السحابية.</p>
+      <a href="app.html?mode=signup" class="btn btn-primary" style="padding: 14px 36px; font-size: 15px; font-weight: 700;">
+        <span>ابدأ تجربتك المجانية الآن 🚀</span>
+      </a>
+    </div>
+  </section>
+
+  <!-- Landing Footer -->
+  <footer class="landing-footer">
+    <div class="footer-inner">
+      <div>
+        <div class="nav-brand" style="margin-bottom: 14px;">
+          <div class="nav-brand-logo">⚡</div>
+          <div class="nav-brand-name">AutoTele</div>
+        </div>
+        <p style="font-size: 13.5px; color: var(--text-secondary); line-height: 1.6; max-width: 320px;">
+          المنصة السحابية المؤسسية الرائدة لأتمتة وإدارة قنوات وحملات تليجرام الإعلانية بأعلى معايير الأمان والموثوقية.
+        </p>
+      </div>
+
+      <div>
+        <div style="font-size: 13.5px; font-weight: 700; color: #fff; margin-bottom: 14px;">المنتج</div>
+        <ul style="list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 13px;">
+          <li><a href="#features" style="color: var(--text-secondary); text-decoration: none;">الميزات المتطورة</a></li>
+          <li><a href="#how-it-works" style="color: var(--text-secondary); text-decoration: none;">كيف يعمل</a></li>
+          <li><a href="#pricing" style="color: var(--text-secondary); text-decoration: none;">الأسعار والباقات</a></li>
+          <li><a href="app.html" style="color: var(--text-secondary); text-decoration: none;">دخول المنصة</a></li>
+        </ul>
+      </div>
+
+      <div>
+        <div style="font-size: 13.5px; font-weight: 700; color: #fff; margin-bottom: 14px;">الأمان والبروتوكول</div>
+        <ul style="list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 13px;">
+          <li><span style="color: var(--text-secondary);">MTProto v2 Official</span></li>
+          <li><span style="color: var(--text-secondary);">تشفير AES-256 E2E</span></li>
+          <li><span style="color: var(--text-secondary);">توافق 2FA كامل</span></li>
+          <li><span style="color: var(--text-secondary);">حماية ضد الحظر التلقائي</span></li>
+        </ul>
+      </div>
+
+      <div>
+        <div style="font-size: 13.5px; font-weight: 700; color: #fff; margin-bottom: 14px;">الدعم والمساعدة</div>
+        <ul style="list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 13px;">
+          <li><a href="#faq" style="color: var(--text-secondary); text-decoration: none;">الأسئلة الشائعة</a></li>
+          <li><a href="https://t.me" target="_blank" style="color: var(--brand-accent); text-decoration: none;">دعم تليجرام الفني</a></li>
+          <li><a href="mailto:support@autotele.com" style="color: var(--text-secondary); text-decoration: none;">البريد الإلكتروني</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer-bottom-bar">
+      <div>© 2026 AutoTele Enterprise SaaS. جميع الحقوق محفوظة.</div>
+      <div style="display: flex; gap: 16px;">
+        <span>اتصال مشفر وآمن 100%</span>
+        <span>•</span>
+        <span>الخوادم السحابية تعمل بنسبة 99.9%</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Light Vanilla JS for FAQ Accordion and Anchor Smooth Navigation -->
   <script>
-    window.opened = false;
-    window.triggerOpen = function() {
-      if (window.opened) return;
-      window.opened = true;
-      const loader = document.getElementById('loading-screen');
-      if (loader) {
-        loader.classList.add('opened');
-        // Let it click through
-        loader.style.pointerEvents = 'none';
-        setTimeout(() => {
-          loader.style.display = 'none';
-        }, 1200);
-      }
-    };
-
-    // Auto open after 4.2 seconds if user hasn't clicked
-    setTimeout(() => {
-      window.triggerOpen();
-    }, 4200);
+    document.querySelectorAll('.faq-trigger').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const item = btn.closest('.faq-item');
+        const isOpen = item.classList.contains('open');
+        // Close other items
+        document.querySelectorAll('.faq-item').forEach(i => i.classList.remove('open'));
+        if (!isOpen) {
+          item.classList.add('open');
+        }
+      });
+    });
   </script>
-
-  <!-- React Mount Point -->
-  <div id="landing-root"></div>
-
-  <!-- Landing Page Component -->
-  <script type="text/babel" data-presets="react-classic" src="landing_motion.js?v=4.5"></script>
-
 </body>
 </html>
