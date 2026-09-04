@@ -24,7 +24,16 @@ import bcrypt
 from sqlalchemy import select, update, delete, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from pyrogram import Client
-from pyrogram.errors import SessionPasswordNeeded, PhoneCodeInvalid, PhoneCodeExpired, FloodWait
+from pyrogram.errors import (
+    SessionPasswordNeeded,
+    PasswordHashInvalid,
+    PhoneCodeInvalid,
+    PhoneCodeExpired,
+    PhoneCodeEmpty,
+    FloodWait,
+    BadRequest,
+    RPCError
+)
 
 from db_manager import get_db, User, TelegramAccount, AsyncSessionLocal, CryptoPayment, AdTemplate, WebCampaignTask, apply_pyrogram_patches, AccountNotification
 from cache_manager import is_rate_limited, is_key_rate_limited, redis_client, clear_tenant_cache, get_channels_cache
@@ -1271,8 +1280,12 @@ async def clear_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
 @app.post("/telegram/send-code")
 async def telegram_send_code(req: TelegramSendCodeReq, user_id: int = Depends(get_current_user)):
     # Normalize phone number to digits-only format to prevent duplicate entries
-    req.phone = "".join(c for c in req.phone if c.isdigit())
-    if await is_rate_limited(user_id, 3, 60): raise HTTPException(status_code=429)
+    clean_phone = "".join(c for c in req.phone if c.isdigit())
+    req.phone = clean_phone
+    if not clean_phone or len(clean_phone) < 7:
+        raise HTTPException(status_code=400, detail="رقم الهاتف غير صالح، يرجى كتابة الرقم بالصيغة الدولية مع مفتاح الدولة (مثال: +20...)")
+    if await is_rate_limited(user_id, 5, 60):
+        raise HTTPException(status_code=429, detail="طلبات كثيرة جداً، يرجى الانتظار دقيقة قبل المحاولة.")
     
     # Purge expired handshakes older than 10 minutes to prevent memory leaks
     now = time.time()
@@ -1283,10 +1296,10 @@ async def telegram_send_code(req: TelegramSendCodeReq, user_id: int = Depends(ge
             try: await hs["client"].disconnect()
             except: pass
 
-    if req.phone in active_handshakes:
-        try: await active_handshakes[req.phone]["client"].disconnect()
+    if clean_phone in active_handshakes:
+        try: await active_handshakes[clean_phone]["client"].disconnect()
         except: pass
-        del active_handshakes[req.phone]
+        active_handshakes.pop(clean_phone, None)
         
     proxy_config = None
     async with AsyncSessionLocal() as session:
@@ -1305,7 +1318,7 @@ async def telegram_send_code(req: TelegramSendCodeReq, user_id: int = Depends(ge
                 logger.warning(f"SOCKS5 proxy {user.proxy_host}:{user.proxy_port} is DEAD/UNREACHABLE for user {user_id} login. Falling back to direct connection!")
         
     client = Client(
-        name=f"temp_{req.phone}", 
+        name=f"temp_{clean_phone}", 
         api_id=req.api_id, 
         api_hash=req.api_hash, 
         in_memory=True,
@@ -1313,31 +1326,124 @@ async def telegram_send_code(req: TelegramSendCodeReq, user_id: int = Depends(ge
     )
     try:
         await client.connect()
-        code_hash = await client.send_code(req.phone)
-        active_handshakes[req.phone] = {
+        code_hash = await client.send_code(clean_phone)
+        active_handshakes[clean_phone] = {
             "client": client, 
             "phone_code_hash": code_hash.phone_code_hash, 
             "api_id": req.api_id, 
             "api_hash": req.api_hash, 
             "user_id": user_id,
-            "created_at": time.time()
+            "created_at": time.time(),
+            "code_verified": False
         }
         return {"status": "code_sent", "message": "تم إرسال كود التأكيد الآمن"}
-    except FloodWait as e: raise HTTPException(status_code=420, detail=f"رقمك مقيد للفلود، انتظر {e.value} ثانية")
-    except Exception as e: raise HTTPException(status_code=400, detail=str(e))
+    except FloodWait as e:
+        raise HTTPException(status_code=420, detail=f"رقمك مقيد للفلود لكثرة الطلبات، يرجى الانتظار {e.value} ثانية.")
+    except Exception as e:
+        logger.error(f"Failed to send telegram code: {e}")
+        err_msg = str(e)
+        if "PHONE_NUMBER_INVALID" in err_msg:
+            err_msg = "رقم الهاتف غير صحيح، تأكد من كتابة مفتاح الدولة الدولي (مثال: +20...)."
+        elif "API_ID_INVALID" in err_msg:
+            err_msg = "الـ API ID أو الـ API Hash غير صحيح، يرجى التحقق منهما من my.telegram.org."
+        raise HTTPException(status_code=400, detail=err_msg)
 
 @app.post("/telegram/verify-code")
 async def telegram_verify_code(req: TelegramVerifyCodeReq, user_id: int = Depends(get_current_user)):
     # Normalize phone number to digits-only format to prevent duplicate entries
-    req.phone = "".join(c for c in req.phone if c.isdigit())
-    handshake = active_handshakes.get(req.phone)
-    if not handshake or handshake["user_id"] != user_id: raise HTTPException(status_code=400, detail="انتهت الجلسة")
+    clean_phone = "".join(c for c in req.phone if c.isdigit())
+    req.phone = clean_phone
+    handshake = active_handshakes.get(clean_phone)
+    if not handshake or handshake.get("user_id") != user_id:
+        raise HTTPException(
+            status_code=400, 
+            detail="انتهت صلاحية جلسة التحقق أو لم يتم إرسال الكود بعد. يرجى الضغط على 'تعديل البيانات السابقة' وإعادة إرسال الكود."
+        )
     client: Client = handshake["client"]
+    clean_code = "".join(c for c in req.code if c.isdigit())
+    
     try:
-        await client.sign_in(req.phone, handshake["phone_code_hash"], req.code)
-    except SessionPasswordNeeded:
-        if not req.password_2fa: return {"status": "password_needed", "message": "الحساب محمي بـ 2FA"}
-        await client.check_password(req.password_2fa)
+        if handshake.get("code_verified"):
+            # User already verified the 5-digit code in previous attempt, now validating 2FA password
+            if not req.password_2fa:
+                return {
+                    "status": "password_needed", 
+                    "message": "الحساب محمي بكلمة مرور التحقق بخطوتين (2FA). يرجى إدخالها في الحقل المخصص أدناه."
+                }
+            try:
+                await client.check_password(req.password_2fa)
+            except PasswordHashInvalid:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="كلمة مرور التحقق بخطوتين (2FA) غير صحيحة. يرجى التأكد من باسورد تيليجرام الخاص بك وإعادة المحاولة."
+                )
+            except FloodWait as e:
+                raise HTTPException(
+                    status_code=420, 
+                    detail=f"تم تقييد الحساب مؤقتاً لكثرة المحاولات الخاطئة ({e.value} ثانية). يرجى الانتظار ثم المحاولة."
+                )
+            except Exception as pe:
+                logger.error(f"Failed to check 2FA password: {pe}")
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"خطأ أثناء التحقق من كلمة مرور 2FA: {str(pe)}"
+                )
+        else:
+            try:
+                await client.sign_in(clean_phone, handshake["phone_code_hash"], clean_code)
+            except SessionPasswordNeeded:
+                handshake["code_verified"] = True
+                if not req.password_2fa:
+                    return {
+                        "status": "password_needed", 
+                        "message": "الحساب محمي بكلمة مرور التحقق بخطوتين (2FA). يرجى إدخالها في الحقل المخصص أدناه."
+                    }
+                try:
+                    await client.check_password(req.password_2fa)
+                except PasswordHashInvalid:
+                    raise HTTPException(
+                        status_code=400, 
+                        detail="كلمة مرور التحقق بخطوتين (2FA) غير صحيحة. يرجى التأكد من باسورد تيليجرام الخاص بك وإعادة المحاولة."
+                    )
+                except FloodWait as e:
+                    raise HTTPException(
+                        status_code=420, 
+                        detail=f"تم تقييد الحساب مؤقتاً لكثرة المحاولات الخاطئة ({e.value} ثانية). يرجى الانتظار ثم المحاولة."
+                    )
+                except Exception as pe:
+                    logger.error(f"Failed to check 2FA password: {pe}")
+                    raise HTTPException(
+                        status_code=400, 
+                        detail=f"خطأ أثناء التحقق من كلمة مرور 2FA: {str(pe)}"
+                    )
+    except PhoneCodeInvalid:
+        raise HTTPException(
+            status_code=400, 
+            detail="كود التحقق غير صحيح. يرجى كتابة كود الـ 5 أرقام كما وصلك في رسائل تطبيق تيليجرام."
+        )
+    except PhoneCodeExpired:
+        raise HTTPException(
+            status_code=400, 
+            detail="انتهت صلاحية كود التحقق. يرجى الضغط على 'تعديل البيانات السابقة' لطلب كود جديد."
+        )
+    except PhoneCodeEmpty:
+        raise HTTPException(
+            status_code=400, 
+            detail="يرجى إدخال كود التحقق المكون من 5 أرقام."
+        )
+    except FloodWait as e:
+        raise HTTPException(
+            status_code=420, 
+            detail=f"رقمك مقيد للفلود لكثرة المحاولات، يرجى الانتظار {e.value} ثانية."
+        )
+    except HTTPException:
+        raise
+    except BadRequest as e:
+        logger.error(f"Pyrogram BadRequest during verify_code: {e}")
+        raise HTTPException(status_code=400, detail=f"خطأ في تأكيد الكود من تليجرام: {str(e)}")
+    except Exception as e:
+        logger.error(f"Unexpected error during sign_in: {e}")
+        raise HTTPException(status_code=400, detail=f"حدث خطأ أثناء تأكيد الدخول: {str(e)}")
     
     string_session = await client.export_session_string()
     
@@ -1528,12 +1634,18 @@ async def telegram_verify_code(req: TelegramVerifyCodeReq, user_id: int = Depend
             "• `.تعطيل_استيكر` : لإيقاف إرسال الاستيكر قبل الإعلانات والاكتفاء بنشر النصوص فقط."
         )
         msg3 = await client.send_message("me", msg3_text)
-        await client.pin_chat_message(chat_id="me", message_id=msg3.id, both_sides=False)
+        try:
+            await client.pin_chat_message(chat_id="me", message_id=msg3.id, both_sides=False)
+        except Exception as pin_e:
+            logger.warning(f"Could not pin message in Saved Messages: {pin_e}")
     except Exception as onboarding_e:
         logger.error(f"Failed to send/pin onboarding messages: {onboarding_e}")
 
-    await client.disconnect()
-    del active_handshakes[req.phone]
+    try:
+        await client.disconnect()
+    except Exception:
+        pass
+    active_handshakes.pop(clean_phone, None)
     return {"status": "success", "message": "تم ربط وتفعيل المحرك بنجاح!"}
 
 

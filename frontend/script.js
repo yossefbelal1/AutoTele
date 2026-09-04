@@ -667,7 +667,7 @@ async function handleCryptoPayment(e) {
 async function handleTelegramSendCode(e) {
   e.preventDefault();
 
-  const phone = document.getElementById("telegram-phone").value.trim();
+  const phone = document.getElementById("telegram-phone").value.trim().replace(/\s+/g, "");
   const apiId = parseInt(document.getElementById("telegram-api-id").value);
   const apiHash = document.getElementById("telegram-api-hash").value.trim();
 
@@ -687,9 +687,15 @@ async function handleTelegramSendCode(e) {
       showToast("تم إرسال كود التأكيد الآمن لتطبيق تليجرام الخاص بك.", "success");
       
       // Update label and switch steps
-      document.getElementById("phone-display-label").textContent = `تم إرسال الكود إلى الرقم: ${phone}`;
+      document.getElementById("phone-display-label").innerHTML = `تم إرسال الكود إلى الرقم: <span dir="ltr" style="unicode-bidi: embed; font-weight: 700;">${phone}</span>`;
       document.getElementById("connect-step-1").classList.add("hidden");
       document.getElementById("connect-step-2").classList.remove("hidden");
+      
+      // Focus on code input
+      setTimeout(() => {
+        const codeInput = document.getElementById("telegram-code");
+        if (codeInput) codeInput.focus();
+      }, 100);
     }
   } catch (error) {
     console.error("Telegram Send Code Error:", error);
@@ -701,9 +707,14 @@ async function handleTelegramSendCode(e) {
 async function handleTelegramVerifyCode(e) {
   e.preventDefault();
 
-  const phone = document.getElementById("telegram-phone").value.trim();
-  const code = document.getElementById("telegram-code").value.trim();
+  const phone = document.getElementById("telegram-phone").value.trim().replace(/\s+/g, "");
+  const code = document.getElementById("telegram-code").value.trim().replace(/\D/g, "");
   const password2fa = document.getElementById("telegram-2fa").value.trim() || null;
+
+  if (!code || code.length < 5) {
+    showToast("يرجى إدخال كود التحقق المكون من 5 أرقام بدقة.", "warning");
+    return;
+  }
 
   setButtonLoading("btn-verify-code", true);
 
@@ -733,10 +744,28 @@ async function handleTelegramVerifyCode(e) {
       // Automatically launch the folders guide carousel for the user right after connection success
       openFoldersGuideModal();
     } else if (data.status === "password_needed") {
-      showToast("الحساب محمي بكلمة مرور التحقق بخطوتين. يرجى كتابتها في الحقل المخصص.", "warning");
+      showToast(data.message || "الحساب محمي بكلمة مرور التحقق بخطوتين (2FA). يرجى إدخالها في الحقل المخصص أدناه.", "warning");
+      const faLabel = document.querySelector("label[for='telegram-2fa']");
+      if (faLabel) {
+        faLabel.innerHTML = '⚠️ باسورد التحقق بخطوتين (2FA) <span style="color: #ef4444; font-weight: bold;">(مطلوب لحسابك)</span>';
+      }
+      const faInput = document.getElementById("telegram-2fa");
+      if (faInput) {
+        faInput.focus();
+        faInput.style.borderColor = "#f59e0b";
+        faInput.style.boxShadow = "0 0 0 2px rgba(245, 158, 11, 0.2)";
+      }
     }
   } catch (error) {
     console.error("Telegram Verify Code Error:", error);
+    if (error && error.message && error.message.includes("2FA")) {
+      const faInput = document.getElementById("telegram-2fa");
+      if (faInput) {
+        faInput.focus();
+        faInput.style.borderColor = "#ef4444";
+        faInput.style.boxShadow = "0 0 0 2px rgba(239, 68, 68, 0.2)";
+      }
+    }
   } finally {
     setButtonLoading("btn-verify-code", false);
   }
@@ -2068,6 +2097,22 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("crypto-payment-form").addEventListener("submit", handleCryptoPayment);
   document.getElementById("connect-form-step1").addEventListener("submit", handleTelegramSendCode);
   document.getElementById("connect-form-step2").addEventListener("submit", handleTelegramVerifyCode);
+  const btnBackStep1 = document.getElementById("btn-back-to-step1");
+  if (btnBackStep1) {
+    btnBackStep1.addEventListener("click", () => {
+      document.getElementById("connect-step-2").classList.add("hidden");
+      document.getElementById("connect-step-1").classList.remove("hidden");
+      const faLabel = document.querySelector("label[for='telegram-2fa']");
+      if (faLabel) {
+        faLabel.textContent = "باسورد التحقق بخطوتين (2FA) - اختياري";
+      }
+      const faInput = document.getElementById("telegram-2fa");
+      if (faInput) {
+        faInput.style.borderColor = "";
+        faInput.style.boxShadow = "";
+      }
+    });
+  }
   document.getElementById("template-add-form").addEventListener("submit", handleTemplateAdd);
 
   // Campaign form submission
