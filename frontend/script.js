@@ -168,7 +168,7 @@ function showDashboardScreen() {
   
   if (isNewSignup) {
     sessionStorage.removeItem("is_new_signup");
-    switchTab("tab-subscription");
+    switchTab("tab-connect");
     setTimeout(() => {
       showEngineOnboardingModal();
     }, 400);
@@ -456,7 +456,6 @@ async function syncDashboardData() {
     // Check if Telegram Engine is linked, and prompt onboarding wizard if not linked
     try {
       checkEngineOnboardingPrompt(response);
-      updateOnboardingChecklist(response);
     } catch (e) {
       console.warn("Engine onboarding prompt error:", e);
     }
@@ -2275,76 +2274,37 @@ document.addEventListener("DOMContentLoaded", () => {
     showAuthScreen();
   });
 
-  // Forgot Password Action (Modal-driven)
+  // Forgot Password Action
   const linkForgotPassword = document.getElementById("link-forgot-password");
-  const forgotModal = document.getElementById("forgot-password-modal");
-  const forgotEmailInput = document.getElementById("forgot-email");
-  const btnCloseForgot = document.getElementById("btn-close-forgot");
-  const btnCancelForgot = document.getElementById("btn-cancel-forgot");
-  const forgotForm = document.getElementById("forgot-password-form");
-
-  if (linkForgotPassword && forgotModal) {
-    linkForgotPassword.addEventListener("click", (e) => {
+  if (linkForgotPassword) {
+    linkForgotPassword.addEventListener("click", async (e) => {
       e.preventDefault();
-      const loginEmail = document.getElementById("login-email") ? document.getElementById("login-email").value.trim() : "";
-      if (forgotEmailInput && loginEmail) {
-        forgotEmailInput.value = loginEmail;
+      const email = document.getElementById("login-email").value.trim();
+      if (!email) {
+        showToast("يرجى إدخال البريد الإلكتروني الخاص بك أولاً.", "warning");
+        return;
       }
-      forgotModal.classList.remove("hidden");
+      const confirmReset = confirm(`هل تريد إرسال كلمة مرور مؤقتة إلى حساب تليجرام المرتبط بالبريد الإلكتروني:\n${email}\n؟`);
+      if (!confirmReset) return;
+      
+      showToast("جاري إرسال كلمة المرور المؤقتة...", "info");
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email })
+        });
+        const data = await response.json();
+        if (response.ok) {
+          showToast(data.message || "تم إرسال كلمة المرور المؤقتة بنجاح.", "success");
+        } else {
+          showToast(data.detail || "فشل إرسال كلمة المرور.", "error");
+        }
+      } catch (err) {
+        showToast("حدث خطأ أثناء محاولة الاتصال بالخادم.", "error");
+        console.error("Forgot password error:", err);
+      }
     });
-
-    const closeForgotModal = () => {
-      forgotModal.classList.add("hidden");
-    };
-
-    if (btnCloseForgot) btnCloseForgot.addEventListener("click", closeForgotModal);
-    if (btnCancelForgot) btnCancelForgot.addEventListener("click", closeForgotModal);
-    forgotModal.addEventListener("click", (e) => {
-      if (e.target === forgotModal) closeForgotModal();
-    });
-
-    if (forgotForm) {
-      forgotForm.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const email = forgotEmailInput ? forgotEmailInput.value.trim() : "";
-        if (!email) {
-          showToast("يرجى إدخال البريد الإلكتروني الخاص بك.", "warning");
-          return;
-        }
-
-        const submitBtn = document.getElementById("btn-submit-forgot");
-        if (submitBtn) {
-          submitBtn.disabled = true;
-          const sp = submitBtn.querySelector(".spinner");
-          if (sp) sp.classList.remove("hidden");
-        }
-
-        showToast("جاري إرسال تعليمات الاستعادة...", "info");
-        try {
-          const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email })
-          });
-          const data = await response.json();
-          if (response.ok) {
-            showToast(data.message || "تم إرسال تعليمات الاستعادة بنجاح.", "success");
-            closeForgotModal();
-          } else {
-            showToast(data.detail || "فشل إرسال تعليمات الاستعادة.", "error");
-          }
-        } catch (err) {
-          showToast("حدث خطأ أثناء محاولة الاتصال بالخادم.", "error");
-          console.error("Forgot password error:", err);
-        } finally {
-          if (submitBtn) {
-            submitBtn.disabled = false;
-            const sp = submitBtn.querySelector(".spinner");
-            if (sp) sp.classList.add("hidden");
-          }
-        }
-      });
-    }
   }
 
   // D. Form Submissions
@@ -3164,130 +3124,173 @@ function updateCampaignProgressBar() {
 // TELEGRAM ENGINE ONBOARDING MODAL & PROMPT
 // ==========================================
 function checkEngineOnboardingPrompt(response) {
-  // Check if user has an active, linked telegram account
-  const isLinked = Boolean(
-    response &&
-    response.telegram_account_id &&
-    response.bot_status &&
-    response.bot_status !== "غير مربوط" &&
-    response.bot_status !== "Disconnected"
-  );
-
-  // Toggle compact unlinked engine notice on the main dashboard
-  const unlinkedAlert = document.getElementById("unlinked-engine-alert");
-  if (unlinkedAlert) {
-    unlinkedAlert.style.display = isLinked ? "none" : "block";
-  }
-
-  // If user is ALREADY registered & linked their account:
-  // IT MUST NEVER APPEAR! ("بمجرد ما خلاص سجل و ربط حسابه. مايظهرش")
-  if (isLinked) {
-    closeEngineOnboardingModal();
-    localStorage.setItem("autotele_onboarding_completed", "true");
-    return;
-  }
-
-  // If NOT linked: show onboarding popup ONCE for a new customer
-  const userId = response.user_id || response.id || response.email || "user";
-  const userSeenKey = `autotele_onboarding_seen_${userId}`;
-  const alreadySeen = localStorage.getItem(userSeenKey) === "true" ||
-                      localStorage.getItem("autotele_onboarding_dismissed") === "true" ||
-                      localStorage.getItem("autotele_onboarding_completed") === "true";
-
-  if (!alreadySeen) {
-    localStorage.setItem(userSeenKey, "true");
-    setTimeout(() => {
-      // Re-verify connection state before popping up
-      if (!isLinked) {
+  // If user does not have an active telegram account linked
+  const isLinked = response.telegram_account_id && response.bot_status && response.bot_status !== "غير مربوط" && response.bot_status !== "Disconnected";
+  if (!isLinked) {
+    if (!sessionStorage.getItem("engine_onboarding_shown")) {
+      sessionStorage.setItem("engine_onboarding_shown", "true");
+      setTimeout(() => {
         showEngineOnboardingModal();
-      }
-    }, 600);
-  }
-}
-
-function updateOnboardingChecklist(response) {
-  const stepEngine = document.getElementById("step-item-engine");
-  const stepChannels = document.getElementById("step-item-channels");
-  const isLinked = Boolean(
-    response && 
-    response.telegram_account_id && 
-    response.bot_status && 
-    response.bot_status !== "غير مربوط" && 
-    response.bot_status !== "Disconnected"
-  );
-
-  if (stepEngine) {
-    if (isLinked) {
-      stepEngine.className = "onboarding-step-item completed";
-      const badge = stepEngine.querySelector(".step-num-badge");
-      if (badge) badge.textContent = "✓";
-      const desc = stepEngine.querySelector(".step-desc");
-      if (desc) desc.textContent = "تم ربط وتوثيق محرك تليجرام السحابي بنجاح.";
-      if (stepChannels && !stepChannels.classList.contains("completed")) {
-        stepChannels.className = "onboarding-step-item in-progress";
-      }
-    } else {
-      stepEngine.className = "onboarding-step-item in-progress";
-      const badge = stepEngine.querySelector(".step-num-badge");
-      if (badge) badge.textContent = "2";
+      }, 500);
     }
   }
 }
 
 function showEngineOnboardingModal() {
-  const modal = document.getElementById("engine-onboarding-modal");
-  if (modal) {
-    modal.classList.remove("hidden");
-    modal.style.display = "flex";
-  }
-  bindEngineOnboardingModalEvents();
-}
+  const existing = document.getElementById("engine-onboarding-modal");
+  if (existing) existing.remove();
 
-function closeEngineOnboardingModal() {
-  const modal = document.getElementById("engine-onboarding-modal");
-  if (modal) {
-    modal.classList.add("hidden");
-    modal.style.display = "none";
-  }
-}
+  const modalHtml = `
+    <div id="engine-onboarding-modal" class="modal-overlay" style="display: flex; align-items: center; justify-content: center; z-index: 100000; padding: 16px;">
+      <div class="modal-card" style="max-width: 580px; width: 100%; background: #17212b; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 20px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8); overflow: hidden;">
+        
+        <!-- Header -->
+        <div class="modal-header" style="padding: 18px 24px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center; background: rgba(36, 129, 204, 0.06);">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 26px;">🚀</span>
+            <div>
+              <h3 style="margin: 0; color: #fff; font-size: 17px; font-weight: 700;">دليل ربط المحرك السحابي (3 خطوات)</h3>
+              <p style="margin: 2px 0 0 0; font-size: 12px; color: #94a3b8;">لإطلاق حملاتك وإدارة قنواتك سحابياً 24/7 دون الحاجة لفتح هاتفك</p>
+            </div>
+          </div>
+          <button id="btn-close-engine-onboarding" class="close-btn" style="background: none; border: none; color: #94a3b8; font-size: 24px; cursor: pointer; line-height: 1;">&times;</button>
+        </div>
 
-function bindEngineOnboardingModalEvents() {
-  const btnClose = document.getElementById("btn-close-engine-onboarding");
-  if (btnClose) {
-    btnClose.onclick = () => {
-      closeEngineOnboardingModal();
-      localStorage.setItem("autotele_onboarding_dismissed", "true");
-    };
-  }
-  const btnDismiss = document.getElementById("btn-dismiss-engine-onboarding");
-  if (btnDismiss) {
-    btnDismiss.onclick = () => {
-      closeEngineOnboardingModal();
-      localStorage.setItem("autotele_onboarding_dismissed", "true");
-    };
-  }
-  const btnStart = document.getElementById("btn-start-engine-linking");
-  if (btnStart) {
-    btnStart.onclick = () => {
-      closeEngineOnboardingModal();
-      localStorage.setItem("autotele_onboarding_dismissed", "true");
-      switchTab("tab-connect");
-      setTimeout(() => {
-        const phoneInput = document.getElementById("telegram-phone");
-        if (phoneInput) {
-          phoneInput.focus();
-          phoneInput.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
-      }, 200);
-    };
-  }
+        <!-- Body -->
+        <div class="modal-body" style="padding: 22px 24px; color: #cbd5e1; font-size: 13px; line-height: 1.6; max-height: 75vh; overflow-y: auto;">
+          
+          <!-- Stepper & Progress Bar inside Modal -->
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 14px 18px; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <span style="font-size: 11px; font-weight: 700; color: #38bdf8; letter-spacing: 0.5px;">شريط تقدم الربط (PROGRESS)</span>
+              <span style="font-size: 11px; font-weight: 700; color: #94a3b8;">الخطوة 1 من 3</span>
+            </div>
+            <!-- Visual Progress Bar -->
+            <div style="width: 100%; height: 6px; background: rgba(255,255,255,0.08); border-radius: 999px; overflow: hidden; margin-bottom: 12px;">
+              <div style="width: 33%; height: 100%; background: linear-gradient(90deg, #2481cc 0%, #38bdf8 100%); border-radius: 999px;"></div>
+            </div>
+            <!-- Steps Pills -->
+            <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 11px;">
+              <div style="display: flex; align-items: center; gap: 6px; color: #fff; font-weight: 700;">
+                <span style="width: 22px; height: 22px; border-radius: 50%; background: #2481cc; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px;">1</span>
+                <span>البيانات والـ API</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px; color: #64748b;">
+                <span style="width: 22px; height: 22px; border-radius: 50%; background: rgba(255,255,255,0.08); color: #94a3b8; display: flex; align-items: center; justify-content: center; font-size: 11px;">2</span>
+                <span>كود التحقق و 2FA</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px; color: #64748b;">
+                <span style="width: 22px; height: 22px; border-radius: 50%; background: rgba(255,255,255,0.08); color: #94a3b8; display: flex; align-items: center; justify-content: center; font-size: 11px;">3</span>
+                <span>المزامنة والتشغيل</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- The 3 Steps Cards Detailed Explanation -->
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            
+            <!-- Step 1 Card -->
+            <div style="display: flex; gap: 14px; background: rgba(36, 129, 204, 0.07); border: 1px solid rgba(36, 129, 204, 0.25); border-radius: 14px; padding: 14px 16px;">
+              <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(36, 129, 204, 0.2); border: 1px solid rgba(56, 189, 248, 0.4); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;">
+                📱
+              </div>
+              <div style="flex: 1;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                  <h4 style="margin: 0; font-size: 14px; font-weight: 700; color: #fff;">الخطوة الأولى: رقم هاتفك وبيانات الـ API الرسمية</h4>
+                  <span style="font-size: 11px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 2px 8px; border-radius: 6px; font-weight: 600;">دقيقة واحدة</span>
+                </div>
+                <p style="margin: 0 0 8px 0; font-size: 12px; color: #cbd5e1; line-height: 1.6;">
+                  • <b>كيف تستخرج الـ API ID والـ API Hash في دقيقة واحدة مجاناً؟</b><br>
+                  1️⃣ ادخل على موقع تليجرام الرسمي: <a href="https://my.telegram.org" target="_blank" style="color: #38bdf8; text-decoration: underline; font-weight: 700;">my.telegram.org</a> واكتب رقمك واضغط <b>Next</b>.<br>
+                  2️⃣ سيصلك كود تأكيد في رسائل تطبيق تليجرام، انسخه والصقه في الموقع واضغط <b>Sign In</b>.<br>
+                  3️⃣ اضغط على خيار <b>API development tools</b> واكتب أي كلمة إنجليزية في أول خانتين ثم اضغط <b>Create application</b>.<br>
+                  4️⃣ ستظهر بياناتك: انسخ <b>App api_id</b> (أرقام) و <b>App api_hash</b> (كود) وضعهما في الخانات المخصصة بالأسفل!
+                </p>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                  <a href="https://my.telegram.org" target="_blank" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; text-decoration: none; border: 1px solid rgba(56, 189, 248, 0.3);">
+                    🌐 فتح my.telegram.org
+                  </a>
+                  <button type="button" id="btn-modal-open-guide" style="background: none; border: none; color: #38bdf8; font-size: 12px; font-weight: 600; cursor: pointer; padding: 4px 0; text-decoration: underline;">
+                    📸 اضغط هنا لعرض شرح بالصور خطوة بخطوة
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 2 Card -->
+            <div style="display: flex; gap: 14px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 14px; padding: 14px 16px;">
+              <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;">
+                📩
+              </div>
+              <div style="flex: 1;">
+                <h4 style="margin: 0 0 4px 0; font-size: 14px; font-weight: 700; color: #fff;">الخطوة الثانية: كود التحقق السحابي و 2FA</h4>
+                <p style="margin: 0; font-size: 12.5px; color: #94a3b8;">
+                  • سيصلك كود تأكيد من 5 أرقام داخل <b>تطبيق تليجرام الرسمي</b> في شات Telegram (وليس رسالة SMS).<br>
+                  • إذا كان حسابك مفعلاً به التحقق بخطوتين، اكتب باسورد تليجرام السحابي في خانة 2FA للمتابعة.
+                </p>
+              </div>
+            </div>
+
+            <!-- Step 3 Card -->
+            <div style="display: flex; gap: 14px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 14px; padding: 14px 16px;">
+              <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;">
+                ⚡
+              </div>
+              <div style="flex: 1;">
+                <h4 style="margin: 0 0 4px 0; font-size: 14px; font-weight: 700; color: #fff;">الخطوة الثالثة: التفعيل التلقائي والمزامنة</h4>
+                <p style="margin: 0; font-size: 12.5px; color: #94a3b8;">
+                  • يتم تفعيل المحرك فوراً، وتصلك 3 رسائل ترحيبية ودليل أوامر التحكم الـ 17 في "الرسائل المحفوظة".<br>
+                  • يفحص المحرك قنواتك الترويجية ومجلداتك تلقائياً لتبدأ إطلاق الحملات بضغطة زر.
+                </p>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.15);">
+          <button id="btn-dismiss-engine-onboarding" class="btn btn-secondary" style="font-size: 13px;">لاحقاً</button>
+          <button id="btn-start-engine-linking" class="btn btn-primary" style="font-size: 14px; font-weight: 700; padding: 10px 22px; background: linear-gradient(135deg, #2481cc 0%, #1d4ed8 100%);">
+            ابدأ ربط المحرك الآن ⚡
+          </button>
+        </div>
+
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML("beforeend", modalHtml);
+
+  // Event Listeners
+  document.getElementById("btn-close-engine-onboarding").addEventListener("click", () => {
+    const modal = document.getElementById("engine-onboarding-modal");
+    if (modal) modal.remove();
+  });
+  document.getElementById("btn-dismiss-engine-onboarding").addEventListener("click", () => {
+    const modal = document.getElementById("engine-onboarding-modal");
+    if (modal) modal.remove();
+  });
   const guideBtn = document.getElementById("btn-modal-open-guide");
   if (guideBtn) {
-    guideBtn.onclick = () => {
-      closeEngineOnboardingModal();
-      openApiGuideModal();
-    };
+    guideBtn.addEventListener("click", () => {
+      const modal = document.getElementById("engine-onboarding-modal");
+      if (modal) modal.remove();
+      openGuideModal();
+    });
   }
+  document.getElementById("btn-start-engine-linking").addEventListener("click", () => {
+    const modal = document.getElementById("engine-onboarding-modal");
+    if (modal) modal.remove();
+    switchTab("tab-connect");
+    setTimeout(() => {
+      const phoneInput = document.getElementById("telegram-phone");
+      if (phoneInput) {
+        phoneInput.focus();
+        phoneInput.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 200);
+  });
 }
 
 function initMobileHeaderScroll() {

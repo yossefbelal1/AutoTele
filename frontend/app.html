@@ -3,22 +3,24 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <meta name="theme-color" content="#090b10">
+  <meta name="theme-color" content="#17212b">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="AutoTele">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>AutoTele Enterprise SaaS | أتمتة إعلانات تليجرام بدقة واحترافية</title>
+  <title>لوحة تحكم AutoTele Enterprise SaaS</title>
+  <link rel="manifest" href="manifest.json">
   
-  <!-- Google Fonts: IBM Plex Sans Arabic & Cairo -->
+  <!-- Google Fonts: Cairo & Tajawal -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
   
   <!-- CSS Stylesheet -->
-  <link rel="stylesheet" href="style.css?v=4.0.0">
+  <link rel="stylesheet" href="style.css?v=2.6.0">
 
   <!-- Google Sign-In API -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -26,496 +28,578 @@
   <!-- Fast Auto-Authentication Router -->
   <script>
     (function() {
+      // Clean OAuth token from URL parameters and save it if exists
       const urlParams = new URLSearchParams(window.location.search);
       const tokenFromUrl = urlParams.get("token");
       if (tokenFromUrl) {
         localStorage.setItem("access_token", tokenFromUrl);
+        // Clean URL parameters dynamically
         window.history.replaceState({}, document.title, window.location.pathname);
       }
     })();
   </script>
+  <style>
+    /* --- Notification Bell & Center Styles --- */
+    .notif-bell-wrapper {
+      position: relative;
+      display: inline-block;
+      z-index: 100;
+    }
+    .btn-notif-bell {
+      background: rgba(15, 23, 42, 0.8) !important;
+      border: 1px solid rgba(255, 255, 255, 0.15) !important;
+      color: #cbd5e1 !important;
+      width: 42px !important;
+      height: 42px !important;
+      border-radius: 12px !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      cursor: pointer !important;
+      position: relative !important;
+      transition: all 0.2s ease !important;
+      outline: none !important;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2) !important;
+    }
+    .btn-notif-bell:hover {
+      background: rgba(59, 130, 246, 0.25) !important;
+      border-color: rgba(59, 130, 246, 0.5) !important;
+      color: #38bdf8 !important;
+      transform: translateY(-2px) !important;
+      box-shadow: 0 6px 16px rgba(59, 130, 246, 0.25) !important;
+    }
+    .notif-badge {
+      position: absolute !important;
+      top: -4px !important;
+      right: -4px !important;
+      background: #ef4444 !important;
+      color: #fff !important;
+      font-size: 11px !important;
+      font-weight: 800 !important;
+      min-width: 20px !important;
+      height: 20px !important;
+      padding: 0 5px !important;
+      border-radius: 10px !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      box-shadow: 0 0 12px rgba(239, 68, 68, 0.8) !important;
+      border: 2px solid #0f172a !important;
+    }
+    .notif-dropdown {
+      position: absolute !important;
+      top: calc(100% + 12px) !important;
+      left: 0 !important;
+      width: 380px !important;
+      max-width: 90vw !important;
+      background: #0b1120 !important;
+      border: 1px solid rgba(255, 255, 255, 0.18) !important;
+      border-radius: 16px !important;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255,255,255,0.08) !important;
+      z-index: 9999 !important;
+      overflow: hidden !important;
+      display: flex !important;
+      flex-direction: column !important;
+      direction: rtl !important;
+      text-align: right !important;
+    }
+    .notif-dropdown.hidden {
+      display: none !important;
+    }
+    .notif-header {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      padding: 14px 18px !important;
+      background: #111c33 !important;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    }
+    .btn-mark-read {
+      background: rgba(56, 189, 248, 0.12) !important;
+      border: 1px solid rgba(56, 189, 248, 0.25) !important;
+      color: #38bdf8 !important;
+      font-size: 11px !important;
+      font-weight: 700 !important;
+      cursor: pointer !important;
+      padding: 5px 10px !important;
+      border-radius: 8px !important;
+      transition: all 0.2s !important;
+    }
+    .btn-mark-read:hover {
+      background: rgba(56, 189, 248, 0.25) !important;
+      border-color: #38bdf8 !important;
+    }
+    .notif-list {
+      max-height: 400px !important;
+      overflow-y: auto !important;
+      display: flex !important;
+      flex-direction: column !important;
+    }
+    .notif-item {
+      padding: 14px 18px !important;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+      display: flex !important;
+      gap: 14px !important;
+      align-items: flex-start !important;
+      transition: background 0.15s ease !important;
+      cursor: pointer !important;
+      text-align: right !important;
+      box-sizing: border-box !important;
+      width: 100% !important;
+    }
+    .notif-item:hover {
+      background: rgba(255, 255, 255, 0.04) !important;
+    }
+    .notif-item.unread {
+      background: rgba(59, 130, 246, 0.12) !important;
+      border-right: 3px solid #3b82f6 !important;
+    }
+    .notif-icon-box {
+      width: 36px !important;
+      height: 36px !important;
+      border-radius: 10px !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      font-size: 17px !important;
+      flex-shrink: 0 !important;
+      background: rgba(239, 68, 68, 0.15) !important;
+      border: 1px solid rgba(239, 68, 68, 0.3) !important;
+    }
+    .notif-item.unread .notif-icon-box {
+      background: rgba(239, 68, 68, 0.25) !important;
+      box-shadow: 0 0 12px rgba(239, 68, 68, 0.3) !important;
+    }
+    .notif-content {
+      flex: 1 !important;
+      display: flex !important;
+      flex-direction: column !important;
+      gap: 4px !important;
+    }
+    .notif-title {
+      font-size: 13px !important;
+      font-weight: 700 !important;
+      color: #f8fafc !important;
+    }
+    .notif-desc {
+      font-size: 12px !important;
+      color: #94a3b8 !important;
+      line-height: 1.5 !important;
+    }
+    .notif-meta {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      margin-top: 6px !important;
+      font-size: 11px !important;
+      color: #64748b !important;
+    }
+    .notif-actor {
+      color: #38bdf8 !important;
+      font-weight: 600 !important;
+    }
+    .notif-empty {
+      padding: 36px 20px !important;
+      text-align: center !important;
+      color: #64748b !important;
+      font-size: 13px !important;
+    }
+    .btn-notif-delete {
+      background: transparent !important;
+      border: none !important;
+      color: #64748b !important;
+      cursor: pointer !important;
+      padding: 4px !important;
+      font-size: 14px !important;
+      transition: color 0.2s !important;
+      line-height: 1 !important;
+    }
+    .btn-notif-delete:hover {
+      color: #ef4444 !important;
+    }
+  </style>
+
 </head>
 <body>
 
-  <!-- Toast Notification Container -->
+  <!-- Container for Toast Messages -->
   <div id="toast-container"></div>
 
   <!-- ==========================================
-       1. AUTHENTICATION SCREENS (LOGIN & SIGNUP)
+       1. VIEW: Auth Screen (Telegram Login Web Style)
        ========================================== -->
-       
-  <!-- Login View -->
   <div id="auth-view" class="view-container">
-    <div class="auth-wrapper">
-      <div class="auth-card">
-        <div class="auth-logo-box">
-          <div class="auth-logo-icon">⚡</div>
-          <div>
-            <h1 class="auth-brand-name">AutoTele</h1>
-            <span style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;">Enterprise Cloud SaaS</span>
-          </div>
+    <div class="auth-card">
+      <div class="auth-logo">
+        <svg viewBox="0 0 24 24" width="60" height="60" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="12" cy="12" r="12" fill="#2481cc"/>
+          <path d="M16.8 8.6L7.4 12.2c-.6.2-.6.6-.1.8l2.4.7 5.6-3.5c.3-.2.5-.1.3.1l-4.5 4.1-.2 2.7c.3 0 .4-.1.5-.2l1.3-1.3 2.8 2.1c.5.3.9.1 1-.5l1.8-8.7c.2-.7-.2-1-.7-.8z" fill="#fff"/>
+        </svg>
+      </div>
+      <h2 class="auth-title">تسجيل الدخول إلى المحرك</h2>
+      <p class="auth-subtitle">أدخل بياناتك للتحكم في بوت نشر وتداول الإعلانات</p>
+
+      <form id="login-form">
+        <div class="input-group">
+          <label for="login-email">البريد الإلكتروني</label>
+          <input type="email" id="login-email" required placeholder="name@domain.com" autocomplete="email">
         </div>
-
-        <h2 class="auth-title">تسجيل الدخول إلى حسابك</h2>
-        <p class="auth-subtitle">تحكم في محرك نشر وتداول إعلانات تليجرام السحابي بكل سهولة وأمان.</p>
-
-        <div class="auth-trust-banner">
-          <span>🔒</span>
-          <div>اتصال سحابي مشفر ومحمي ببروتوكول تليجرام الرسمي 100%.</div>
-        </div>
-
-        <form id="login-form">
-          <div class="input-group">
-            <label for="login-email">البريد الإلكتروني</label>
-            <input type="email" id="login-email" required placeholder="name@company.com" autocomplete="email">
+        <div class="input-group">
+          <label for="login-password">كلمة المرور</label>
+          <input type="password" id="login-password" required placeholder="••••••••" autocomplete="current-password">
+          <div style="text-align: left; margin-top: 4px;">
+            <a href="#" id="link-forgot-password" style="font-size: 11px; color: #2481cc; text-decoration: underline; -webkit-tap-highlight-color: transparent;">نسيت كلمة المرور؟</a>
           </div>
-          <div class="input-group">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
-              <label for="login-password">كلمة المرور</label>
-              <a href="#" id="link-forgot-password" style="font-size: 12px; color: var(--brand-accent); text-decoration: none;">نسيت كلمة المرور؟</a>
-            </div>
-            <input type="password" id="login-password" required placeholder="••••••••" autocomplete="current-password">
-          </div>
-          
-          <button type="submit" id="btn-login" class="btn btn-primary" style="width: 100%; margin-top: 6px;">
-            <span class="btn-text">تسجيل الدخول</span>
-            <span class="spinner hidden"></span>
-          </button>
-        </form>
-
-        <div class="or-separator"><span>أو المتابعة السريعة عبر</span></div>
-        
-        <div class="google-btn-wrapper">
-          <div id="google-signin-btn-container" style="width: 100%; display: flex; justify-content: center;"></div>
-        </div>
-
-        <div class="auth-switch-mode">
-          <span>ليس لديك حساب بعد؟ </span><a href="#" id="link-show-signup">إنشاء حساب جديد وتفعيل التجربة المجانية</a>
         </div>
         
-        <div class="auth-switch-mode" style="margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border-subtle);">
-          <a href="index.html" id="link-back-landing" style="color: var(--text-muted); font-size: 12px; display: inline-flex; align-items: center; gap: 4px;">
-            <span>← العودة إلى الصفحة الرئيسية / Home</span>
-          </a>
-        </div>
+        <button type="submit" id="btn-login" class="btn btn-primary">
+          <span class="btn-text">تسجيل الدخول</span>
+          <span class="spinner hidden"></span>
+        </button>
+      </form>
+
+      <div class="or-separator"><span>أو</span></div>
+      <div class="google-btn-wrapper">
+        <div id="google-signin-btn-container" style="width: 100%;"></div>
+      </div>
+
+
+      <div class="auth-switch-mode">
+        <span>ليس لديك حساب؟ </span><a href="#" id="link-show-signup">أنشئ حساباً تجريبياً</a>
+      </div>
+      <div class="auth-switch-mode" style="margin-top: 12px; border-top: 1px dashed rgba(255,255,255,0.06); padding-top: 12px; width: 100%; text-align: center;">
+        <a href="index.html" id="link-back-landing" style="color: #708499; font-weight: normal; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; text-decoration: none;">
+          <span>← العودة للرئيسية / Back to Landing</span>
+        </a>
       </div>
     </div>
   </div>
 
-  <!-- Sign-Up View -->
+  <!-- SignUp Mode Overlay (handled in JS by switching class/form or using a simple modal/view state) -->
   <div id="signup-view" class="view-container hidden">
-    <div class="auth-wrapper">
-      <div class="auth-card">
-        <div class="auth-logo-box">
-          <div class="auth-logo-icon" style="background: var(--status-success);">⚡</div>
-          <div>
-            <h1 class="auth-brand-name">AutoTele</h1>
-            <span style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;">Enterprise Cloud SaaS</span>
-          </div>
+    <div class="auth-card">
+      <div class="auth-logo">
+        <svg viewBox="0 0 24 24" width="60" height="60" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="12" cy="12" r="12" fill="#34A853"/>
+          <path d="M12 7v10M7 12h10" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <h2 class="auth-title">إنشاء حساب جديد</h2>
+      <p class="auth-subtitle">احصل على فترة تجريبية مجانية لمدة يومين فوراً عند التسجيل</p>
+
+      <form id="signup-form">
+        <div class="input-group">
+          <label for="signup-name">الاسم / اسم المستخدم</label>
+          <input type="text" id="signup-name" required placeholder="أدخل اسمك أو اسم المستخدم">
         </div>
-
-        <h2 class="auth-title">إنشاء حساب جديد</h2>
-        <p class="auth-subtitle">احصل على فترة تجريبية مجانية تشمل كافة الميزات المتقدمة فوراً.</p>
-
-        <div class="auth-trust-banner">
-          <span>🎁</span>
-          <div>إعداد فوري وتجربة كاملة دون الحاجة لبطاقة ائتمان.</div>
+        <div class="input-group">
+          <label for="signup-email">البريد الإلكتروني</label>
+          <input type="email" id="signup-email" required placeholder="name@domain.com">
         </div>
-
-        <form id="signup-form">
-          <div class="input-group">
-            <label for="signup-name">الاسم أو اسم المؤسسة</label>
-            <input type="text" id="signup-name" required placeholder="أدخل اسمك أو اسم المؤسسة">
-          </div>
-          <div class="input-group">
-            <label for="signup-email">البريد الإلكتروني</label>
-            <input type="email" id="signup-email" required placeholder="name@company.com" autocomplete="email">
-          </div>
-          <div class="input-group">
-            <label for="signup-password">كلمة المرور (6 أحرف على الأقل)</label>
-            <input type="password" id="signup-password" required placeholder="••••••••" minlength="6">
-          </div>
-          
-          <button type="submit" id="btn-signup" class="btn btn-primary" style="width: 100%; margin-top: 6px;">
-            <span class="btn-text">تفعيل الحساب والبدء مجاناً</span>
-            <span class="spinner hidden"></span>
-          </button>
-        </form>
-
-        <div class="or-separator"><span>أو التسجيل السريع عبر</span></div>
+        <div class="input-group">
+          <label for="signup-password">كلمة المرور (6 أحرف على الأقل)</label>
+          <input type="password" id="signup-password" required placeholder="••••••••" minlength="6">
+        </div>
         
-        <div class="google-btn-wrapper">
-          <div id="google-signup-btn-container" style="width: 100%; display: flex; justify-content: center;"></div>
-        </div>
+        <button type="submit" id="btn-signup" class="btn btn-success">
+          <span class="btn-text">تفعيل الحساب والتجربة المجانية</span>
+          <span class="spinner hidden"></span>
+        </button>
+      </form>
 
-        <div class="auth-switch-mode">
-          <span>لديك حساب بالفعل؟ </span><a href="#" id="link-show-login">تسجيل الدخول إلى حسابك الحالي</a>
+      <div class="or-separator"><span>أو</span></div>
+      <div class="google-btn-wrapper">
+        <div class="g_id_signin"
+             data-type="standard"
+             data-shape="rectangular"
+             data-theme="outline"
+             data-text="signup_with"
+             data-size="large"
+             data-logo_alignment="left"
+             data-width="100%">
         </div>
-        <div class="auth-switch-mode" style="margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border-subtle);">
-          <a href="index.html" id="link-back-landing-signup" style="color: var(--text-muted); font-size: 12px; display: inline-flex; align-items: center; gap: 4px;">
-            <span>← العودة إلى الصفحة الرئيسية / Home</span>
-          </a>
-        </div>
+      </div>
+
+      <div class="auth-switch-mode">
+        <span>لديك حساب بالفعل؟ </span><a href="#" id="link-show-login">تسجيل الدخول</a>
+      </div>
+      <div class="auth-switch-mode" style="margin-top: 12px; border-top: 1px dashed rgba(255,255,255,0.06); padding-top: 12px; width: 100%; text-align: center;">
+        <a href="index.html" id="link-back-landing-signup" style="color: #708499; font-weight: normal; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; text-decoration: none;">
+          <span>← العودة للرئيسية / Back to Landing</span>
+        </a>
       </div>
     </div>
   </div>
 
 
   <!-- ==========================================
-       2. MAIN APPLICATION WORKSPACE
+       2. VIEW: Dashboard Layout (Sidebar + Content panels)
        ========================================== -->
-       
   <div id="dashboard-view" class="dashboard-view-root hidden">
-    <div class="app-layout">
+    
+    <!-- Mobile App Top Bar (Visible only on mobile/tablet) -->
+    <header class="mobile-app-bar">
+      <div class="mobile-app-bar-left">
+        <button id="btn-toggle-mobile-drawer" type="button" class="btn-app-bar-icon" aria-label="القائمة الرئيسية" title="القائمة">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <div class="mobile-brand">
+          <span class="mobile-brand-logo">⚡</span>
+          <span class="mobile-brand-title">AutoTele</span>
+        </div>
+      </div>
 
-      <!-- Top Mobile App Bar -->
-      <header class="mobile-app-bar">
-        <div class="mobile-app-bar-left">
-          <button id="btn-toggle-mobile-drawer" type="button" class="btn-app-bar-icon" aria-label="القائمة">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      <div class="mobile-page-pill" id="mobile-page-pill">
+        <span class="pill-dot"></span>
+        <span id="mobile-page-title">اشتراكي</span>
+      </div>
+
+      <div class="mobile-app-bar-right">
+        <!-- Notification bell on Mobile Header -->
+        <button id="btn-notif-bell-mobile" type="button" class="btn-app-bar-icon notif-bell-mobile-btn" aria-label="الإشعارات">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+          <span id="notif-badge-count-mobile" class="notif-badge" style="display: none;">0</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Mobile Drawer Overlay & Sheet -->
+    <div id="mobile-drawer-backdrop" class="mobile-drawer-backdrop hidden"></div>
+    <aside id="mobile-nav-drawer" class="mobile-nav-drawer">
+      <div class="drawer-header">
+        <div class="drawer-user-info">
+          <div class="user-avatar" id="drawer-avatar">AT</div>
+          <div class="user-meta">
+            <h4 id="drawer-email-display" class="user-email">user@domain.com</h4>
+            <span id="drawer-plan-badge" class="badge">جاري التحميل...</span>
+          </div>
+        </div>
+        <button id="btn-close-drawer" type="button" class="btn-close-drawer" aria-label="إغلاق">&times;</button>
+      </div>
+
+      <div class="drawer-content">
+        <div class="drawer-section-title">التنقل السريع</div>
+        <div class="drawer-nav-list">
+          <button class="drawer-nav-item active" data-tab="tab-subscription" onclick="switchTab('tab-subscription'); closeMobileDrawer();">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <span>اشتراكي ونشاط المحرك</span>
           </button>
-          <div class="mobile-brand">
-            <span class="mobile-brand-logo">⚡</span>
-            <span class="mobile-brand-title">AutoTele</span>
-          </div>
-        </div>
-
-        <div class="mobile-page-pill" id="mobile-page-pill">
-          <span class="pill-dot"></span>
-          <span id="mobile-page-title">اشتراكي</span>
-        </div>
-
-        <div class="mobile-app-bar-right">
-          <!-- Notification bell on Mobile Header -->
-          <button id="btn-notif-bell-mobile" type="button" class="btn-app-bar-icon" aria-label="الإشعارات" style="position: relative;">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-            <span id="notif-badge-count-mobile" class="notif-badge" style="display: none;">0</span>
+          <button class="drawer-nav-item" data-tab="tab-plans" onclick="switchTab('tab-plans'); closeMobileDrawer();">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <span>الخطط والترقية والدفع</span>
+          </button>
+          <button class="drawer-nav-item" data-tab="tab-connect" onclick="switchTab('tab-connect'); closeMobileDrawer();">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+            <span>معالج ربط المحرك السحابي</span>
+          </button>
+          <button class="drawer-nav-item" data-tab="tab-templates" onclick="switchTab('tab-templates'); closeMobileDrawer();">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            <span>مكتبة الصيغ والتسويق</span>
           </button>
         </div>
-      </header>
 
-      <!-- Desktop Header -->
-      <header class="desktop-app-header">
-        <div class="desktop-header-inner">
-          <div style="display: flex; align-items: center; gap: 14px;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span style="font-size: 22px;">⚡</span>
-              <strong style="font-size: 18px; color: #fff;">AutoTele</strong>
-              <span class="badge badge-neutral" style="font-size: 11px;">Enterprise</span>
-            </div>
-
-            <!-- Desktop Nav Tabs -->
-            <nav class="desktop-nav-tabs">
-              <button class="nav-tab active" data-tab="tab-subscription" onclick="switchTab('tab-subscription')">
-                <span>📊 لوحة التحكم</span>
-              </button>
-              <button class="nav-tab" data-tab="tab-connect" onclick="switchTab('tab-connect')">
-                <span>⚡ ربط المحرك</span>
-              </button>
-              <button class="nav-tab" data-tab="tab-plans" onclick="switchTab('tab-plans')">
-                <span>💳 الخطط والاشتراك</span>
-              </button>
-              <button class="nav-tab" data-tab="tab-templates" onclick="switchTab('tab-templates')">
-                <span>📁 مكتبة الصيغ</span>
-              </button>
-              <button class="nav-tab hidden" id="admin-nav-tab" onclick="window.location.href='admin.html'">
-                <span style="color: var(--status-danger);">🛡️ الإدارة</span>
-              </button>
-            </nav>
-          </div>
-
-          <!-- User controls on desktop -->
-          <div style="display: flex; align-items: center; gap: 12px;">
-            <div id="btn-notif-bell" class="btn-app-bar-icon" style="position: relative; cursor: pointer;">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-              <span id="notif-badge-count" class="notif-badge" style="display: none;">0</span>
-            </div>
-
-            <span id="user-email-display" class="badge badge-neutral font-mono" style="padding: 6px 12px; font-size: 12px;">user@domain.com</span>
-            <button type="button" id="btn-logout" class="btn btn-ghost btn-sm" style="color: var(--status-danger);">
-              <span>خروج</span>
-            </button>
-            <button type="button" id="btn-logout-mobile" class="hidden"></button>
-          </div>
+        <div class="drawer-section-title">أدلة وخدمات مساعدة</div>
+        <div class="drawer-nav-list">
+          <button type="button" class="drawer-nav-item helper-link" onclick="openFoldersGuideModal(); closeMobileDrawer();">
+            <span>📁</span>
+            <span>دليل تهيئة مجلدات تليجرام</span>
+          </button>
+          <button type="button" class="drawer-nav-item helper-link" onclick="openApiGuideModal(); closeMobileDrawer();">
+            <span>💡</span>
+            <span>دليل استخراج بيانات API ID</span>
+          </button>
+          <a href="index.html" class="drawer-nav-item helper-link">
+            <span>🌐</span>
+            <span>الموقع التعريفي الرئيسي</span>
+          </a>
+          <button type="button" class="drawer-nav-item helper-link hidden" id="drawer-admin-link" onclick="window.location.href='admin.html'">
+            <span>🛡️</span>
+            <span style="color: #e11d48; font-weight: bold;">لوحة تحكم المشرف (Admin)</span>
+          </button>
         </div>
-      </header>
+      </div>
 
-      <!-- Mobile Navigation Drawer Overlay -->
-      <div id="mobile-drawer-backdrop" class="mobile-drawer-backdrop hidden" onclick="closeMobileDrawer()"></div>
-      <aside id="mobile-nav-drawer" class="mobile-nav-drawer">
-        <div class="drawer-header">
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <div class="user-avatar" id="drawer-avatar" style="width: 36px; height: 36px; border-radius: 8px; background: var(--brand-primary); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px;">AT</div>
-            <div>
-              <div id="drawer-email-display" style="font-size: 13px; font-weight: 700; color: #fff; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">user@domain.com</div>
-              <span id="drawer-plan-badge" class="badge badge-neutral" style="font-size: 10.5px;">جاري التحميل...</span>
+      <div class="drawer-footer">
+        <button id="btn-logout-drawer" class="btn-logout-drawer" type="button">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          <span>تسجيل الخروج من الحساب</span>
+        </button>
+      </div>
+    </aside>
+
+    <div class="dashboard-layout">
+      
+      <!-- Desktop Sidebar Panel -->
+      <aside class="sidebar desktop-sidebar">
+        <div class="sidebar-header">
+          <div class="user-info">
+            <div class="user-avatar">AD</div>
+            <div class="user-meta">
+              <h4 id="user-email-display" class="user-email">user@domain.com</h4>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span id="user-plan-badge" class="badge">جاري التحميل...</span>
+                <span id="btn-logout-mobile" style="color: #f43f5e; font-size: 11px; font-weight: bold; cursor: pointer; text-decoration: underline; -webkit-tap-highlight-color: transparent;">تسجيل خروج</span>
+              </div>
             </div>
-          </div>
-          <button id="btn-close-drawer" type="button" class="btn-app-bar-icon" style="width: 32px; height: 32px;" onclick="closeMobileDrawer()">&times;</button>
-        </div>
-
-        <div class="drawer-content">
-          <div class="drawer-section-title">التنقل السريع</div>
-          <div class="drawer-nav-list">
-            <button class="drawer-nav-item active" data-tab="tab-subscription" onclick="switchTab('tab-subscription'); closeMobileDrawer();">
-              <span>📊</span>
-              <span>لوحة التحكم والمتابعة</span>
-            </button>
-            <button class="drawer-nav-item" data-tab="tab-connect" onclick="switchTab('tab-connect'); closeMobileDrawer();">
-              <span>⚡</span>
-              <span>معالج ربط المحرك السحابي</span>
-            </button>
-            <button class="drawer-nav-item" data-tab="tab-plans" onclick="switchTab('tab-plans'); closeMobileDrawer();">
-              <span>💳</span>
-              <span>الخطط والترقية والدفع</span>
-            </button>
-            <button class="drawer-nav-item" data-tab="tab-templates" onclick="switchTab('tab-templates'); closeMobileDrawer();">
-              <span>📁</span>
-              <span>مكتبة الصيغ والتسويق</span>
-            </button>
-          </div>
-
-          <div class="drawer-section-title">أدلة وشروحات مساعدة</div>
-          <div class="drawer-nav-list">
-            <button type="button" class="drawer-nav-item" onclick="openFoldersGuideModal(); closeMobileDrawer();">
-              <span>📁</span>
-              <span>دليل تهيئة مجلدات تليجرام</span>
-            </button>
-            <button type="button" class="drawer-nav-item" onclick="openApiGuideModal(); closeMobileDrawer();">
-              <span>💡</span>
-              <span>دليل استخراج بيانات API ID</span>
-            </button>
-            <a href="index.html" class="drawer-nav-item">
-              <span>🌐</span>
-              <span>الموقع التعريفي الرئيسي</span>
-            </a>
-            <button type="button" class="drawer-nav-item hidden" id="drawer-admin-link" onclick="window.location.href='admin.html'">
-              <span>🛡️</span>
-              <span style="color: var(--status-danger);">لوحة تحكم المشرف (Admin)</span>
-            </button>
           </div>
         </div>
 
-        <div class="drawer-footer">
-          <button id="btn-logout-drawer" class="btn btn-ghost" style="width: 100%; color: var(--status-danger); justify-content: flex-start;" type="button">
-            <span>🚪</span>
-            <span>تسجيل الخروج من الحساب</span>
+        <nav class="sidebar-nav desktop-nav">
+          <button class="nav-tab active" data-tab="tab-subscription">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <span>اشتراكي</span>
+          </button>
+          <button class="nav-tab" data-tab="tab-plans">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <span>الخطة والترقية</span>
+          </button>
+          <button class="nav-tab" data-tab="tab-connect">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+            <span>ربط المحرك</span>
+          </button>
+          <button class="nav-tab" data-tab="tab-templates">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            <span>مكتبة الصيغ</span>
+          </button>
+          <button class="nav-tab hidden" id="admin-nav-tab" onclick="window.location.href='admin.html'">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+            <span style="color: #e84118; font-weight: bold;">لوحة الإدارة (Admin)</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <button id="btn-logout" class="btn-logout">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            <span>تسجيل الخروج</span>
           </button>
         </div>
       </aside>
 
-      <!-- Notifications Dropdown -->
-      <div id="notif-dropdown" class="notif-dropdown hidden">
-        <div style="padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between; background: var(--bg-surface-subtle);">
-          <strong style="font-size: 13px; color: #fff;">مركز الإشعارات</strong>
-          <button type="button" id="btn-mark-all-read" class="btn btn-ghost btn-sm" style="font-size: 11.5px; color: var(--brand-accent);">تحديد الكل كمقروء</button>
-        </div>
-        <div id="notif-list-container" style="max-height: 320px; overflow-y: auto;">
-          <div class="empty-state-box" style="margin: 12px; border: none;">لا توجد إشعارات جديدة حالياً.</div>
-        </div>
-      </div>
-
-
-      <!-- Main Application Workspace Content Container -->
-      <main class="app-content-container">
-
-        <!-- ==========================================
-             TAB 1: SUBSCRIPTION / OVERVIEW & CAMPAIGN STUDIO
-             ========================================== -->
+      <!-- Content Panels -->
+      <main class="content-area">
+        
+        <!-- Tab 1: اشتراكي (Dashboard Metrics) -->
         <section id="tab-subscription" class="tab-panel">
-
-          <!-- Segmented Control: Dashboard vs Campaign Studio -->
-          <div class="segmented-control">
-            <button type="button" class="segmented-btn active" id="subtab-overview-btn" onclick="toggleSubscriptionSubView('overview')">
-              <span>📊 لوحة المتابعة والمهام</span>
-            </button>
-            <button type="button" class="segmented-btn" id="subtab-campaign-btn" onclick="toggleSubscriptionSubView('campaign')">
-              <span>📢 استوديو الحملات والنشر</span>
-            </button>
-          </div>
-
-          <!-- SUB-VIEW A: DASHBOARD & QUEUE (Default) -->
-          <div id="subview-overview">
+          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h1 class="panel-title" style="margin: 0;">تفاصيل اشتراكك ونشاط المحرك</h1>
             
-            <!-- Engine Status Strip -->
-            <div class="engine-status-bar">
-              <div class="engine-status-info">
-                <div class="status-dot-pulse" id="account-status-dot"></div>
-                <div>
-                  <div style="display: flex; align-items: center; gap: 8px;">
-                    <span class="engine-status-title">حالة المحرك السحابي:</span>
-                    <span id="bot-status-display" class="font-mono" style="font-size: 13px; font-weight: 700; color: var(--status-success);">جاري الفحص...</span>
-                  </div>
-                  <div class="engine-status-meta">
-                    <span id="phone-display-label">الحساب: </span>
-                    <span id="campaign-account-name" class="font-mono">--</span>
-                    <span style="margin: 0 4px;">•</span>
-                    <span id="proxy-status-dot" style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--status-success);"></span>
-                    <span id="campaign-proxy-name" style="font-size: 11.5px;">الوكيل متصل</span>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <button type="button" class="btn btn-primary btn-sm" onclick="toggleSubscriptionSubView('campaign')">
-                  <span>+ إنشاء حملة جديدة</span>
-                </button>
-              </div>
-            </div>
-
-            <!-- Compact Unlinked Notice (Only visible when NOT connected) -->
-            <div id="unlinked-engine-alert" class="card" style="display: none; padding: 12px 18px; margin-bottom: 16px; border: 1px solid rgba(37, 99, 235, 0.3); background: rgba(37, 99, 235, 0.05); border-radius: var(--radius-md);">
-              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                  <span style="font-size: 18px;">⚡</span>
-                  <div>
-                    <div style="font-size: 13px; font-weight: 700; color: var(--text-primary);">محرك تليجرام السحابي غير متصل بعد</div>
-                    <div style="font-size: 11.5px; color: var(--text-secondary);">اربط حسابك لتفعيل النشر الآلي والجدولة على مدار الساعة.</div>
-                  </div>
-                </div>
-                <div style="display: flex; gap: 8px; align-items: center;">
-                  <button type="button" class="btn btn-primary btn-sm" onclick="switchTab('tab-connect')">
-                    <span>ربط المحرك السحابي الآن ←</span>
-                  </button>
-                  <button type="button" class="btn btn-ghost btn-sm" onclick="showEngineOnboardingModal()" title="عرض مسار الإعداد السريع">
-                    <span>مسار الإعداد 📋</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- At-a-Glance 4-Metric Strip -->
-            <div class="metrics-strip">
-              <div class="metric-item">
-                <span class="metric-label">الحملات النشطة</span>
-                <div class="metric-val font-mono" id="stat-active-campaigns">0</div>
-                <span class="metric-hint">تعمل سحابياً</span>
-              </div>
-              <div class="metric-item">
-                <span class="metric-label">الرسائل المنشورة</span>
-                <div class="metric-val font-mono" id="stat-total-messages">0</div>
-                <span class="metric-hint">تحديث لحظي</span>
-              </div>
-              <div class="metric-item">
-                <span class="metric-label">القنوات المتصلة</span>
-                <div class="metric-val font-mono" id="stat-target-channels">0</div>
-                <span class="metric-hint">جاهزة للاستهداف</span>
-              </div>
-              <div class="metric-item">
-                <span class="metric-label">نسبة النجاح</span>
-                <div class="metric-val font-mono" id="stat-success-rate">100%</div>
-                <span class="metric-hint">استقرار كامل</span>
-              </div>
-            </div>
-
-            <!-- Live Execution Progress Bar -->
-            <div id="live-progress-section" class="live-progress-box hidden">
-              <div class="live-progress-header">
-                <div>
-                  <span style="color: var(--brand-accent); font-weight: 700;">● جاري التنفيذ: </span>
-                  <span id="live-progress-text" class="font-mono">0% (0/0)</span>
-                </div>
-                <span id="live-next-channel-hint" class="badge badge-neutral font-mono">القناة التالية: --</span>
-              </div>
-              <div class="progress-track">
-                <div id="live-progress-fill" class="progress-fill" style="width: 0%;"></div>
-              </div>
-            </div>
-
-            <!-- Active Tasks Queue -->
-            <div class="card" id="active-tasks-card-container" style="display: none;">
-              <div class="card-header-clean">
-                <div class="card-title">العمليات والمهام النشطة حالياً</div>
-                <span id="active-ads-total-count" class="badge badge-info">0 مهمة</span>
-              </div>
-              <div id="active-jobs-list"></div>
-              <div id="active-ads-list" style="display: none;"></div>
-            </div>
-
-            <!-- Scheduled Tasks Queue -->
-            <div class="card">
-              <div class="card-header-clean">
-                <div class="card-title">المهام والحملات المجدولة المستقبلية</div>
-                <div style="display: flex; gap: 8px;">
-                  <button type="button" id="btn-refresh-jobs" class="btn btn-secondary btn-sm">تحديث</button>
-                  <button type="button" id="btn-clear-jobs" class="btn btn-ghost btn-sm" style="color: var(--status-danger);">إلغاء المجدول</button>
-                </div>
-              </div>
-              <div id="scheduled-jobs-list">
-                <div class="empty-state-box">لا توجد حملات أو مهام مجدولة قيد الانتظار حالياً.</div>
-              </div>
-            </div>
-
-            <!-- Finished Tasks Box -->
-            <div class="card" id="finished-tasks-card-container" style="display: none;">
-              <div class="card-header-clean">
-                <div class="card-title">المهام المكتملة مؤخراً</div>
-              </div>
-              <div id="finished-jobs-list"></div>
-            </div>
-
-            <!-- Activity Logs Feed -->
-            <div class="card" id="logs-container">
-              <div class="card-header-clean">
-                <div class="card-title">سجل العمليات والأحداث اللحظية</div>
-                <div style="display: flex; gap: 6px;">
-                  <button type="button" id="btn-refresh-logs" class="btn btn-secondary btn-sm">تحديث</button>
-                  <button type="button" id="btn-export-logs" class="btn btn-secondary btn-sm">تصدير</button>
-                  <button type="button" id="btn-clear-logs-web" class="btn btn-ghost btn-sm" style="color: var(--status-danger);">مسح</button>
-                  <button type="button" id="btn-clear-logs" class="hidden"></button>
-                </div>
-              </div>
-
-              <!-- Search & Filter Bar -->
-              <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
-                <input type="text" id="logs-search" placeholder="🔍 ابحث في تفاصيل السجل..." class="form-control" style="flex: 1; min-width: 180px; min-height: 40px; padding: 8px 12px;">
-                <select id="logs-filter" class="form-control" style="width: 140px; min-height: 40px; padding: 8px 12px;">
-                  <option value="all">كافة المستويات</option>
-                  <option value="info">معلومات</option>
-                  <option value="success">نجاح</option>
-                  <option value="warning">تنبيهات</option>
-                  <option value="error">أخطاء</option>
-                </select>
-              </div>
-
-              <div id="logs-list" style="max-height: 280px; overflow-y: auto; font-family: var(--font-mono); font-size: 12px; display: flex; flex-direction: column; gap: 4px;">
-                <div class="empty-state-box">جاري تحميل سجل الأحداث...</div>
-              </div>
-            </div>
-
-          </div>
-
-
-          <!-- SUB-VIEW B: CAMPAIGN STUDIO (Progressive 3-Step Guided Flow) -->
-          <div id="subview-campaign" class="hidden">
-            
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
-              <div>
-                <h2 class="page-title">استوديو الحملات والنشر الذكي</h2>
-                <p class="page-subtitle">صمّم حملتك الإعلانية، اختر القنوات المستهدفة، ودع المحرك يتولى النشر المجدول.</p>
-              </div>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="toggleSubscriptionSubView('overview')">
-                <span>← العودة للمتابعة</span>
+            <!-- Top Notification Bell Center -->
+            <div class="notif-bell-wrapper" style="position: relative;">
+              <button id="btn-notif-bell" type="button" class="btn-notif-bell" title="مركز الإشعارات والتنبيهات">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+                <span id="notif-badge-count" class="notif-badge" style="display: none;">0</span>
               </button>
+              
+              <!-- Notification Dropdown Menu -->
+              <div id="notif-dropdown" class="notif-dropdown hidden">
+                <div class="notif-header">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 16px;">🔔</span>
+                    <span style="font-weight: 700; font-size: 14px; color: #fff;">مركز التنبيهات والأمان</span>
+                  </div>
+                  <button id="btn-mark-all-read" type="button" class="btn-mark-read">تحديد الكل كمقروء</button>
+                </div>
+                <div id="notif-list-container" class="notif-list">
+                  <div class="notif-empty">لا توجد تنبيهات جديدة حالياً ✨</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="metrics-grid">
+            <!-- Central Countdown Ring -->
+            <div class="card status-card">
+              <h3 class="card-title">الأيام المتبقية</h3>
+              <div class="circular-progress-wrapper">
+                <svg class="circular-progress" width="160" height="160" viewBox="0 0 160 160">
+                  <circle class="circle-bg" cx="80" cy="80" r="70"></circle>
+                  <circle id="countdown-ring" class="circle-val" cx="80" cy="80" r="70" stroke-dasharray="440" stroke-dashoffset="440"></circle>
+                </svg>
+                <div class="circular-label">
+                  <span id="remaining-days-count" class="number">--</span>
+                  <span class="lbl">يوم متبقي</span>
+                </div>
+              </div>
             </div>
 
-            <form id="web-campaign-form">
-              
-              <!-- STEP 1: CONTENT & TYPE -->
-              <div class="card">
-                <div class="card-header-clean">
-                  <div class="card-title">
-                    <span class="step-num-badge">1</span>
-                    <span>تحديد نوع الحملة ومحتوى الرسالة</span>
-                  </div>
+            <!-- Stats Metadata Card -->
+            <div class="card info-card">
+              <h3 class="card-title">بيانات الباقة الحالية</h3>
+              <div class="info-list">
+                <div class="info-item">
+                  <span class="info-label">اسم الباقة:</span>
+                  <span id="plan-duration-display" class="info-value font-highlight">--</span>
                 </div>
+                <div class="info-item">
+                  <span class="info-label">حالة الاشتراك:</span>
+                  <span id="sub-status-badge" class="status-badge">جاري التحميل...</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">تاريخ البداية:</span>
+                  <span id="start-date-display" class="info-value font-mono">--</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">تاريخ الانتهاء:</span>
+                  <span id="end-date-display" class="info-value font-mono">--</span>
+                </div>
+              </div>
+            </div>
 
+            <!-- Bot Engine Status Card -->
+            <div class="card engine-card">
+              <h3 class="card-title">حالة تشغيل المحرك السحابي</h3>
+              <div class="engine-status-wrapper">
+                <div class="engine-icon-glow">
+                  <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+                </div>
+                <div class="engine-details">
+                  <span class="engine-label">حالة المحرك:</span>
+                  <h3 id="bot-status-display" class="engine-status">جاري الاستعلام...</h3>
+                  <p class="engine-hint">يتحكم هذا المحرك في جدولة نشر إعلاناتك وجلب القنوات وتوزيع التبادل تلقائياً.</p>
+                  <button id="btn-link-status-bot" class="btn-link-bot" style="margin-top: 16px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(37, 99, 235, 0.2); border: 1px solid #2563eb; color: #fff; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: all 0.2s; outline: none;">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                    ربط المساعد الإشعاري (تليجرام) 🔔
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Cloud Campaign Control Panel -->
+          <div class="card campaign-panel-card" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-size: 24px;">🕹️</span>
+                <div>
+                  <h3 class="card-title" style="margin: 0; font-size: 18px; color: #fff;">لوحة التحكم وإطلاق الحملات السحابية</h3>
+                  <p class="card-subtitle" style="color: #94a3b8; font-size: 12px; margin: 0; margin-top: 2px;">جدول وأطلق حملاتك بتأخيرات آمنة ونظام حذف آلي ذكي.</p>
+                </div>
+              </div>
+              <!-- Account info bar -->
+              <div class="account-status-bar" style="background: rgba(15, 23, 42, 0.6); padding: 8px 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); display: flex; align-items: center; gap: 12px; font-size: 13px;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span id="account-status-dot" class="status-dot-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #64748b; display: inline-block;"></span>
+                  <span id="campaign-account-name" style="color: #fff; font-weight: 600;">جاري التحميل...</span>
+                </div>
+                <div id="proxy-status-container" style="border-right: 1px solid rgba(255,255,255,0.1); padding-right: 12px; display: flex; align-items: center; gap: 6px;">
+                  <span id="proxy-status-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #64748b; display: inline-block;"></span>
+                  <span id="campaign-proxy-name" style="color: #94a3b8;">الوكيل (Proxy)</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Campaign Wizard Form Layout -->
+            <div class="campaign-wizard-container">
+              
+              <form id="web-campaign-form" class="web-form" style="display: flex; flex-direction: column; gap: 16px;">
+                
+                <!-- 1. Select campaign type -->
                 <div class="form-group">
-                  <label for="web-campaign-type" class="form-label">نوع الحملة أو الإجراء</label>
-                  <select id="web-campaign-type" class="form-control">
-                    <option value="wave">حملة التبادل عشوائي (Wave Exchange)</option>
+                  <label for="web-campaign-type" class="form-label" style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px; font-weight: 600;">نوع الحملة أو الإجراء</label>
+                  <select id="web-campaign-type" class="form-control" style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; width: 100%; font-size: 14px; outline: none; transition: border-color 0.2s;">
+                    <option value="wave">حملة التبادل عشوائي</option>
                     <option value="single">حملة فردية مستهدفة (.حملة)</option>
-                    <option value="bulk" selected>حملة مجلد مجمعة (.حملات)</option>
+                    <option value="bulk">حملة مجلد مجمعة (.حملات)</option>
                     <option value="timed_post">⏱️ إطلاق حملة نشر مؤقتة محددة المدة (تثبيت مدة)</option>
                     <option value="clear">🧹 جدولة مسح سريع وتطهير الإعلانات (.مسح)</option>
                     <option value="deep_clear">جدولة مسح عميق (.مسح عميق)</option>
@@ -523,826 +607,1202 @@
                   </select>
                 </div>
 
-                <div class="form-group">
-                  <label for="web-campaign-text" class="form-label">نص الرسالة أو الإعلان الترويجي</label>
-                  <textarea id="web-campaign-text" class="form-control" rows="4" placeholder="اكتب نص إعلانك مع الروابط والعروض هنا..."></textarea>
+                <!-- 2. Delay Start -->
+                <div id="group-delay-start" class="form-group">
+                  <label for="web-delay-start" class="form-label" style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px; font-weight: 600;">ابدء الحملة بعد / وقت بدء الحملة</label>
+                  <select id="web-delay-start" class="form-control" style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; width: 100%; font-size: 14px; outline: none; transition: border-color 0.2s;">
+                    <option value="0">فورا (الآن)</option>
+                    <option value="5">5 دقائق</option>
+                    <option value="10">10 دقائق</option>
+                    <option value="15">15 دقيقة</option>
+                    <option value="30">30 دقيقة</option>
+                    <option value="60">ساعة واحدة</option>
+                    <option value="120">ساعتين</option>
+                    <option value="180">3 ساعات</option>
+                    <option value="240">4 ساعات</option>
+                    <option value="300">5 ساعات</option>
+                    <option value="360">6 ساعات</option>
+                    <option value="480">8 ساعات</option>
+                    <option value="600">10 ساعات</option>
+                    <option value="720">12 ساعة</option>
+                    <option value="1080">18 ساعة</option>
+                    <option value="1440">24 ساعة</option>
+                  </select>
+                </div>
+
+                <!-- 3. Delay Between Channels -->
+                <div id="group-delay-between" class="form-group">
+                  <label for="web-delay-between" class="form-label" style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px; font-weight: 600;">فاصل الوقت الزمني بين الحملات</label>
+                  <select id="web-delay-between" class="form-control" style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; width: 100%; font-size: 14px; outline: none; transition: border-color 0.2s;">
+                    <option value="0" selected>فوري (تلقائي آمن)</option>
+                    <option value="1">دقيقة واحدة</option>
+                    <option value="2">دقيقتين</option>
+                    <option value="5">5 دقائق</option>
+                    <option value="10">10 دقائق</option>
+                    <option value="15">15 دقيقة</option>
+                    <option value="30">30 دقيقة</option>
+                    <option value="60">ساعة واحدة</option>
+                    <option value="120">ساعتين</option>
+                    <option value="180">3 ساعات</option>
+                    <option value="240">4 ساعات</option>
+                    <option value="300">5 ساعات</option>
+                    <option value="360">6 ساعات</option>
+                    <option value="480">8 ساعات</option>
+                    <option value="600">10 ساعات</option>
+                    <option value="720">12 ساعة</option>
+                    <option value="1080">18 ساعة</option>
+                    <option value="1440">24 ساعة</option>
+                  </select>
+                </div>
+
+                <!-- 4. Ad Lifespan -->
+                <div id="group-ad-lifespan" class="form-group">
+                  <label for="web-ad-lifespan" class="form-label" style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px; font-weight: 600;">عمر الإعلان بقنوات التليجرام (قبل الحذف التلقائي)</label>
+                  <select id="web-ad-lifespan" class="form-control" style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; width: 100%; font-size: 14px; outline: none; transition: border-color 0.2s;">
+                    <option value="5">5 دقائق</option>
+                    <option value="10">10 دقائق</option>
+                    <option value="15" selected>15 دقيقة</option>
+                    <option value="30">30 دقيقة</option>
+                    <option value="60">ساعة واحدة</option>
+                    <option value="120">ساعتين</option>
+                    <option value="180">3 ساعات</option>
+                    <option value="240">4 ساعات</option>
+                    <option value="300">5 ساعات</option>
+                    <option value="360">6 ساعات</option>
+                    <option value="480">8 ساعات</option>
+                    <option value="600">10 ساعات</option>
+                    <option value="720">12 ساعة</option>
+                    <option value="1080">18 ساعة</option>
+                    <option value="1440">24 ساعة</option>
+                  </select>
+                </div>
+
+                <!-- 5. Conditional fields -->
+                                <!-- Dedicated Bulk Extra Link Field -->
+                <div id="group-bulk-extra-link" class="form-group" style="display: none;">
+                  <label for="web-bulk-extra-link" class="form-label" style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px; font-weight: 600;">
+                    🎯 رابط إضافي مروج مع كل قناة (اختياري - مثل رابط مجلد مجمع أو قناة ثانية)
+                  </label>
+                  <input type="text" id="web-bulk-extra-link" class="form-control" placeholder="https://t.me/addlist/... أو @channel (اختياري)" style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; width: 100%; font-size: 14px; outline: none; transition: border-color 0.2s; box-sizing: border-box;">
+                </div>
+
+                <div id="group-target-link" class="form-group" style="display: none;">
+                  
+                  <!-- Channel Picker Component -->
+                  <div id="channel-picker-container" style="background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; overflow: hidden;">
+                    
+                    <!-- Picker Header -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 16px;">📡</span>
+                        <span style="color: #e2e8f0; font-size: 14px; font-weight: 600;">اختر القنوات المستهدفة</span>
+                      </div>
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <span id="channel-picker-cache-age" style="color: #64748b; font-size: 11px;"></span>
+                        <button type="button" id="btn-refresh-channels" title="تحديث القنوات" style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2); color: #3b82f6; width: 30px; height: 30px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; transition: all 0.2s;">
+                          🔄
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- Search Bar -->
+                    <div style="padding: 10px 16px;">
+                      <div style="position: relative;">
+                        <input type="text" id="channel-picker-search" placeholder="🔍 ابحث عن قناة بالاسم أو @username..." style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 10px 12px; padding-right: 36px; border-radius: 8px; width: 100%; font-size: 13px; outline: none; transition: border-color 0.2s; box-sizing: border-box;" autocomplete="off">
+                      </div>
+                    </div>
+
+                    <!-- Filter Tabs -->
+                    <div style="display: flex; gap: 6px; padding: 0 16px 10px 16px;">
+                      <button type="button" class="channel-filter-tab active" data-filter="all" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3); padding: 5px 14px; border-radius: 20px; font-size: 12px; cursor: pointer; transition: all 0.2s; font-weight: 600;">
+                        الكل
+                      </button>
+                      <button type="button" class="channel-filter-tab" data-filter="broadcast" style="background: transparent; color: #94a3b8; border: 1px solid rgba(255,255,255,0.08); padding: 5px 14px; border-radius: 20px; font-size: 12px; cursor: pointer; transition: all 0.2s;">
+                        📢 قنوات
+                      </button>
+                      <button type="button" class="channel-filter-tab" data-filter="group" style="background: transparent; color: #94a3b8; border: 1px solid rgba(255,255,255,0.08); padding: 5px 14px; border-radius: 20px; font-size: 12px; cursor: pointer; transition: all 0.2s;">
+                        👥 مجموعات
+                      </button>
+                    </div>
+
+                    <!-- Channel List -->
+                    <div id="channel-picker-list" style="max-height: 260px; overflow-y: auto; padding: 0 12px 8px 12px; scrollbar-width: thin; scrollbar-color: #334155 transparent;">
+                      <!-- Loading skeleton -->
+                      <div id="channel-picker-loading" style="padding: 16px; text-align: center;">
+                        <div style="color: #64748b; font-size: 13px; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                          <div class="spinner" style="width: 24px; height: 24px; border: 2px solid rgba(59,130,246,0.2); border-top: 2px solid #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+                          جاري تحميل القنوات...
+                        </div>
+                      </div>
+                      <!-- Empty state -->
+                      <div id="channel-picker-empty" style="display: none; padding: 20px 16px; text-align: center;">
+                        <div style="color: #64748b; font-size: 13px;">
+                          <span style="font-size: 28px; display: block; margin-bottom: 8px;">📭</span>
+                          لا توجد قنوات في الكاش حالياً.<br>
+                          <span style="font-size: 11px; color: #475569;">تأكد من ربط حسابك وتفعيل المحرك ليتم سحب قنواتك تلقائياً.</span>
+                        </div>
+                      </div>
+                      <!-- No results state -->
+                      <div id="channel-picker-no-results" style="display: none; padding: 16px; text-align: center;">
+                        <div style="color: #64748b; font-size: 13px;">
+                          <span style="font-size: 20px;">🔍</span> لا توجد نتائج مطابقة
+                        </div>
+                      </div>
+                      <!-- Channels will be rendered here dynamically -->
+                    </div>
+
+                    <!-- Selection Summary -->
+                    <div id="channel-picker-selection" style="display: none; padding: 8px 16px; border-top: 1px solid rgba(255,255,255,0.06); background: rgba(59, 130, 246, 0.05);">
+                      <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <span style="color: #3b82f6; font-size: 12px; font-weight: 600;">
+                          ✅ تم اختيار <span id="channel-picker-count">0</span> قناة
+                        </span>
+                        <button type="button" id="btn-clear-channel-selection" style="background: transparent; border: none; color: #ef4444; font-size: 11px; cursor: pointer; padding: 2px 6px; outline: none;">
+                          إلغاء الكل
+                        </button>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  <!-- Manual Link Fallback (collapsible) -->
+                  <div style="margin-top: 14px;">
+                    <button type="button" id="btn-toggle-manual-link" style="background: rgba(59, 130, 246, 0.08); border: 1px dashed rgba(59, 130, 246, 0.3); color: #60a5fa; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; outline: none; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.2);">
+                      <span id="manual-link-arrow" style="transition: transform 0.2s; display: inline-block;">◀</span>
+                      <span>أو أدخل رابط القناة يدوياً (للقنوات الخارجية)</span>
+                    </button>
+                    <div id="manual-link-section" style="display: none; margin-top: 12px; padding: 12px; background: rgba(15, 23, 42, 0.3); border: 1px solid rgba(255,255,255,0.04); border-radius: 8px;">
+                      <div id="web-links-container">
+                        <div class="web-link-input-wrapper" style="margin-bottom: 10px; display: flex; gap: 8px; align-items: center;">
+                          <input type="text" class="web-target-link form-control" placeholder="أدخل معرف أو رابط القناة" style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; flex: 1; font-size: 14px; outline: none; transition: border-color 0.2s;">
+                        </div>
+                      </div>
+                      <div style="margin-top: 8px; text-align: left;">
+                        <button type="button" id="btn-add-target-link" style="background: transparent; border: none; color: #3b82f6; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; outline: none; padding: 0;">
+                          <span>➕ إضافة رابط آخر</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+                
+                                  <div id="group-pin-channels" class="form-group" style="display: none;">
+                  <div style="display: flex; flex-direction: column; gap: 24px;">
+                    
+                    <!-- Channel A (Promo) -->
+                    <div style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.06); padding: 20px; border-radius: 16px;">
+                      <label class="form-label" style="display: block; color: #fff; font-size: 14px; margin-bottom: 12px; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px;">
+                        رابط القناة المراد الترويج لها - A (الترويج)
+                      </label>
+                      
+                      <!-- Channel Picker A -->
+                      <div class="channel-picker-container" style="background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; overflow: hidden; margin-bottom: 12px;">
+                        <!-- Header with Search & Filters -->
+                        <div style="padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(15, 23, 42, 0.3); display: flex; flex-direction: column; gap: 8px;">
+                          <div style="display: flex; gap: 8px; align-items: center;">
+                            <input type="text" id="promo-picker-search" placeholder="🔍 ابحث بالاسم أو الـ username..." style="background: rgba(30, 41, 59, 0.5); color: #fff; border: 1px solid rgba(255,255,255,0.08); padding: 8px 12px; border-radius: 6px; flex: 1; font-size: 13px; outline: none;">
+                          </div>
+                          <!-- Filter tabs -->
+                          <div style="display: flex; gap: 6px; border-top: 1px solid rgba(255,255,255,0.03); pt-8; margin-top: 2px;">
+                            <button type="button" class="promo-filter-tab active" data-filter="all" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3); padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; font-weight: 600; outline: none;">الكل</button>
+                            <button type="button" class="promo-filter-tab" data-filter="broadcast" style="background: transparent; color: #94a3b8; border: 1px solid rgba(255,255,255,0.08); padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; outline: none;">📢 قنوات</button>
+                            <button type="button" class="promo-filter-tab" data-filter="group" style="background: transparent; color: #94a3b8; border: 1px solid rgba(255,255,255,0.08); padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; outline: none;">💬 مجموعات</button>
+                          </div>
+                        </div>
+                        
+                        <!-- Scrollable Channels List -->
+                        <div id="promo-picker-list" style="max-height: 200px; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 4px;">
+                          <!-- Populated dynamically -->
+                        </div>
+                      </div>
+
+                      <!-- Manual Link A Fallback Toggle -->
+                      <div>
+                        <button type="button" id="btn-toggle-promo-manual" style="background: rgba(59, 130, 246, 0.08); border: 1px dashed rgba(59, 130, 246, 0.3); color: #60a5fa; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px; border-radius: 6px; outline: none; transition: all 0.2s;">
+                          <span id="promo-manual-arrow" style="transition: transform 0.2s; display: inline-block;">◀</span>
+                          <span>أو أدخل الرابط/الروابط يدوياً (قناة خارجية)</span>
+                        </button>
+                        <div id="promo-manual-section" style="display: none; margin-top: 10px; padding: 10px; background: rgba(15, 23, 42, 0.3); border: 1px solid rgba(255,255,255,0.04); border-radius: 8px;">
+                          <textarea id="web-pin-promo-link" class="form-control" rows="2" placeholder="مثال: @external_channel1, @external_channel2 (رابط في كل سطر أو مفصولة بفاصلة)..." style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; width: 100%; font-size: 14px; outline: none; resize: vertical;"></textarea>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Channel B (Host) -->
+                    <div style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.06); padding: 20px; border-radius: 16px;">
+                      <label class="form-label" style="display: block; color: #fff; font-size: 14px; margin-bottom: 12px; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px;">
+                        رابط قناتك الحاضنة للنشر - B (النشر والتثبيت)
+                      </label>
+                      
+                      <!-- Channel Picker B -->
+                      <div class="channel-picker-container" style="background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; overflow: hidden; margin-bottom: 12px;">
+                        <!-- Header with Search & Filters -->
+                        <div style="padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(15, 23, 42, 0.3); display: flex; flex-direction: column; gap: 8px;">
+                          <div style="display: flex; gap: 8px; align-items: center;">
+                            <input type="text" id="target-picker-search" placeholder="🔍 ابحث بالاسم أو الـ username..." style="background: rgba(30, 41, 59, 0.5); color: #fff; border: 1px solid rgba(255,255,255,0.08); padding: 8px 12px; border-radius: 6px; flex: 1; font-size: 13px; outline: none;">
+                          </div>
+                          <!-- Filter tabs -->
+                          <div style="display: flex; gap: 6px; border-top: 1px solid rgba(255,255,255,0.03); pt-8; margin-top: 2px;">
+                            <button type="button" class="target-filter-tab active" data-filter="all" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3); padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; font-weight: 600; outline: none;">الكل</button>
+                            <button type="button" class="target-filter-tab" data-filter="broadcast" style="background: transparent; color: #94a3b8; border: 1px solid rgba(255,255,255,0.08); padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; outline: none;">📢 قنوات</button>
+                            <button type="button" class="target-filter-tab" data-filter="group" style="background: transparent; color: #94a3b8; border: 1px solid rgba(255,255,255,0.08); padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; outline: none;">💬 مجموعات</button>
+                          </div>
+                        </div>
+                        
+                        <!-- Scrollable Channels List -->
+                        <div id="target-picker-list" style="max-height: 200px; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 4px;">
+                          <!-- Populated dynamically -->
+                        </div>
+                      </div>
+
+                      <!-- Manual Link B Fallback Toggle -->
+                      <div>
+                        <button type="button" id="btn-toggle-target-manual" style="background: rgba(59, 130, 246, 0.08); border: 1px dashed rgba(59, 130, 246, 0.3); color: #60a5fa; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px; border-radius: 6px; outline: none; transition: all 0.2s;">
+                          <span id="target-manual-arrow" style="transition: transform 0.2s; display: inline-block;">◀</span>
+                          <span>أو أدخل الرابط/الروابط يدوياً (قناة خارجية)</span>
+                        </button>
+                        <div id="target-manual-section" style="display: none; margin-top: 10px; padding: 10px; background: rgba(15, 23, 42, 0.3); border: 1px solid rgba(255,255,255,0.04); border-radius: 8px;">
+                          <textarea id="web-pin-target-link" class="form-control" rows="2" placeholder="مثال: @my_host_channel1, @my_host_channel2 (رابط في كل سطر أو مفصولة بفاصلة)..." style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; width: 100%; font-size: 14px; outline: none; resize: vertical;"></textarea>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
                 </div>
 
                 <div id="group-custom-text" class="form-group" style="display: none;">
-                  <label for="web-custom-text" class="form-label">نص الإعلان المخصص (يدعم {title} و {link})</label>
-                  <textarea id="web-custom-text" class="form-control" rows="3" placeholder="نص مخصص..."></textarea>
+                  <label for="web-custom-text" class="form-label" style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px; font-weight: 600;">نص الإعلان المخصص (يدعم {title} و {link})</label>
+                  <textarea id="web-custom-text" class="form-control" rows="4" placeholder="اكتب إعلانك المخصص هنا..." style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; width: 100%; font-size: 14px; outline: none; resize: vertical; font-family: sans-serif;"></textarea>
                 </div>
 
-                <div class="form-group">
-                  <label for="web-campaign-image" class="form-label">صورة الإعلان (اختياري - حد أقصى 10 ميجابايت)</label>
-                  <input type="file" id="web-campaign-image" class="form-control" accept="image/png, image/jpeg, image/webp">
-                </div>
-              </div>
+                <button type="submit" id="btn-submit-web-campaign" class="btn btn-primary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; padding: 14px; border-radius: 8px; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); border: none; cursor: pointer; color: #fff; box-shadow: 0 4px 12px rgba(29, 78, 216, 0.3); transition: all 0.2s;">
+                  <span class="btn-text">🚀 إطلاق الحملة السحابية</span>
+                  <span class="spinner hidden"></span>
+                </button>
+              </form>
+            </div>
 
-              <!-- STEP 2: CHANNEL SELECTION -->
-              <div class="card">
-                <div class="card-header-clean">
-                  <div class="card-title">
-                    <span class="step-num-badge">2</span>
-                    <span>القنوات والمجموعات المستهدفة</span>
-                  </div>
-                </div>
-
-                <!-- Channel Picker Component -->
-                <div id="channel-picker-container" class="channel-picker-container">
-                  <div class="channel-picker-header">
-                    <div class="channel-picker-search-row">
-                      <input type="text" id="channel-picker-search" placeholder="🔍 ابحث في قنواتك أو المعرف @username..." class="form-control" style="min-height: 40px;">
+            <!-- Maintenance & Maintenance Controls panel -->
+            <div style="margin-top: 24px; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 20px;">
+              <h4 style="margin: 0 0 16px 0; font-size: 14px; color: #fff; font-weight: 600;">إجراءات الصيانة والتحكم الإضافية</h4>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+                
+                <!-- Clear Action -->
+                <div class="maintenance-action-card" style="display: flex; align-items: center; justify-content: space-between; gap: 16px; background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.1); padding: 14px; border-radius: 12px;">
+                  <div style="flex-grow: 1;">
+                    <div style="font-weight: 600; color: #f87171; font-size: 13px; display: flex; align-items: center; gap: 6px;">
+                      <span>🧹</span>
+                      <span>مسح سريع</span>
                     </div>
-                    <div style="display: flex; align-items: center; justify-content: space-between;">
-                      <span id="channel-picker-count" class="badge badge-info">0 قناة متصلة</span>
-                      <span id="channel-picker-cache-age" class="badge badge-neutral font-mono">محدث الآن</span>
-                    </div>
+                    <div style="color: #94a3b8; font-size: 11px; margin-top: 4px; line-height: 1.4;">حذف سريع للإعلانات المنشورة تلقائياً.</div>
                   </div>
-
-                  <!-- Loading state -->
-                  <div id="channel-picker-loading" class="empty-state-box hidden" style="border: none;">
-                    <span class="spinner"></span> جاري فحص واستيراد القنوات من تليجرام...
-                  </div>
-
-                  <!-- Empty state -->
-                  <div id="channel-picker-empty" class="empty-state-box hidden" style="border: none;">
-                    ⚠️ لم يتم العثور على قنوات متصلة. يرجى ربط حساب تليجرام أولاً من تبويب المحرك.
-                  </div>
-
-                  <!-- No results state -->
-                  <div id="channel-picker-no-results" class="empty-state-box hidden" style="border: none;">
-                    لا توجد قنوات تطابق البحث.
-                  </div>
-
-                  <!-- Scrollable channels list -->
-                  <div id="channel-picker-list" class="channel-picker-list"></div>
-
-                  <!-- Footer Selection Summary -->
-                  <div id="channel-picker-selection" class="channel-picker-footer">
-                    <span>القنوات المحددة: <strong>0</strong></span>
-                  </div>
-                </div>
-
-                <!-- Manual Fallback Links -->
-                <div style="margin-top: 12px;">
-                  <button type="button" id="btn-toggle-manual-link" class="btn-toggle-dashed">
-                    <span id="manual-link-arrow">◀</span>
-                    <span>إدخال روابط قنوات ومجموعات خارجية يدوياً</span>
-                  </button>
-                  <button type="button" id="btn-toggle-manual-links" class="hidden"></button>
-                  <div id="manual-link-section" style="display: none; margin-top: 10px;">
-                    <label for="web-links-container" class="form-label">الروابط الخارجية (رابط في كل سطر أو مفصولة بفاصلة)</label>
-                    <textarea id="web-links-container" class="form-control" rows="3" placeholder="@channel_one, @channel_two, https://t.me/..."></textarea>
-                  </div>
-                </div>
-
-                <!-- Pin / Swap Channels Group (Dynamic) -->
-                <div id="group-pin-channels" style="display: none; margin-top: 16px;">
-                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px;">
-                    <div style="background: var(--bg-surface-subtle); padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
-                      <label class="form-label" style="font-weight: 700; color: #fff;">قناة المصدر الترويجي - A</label>
-                      <input type="text" id="promo-picker-search" placeholder="🔍 ابحث في قنواتك..." class="form-control" style="min-height: 38px; margin: 8px 0;">
-                      <div id="promo-picker-list" style="max-height: 140px; overflow-y: auto;"></div>
-                      <button type="button" id="btn-toggle-promo-manual" class="btn-toggle-dashed" style="margin-top: 8px;">
-                        <span id="promo-manual-arrow">◀</span>
-                        <span>إدخال الرابط A يدوياً</span>
-                      </button>
-                      <div id="promo-manual-section" style="display: none; margin-top: 8px;">
-                        <textarea id="web-pin-promo-link" class="form-control" rows="2" placeholder="@source..."></textarea>
-                      </div>
-                    </div>
-
-                    <div style="background: var(--bg-surface-subtle); padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
-                      <label class="form-label" style="font-weight: 700; color: #fff;">القناة الحاضنة للنشر - B</label>
-                      <input type="text" id="target-picker-search" placeholder="🔍 ابحث في قنواتك..." class="form-control" style="min-height: 38px; margin: 8px 0;">
-                      <div id="target-picker-list" style="max-height: 140px; overflow-y: auto;"></div>
-                      <button type="button" id="btn-toggle-target-manual" class="btn-toggle-dashed" style="margin-top: 8px;">
-                        <span id="target-manual-arrow">◀</span>
-                        <span>إدخال الرابط B يدوياً</span>
-                      </button>
-                      <div id="target-manual-section" style="display: none; margin-top: 8px;">
-                        <textarea id="web-pin-target-link" class="form-control" rows="2" placeholder="@host..."></textarea>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div id="group-target-link" class="form-group" style="display: none; margin-top: 12px;">
-                  <label for="web-bulk-extra-link" class="form-label">رابط إضافي مستهدف</label>
-                  <input type="text" id="web-bulk-extra-link" class="form-control" placeholder="https://t.me/target...">
-                </div>
-                <div id="group-bulk-extra-link" style="display: none;"></div>
-
-              </div>
-
-              <!-- STEP 3: TIMING & LAUNCH -->
-              <div class="card">
-                <div class="card-header-clean">
-                  <div class="card-title">
-                    <span class="step-num-badge">3</span>
-                    <span>خيارات التوقيت والجدولة الآلية</span>
-                  </div>
-                </div>
-
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px;">
-                  <div id="group-delay-start" class="form-group">
-                    <label for="web-delay-start" class="form-label">موعد بدء الحملة</label>
-                    <select id="web-delay-start" class="form-control">
-                      <option value="0">فوراً (الآن)</option>
-                      <option value="5">بعد 5 دقائق</option>
-                      <option value="15">بعد 15 دقيقة</option>
-                      <option value="30">بعد 30 دقيقة</option>
-                      <option value="60">بعد ساعة واحدة</option>
-                      <option value="120">بعد ساعتين</option>
-                    </select>
-                  </div>
-
-                  <div id="group-delay-between" class="form-group">
-                    <label for="web-delay-between" class="form-label">الفارق بين القنوات (لحماية الحساب)</label>
-                    <select id="web-delay-between" class="form-control">
-                      <option value="10">10 ثواني (سريع)</option>
-                      <option value="20" selected>20 ثانية (موصى به وآمن)</option>
-                      <option value="30">30 ثانية (آمن جداً)</option>
-                      <option value="60">دقيقة كاملة</option>
-                    </select>
-                  </div>
-
-                  <div id="group-ad-lifespan" class="form-group">
-                    <label for="web-ad-lifespan" class="form-label">حذف الإعلان تلقائياً بعد</label>
-                    <select id="web-ad-lifespan" class="form-control">
-                      <option value="0">دائم (بدون حذف)</option>
-                      <option value="15">15 دقيقة</option>
-                      <option value="30">30 دقيقة</option>
-                      <option value="60">ساعة واحدة</option>
-                      <option value="120">ساعتين</option>
-                      <option value="240">4 ساعات</option>
-                      <option value="1440">يوم كامل (24 ساعة)</option>
-                    </select>
-                  </div>
-
-                  <div class="form-group">
-                    <label for="web-loop-interval" class="form-label">تكرار دوري كل (ساعات)</label>
-                    <input type="number" id="web-loop-interval" class="form-control" min="0" max="720" value="0" placeholder="0 = تشغيل مرة واحدة">
-                  </div>
-                </div>
-
-                <input type="hidden" id="web-delay-seconds" value="20">
-                <input type="hidden" id="web-delete-after" value="0">
-
-                <!-- Collapsible Advanced / Emergency Tools -->
-                <div style="margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--border-subtle);">
-                  <details style="cursor: pointer;">
-                    <summary style="font-size: 12.5px; color: var(--text-muted); font-weight: 600; user-select: none;">
-                      🛠️ أدوات الطوارئ والتطهير السريع (إجراءات متقدمة)
-                    </summary>
-                    <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; padding: 12px; background: var(--bg-surface-subtle); border-radius: var(--radius-md);">
-                      <button type="button" id="btn-update-web" class="btn btn-secondary btn-sm">🔄 تحديث المحرك</button>
-                      <button type="button" id="btn-clear-web" class="btn btn-secondary btn-sm">🧹 مسح سريع</button>
-                      <button type="button" id="btn-deep-clear-web" class="btn btn-secondary btn-sm">🧲 مسح عميق</button>
-                      <button type="button" id="btn-stop-everything-web" class="btn btn-danger btn-sm">🚨 إيقاف شامل</button>
-                    </div>
-                  </details>
-                </div>
-
-                <div style="margin-top: 20px; display: flex; justify-content: flex-end;">
-                  <button type="submit" id="btn-submit-web-campaign" class="btn btn-primary" style="padding: 12px 28px; font-size: 15px; font-weight: 700; width: 100%; max-width: 280px;">
-                    <span class="btn-text">🚀 إطلاق الحملة السحابية</span>
+                  <button type="button" id="btn-clear-web" class="btn" style="flex-shrink: 0; font-weight: 600; padding: 8px 16px; border-radius: 8px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); cursor: pointer; color: #f87171; font-size: 12px;">
+                    <span class="btn-text">مسح</span>
                     <span class="spinner hidden"></span>
                   </button>
                 </div>
-              </div>
-
-            </form>
-
-          </div>
-
-        </section>
-
-
-        <!-- ==========================================
-             TAB 2: TELEGRAM ENGINE CONNECTION WIZARD
-             ========================================== -->
-        <section id="tab-connect" class="tab-panel hidden">
-          <div style="margin-bottom: 20px;">
-            <h2 class="page-title">معالج ربط محرك تليجرام السحابي</h2>
-            <p class="page-subtitle">اتصال رسمي مشفر عبر بروتوكول تليجرام MTProto لتشغيل الأتمتة السحابية.</p>
-          </div>
-
-          <!-- Stepper Progress Node Bar -->
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; background: var(--bg-surface); padding: 14px 18px; border-radius: var(--radius-lg); border: 1px solid var(--border-subtle);">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span id="wizard-current-step-badge" class="badge badge-info">الخطوة 1 من 3</span>
-              <span id="wizard-current-step-label" style="font-size: 13px; font-weight: 700; color: #fff;">رقم الهاتف ومفاتيح API</span>
-            </div>
-            <span id="wizard-percentage-pill" class="badge badge-neutral font-mono">33%</span>
-          </div>
-
-          <div class="progress-track" style="margin-bottom: 24px;">
-            <div id="wizard-progress-bar" class="progress-fill" style="width: 33%;"></div>
-          </div>
-
-          <div style="display: none;">
-            <div id="wizard-step-node-1"></div>
-            <div id="wizard-step-node-2"></div>
-            <div id="wizard-step-node-3"></div>
-          </div>
-
-          <!-- STEP 1: PHONE & API CREDENTIALS -->
-          <div id="connect-step-1" class="card">
-            <div class="card-header-clean">
-              <div class="card-title">1. أدخل بيانات الاتصال الرسمية لحسابك</div>
-              <button type="button" id="btn-trigger-guide" class="btn btn-ghost btn-sm" style="color: var(--brand-accent);">
-                💡 دليل الـ API المجاني
-              </button>
-            </div>
-
-            <form id="connect-form-step1">
-              <div class="input-group">
-                <label for="telegram-phone">رقم الهاتف المرتبط بالتليجرام</label>
-                <input type="tel" id="telegram-phone" required placeholder="+9665xxxxxxxx أو +201xxxxxxxxx" dir="ltr" class="font-mono">
-                <p class="input-hint">أدخل رقم هاتفك بالصيغة الدولية مع مفتاح الدولة (مثال: +966 أو +20).</p>
-              </div>
-
-              <!-- Collapsible API Helper Card -->
-              <div style="background: var(--bg-surface-subtle); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px; margin-bottom: 16px;">
-                <div id="toggle-api-instructions" style="display: flex; align-items: center; justify-content: space-between; cursor: pointer;">
-                  <strong style="font-size: 13px; color: #fff;">مفاتيح Telegram API (ID & Hash)</strong>
-                  <span id="icon-toggle-api" style="font-size: 12px; color: var(--text-muted);">▼</span>
+                
+                <!-- Deep Clear Action -->
+                <div class="maintenance-action-card" style="display: flex; align-items: center; justify-content: space-between; gap: 16px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); padding: 14px; border-radius: 12px;">
+                  <div style="flex-grow: 1;">
+                    <div style="font-weight: 600; color: #fff; font-size: 13px; display: flex; align-items: center; gap: 6px;">
+                      <span>🚨</span>
+                      <span>مسح عميق</span>
+                    </div>
+                    <div style="color: #cbd5e1; font-size: 11px; margin-top: 4px; line-height: 1.4;">مسح شامل لآخر رسائل القنوات وإيقاف التبادل.</div>
+                  </div>
+                  <button type="button" id="btn-deep-clear-web" class="btn" style="flex-shrink: 0; font-weight: 600; padding: 8px 16px; border-radius: 8px; background: rgba(239, 68, 68, 0.8); border: none; cursor: pointer; color: #fff; font-size: 12px;">
+                    <span class="btn-text">تطهير</span>
+                    <span class="spinner hidden"></span>
+                  </button>
                 </div>
                 
-                <div id="body-api-instructions" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border-subtle);">
-                  <p style="font-size: 12.5px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 12px;">
-                    استخرجها مجاناً لمرة واحدة من موقع تليجرام الرسمي <a href="https://my.telegram.org" target="_blank" rel="noopener" style="color: var(--brand-accent);">my.telegram.org</a>.
-                  </p>
-                  <button type="button" id="btn-show-photo-guide" class="btn btn-secondary btn-sm" style="margin-bottom: 14px;">
-                    🖼️ عرض الشرح المصور
+                <!-- Update Engine Action -->
+                <div class="maintenance-action-card" style="display: flex; align-items: center; justify-content: space-between; gap: 16px; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.1); padding: 14px; border-radius: 12px;">
+                  <div style="flex-grow: 1;">
+                    <div style="font-weight: 600; color: #60a5fa; font-size: 13px; display: flex; align-items: center; gap: 6px;">
+                      <span>🔄</span>
+                      <span>تحديث المحرك</span>
+                    </div>
+                    <div style="color: #94a3b8; font-size: 11px; margin-top: 4px; line-height: 1.4;">تحديث المجلدات والقنوات فورياً.</div>
+                  </div>
+                  <button type="button" id="btn-update-web" class="btn" style="flex-shrink: 0; font-weight: 600; padding: 8px 16px; border-radius: 8px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); cursor: pointer; color: #60a5fa; font-size: 12px;">
+                    <span class="btn-text">مزامنة</span>
+                    <span class="spinner hidden"></span>
                   </button>
-                  <button type="button" id="btn-open-engine-guide-modal" class="hidden"></button>
                 </div>
 
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px;">
-                  <div>
-                    <label for="telegram-api-id" class="form-label" style="font-size: 12px;">API ID</label>
-                    <input type="text" id="telegram-api-id" placeholder="12345678" class="form-control font-mono" dir="ltr" style="min-height: 40px;">
+                <!-- Stop Everything Action -->
+                <div class="maintenance-action-card stop-everything-card" style="display: flex; align-items: center; justify-content: space-between; gap: 16px; background: rgba(239, 68, 68, 0.12); border: 2px solid rgba(239, 68, 68, 0.4); padding: 16px; border-radius: 12px; grid-column: 1 / -1; box-shadow: 0 4px 14px rgba(239, 68, 68, 0.15);">
+                  <div style="flex-grow: 1;">
+                    <div style="font-weight: 700; color: #ef4444; font-size: 14px; display: flex; align-items: center; gap: 8px;">
+                      <span>🛑</span>
+                      <span>إيقاف كل شيء فورا</span>
+                    </div>
+                    <div style="color: #cbd5e1; font-size: 12px; margin-top: 4px; line-height: 1.4; font-weight: 500;">إيقاف فوري لجميع العمليات الجارية: موجات النشر التبادلي، الحملات الفردية أو المجمعة، المزامنة، أو أي أوامر جارية.</div>
                   </div>
-                  <div>
-                    <label for="telegram-api-hash" class="form-label" style="font-size: 12px;">API HASH</label>
-                    <input type="text" id="telegram-api-hash" placeholder="32 حرف وأرقام" class="form-control font-mono" dir="ltr" style="min-height: 40px;">
-                  </div>
+                  <button type="button" id="btn-stop-everything-web" class="btn" style="flex-shrink: 0; font-weight: 700; padding: 10px 22px; border-radius: 8px; background: #ef4444; border: none; cursor: pointer; color: #fff; font-size: 13px; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3); transition: all 0.2s;">
+                    <span class="btn-text">إيقاف كل شيء</span>
+                    <span class="spinner hidden"></span>
+                  </button>
                 </div>
-              </div>
-
-              <button type="submit" id="btn-send-code" class="btn btn-primary" style="width: 100%;">
-                <span class="btn-text">📨 إرسال كود التحقق إلى تطبيق تليجرام</span>
-                <span class="spinner hidden"></span>
-              </button>
-            </form>
-          </div>
-
-          <!-- STEP 2: VERIFICATION OTP & 2FA -->
-          <div id="connect-step-2" class="card hidden">
-            <div class="card-header-clean">
-              <div class="card-title">2. أدخل كود التحقق المستلم</div>
-              <button type="button" id="btn-back-to-step1" class="btn btn-ghost btn-sm">← تعديل الرقم</button>
-            </div>
-
-            <form id="connect-form-step2">
-              <div class="input-group">
-                <label for="telegram-code">كود التحقق (5 أرقام)</label>
-                <input type="text" id="telegram-code" required placeholder="12345" class="form-control font-mono" dir="ltr" style="text-align: center; font-size: 22px; letter-spacing: 4px; font-weight: 800;">
-                <p class="input-hint" style="text-align: center;">تم إرسال الكود في رسالة رسمية داخل تطبيق تليجرام الخاص بك.</p>
-              </div>
-
-              <div class="input-group" style="margin-top: 14px;">
-                <label for="telegram-2fa">كلمة مرور التحقق بخطوتين 2FA (إذا كانت مفعلة بحسابك)</label>
-                <input type="password" id="telegram-2fa" class="form-control" placeholder="اتركه فارغاً إذا لم تكن مفعلة">
-              </div>
-
-              <div style="display: flex; align-items: center; justify-content: space-between; margin: 14px 0; font-size: 12.5px; color: var(--text-secondary);">
-                <div style="display: flex; align-items: center; gap: 6px;">
-                  <svg id="countdown-ring" width="20" height="20" viewBox="0 0 40 40" style="transform: rotate(-90deg);">
-                    <circle cx="20" cy="20" r="16" stroke="var(--border-medium)" stroke-width="3" fill="none"/>
-                    <circle cx="20" cy="20" r="16" stroke="var(--brand-primary)" stroke-width="3" fill="none" stroke-dasharray="100" stroke-dashoffset="0"/>
-                  </svg>
-                  <span id="resend-timer-label">إعادة إرسال بعد:</span>
-                  <span id="resend-countdown" class="font-mono font-bold">60</span> ثانية
-                </div>
-
-                <button type="button" id="btn-resend-code" class="btn btn-ghost btn-sm" disabled>
-                  إعادة إرسال الكود
-                </button>
-              </div>
-
-              <button type="submit" id="btn-verify-code" class="btn btn-success" style="width: 100%;">
-                <span class="btn-text">✅ تأكيد الرمز وتشغيل المحرك السحابي</span>
-                <span class="spinner hidden"></span>
-              </button>
-            </form>
-          </div>
-
-          <!-- STEP 3: CELEBRATION & SUCCESS -->
-          <div id="connect-step-3" class="card hidden" style="text-align: center; padding: 36px 20px;">
-            <div style="font-size: 48px; margin-bottom: 14px;">🎉</div>
-            <h3 style="font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 8px;">تم ربط وتوثيق المحرك بنجاح!</h3>
-            <p style="font-size: 13.5px; color: var(--text-secondary); margin-bottom: 20px;">
-              الحساب المرتبط: <strong id="step3-connected-phone" class="font-mono" style="color: var(--status-success);">+...</strong>
-            </p>
-
-            <div style="display: flex; flex-direction: column; gap: 10px; max-width: 320px; margin: 0 auto;">
-              <button type="button" id="btn-step3-go-dashboard" class="btn btn-primary" style="width: 100%;">
-                الانتقال للوحة التحكم وإطلاق أول حملة ←
-              </button>
-              <button type="button" id="btn-step3-open-folders" class="btn btn-secondary" style="width: 100%;">
-                📁 تنظيم وتجهيز المجلدات
-              </button>
-              <button type="button" id="btn-step3-connect-another" class="btn btn-ghost btn-sm" style="color: var(--text-muted);">
-                ربط رقم هاتف آخر
-              </button>
-            </div>
-          </div>
-
-        </section>
-
-
-        <!-- ==========================================
-             TAB 3: SUBSCRIPTION PLANS & CRYPTO BILLING
-             ========================================== -->
-        <section id="tab-plans" class="tab-panel hidden">
-          <div style="margin-bottom: 20px;">
-            <h2 class="page-title">الاشتراكات وإدارة الدفع</h2>
-            <p class="page-subtitle">ترقية فورية وآمنة عبر العملات الرقمية المشفرة مع تفعيل تلقائي.</p>
-          </div>
-
-          <!-- Current Quota Info Strip -->
-          <div class="card" style="margin-bottom: 20px; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
-            <div>
-              <span style="font-size: 12px; color: var(--text-muted); display: block;">حالة اشتراكك الحالي:</span>
-              <div style="display: flex; align-items: center; gap: 8px; margin-top: 2px;">
-                <span id="user-plan-badge" class="badge badge-info font-mono">باقة تجريبية</span>
-                <span id="sub-status-badge" class="badge badge-success">نشط</span>
+                
               </div>
             </div>
+          </div>
 
-            <div style="display: flex; align-items: center; gap: 16px; font-size: 13px;">
-              <div>
-                <span style="color: var(--text-muted); font-size: 11.5px; display: block;">المدة المتبقية:</span>
-                <strong id="remaining-days-count" class="font-mono" style="color: #fff; font-size: 16px;">--</strong> يوم
-              </div>
-              <div>
-                <span style="color: var(--text-muted); font-size: 11.5px; display: block;">تاريخ الانتهاء:</span>
-                <span id="end-date-display" class="font-mono" style="color: var(--text-secondary);">--</span>
+          <!-- Active Ads Stream Card -->
+          <div class="card active-ads-stream-card" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;" class="card-header-flex">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-size: 20px;">🔥</span>
+                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">خريطة التدفق الحي للإعلانات النشطة</h3>
               </div>
             </div>
             
-            <div style="display: none;">
-              <span id="plan-duration-display"></span>
-              <span id="start-date-display"></span>
+            <!-- Live Progress Bar -->
+            <div id="live-progress-section" class="hidden" style="margin-bottom: 20px; background: rgba(15, 23, 42, 0.6); padding: 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.03);">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
+                <span style="color: #60a5fa; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+                  <span class="spinner" style="width: 12px; height: 12px; border-width: 1.5px;"></span>
+                  <span>جاري نشر الحملة حالياً...</span>
+                </span>
+                <span id="live-progress-text" style="color: #94a3b8; font-weight: bold;">0% (0/0 قناة)</span>
+              </div>
+              <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden; position: relative;">
+                <div id="live-progress-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3b82f6, #06b6d4); transition: width 0.4s ease; border-radius: 4px;"></div>
+              </div>
+              <div id="live-next-channel-hint" style="color: #94a3b8; font-size: 11px; margin-top: 8px; text-align: left;">جاري تهيئة قنوات النشر...</div>
+            </div>
+
+            <!-- Active Ads Summary (Static Details) -->
+            <div id="active-ads-summary-container" style="display: flex; align-items: center; justify-content: space-between; background: rgba(15, 23, 42, 0.3); border: 1px solid rgba(255,255,255,0.03); padding: 12px 20px; border-radius: 12px; font-size: 13.5px; color: #cbd5e1;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span>📢</span>
+                <span>إجمالي الإعلانات النشطة حالياً في قنوات التليجرام:</span>
+              </div>
+              <span id="active-ads-total-count" style="font-weight: 700; color: #10b981; font-size: 16px; font-family: monospace;">0 إعلان</span>
             </div>
           </div>
 
-          <!-- Pricing Plans Grid -->
-          <div class="pricing-cards-grid">
-            <div class="pricing-plan-card">
-              <div class="plan-header">
-                <h3 class="plan-name">الخطة الأساسية</h3>
-                <div class="plan-price">149 <span>ريال / شهر</span></div>
-                <p class="plan-desc">للأفراد والمشاريع الناشئة لبدء الأتمتة.</p>
+          <!-- Active Tasks Box -->
+          <div class="card active-tasks-card" id="active-tasks-card-container" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(59, 130, 246, 0.15); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px); display: none; box-shadow: 0 4px 20px rgba(59,130,246,0.05);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span class="pulse-text-animation" style="font-size: 20px;">🔄</span>
+                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">العمليات والمهام النشطة حالياً</h3>
               </div>
-              <ul class="plan-features">
-                <li>✓ حتى 5 حسابات تليجرام متصلة</li>
-                <li>✓ 10,000 رسالة إعلانية شهرياً</li>
-                <li>✓ نشر مجدول وحذف تلقائي</li>
-                <li>✓ فواصل أمان ضد الحظر</li>
-              </ul>
-              <button type="button" class="btn btn-secondary" onclick="selectPlanForPayment('basic')">اختيار الخطة</button>
             </div>
-
-            <div class="pricing-plan-card featured">
-              <div class="plan-header">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                  <h3 class="plan-name">الخطة الاحترافية (Pro)</h3>
-                  <span class="badge badge-info">الأكثر طلباً ⭐</span>
-                </div>
-                <div class="plan-price">399 <span>ريال / شهر</span></div>
-                <p class="plan-desc">للشركات وفرق التسويق للنشر الكثيف والمستمر.</p>
-              </div>
-              <ul class="plan-features">
-                <li>✓ حتى 50 حساب تليجرام متصل</li>
-                <li>✓ 500,000 رسالة إعلانية شهرياً</li>
-                <li>✓ استيراد كافة القنوات والمجلدات</li>
-                <li>✓ حملات تبادل وتثبيت غير محدودة</li>
-                <li>✓ تقارير لحظية ودعم فني مخصص</li>
-              </ul>
-              <button type="button" class="btn btn-primary" onclick="selectPlanForPayment('pro')">ترقية فورية الآن</button>
-            </div>
-
-            <div class="pricing-plan-card">
-              <div class="plan-header">
-                <h3 class="plan-name">خطة المؤسسات</h3>
-                <div class="plan-price">مخصصة</div>
-                <p class="plan-desc">للوكالات الإعلانية وشبكات القنوات الضخمة.</p>
-              </div>
-              <ul class="plan-features">
-                <li>✓ قنوات وحسابات غير محدودة</li>
-                <li>✓ إعلانات ورسائل غير محدودة</li>
-                <li>✓ سيرفرات سحابية معزولة ومخصصة</li>
-                <li>✓ مدير حساب مخصص على مدار 24 ساعة</li>
-              </ul>
-              <button type="button" class="btn btn-secondary" onclick="selectPlanForPayment('enterprise')">تواصل معنا</button>
+            <div id="active-jobs-list" style="display: grid; grid-template-columns: 1fr; gap: 12px;">
             </div>
           </div>
 
-          <!-- Crypto Payment Section -->
-          <div id="crypto-payment-section" class="card">
-            <div class="card-header-clean">
-              <div>
-                <div class="card-title">💳 الدفع والترقية الفورية بالعملات الرقمية</div>
-                <div class="card-subtitle">دفع آمن ومجهول 100% عبر USDT (TRC-20) مع تفعيل تلقائي فوري.</div>
+          <!-- Scheduled Tasks Box -->
+          <div class="card scheduled-tasks-card" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-size: 20px;">📅</span>
+                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">المهام والحملات المجدولة المستقبلية</h3>
               </div>
-              <span class="badge badge-success">USDT TRC20 / TON</span>
-            </div>
-
-            <div class="wallet-box">
-              <span style="font-size: 12px; color: var(--text-muted);">عنوان محفظة الإيداع الرسمية:</span>
-              <div class="wallet-address-row">
-                <span id="wallet-address-display" class="wallet-address font-mono">T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb</span>
-                <input type="hidden" id="wallet-address" value="T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb">
-                <button type="button" id="btn-copy-address" class="btn btn-secondary btn-sm">📋 نسخ العنوان</button>
-              </div>
-            </div>
-
-            <form id="crypto-payment-form" style="margin-top: 18px;">
-              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px;">
-                <div class="form-group">
-                  <label for="payment-plan-select" class="form-label">الخطة المراد تفعيلها</label>
-                  <select id="payment-plan-select" class="form-control">
-                    <option value="pro_month">الخطة الاحترافية - شهر واحد ($99 USDT)</option>
-                    <option value="pro_quarter">الخطة الاحترافية - 3 أشهر ($249 USDT - خصم 15%)</option>
-                    <option value="pro_year">الخطة الاحترافية - سنة كاملة ($799 USDT - خصم 30%)</option>
-                  </select>
-                </div>
-
-                <div class="form-group">
-                  <label for="payment-crypto-select" class="form-label">شبكة التحويل</label>
-                  <select id="payment-crypto-select" class="form-control">
-                    <option value="USDT_TRC20">USDT (TRON - TRC20)</option>
-                    <option value="TON">TON (The Open Network)</option>
-                  </select>
-                </div>
-
-                <div class="form-group" style="grid-column: 1 / -1;">
-                  <label for="payment-tx-hash" class="form-label">معرف المعاملة / Transaction Hash (TXID)</label>
-                  <input type="text" id="payment-tx-hash" class="form-control font-mono" placeholder="أدخل كود المعاملة بعد إتمام التحويل هنا للتحقق التلقائي...">
-                  <input type="hidden" id="payment-txid">
-                </div>
-              </div>
-
-              <div style="margin-top: 16px; display: flex; justify-content: flex-end;">
-                <button type="submit" id="btn-submit-payment" class="btn btn-primary" style="padding: 12px 28px;">
-                  <span class="btn-text">تأكيد عملية الدفع وتفعيل الاشتراك</span>
-                  <span class="spinner hidden"></span>
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <button type="button" id="btn-refresh-jobs" style="background: none; border: none; color: #60a5fa; cursor: pointer; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 4px;">
+                  <span>🔄 تحديث</span>
+                </button>
+                <button type="button" id="btn-clear-jobs" style="background: none; border: none; color: #f87171; cursor: pointer; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 4px;">
+                  <span>🗑️ إلغاء المجدول</span>
                 </button>
               </div>
-            </form>
+            </div>
+            <div id="scheduled-jobs-list" style="display: grid; grid-template-columns: 1fr; gap: 12px;">
+              <p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; padding: 12px; border: 1px dashed rgba(255,255,255,0.05); border-radius: 8px;">لا توجد حملات أو مهام مجدولة قيد الانتظار.</p>
+            </div>
           </div>
 
+          <!-- Recently Finished Tasks Box -->
+          <div class="card finished-tasks-card" id="finished-tasks-card-container" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-size: 20px;">✅</span>
+                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">المهام والعمليات المنتهية مؤخراً</h3>
+              </div>
+            </div>
+            <div id="finished-jobs-list" style="display: grid; grid-template-columns: 1fr; gap: 12px; max-height: 280px; overflow-y: auto; padding-inline-end: 6px;">
+              <p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; padding: 12px; border: 1px dashed rgba(255,255,255,0.05); border-radius: 8px;">لا توجد مهام منتهية مؤخراً.</p>
+            </div>
+          </div>
+
+          <!-- live event log center -->
+          <div class="card event-log-card" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-size: 20px;">💬</span>
+                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">
+                  <span class="hidden-mobile">مركز الإشعارات وسجل الأحداث (Saved Messages Log)</span>
+                  <span class="show-mobile">سجل الأحداث</span>
+                </h3>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <button type="button" id="btn-refresh-logs" style="background: none; border: none; color: #60a5fa; cursor: pointer; font-size: 13px; font-weight: 500; margin-left: 8px;">🔄 تحديث</button>
+                <button type="button" id="btn-clear-logs-web" style="background: none; border: none; color: #f87171; cursor: pointer; font-size: 13px; font-weight: 500;">🧹 مسح السجل</button>
+              </div>
+            </div>
+            <div id="logs-container" style="background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; padding: 16px; max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 13px; line-height: 1.6; display: flex; flex-direction: column; gap: 10px;">
+              <p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; font-family: sans-serif;">سجل الأحداث فارغ حالياً.</p>
+            </div>
+          </div>
         </section>
 
-
-        <!-- ==========================================
-             TAB 4: MESSAGE TEMPLATES LIBRARY
-             ========================================== -->
-        <section id="tab-templates" class="tab-panel hidden">
-          <div style="margin-bottom: 20px;">
-            <h2 class="page-title">مكتبة الصيغ والنصوص التسويقية</h2>
-            <p class="page-subtitle">احفظ نصوص إعلاناتك الجاهزة لاستخدامها بضغطة واحدة في أي وقت.</p>
+        <!-- Tab 2: الخطة والترقية -->
+        <section id="tab-plans" class="tab-panel hidden">
+          <div class="panel-header">
+            <h1 class="panel-title">خطط تفعيل المحرك السحابي المتاحة</h1>
+            <p class="panel-subtitle">اختر الخطة المناسبة لحجم نشاطك وقم بالترقية فوراً</p>
           </div>
 
-          <div class="card">
-            <div class="card-header-clean">
-              <div class="card-title">+ إضافة صيغة إعلانية جديدة</div>
-            </div>
-            <form id="template-add-form">
-              <div class="form-group">
-                <textarea id="template-text" class="form-control" rows="3" required placeholder="اكتب نص الإعلان الذي ترغب في حفظه كقالب..."></textarea>
+          <div class="pricing-grid">
+            <!-- Plan 0: Free Trial -->
+            <div class="price-card" data-plan="trial">
+              <div class="plan-header">
+                <span class="plan-badge green">مجاني</span>
+                <h3 class="plan-name">تجربة مجانية</h3>
+                <div class="plan-price">0$ <span class="period">/ يومين</span></div>
               </div>
-              <button type="submit" class="btn btn-primary btn-sm">💾 حفظ في المكتبة</button>
-            </form>
+              <ul class="plan-features">
+                <li>ربط حساب تليجرام واحد</li>
+                <li>توزيع ونشر تلقائي بالكامل</li>
+                <li>معدل تحديث 30 دقيقة</li>
+                <li>دعم فني محدود</li>
+              </ul>
+              <button class="btn btn-secondary btn-select-plan" onclick="switchTab('tab-connect')">ابدأ الفترة التجريبية مجاناً</button>
+            </div>
+
+
+
+            <!-- Plan 3: Monthly -->
+            <div class="price-card popular" data-plan="monthly">
+              <div class="plan-header">
+                <span class="plan-badge blue">⭐ الأكثر طلباً</span>
+                <h3 class="plan-name">اشتراك شهري</h3>
+                <div class="plan-price">
+                  50$ <span class="period">/ شهر</span>
+                </div>
+              </div>
+              <ul class="plan-features">
+                <li>نشر في أكثر من 100 قناة بضغطة زر</li>
+                <li>مزامنة المجلدات وحظر القنوات تلقائياً</li>
+                <li>حذف الإعلانات أوتوماتيكياً بدقة ثانية</li>
+                <li>تفعيل استيكر مخصص مانع للحظر</li>
+              </ul>
+              <button class="btn btn-primary btn-select-plan" onclick="switchTab('tab-plans', 'monthly')">اختر هذه الباقة للترقية</button>
+            </div>
+
+            <!-- Plan 4: 6-Months -->
+            <div class="price-card" data-plan="half_year">
+              <div class="plan-header">
+                <span class="plan-badge discount">وفر $60 (خصم 20%)</span>
+                <h3 class="plan-name">اشتراك 6 شهور</h3>
+                <div class="plan-price">
+                  <span style="text-decoration: line-through; color: #708499; font-size: 16px; margin-left: 8px;">$300</span>240$ <span class="period">/ 6 شهور</span>
+                </div>
+              </div>
+              <ul class="plan-features">
+                <li>توفير $60 بمعدل ($40/شهر فقط)</li>
+                <li>خوادم خاصة فائقة السرعة للعميل</li>
+                <li>دعم كامل لوكيل (Proxy SOCKS5) خاص</li>
+                <li>دعم فني مخصص ومباشر 24/7</li>
+              </ul>
+              <button class="btn btn-primary btn-select-plan" onclick="switchTab('tab-plans', 'half_year')">اختر هذه الباقة للترقية</button>
+            </div>
+
+            <!-- Plan 5: Yearly -->
+            <div class="price-card gold" data-plan="yearly">
+              <div class="plan-header">
+                <span class="plan-badge discount-gold">وفر $200 (4 شهور مجاناً 👑)</span>
+                <h3 class="plan-name">اشتراك سنوي</h3>
+                <div class="plan-price">
+                  <span style="text-decoration: line-through; color: #708499; font-size: 16px; margin-left: 8px;">$600</span>400$ <span class="period">/ سنة</span>
+                </div>
+              </div>
+              <ul class="plan-features">
+                <li>توفير قيمة 4 شهور مجاناً 🎁 ($33/شهر فقط)</li>
+                <li>نشر وإدارة قنوات غير محدودة</li>
+                <li>بروكسي SOCKS5 مخصص مجاني مدمج</li>
+                <li>مستشار ومدير حساب مخصص بالكامل</li>
+              </ul>
+              <button class="btn btn-primary btn-select-plan" onclick="switchTab('tab-plans', 'yearly')">اختر هذه الباقة للترقية</button>
+            </div>
           </div>
 
-          <div class="card">
-            <div class="card-header-clean">
-              <div class="card-title">قوالبك المحفوظة</div>
+          <!-- بوابة الدفع الآمنة (USDT) -->
+          <div id="crypto-payment-section" style="margin-top: 32px; border-top: 1px dashed rgba(255, 255, 255, 0.08); padding-top: 24px;">
+            <div class="panel-header" style="text-align: center; margin-bottom: 20px;">
+              <h2 class="panel-title" style="font-size: 18px; color: #fff; margin-bottom: 4px;">بوابة الدفع الآمنة بالعملات الرقمية (USDT)</h2>
+              <p class="panel-subtitle">قم بالتحويل على محفظتنا الآمنة ثم الصق رمز المعاملة للتفعيل التلقائي</p>
             </div>
-            <div id="templates-list-container">
-              <div class="empty-state-box">جاري تحميل مكتبة الصيغ...</div>
+
+            <div class="crypto-billing-layout">
+              <div class="crypto-payment-info card">
+                <h3 class="card-title">تفاصيل المحفظة الرقمية</h3>
+                
+                <div class="crypto-network-badge">
+                  <span>الشبكة المطلوبة:</span>
+                  <strong>USDT (Network: TRC20)</strong>
+                </div>
+
+                <!-- Static QR Code Placeholder -->
+                <div class="qr-code-wrapper">
+                  <div class="qr-code-placeholder">
+                    <img src="images/QRCode.png" alt="QR Code" style="width: 120px; height: 120px; display: block; object-fit: contain;">
+                  </div>
+                  <p class="qr-hint">[امسح الـ QR للتحويل المقبل من هاتفك]</p>
+                </div>
+
+                <div class="wallet-copy-box">
+                  <span class="label">عنوان محفظة الاستلام:</span>
+                  <div class="copy-input-row">
+                    <input type="text" id="wallet-address" readonly value="" placeholder="جاري تحميل عنوان المحفظة الآمنة...">
+                    <button id="btn-copy-address" class="btn btn-secondary">نسخ العنوان</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="crypto-submission-form card">
+                <h3 class="card-title">تأكيد معاملة التحويل</h3>
+                <form id="crypto-payment-form">
+                  <div class="input-group">
+                    <label for="payment-plan-select">الباقة المراد تفعيلها</label>
+                    <select id="payment-plan-select" required>
+                      <option value="" disabled selected>-- اختر الباقة التي قمت بتحويل قيمتها --</option>
+                      <option value="monthly">اشتراك شهري ($50)</option>
+                      <option value="half_year">اشتراك 6 شهور ($240 - وفر $60)</option>
+                      <option value="yearly">اشتراك سنوي ($400 - 4 شهور مجاناً 🎁)</option>
+                    </select>
+                  </div>
+
+                  <div class="input-group">
+                    <label for="payment-txid">رقم عملية التحويل (Transaction ID / TxID)</label>
+                    <input type="text" id="payment-txid" required placeholder="أدخل الـ Hash الخاص بالتحويل للتأكيد..." autocomplete="off">
+                    <p class="input-hint">تنبيه: يتم مطابقة الـ TxID وتفعيل الاشتراك آلياً بعد فحص البلوك تشين.</p>
+                  </div>
+
+                  <button type="submit" id="btn-submit-payment" class="btn btn-primary">
+                    <span class="btn-text">تأكيد وإرسال للمراجعة والتفعيل</span>
+                    <span class="spinner hidden"></span>
+                  </button>
+                </form>
+              </div>
             </div>
+          </div>
+        </section>
+
+        <!-- Tab 4: ربط المحرك (Telegram 2-Step Handshake) -->
+        <section id="tab-connect" class="tab-panel hidden">
+          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px;">
+            <div>
+              <h1 class="panel-title">معالج ربط المحرك السحابي الآمن لتليجرام</h1>
+              <p class="panel-subtitle">نربط حسابك عبر بروتوكول تليجرام الرسمي مباشرة لجدولة وإرسال الرسائل بدقة</p>
+            </div>
+            <button type="button" id="btn-open-engine-guide-modal" class="btn btn-secondary" style="font-size: 13px; display: inline-flex; align-items: center; gap: 6px;">
+              <span>📖 شرح خطوات الربط بالتفصيل والـ Progress</span>
+            </button>
+          </div>
+
+          <div class="connection-wizard-layout card">
+
+            <!-- Wizard Stepper & Live Progress Architecture -->
+            <div class="wizard-stepper-container">
+              <!-- Live Progress Top Status Bar -->
+              <div class="wizard-header-status-row">
+                <div class="wizard-status-left">
+                  <span class="wizard-step-pill-badge" id="wizard-current-step-badge">الخطوة 1 من 3</span>
+                  <span class="wizard-step-label-text" id="wizard-current-step-label">إدخال البيانات ومفاتيح الربط</span>
+                </div>
+                <div class="wizard-status-right">
+                  <span class="wizard-percentage-pill" id="wizard-percentage-pill">33% مكتمل</span>
+                </div>
+              </div>
+
+              <div class="wizard-progress-track">
+                <div class="wizard-progress-bar" id="wizard-progress-bar" style="width: 33%;"></div>
+              </div>
+              <div class="wizard-steps-list">
+                <div class="wizard-step-item active" id="wizard-step-node-1" onclick="switchWizardStep(1)" style="cursor: pointer;">
+                  <div class="wizard-step-circle">
+                    <span class="step-num">1</span>
+                    <span class="step-check hidden">✓</span>
+                  </div>
+                  <div class="wizard-step-text">
+                    <span class="wizard-step-title">البيانات والـ API</span>
+                    <span class="wizard-step-desc">الرقم ومفاتيح الربط</span>
+                  </div>
+                </div>
+
+                <div class="wizard-step-item" id="wizard-step-node-2" onclick="switchWizardStep(2)">
+                  <div class="wizard-step-circle">
+                    <span class="step-num">2</span>
+                    <span class="step-check hidden">✓</span>
+                  </div>
+                  <div class="wizard-step-text">
+                    <span class="wizard-step-title">كود التحقق و 2FA</span>
+                    <span class="wizard-step-desc">تأكيد ملكية الحساب</span>
+                  </div>
+                </div>
+
+                <div class="wizard-step-item" id="wizard-step-node-3" onclick="switchWizardStep(3)">
+                  <div class="wizard-step-circle">
+                    <span class="step-num">3</span>
+                    <span class="step-check hidden">✓</span>
+                  </div>
+                  <div class="wizard-step-text">
+                    <span class="wizard-step-title">المزامنة والتشغيل</span>
+                    <span class="wizard-step-desc">جاهزية المحرك السحابي</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- STEP 1 Layout -->
+            <div id="connect-step-1" class="wizard-step">
+              <div class="wizard-header">
+                <div class="step-badge" id="badge-step-1">الخطوة 1 من 3</div>
+                <h3>أدخل بيانات الاتصال الرسمية لحسابك</h3>
+                
+                <!-- Info Trigger Link -->
+                <button type="button" id="btn-trigger-guide" class="info-link-btn">
+                  💡 كيف يمكنني الحصول على الـ API ID والـ API Hash؟
+                </button>
+              </div>
+
+              <!-- Step 1 Explanatory Info Box -->
+              <div class="wizard-info-box">
+                <div class="wizard-info-icon">⚡</div>
+                <div class="wizard-info-content">
+                  <h4>خطوات ربط المحرك في دقيقة واحدة:</h4>
+                  <p>1. أدخل رقم هاتفك بالصيغة الدولية مع مفتاح الدولة (مثال: <code>+20...</code> لمصر أو <code>+966...</code> للسعودية).</p>
+                  <p>2. استخرج الـ <b>API ID</b> والـ <b>API Hash</b> مجاناً لمرة واحدة من موقع تليجرام الرسمي <a href="https://my.telegram.org" target="_blank" style="color: var(--brand-accent); text-decoration: underline;">my.telegram.org</a>.</p>
+                </div>
+              </div>
+
+              <form id="connect-form-step1">
+                <div class="input-group">
+                  <label for="telegram-phone">رقم الهاتف المرتبط بالتليجرام</label>
+                  <input type="tel" id="telegram-phone" required placeholder="+201XXXXXXXXX" dir="ltr">
+                  <p class="input-hint">أدخل رقم الهاتف مسبوقاً بمفتاح الدولة الدولي (مثال: +20... لمصر أو +966... للسعودية)</p>
+                </div>
+
+                <!-- Dedicated Step-by-Step API Guide Card for Mobile & Desktop -->
+                <div class="api-instructions-card">
+                  <div class="api-instructions-header" id="toggle-api-instructions" style="cursor: pointer;">
+                    <div class="api-header-title-box">
+                      <div class="api-badge-row">
+                        <span class="api-tag-free">مجاني ورسمي 100%</span>
+                        <span class="api-tag-once">لمرة واحدة فقط</span>
+                      </div>
+                      <h4 class="api-title-text">
+                        📖 كيف تستخرج الـ API ID والـ API Hash في دقيقة واحدة؟
+                      </h4>
+                      <p class="api-subtitle-text">
+                        شرح الخطوات الـ 4 بالتفصيل للموبايل والكمبيوتر (اضغط للتصغير/التوسيع) 📱
+                      </p>
+                    </div>
+                    <span class="api-toggle-icon" id="icon-toggle-api">▲</span>
+                  </div>
+
+                  <div class="api-instructions-body" id="body-api-instructions">
+                    <!-- Direct Link Button -->
+                    <div class="api-cta-box">
+                      <a href="https://my.telegram.org" target="_blank" rel="noopener noreferrer" class="btn-open-telegram-org">
+                        <span>🌐 اضغط هنا لفتح موقع my.telegram.org في نافذة جديدة</span>
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                      </a>
+                      <p class="api-notice-hint">
+                        💡 بعد فتح الرابط في متصفحك، اتبع الـ 4 خطوات الموضحة أدناه:
+                      </p>
+                    </div>
+
+                    <!-- 4 Steps Visual Flow -->
+                    <div class="api-steps-flow">
+                      
+                      <!-- Step 1 -->
+                      <div class="api-flow-step">
+                        <div class="flow-step-number">1</div>
+                        <div class="flow-step-body">
+                          <h5>1️⃣ تسجيل الدخول برقم هاتفك:</h5>
+                          <p>
+                            في خانة <b>Your Phone Number</b>، اكتب رقم هاتفك مسبوقاً بمفتاح دولتك (مثال: <code>+2010...</code> أو <code>+9665...</code>) ثم اضغط على زر <b>Next</b>.
+                          </p>
+                        </div>
+                      </div>
+
+                      <!-- Step 2 -->
+                      <div class="api-flow-step">
+                        <div class="flow-step-number">2</div>
+                        <div class="flow-step-body">
+                          <h5>2️⃣ نسخ كود التأكيد من تطبيق تليجرام:</h5>
+                          <p>
+                            افتح تطبيق تليجرام على هاتفك؛ ستصلك رسالة رسمية من حساب <b>Telegram</b> فيها كود التأكيد (Confirmation code). انسخ الكود والصقه في خانة الكود بالموقع ثم اضغط <b>Sign In</b>.
+                          </p>
+                        </div>
+                      </div>
+
+                      <!-- Step 3 -->
+                      <div class="api-flow-step">
+                        <div class="flow-step-number">3</div>
+                        <div class="flow-step-body">
+                          <h5>3️⃣ الضغط على أدوات التطوير (API development tools):</h5>
+                          <p>
+                            اضغط على أول خيار يظهر لك: <b>API development tools</b>. سيظهر لك نموذج صغير، املأ الخانتين بالإنجليزية (أي كلمة تريدها):
+                            <br>• خانة <b>App title</b>: اكتب أي اسم (مثال: <code>AutoTeleApp</code>).
+                            <br>• خانة <b>Short name</b>: اكتب أي كلمة قصيرة (مثال: <code>app1</code>).
+                            <br>• اترك باقي الخانات كما هي، ثم اضغط الزر الأزرق بالأسفل <b>Create application</b>.
+                          </p>
+                        </div>
+                      </div>
+
+                      <!-- Step 4 -->
+                      <div class="api-flow-step success-highlight">
+                        <div class="flow-step-number">4</div>
+                        <div class="flow-step-body">
+                          <h5>4️⃣ نسخ المفتاحين ولصقهما في الخانات بالأسفل:</h5>
+                          <p>
+                            مبروك! ستظهر لك صفحة جديدة بها مستطيلان:
+                            <br>• <b>App api_id</b>: (أرقام فقط) ⬅️ انسخ الرقم والصقه في خانة <b>Telegram API ID</b> أدناه.
+                            <br>• <b>App api_hash</b>: (حروف وأرقام إنجليزية) ⬅️ انسخه والصقه في خانة <b>Telegram API Hash</b> أدناه.
+                          </p>
+                        </div>
+                      </div>
+
+                    </div>
+
+                    <!-- Button to open screenshot carousel -->
+                    <div class="api-gallery-trigger-box">
+                      <button type="button" id="btn-show-photo-guide" class="btn btn-secondary btn-block-mobile">
+                        📸 تفضل رؤية الخطوات بالصور التوضيحية للشاشات؟ اضغط هنا
+                      </button>
+                    </div>
+
+                  </div>
+                </div>
+
+                <div class="input-group">
+                  <label for="telegram-api-id">Telegram API ID (الأرقام المستخرجة من الخطوة 4)</label>
+                  <input type="number" id="telegram-api-id" required placeholder="مثال: 1234567" dir="ltr">
+                </div>
+
+                <div class="input-group">
+                  <label for="telegram-api-hash">Telegram API Hash (الكود المستخرج من الخطوة 4)</label>
+                  <input type="text" id="telegram-api-hash" required placeholder="مثال: abcde123456fghijk..." dir="ltr" autocomplete="off">
+                </div>
+
+
+
+                <button type="submit" id="btn-send-code" class="btn btn-primary">
+                  <span class="btn-text">إرسال كود التحقق الآمن</span>
+                  <span class="spinner hidden"></span>
+                </button>
+              </form>
+            </div>
+
+            <!-- STEP 2 Layout (Hidden initially) -->
+            <div id="connect-step-2" class="wizard-step hidden">
+              <div class="wizard-header">
+                <div class="step-badge success" id="badge-step-2">الخطوة 2 من 3</div>
+                <h3>أدخل كود التأكيد المرسل إليك</h3>
+                <p id="phone-display-label" class="step-description">تم إرسال الكود إلى الرقم: --</p>
+              </div>
+
+              <!-- Step 2 Explanatory Info Box -->
+              <div class="wizard-info-box warning-theme">
+                <div class="wizard-info-icon">📩</div>
+                <div class="wizard-info-content">
+                  <h4>أين تجد كود التأكيد وباسورد 2FA؟</h4>
+                  <p>افتح تطبيق تليجرام على هاتفك أو حاسوبك؛ ستجد الكود مرسلاً في شات <b>Telegram</b> الرسمي (وليس رسالة SMS).</p>
+                  <p>إذا كان حسابك مفعلاً به التحقق بخطوتين (2FA)، أدخل باسورد تليجرام السحابي في الحقل الثاني بالأسفل.</p>
+                </div>
+              </div>
+
+              <form id="connect-form-step2">
+                <div class="input-group">
+                  <label for="telegram-code">كود التحقق (الـ 5 أرقام)</label>
+                  <input type="text" id="telegram-code" required placeholder="12345" maxlength="5" class="code-input" dir="ltr" autocomplete="off">
+                  <p class="input-hint">افتح تطبيق تليجرام على هاتفك أو حاسوبك؛ ستجد الكود مرسلاً من حساب Telegram الرسمي (وليس رسالة SMS).</p>
+                </div>
+
+                <!-- Resend Timer & Action -->
+                <div class="resend-code-wrapper">
+                  <span id="resend-timer-label">
+                    لم يصلك الكود؟ يمكنك طلب كود جديد بعد: <strong id="resend-countdown">01:30</strong>
+                  </span>
+                  <button type="button" id="btn-resend-code" class="btn-resend-link hidden">
+                    🔄 إعادة إرسال كود التأكيد الآن
+                  </button>
+                </div>
+
+                <div class="input-group">
+                  <label for="telegram-2fa">باسورد التحقق بخطوتين (2FA) - اختياري</label>
+                  <input type="password" id="telegram-2fa" placeholder="أدخل باسورد الـ 2FA إذا كان حسابك محمياً بها..." dir="ltr" autocomplete="off">
+                </div>
+
+                <div class="button-row">
+                  <button type="button" id="btn-back-to-step1" class="btn btn-secondary">تعديل البيانات السابقة</button>
+                  <button type="submit" id="btn-verify-code" class="btn btn-primary">
+                    <span class="btn-text">تفعيل وتأكيد ربط المحرك الآمن</span>
+                    <span class="spinner hidden"></span>
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            <!-- STEP 3 Layout: Dedicated Celebration & Sync Step (Hidden initially) -->
+            <div id="connect-step-3" class="wizard-step hidden">
+              <div class="wizard-step-success-card">
+                <div class="success-celebration-header">
+                  <div class="success-icon-pulse">
+                    <div class="success-icon-inner">✓</div>
+                  </div>
+                  <div class="step-badge success" id="badge-step-3" style="margin-top: 14px;">الخطوة 3 من 3: اكتملت العملية بنجاح!</div>
+                  <h2 class="success-title">🎉 تم تفعيل وربط المحرك السحابي بنجاح تام!</h2>
+                  <p class="success-desc">
+                    أصبح حسابك متصلاً الآن بنظام السحابة الآمن، وبإمكانك إطلاق حملاتك الإعلانية وجدولتها تلقائياً 24/7 دون أي انقطاع.
+                  </p>
+                </div>
+
+                <!-- Live Sync & Verification Checklist -->
+                <div class="sync-checkpoints-card">
+                  <h4 class="checkpoints-title">حالة المحرك السحابي والجاهزية الفورية:</h4>
+                  <div class="checkpoint-item completed">
+                    <span class="checkpoint-icon">✓</span>
+                    <div class="checkpoint-text">
+                      <strong>توثيق الجلسة وتشفيرها بنجاح</strong>
+                      <small>تم تشفير جلسة Telegram بتقنية 256-bit AES المقاومة للاختراق.</small>
+                    </div>
+                  </div>
+                  <div class="checkpoint-item completed">
+                    <span class="checkpoint-icon">✓</span>
+                    <div class="checkpoint-text">
+                      <strong>المحرك السحابي متصل ويعمل (Engine Online)</strong>
+                      <small>خوادم AutoTele متصلة ومستعدة لتنفيذ مهام النشر بدقة.</small>
+                    </div>
+                  </div>
+                  <div class="checkpoint-item completed">
+                    <span class="checkpoint-icon">✓</span>
+                    <div class="checkpoint-text">
+                      <strong>جاهز لجدولة ونشر الحملات الإعلانية</strong>
+                      <small>يمكنك الآن إنشاء حملاتك واختيار القنوات والمجلدات المستهدفة.</small>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Connected Account Summary Card -->
+                <div class="connected-account-summary">
+                  <div class="summary-field">
+                    <span class="summary-label">رقم الهاتف المتصل:</span>
+                    <strong class="summary-value" id="step3-connected-phone" dir="ltr">+--</strong>
+                  </div>
+                  <div class="summary-field">
+                    <span class="summary-label">حالة المحرك:</span>
+                    <span class="status-badge-active">🟢 متصل ونشط سحابياً</span>
+                  </div>
+                  <div class="summary-field">
+                    <span class="summary-label">نوع التشفير:</span>
+                    <span class="encryption-tag">🔒 End-to-End Encrypted</span>
+                  </div>
+                </div>
+
+                <!-- Action Buttons Grid -->
+                <div class="step3-actions-grid">
+                  <button type="button" id="btn-step3-go-dashboard" class="btn btn-primary btn-large-app">
+                    <span>🚀 الانتقال إلى لوحة التحكم وبدء أول حملة</span>
+                  </button>
+                  <button type="button" id="btn-step3-open-folders" class="btn btn-secondary btn-large-app">
+                    <span>📂 فتح دليل تهيئة مجلدات تليجرام (حملات، استثناء، حظر)</span>
+                  </button>
+                  <button type="button" id="btn-step3-connect-another" class="btn-text-link">
+                    <span>➕ هل تريد ربط حساب تليجرام إضافي؟</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Tab 5: مكتبة الصيغ -->
+        <section id="tab-templates" class="tab-panel hidden">
+          <div class="panel-header">
+            <h1 class="panel-title">مكتبة صيغ الإعلانات المتكاملة</h1>
+            <p class="panel-subtitle">أضف الصيغ والرسائل التسويقية وسيتم تعويض الحقول والروابط ديناميكياً لكل إعلان</p>
+          </div>
+
+          <div class="templates-layout">
+            <div class="template-form-card card">
+              <h3 class="card-title">إضافة صيغة إعلان جديدة لمكتبتك</h3>
+              
+              <form id="template-add-form">
+                <div class="input-group">
+                  <label for="template-text">نص صيغة الرسالة الإعلانية</label>
+                  <textarea id="template-text" required placeholder="اكتب صيغة الإعلان الخاصة بك هنا..." rows="8"></textarea>
+                </div>
+
+                <button type="submit" id="btn-add-template" class="btn btn-primary">
+                  <span class="btn-text">إضافة الصيغة للمكتبة الخارجية</span>
+                  <span class="spinner hidden"></span>
+                </button>
+              </form>
+            </div>
+
+            <!-- Templates List Card (Full Width) -->
+            <div class="template-list-card card" style="grid-column: 1 / -1; margin-top: 10px;">
+              <h3 class="card-title" style="display: flex; align-items: center; gap: 8px;">
+                <span>📚</span>
+                <span>الصيغ المضافة حالياً في مكتبتك</span>
+              </h3>
+              <div id="templates-list-container" style="margin-top: 20px;">
+                <p style="color: #94a3b8; font-size: 13px; text-align: center; padding: 20px;">جاري تحميل مكتبة الصيغ الخاصة بك...</p>
+              </div>
+            </div>
+
           </div>
         </section>
 
       </main>
-
-      <!-- Mobile Fixed Bottom Navigation Bar -->
-      <nav class="mobile-bottom-nav">
-        <button type="button" class="bottom-nav-item active" data-tab="tab-subscription" onclick="switchTab('tab-subscription'); toggleSubscriptionSubView('overview');">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-          <span>الرئيسية</span>
-        </button>
-        <button type="button" class="bottom-nav-item" data-tab="tab-subscription-campaign" onclick="switchTab('tab-subscription'); toggleSubscriptionSubView('campaign');">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
-          <span>الحملات</span>
-        </button>
-        <button type="button" class="bottom-nav-item" data-tab="tab-connect" onclick="switchTab('tab-connect')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-          <span>المحرك</span>
-        </button>
-        <button type="button" class="bottom-nav-item" data-tab="tab-plans" onclick="switchTab('tab-plans')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>
-          <span>الاشتراك</span>
-        </button>
-        <button type="button" class="bottom-nav-item" onclick="openMobileDrawer()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
-          <span>المزيد</span>
-        </button>
-      </nav>
-
     </div>
+
+    <!-- Mobile Bottom Navigation Dock (Visible on Mobile & Tablet < 1025px) -->
+    <nav class="mobile-bottom-nav" aria-label="التنقل السفلي">
+      <button class="bottom-nav-item active" data-tab="tab-subscription" onclick="switchTab('tab-subscription')">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        <span>الرئيسية</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="tab-plans" onclick="switchTab('tab-plans')">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        <span>الخطط</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="tab-connect" onclick="switchTab('tab-connect')">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+        <span>ربط المحرك</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="tab-templates" onclick="switchTab('tab-templates')">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        <span>الصيغ</span>
+      </button>
+    </nav>
+
   </div>
 
 
   <!-- ==========================================
-       3. MODALS & OVERLAYS
+       3. MODAL: Walkthrough Guide (4-Step Carousel)
        ========================================== -->
-
-  <!-- Forgot Password Modal -->
-  <div id="forgot-password-modal" class="modal-overlay hidden">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h3 class="modal-title"><span>🔑</span> استعادة كلمة المرور</h3>
-        <button type="button" id="btn-close-forgot" class="modal-close-btn">&times;</button>
-      </div>
-      <form id="forgot-password-form" class="modal-body">
-        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
-          أدخل عنوان بريدك الإلكتروني المسجل وسنرسل لك تعليمات استعادة الحساب فوراً.
-        </p>
-        <div class="input-group">
-          <label for="forgot-email">البريد الإلكتروني</label>
-          <input type="email" id="forgot-email" required placeholder="name@company.com">
-        </div>
-        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px;">
-          <button type="button" id="btn-cancel-forgot" class="btn btn-secondary">إلغاء</button>
-          <button type="submit" id="btn-submit-forgot" class="btn btn-primary">
-            <span>إرسال التعليمات</span>
-            <span class="spinner hidden"></span>
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Edit Job Modal -->
-  <div id="edit-job-modal" class="modal-overlay hidden">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h3 class="modal-title">
-          <span>✏️</span> تعديل بيانات المهمة <span id="edit-job-id-badge" class="badge badge-neutral font-mono">#</span>
-        </h3>
-        <button type="button" id="btn-close-edit-modal" class="modal-close-btn">&times;</button>
-      </div>
-      <form id="edit-job-form" class="modal-body">
-        <input type="hidden" id="edit-job-id">
-        <input type="hidden" id="edit-job-interval" value="0">
-        
-        <div class="input-group">
-          <label for="edit-job-delay-start">⏱️ تأخير موعد البدء (بالدقائق من الآن):</label>
-          <input type="number" id="edit-job-delay-start" min="0" max="10080" class="form-control">
-        </div>
-
-        <div class="input-group">
-          <label for="edit-job-lifespan">⏳ مدة بقاء الإعلان قبل الحذف (بالدقائق):</label>
-          <input type="number" id="edit-job-lifespan" min="0" max="10080" class="form-control">
-        </div>
-
-        <div class="input-group">
-          <label for="edit-job-target">🎯 القناة أو المجموعة المستهدفة:</label>
-          <input type="text" id="edit-job-target" class="form-control font-mono">
-        </div>
-
-        <div class="input-group">
-          <label for="edit-job-custom-text">📝 نص الإعلان المخصص:</label>
-          <textarea id="edit-job-custom-text" class="form-control" rows="3"></textarea>
-        </div>
-
-        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px;">
-          <button type="button" id="btn-cancel-edit-job" class="btn btn-secondary">إلغاء</button>
-          <button type="submit" id="btn-save-edit-job" class="btn btn-primary">
-            <span>💾 حفظ التعديلات</span>
-            <span class="spinner hidden"></span>
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Guide Carousel Modal (API ID & Hash Extraction) -->
   <div id="guide-modal" class="modal-overlay hidden">
-    <div class="modal-card" style="max-width: 600px;">
+    <div class="modal-card">
       <div class="modal-header">
-        <h3 class="modal-title"><span>📘</span> دليل استخراج API ID & Hash من تليجرام</h3>
-        <button type="button" id="btn-close-modal" class="modal-close-btn">&times;</button>
+        <h3>دليل استخراج بيانات التليجرام الآمنة</h3>
+        <button id="btn-close-modal" class="close-btn">&times;</button>
       </div>
-      <div class="modal-body" style="padding: 18px; text-align: center;">
-        <div style="position: relative; border-radius: var(--radius-md); overflow: hidden; background: #000; margin-bottom: 14px;">
-          <img id="carousel-img" src="assets/guide/step1.png" alt="شرح استخراج API" style="width: 100%; max-height: 320px; object-fit: contain; display: block;">
-        </div>
-        <p id="carousel-caption" style="font-size: 13.5px; font-weight: 600; color: #fff; min-height: 40px; display: flex; align-items: center; justify-content: center;">
-          الخطوة 1: افتح موقع my.telegram.org وسجل الدخول برقم هاتفك
-        </p>
+      
+      <div class="modal-body">
         
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px;">
-          <button type="button" id="btn-prev-slide" class="btn btn-secondary btn-sm">السابق</button>
-          <div id="carousel-indicators" style="display: flex; gap: 6px;"></div>
-          <button type="button" id="btn-next-slide" class="btn btn-secondary btn-sm">التالي</button>
+        <!-- Slide 1 -->
+        <div class="guide-slide active" data-slide="0">
+          <div class="slide-media-frame">
+            <img src="images/api_1.png" alt="الخطوة الأولى" class="guide-image">
+          </div>
+          <h4 class="slide-title">الخطوة الأولى: الدخول للموقع الرسمي</h4>
+          <p class="slide-text">اضغط على الرابط الرسمي لتهيئة مطوري تليجرام وسجل دخولك برقم هاتفك الذي تريد تشغيل البوت عليه.</p>
+          <div class="slide-action">
+            <a href="https://my.telegram.org" target="_blank" class="btn btn-secondary link-external">
+              <span>الانتقال إلى my.telegram.org</span>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </a>
+          </div>
         </div>
+
+        <!-- Slide 2 -->
+        <div class="guide-slide hidden" data-slide="1">
+          <div class="slide-media-frame">
+            <img src="images/api_2.png" alt="الخطوة الثانية" class="guide-image">
+          </div>
+          <h4 class="slide-title">الخطوة الثانية: كود التحقق</h4>
+          <p class="slide-text">سيصلك كود تحقق (Confirmation Code) مباشرة داخل تطبيق تليجرام الخاص بك (وليس كرسالة SMS). قم بنسخه وكتابته في الموقع لتأكيد تسجيل الدخول.</p>
+        </div>
+
+        <!-- Slide 3 -->
+        <div class="guide-slide hidden" data-slide="2">
+          <div class="slide-media-frame">
+            <img src="images/api_3.png" alt="الخطوة الثالثة" class="guide-image">
+          </div>
+          <h4 class="slide-title">الخطوة الثالثة: أدوات التطوير</h4>
+          <p class="slide-text">بعد الدخول، اضقف على خيار 'API development tools'. سيظهر لك نموذج صغير، قم بكتابة أي اسم عشوائي في خانة 'App title' وخانة 'Short name'، واختيار 'Web' في نوع المنصة، ثم اضغط Create.</p>
+        </div>
+
+        <!-- Slide 4 -->
+        <div class="guide-slide hidden" data-slide="3">
+          <div class="slide-media-frame">
+            <img src="images/api_4.png" alt="الخطوة الرابعة" class="guide-image">
+          </div>
+          <h4 class="slide-title">الخطوة الرابعة: نسخ البيانات الآمنة</h4>
+          <p class="slide-text font-danger">مبروك! سيظهر لك الآن الـ App api_id والـ App api_hash الخاصين بحسابك. قم بنسخهم بالكامل والصقهم في لوحة تحكم موقعنا لتفعيل المحرك فوراً.</p>
+          <div class="slide-warning-badge">
+            ⚠️ تحذير: لا تشارك هذه البيانات مع أي شخص آخر نهائياً!
+          </div>
+        </div>
+
+      </div>
+
+      <div class="modal-footer">
+        <button id="btn-prev-slide" class="btn btn-secondary" disabled>السابق</button>
+        
+        <div class="slide-dots">
+          <span class="dot active" data-slide="0"></span>
+          <span class="dot" data-slide="1"></span>
+          <span class="dot" data-slide="2"></span>
+          <span class="dot" data-slide="3"></span>
+        </div>
+
+        <button id="btn-next-slide" class="btn btn-primary">التالي</button>
       </div>
     </div>
   </div>
 
-  <!-- Telegram Folders Guide Modal -->
+  <!-- ==========================================
+       4. MODAL: Folders Setup Guide (3-Step Carousel Popup)
+       ========================================== -->
   <div id="folders-guide-modal" class="modal-overlay hidden">
-    <div class="modal-card" style="max-width: 600px;">
+    <div class="modal-card">
       <div class="modal-header">
-        <h3 class="modal-title"><span>📁</span> دليل تنظيم واستيراد مجلدات تليجرام</h3>
-        <button type="button" id="btn-close-folders-modal" class="modal-close-btn">&times;</button>
+        <h3>دليل تهيئة مجلدات تليجرام الذكية</h3>
+        <button id="btn-close-folders-modal" class="close-btn">&times;</button>
       </div>
-      <div class="modal-body" style="padding: 18px; text-align: center;">
-        <div style="position: relative; border-radius: var(--radius-md); overflow: hidden; background: #000; margin-bottom: 14px;">
-          <img id="folders-carousel-img" src="assets/guide/folders_step1.png" alt="شرح المجلدات" style="width: 100%; max-height: 320px; object-fit: contain; display: block;">
-        </div>
-        <p id="folders-carousel-caption" style="font-size: 13.5px; font-weight: 600; color: #fff; min-height: 40px; display: flex; align-items: center; justify-content: center;">
-          الخطوة 1: أنشئ مجلداً في تطبيق تليجرام واجمع فيه القنوات المستهدفة
-        </p>
+      
+      <div class="modal-body">
         
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px;">
-          <button type="button" id="btn-prev-folders-slide" class="btn btn-secondary btn-sm">السابق</button>
-          <div id="folders-carousel-indicators" style="display: flex; gap: 6px;"></div>
-          <button type="button" id="btn-next-folders-slide" class="btn btn-secondary btn-sm">التالي</button>
+        <!-- Folder Slide 1 -->
+        <div class="folders-guide-slide active" data-folders-slide="0">
+          <div class="slide-media-frame">
+            <div class="dummy-media" style="border-color: #2481cc; background: rgba(36, 129, 204, 0.03); padding: 20px;">
+              <span class="media-icon" style="font-size: 40px; margin-bottom: 10px;">📁</span>
+              <div style="display: flex; gap: 10px; align-items: center; justify-content: center; width: 100%;">
+                <code id="folder-campaign-text" style="font-size: 16px; font-weight: 700; background: #24303f; color: #f59e0b; padding: 6px 12px; border-radius: 6px; font-family: monospace;">حملات</code>
+                <button type="button" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px; height: auto;" onclick="copyFolderNameToClipboard('folder-campaign-text')">📋 نسخ الاسم</button>
+              </div>
+            </div>
+          </div>
+          <h4 class="slide-title" style="color: #2481cc;">📦 مجلد أهداف الحملات المجمعة</h4>
+          <p class="slide-text" style="font-size: 13px; line-height: 1.6; color: #b1c3d4; margin-bottom: 8px;">
+            <strong>💡 سبب الاستخدام:</strong> لتجميع القنوات التي تريد الترويج لها وضخ إعلاناتها في قنواتك الأخرى دفعة واحدة بدون الحاجة لكتابة أمر منفصل لكل قناة.
+          </p>
+          <p class="slide-text" style="font-size: 13px; line-height: 1.6; color: #b1c3d4;">
+            <strong>🎯 مثال حي للاستخدام:</strong> ضع قنوات التوصيات الخاصة بك داخل هذا المجلد، ثم اكتب في شات الرسائل المحفوظة: <code style="display: inline-block; background: #17212b; padding: 2px 6px; border-radius: 4px; color: #10b981; font-family: monospace; direction: ltr;">.حملات</code> وسيسحب البوت القنوات تلقائياً وينشرها بالتناوب الفوري.
+          </p>
         </div>
+
+        <!-- Folder Slide 2 -->
+        <div class="folders-guide-slide hidden" data-folders-slide="1">
+          <div class="slide-media-frame">
+            <div class="dummy-media" style="border-color: #f59e0b; background: rgba(245, 158, 11, 0.03); padding: 20px;">
+              <span class="media-icon" style="font-size: 40px; margin-bottom: 10px;">🚫</span>
+              <div style="display: flex; gap: 10px; align-items: center; justify-content: center; width: 100%;">
+                <code id="folder-nopost-text" style="font-size: 16px; font-weight: 700; background: #24303f; color: #f59e0b; padding: 6px 12px; border-radius: 6px; font-family: monospace;">استثناء</code>
+                <button type="button" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px; height: auto;" onclick="copyFolderNameToClipboard('folder-nopost-text')">📋 نسخ الاسم</button>
+              </div>
+            </div>
+          </div>
+          <h4 class="slide-title" style="color: #f59e0b;">🔒 مجلد الاستثناء (No_Post)</h4>
+          <p class="slide-text" style="font-size: 13px; line-height: 1.6; color: #b1c3d4; margin-bottom: 8px;">
+            <strong>💡 سبب الاستخدام:</strong> مثلاً فيه ناس أصحاب قنوات عايزينك تنشر لهم ولكن ما تنشرش عندهم، يتم إضافتهم في المجلد ده.
+          </p>
+          <p class="slide-text" style="font-size: 13px; line-height: 1.6; color: #b1c3d4;">
+            <strong>🎯 مثال حي للاستخدام:</strong> عند إضافة قناة شريك ما في مجلد <code style="color: #f59e0b;">استثناء</code>، سيقوم البوت بمتابعة النشر له وتخطيه تماماً أثناء النشر المتبادل لتنفيذ رغبته.
+          </p>
+        </div>
+
+        <!-- Folder Slide 3 -->
+        <div class="folders-guide-slide hidden" data-folders-slide="2">
+          <div class="slide-media-frame">
+            <div class="dummy-media" style="border-color: #f43f5e; background: rgba(244, 63, 94, 0.03); padding: 20px;">
+              <span class="media-icon" style="font-size: 40px; margin-bottom: 10px;">💀</span>
+              <div style="display: flex; gap: 10px; align-items: center; justify-content: center; width: 100%;">
+                <code id="folder-banned-text" style="font-size: 16px; font-weight: 700; background: #24303f; color: #f43f5e; padding: 6px 12px; border-radius: 6px; font-family: monospace;">حظر</code>
+                <button type="button" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px; height: auto;" onclick="copyFolderNameToClipboard('folder-banned-text')">📋 نسخ الاسم</button>
+              </div>
+            </div>
+          </div>
+          <h4 class="slide-title" style="color: #f43f5e;">🛑 مجلد الحظر (BANNED)</h4>
+          <p class="slide-text" style="font-size: 13px; line-height: 1.6; color: #b1c3d4; margin-bottom: 8px;">
+            <strong>💡 سبب الاستخدام:</strong> لمنع البوت من النشر العشوائي في مجموعات العمل الحساسة، أو جروبات العائلة، أو قنوات أصدقائك التي تمتلك فيها صلاحية مشرف.
+          </p>
+          <p class="slide-text" style="font-size: 13px; line-height: 1.6; color: #b1c3d4;">
+            <strong>🎯 مثال حي للاستخدام:</strong> بمجرد وضع جروب دردشة المتداولين داخل مجلد <code style="color: #f43f5e;">حظر</code>، سيقوم المحرك بتخطيه تماماً أثناء عمل موجات التبادل التلقائي لحماية خصوصيتك ومنع التشويه.
+          </p>
+        </div>
+
+      </div>
+
+      <div class="modal-footer">
+        <button id="btn-prev-folders-slide" class="btn btn-secondary" disabled>السابق</button>
+        
+        <div class="folders-slide-dots">
+          <span class="dot active" data-folders-slide="0"></span>
+          <span class="dot" data-folders-slide="1"></span>
+          <span class="dot" data-folders-slide="2"></span>
+        </div>
+
+        <button id="btn-next-folders-slide" class="btn btn-primary">التالي</button>
       </div>
     </div>
   </div>
 
-  <!-- One-Time Guided Onboarding Modal (مسار الإعداد والتشغيل السريع لمنصتك) -->
-  <div id="engine-onboarding-modal" class="modal-overlay hidden" style="display: none;">
-    <div class="modal-card" style="max-width: 560px;">
-      <!-- Modal Header -->
-      <div class="modal-header">
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <div class="onboarding-icon-wrap" style="width: 36px; height: 36px; font-size: 18px; border-radius: var(--radius-md); background: var(--brand-primary-subtle); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">🚀</div>
+
+  <!-- JavaScript Main Script -->
+  <script src="script.js?_t=1787019024&v=3.2.94"></script>
+
+  <!-- Edit Scheduled Job Modal -->
+  <div id="edit-job-modal" class="modal-overlay hidden" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 99999; padding: 16px; opacity: 0; pointer-events: none; transition: all 0.3s ease;">
+    <div class="modal-card" style="background: linear-gradient(145deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.98)); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 16px; width: 100%; max-width: 520px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); overflow: hidden; transform: scale(0.95); transition: all 0.3s ease; direction: rtl; text-align: right;">
+      <div style="padding: 18px 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between;">
+        <h3 style="margin: 0; font-size: 17px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px;">
+          <span>✏️</span> تعديل بيانات المهمة المجدولة <span id="edit-job-id-badge" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-family: monospace;">#</span>
+        </h3>
+        <button type="button" onclick="closeEditJobModal()" style="background: none; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; line-height: 1;">&times;</button>
+      </div>
+      
+      <form id="edit-job-form" onsubmit="submitEditJob(event)" style="padding: 20px 24px; display: flex; flex-direction: column; gap: 16px;">
+        <input type="hidden" id="edit-job-id">
+        
+        <div>
+          <label style="display: block; font-size: 13px; font-weight: 600; color: #cbd5e1; margin-bottom: 6px;">⏱️ تأخير موعد البدء (بالدقائق من الآن):</label>
+          <input type="number" id="edit-job-delay-start" min="0" max="10080" style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #fff; font-size: 14px; box-sizing: border-box;" placeholder="0 للبدء الفوري، أو مثلاً 30 للبدء بعد نصف ساعة">
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
           <div>
-            <h3 class="modal-title" style="margin: 0; font-size: 15px; font-weight: 700; color: #fff;">مسار الإعداد والتشغيل السريع لمنصتك</h3>
-            <p style="margin: 2px 0 0; font-size: 11.5px; color: var(--text-secondary);">مرحباً بك! أكمل هذه الخطوات البسيطة لتبدأ أتمتة إعلاناتك وجلب النتائج</p>
+            <label style="display: block; font-size: 13px; font-weight: 600; color: #cbd5e1; margin-bottom: 6px;">⏳ الفاصل بين القنوات (د):</label>
+            <input type="number" id="edit-job-interval" min="0" max="1440" style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #fff; font-size: 14px; box-sizing: border-box;" placeholder="بالدقائق">
           </div>
-        </div>
-        <button type="button" id="btn-close-engine-onboarding" class="modal-close-btn" style="background: none; border: none; color: var(--text-muted); font-size: 22px; cursor: pointer; line-height: 1; padding: 4px;">&times;</button>
-      </div>
-
-      <!-- Modal Body -->
-      <div class="modal-body" style="padding: 18px 20px; max-height: 72vh; overflow-y: auto;">
-        
-        <div id="onboarding-checklist-card" class="onboarding-wizard-card" style="background: transparent; border: none; padding: 0; margin: 0;">
-          <div class="onboarding-steps-grid">
-            
-            <!-- Step 1 -->
-            <div class="onboarding-step-item completed" id="step-item-auth">
-              <div class="step-num-badge">✓</div>
-              <div class="step-info">
-                <div class="step-title">1. إنشاء الحساب وتأمينه</div>
-                <div class="step-desc">تم توثيق بريدك الإلكتروني بنجاح وجاهز للاستخدام.</div>
-              </div>
-              <span class="badge badge-success" style="font-size: 11px;">مكتمل</span>
-            </div>
-
-            <!-- Step 2 -->
-            <div class="onboarding-step-item in-progress" id="step-item-engine">
-              <div class="step-num-badge">2</div>
-              <div class="step-info">
-                <div class="step-title">2. ربط محرك تليجرام السحابي</div>
-                <div class="step-desc">الخطوة الأهم: اربط رقم هاتفك ومفاتيح API الرسمية لتشغيل الأتمتة السحابية 24/7.</div>
-                <div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
-                  <button type="button" id="btn-start-engine-linking" class="btn btn-primary btn-sm">
-                    <span>ابدأ ربط المحرك الآن ⚡</span>
-                  </button>
-                  <button type="button" id="btn-modal-open-guide" class="btn btn-ghost btn-sm" onclick="openApiGuideModal()">
-                    <span>شرح استخراج API بالصور 📸</span>
-                  </button>
-                </div>
-              </div>
-              <span class="badge badge-info" style="font-size: 11px;">مطلوب</span>
-            </div>
-
-            <!-- Step 3 -->
-            <div class="onboarding-step-item" id="step-item-channels">
-              <div class="step-num-badge">3</div>
-              <div class="step-info">
-                <div class="step-title">3. استيراد وتحديد قنوات النشر</div>
-                <div class="step-desc">اختر القنوات المستهدفة أو مجلدات تليجرام من القائمة بضغطة زر.</div>
-              </div>
-            </div>
-
-            <!-- Step 4 -->
-            <div class="onboarding-step-item" id="step-item-campaign">
-              <div class="step-num-badge">4</div>
-              <div class="step-info">
-                <div class="step-title">4. إطلاق أول حملة إعلانية</div>
-                <div class="step-desc">صمّم إعلانك، حدّد فترات التكرار، ودع المحرك يتولى النشر الآلي.</div>
-              </div>
-            </div>
-
+          <div>
+            <label style="display: block; font-size: 13px; font-weight: 600; color: #cbd5e1; margin-bottom: 6px;">🗑️ مدة بقاء الإعلان (د):</label>
+            <input type="number" id="edit-job-lifespan" min="0" max="10080" style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #fff; font-size: 14px; box-sizing: border-box;" placeholder="بالدقائق قبل الحذف">
           </div>
         </div>
 
-      </div>
+        <div>
+          <label style="display: block; font-size: 13px; font-weight: 600; color: #cbd5e1; margin-bottom: 6px;">🎯 الهدف المستهدف (رابط القناة أو رقم المجلد):</label>
+          <input type="text" id="edit-job-target" style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #fff; font-size: 14px; box-sizing: border-box;" placeholder="@channel أو 2 لمجلد My_channels2">
+        </div>
 
-      <!-- Modal Footer -->
-      <div class="modal-footer" style="padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-subtle); background: var(--bg-surface-subtle);">
-        <button type="button" id="btn-dismiss-engine-onboarding" class="btn btn-secondary btn-sm">
-          <span>فهمت ذلك، استكشف المنصة أولاً</span>
-        </button>
-        <button type="button" class="btn btn-primary btn-sm" onclick="closeEngineOnboardingModal(); switchTab('tab-connect');">
-          <span>ربط المحرك الآن (دقيقتان) ←</span>
-        </button>
-      </div>
+        <div>
+          <label style="display: block; font-size: 13px; font-weight: 600; color: #cbd5e1; margin-bottom: 6px;">📝 نص الإعلان المخصص:</label>
+          <textarea id="edit-job-custom-text" rows="3" style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #fff; font-size: 13.5px; line-height: 1.5; resize: vertical; box-sizing: border-box;" placeholder="اتركه فارغاً لاستخدام الصيغة الافتراضية"></textarea>
+        </div>
 
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px;">
+          <button type="button" onclick="closeEditJobModal()" style="padding: 10px 18px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #cbd5e1; font-size: 13.5px; font-weight: 600; cursor: pointer;">إلغاء</button>
+          <button type="submit" id="btn-save-edit-job" style="padding: 10px 22px; background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; border-radius: 8px; color: #fff; font-size: 13.5px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4);">💾 حفظ التعديلات</button>
+        </div>
+      </form>
     </div>
   </div>
 
-  <!-- Hidden Compatibility Elements for script.js queries -->
-  <div style="display: none;">
-    <span id="sim-msg-content"></span>
-    <span id="sim-msg-time"></span>
-    <button type="button" id="btn-link-status-bot"></button>
-    <button type="button" id="btn-clear-channel-selection"></button>
-    <button type="button" id="btn-refresh-channels"></button>
-    <button type="button" id="btn-add-target-link"></button>
-  </div>
-
-  <!-- Helper UI Switcher Scripts -->
-  <script>
-    function toggleSubscriptionSubView(view) {
-      const overviewEl = document.getElementById("subview-overview");
-      const campaignEl = document.getElementById("subview-campaign");
-      const btnOverview = document.getElementById("subtab-overview-btn");
-      const btnCampaign = document.getElementById("subtab-campaign-btn");
-
-      if (view === "campaign") {
-        if (overviewEl) overviewEl.classList.add("hidden");
-        if (campaignEl) campaignEl.classList.remove("hidden");
-        if (btnOverview) btnOverview.classList.remove("active");
-        if (btnCampaign) btnCampaign.classList.add("active");
-        // Update bottom nav active state
-        document.querySelectorAll(".bottom-nav-item").forEach(b => b.classList.remove("active"));
-        const bItem = document.querySelector(".bottom-nav-item[data-tab='tab-subscription-campaign']");
-        if (bItem) bItem.classList.add("active");
-      } else {
-        if (campaignEl) campaignEl.classList.add("hidden");
-        if (overviewEl) overviewEl.classList.remove("hidden");
-        if (btnCampaign) btnCampaign.classList.remove("active");
-        if (btnOverview) btnOverview.classList.add("active");
-        // Update bottom nav active state
-        document.querySelectorAll(".bottom-nav-item").forEach(b => b.classList.remove("active"));
-        const bItem = document.querySelector(".bottom-nav-item[data-tab='tab-subscription']");
-        if (bItem) bItem.classList.add("active");
-      }
-    }
-
-    function openMobileDrawer() {
-      const drawer = document.getElementById("mobile-nav-drawer");
-      const backdrop = document.getElementById("mobile-drawer-backdrop");
-      if (drawer) drawer.classList.add("open");
-      if (backdrop) backdrop.classList.remove("hidden");
-      document.body.classList.add("drawer-open");
-    }
-
-    function closeMobileDrawer() {
-      const drawer = document.getElementById("mobile-nav-drawer");
-      const backdrop = document.getElementById("mobile-drawer-backdrop");
-      if (drawer) drawer.classList.remove("open");
-      if (backdrop) backdrop.classList.add("hidden");
-      document.body.classList.remove("drawer-open");
-    }
-
-    function selectPlanForPayment(plan) {
-      switchTab('tab-plans', plan);
-      const cryptoSection = document.getElementById('crypto-payment-section');
-      if (cryptoSection) {
-        cryptoSection.scrollIntoView({ behavior: 'smooth' });
-      }
-    }
-  </script>
-
-  <!-- Main JavaScript App Engine -->
-  <script src="script.js?v=4.0.0"></script>
 </body>
 </html>
