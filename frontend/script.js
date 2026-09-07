@@ -119,13 +119,13 @@ async function apiRequest(endpoint, options = {}) {
 
       // Capture HTTP 420 (FloodWait) and HTTP 400 (Bad Requests) for localized toasts
       if (response.status === 420) {
-        showToast(errorMessage || "رقمك مقيد للفلود من تليجرام، يرجى الانتظار والمحاولة لاحقاً.", "error");
-      } else if (response.status === 400) {
-        showToast(errorMessage || "البيانات المدخلة غير صحيحة، يرجى التحقق منها.", "error");
+        showToast(errorMessage || "تم تقييد الحساب مؤقتاً للفلود من تليجرام، يرجى الانتظار والمحاولة لاحقاً.", "error", 8000);
       } else if (response.status === 429) {
-        showToast("طلبات كثيرة جداً، يرجى التمهل والمحاولة بعد قليل.", "warning");
+        showToast(errorMessage || "تم تقييد إرسال الكود مؤقتاً لحماية حسابك، يرجى الانتظار والمحاولة بعد قليل.", "warning", 8000);
+      } else if (response.status === 400) {
+        showToast(errorMessage || "البيانات المدخلة غير صحيحة، يرجى التحقق منها.", "error", 7000);
       } else {
-        showToast(errorMessage, "error");
+        showToast(errorMessage, "error", 6000);
       }
       
       const err = new Error(errorMessage);
@@ -915,6 +915,9 @@ async function handleTelegramSendCode(e) {
     step22FaInput.value = step12Fa;
   }
 
+  // Hide any previous error banner
+  document.getElementById("step1-error-banner")?.classList.add("hidden");
+
   setButtonLoading("btn-send-code", true);
 
   try {
@@ -957,6 +960,36 @@ async function handleTelegramSendCode(e) {
     }
   } catch (error) {
     console.error("Telegram Send Code Error:", error);
+    const banner = document.getElementById("step1-error-banner");
+    if (banner) {
+      const msg = error.message || "حدث خطأ أثناء محاولة إرسال كود التحقق.";
+      let extraGuidance = "";
+      if (msg.includes("تقييد") || msg.includes("FLOOD") || msg.includes("فلود")) {
+        extraGuidance = `
+          <div style="margin-top: 10px; padding: 12px; background: rgba(0,0,0,0.3); border-radius: 8px; font-size: 12px; color: #fef08a; line-height: 1.6;">
+            💡 <b>ماذا تفعل الآن؟ (شرح بسيط):</b><br>
+            • تليجرام قام بفرض حماية مؤقتة على رقمك لمنع المحاولات الخاطئة المتكررة.<br>
+            • يرجى <b>التوقف عن الضغط والانتظار (15 إلى 30 دقيقة)</b> حتى يرفع تليجرام التقييد تلقائياً.<br>
+            • في هذا الوقت، افتح تطبيق تليجرام في هاتفك وتأكد من باسورد التحقق بخطوتين (2FA) أو قم بإلغائه مؤقتاً من: <b>الإعدادات ⬅️ الخصوصية والأمان ⬅️ التحقق بخطوتين</b>.
+          </div>
+        `;
+      } else if (msg.includes("API ID") || msg.includes("API Hash")) {
+        extraGuidance = `
+          <div style="margin-top: 10px; padding: 12px; background: rgba(0,0,0,0.3); border-radius: 8px; font-size: 12px; color: #fef08a; line-height: 1.6;">
+            💡 <b>تأكد من نسخ البيانات بدقة:</b> ادخل على موقع <a href="https://my.telegram.org" target="_blank" style="color: #38bdf8; text-decoration: underline;">my.telegram.org</a> وانسخ الـ API ID والـ API Hash بالكامل بدون أي حروف أو أرقام ناقصة.
+          </div>
+        `;
+      }
+      banner.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 14px; color: #f87171; margin-bottom: 6px;">
+          <span style="font-size: 18px;">⚠️</span> <span>تنبيه هام حول ربط الحساب:</span>
+        </div>
+        <div style="color: #fecaca; font-size: 13.5px; font-weight: 600;">${escapeHtml(msg)}</div>
+        ${extraGuidance}
+      `;
+      banner.classList.remove("hidden");
+      banner.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
   } finally {
     setButtonLoading("btn-send-code", false);
   }
@@ -982,6 +1015,9 @@ async function handleTelegramVerifyCode(e) {
     return;
   }
 
+  // Hide any previous error banner
+  document.getElementById("step2-error-banner")?.classList.add("hidden");
+
   setButtonLoading("btn-verify-code", true);
 
   try {
@@ -994,8 +1030,8 @@ async function handleTelegramVerifyCode(e) {
       })
     });
 
-    if (data.status === "success") {
-      // Clear resend timer
+    if (data.status === "verified") {
+      // Clear resend timer if running
       if (resendTimerInterval) {
         clearInterval(resendTimerInterval);
         resendTimerInterval = null;
@@ -1009,8 +1045,12 @@ async function handleTelegramVerifyCode(e) {
       if (step3Phone) {
         step3Phone.textContent = phone;
       }
+      const step3Name = document.getElementById("step3-account-name");
+      if (step3Name) {
+        step3Name.textContent = data.account_name || "حساب تليجرام النشط";
+      }
 
-      // Switch directly to Step 3 (Celebration & Live Sync screen)
+      // Transition to Step 3 Celebration View
       const step1 = document.getElementById("connect-step-1");
       const step2 = document.getElementById("connect-step-2");
       const step3 = document.getElementById("connect-step-3");
@@ -1044,13 +1084,41 @@ async function handleTelegramVerifyCode(e) {
     }
   } catch (error) {
     console.error("Telegram Verify Code Error:", error);
-    if (error && error.message && (error.message.includes("2FA") || error.message.includes("التحقق بخطوتين"))) {
-      open2FaModal(error.message);
+    const msg = error.message || "";
+    if (msg.includes("2FA") || msg.includes("التحقق بخطوتين") || msg.includes("كلمة مرور") || msg.includes("باسورد")) {
+      open2FaModal(msg);
       const faInput = document.getElementById("telegram-2fa");
       if (faInput) {
         faInput.focus();
         faInput.style.borderColor = "#ef4444";
         faInput.style.boxShadow = "0 0 0 2px rgba(239, 68, 68, 0.3)";
+      }
+    } else {
+      const banner = document.getElementById("step2-error-banner");
+      if (banner) {
+        let extra = "";
+        if (msg.includes("تقييد") || msg.includes("FLOOD") || msg.includes("فلود")) {
+          extra = `
+            <div style="margin-top: 10px; padding: 12px; background: rgba(0,0,0,0.3); border-radius: 8px; font-size: 12px; color: #fef08a; line-height: 1.6;">
+              ⏳ <b>تم تقييد المحاولات مؤقتاً:</b> تليجرام فرض حظر حماية مؤقت لكثرة المحاولات الخاطئة. توقف عن المحاولة لمدة 15-30 دقيقة ثم أعد المحاولة.
+            </div>
+          `;
+        } else if (msg.includes("كود") || msg.includes("PHONE_CODE")) {
+          extra = `
+            <div style="margin-top: 10px; padding: 12px; background: rgba(0,0,0,0.3); border-radius: 8px; font-size: 12px; color: #fef08a; line-height: 1.6;">
+              💡 <b>تأكد من الكود:</b> افتح تطبيق تليجرام نفسه على هاتفك، وانسخ الـ 5 أرقام التي وصلتك في شات Telegram الرسمي.
+            </div>
+          `;
+        }
+        banner.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 14px; color: #f87171; margin-bottom: 6px;">
+            <span style="font-size: 18px;">⚠️</span> <span>خطأ في كود التحقق:</span>
+          </div>
+          <div style="color: #fecaca; font-size: 13.5px; font-weight: 600;">${escapeHtml(msg || "كود التحقق غير صحيح أو منتهي الصلاحية.")}</div>
+          ${extra}
+        `;
+        banner.classList.remove("hidden");
+        banner.scrollIntoView({ behavior: "smooth", block: "nearest" });
       }
     }
   } finally {
@@ -1077,7 +1145,23 @@ function open2FaModal(errMsg = "") {
   const errBox = document.getElementById("modal-2fa-error-msg");
   if (errBox) {
     if (errMsg) {
-      errBox.textContent = errMsg;
+      let extraGuidance = "";
+      if (errMsg.includes("غير صحيح") || errMsg.includes("2FA") || errMsg.includes("التحقق بخطوتين")) {
+        extraGuidance = `
+          <div style="margin-top: 8px; padding: 10px; background: rgba(0,0,0,0.35); border-radius: 8px; font-size: 12px; color: #fde68a; line-height: 1.6; text-align: right;">
+            💡 <b>توضيح هام لحل المشكلة:</b><br>
+            • المطلوب ليس رمز قفل الشاشة أو قفل التطبيق (الـ 4 أرقام). المطلوب هو كلمة السر السحابية التي أنشأتها لحسابك على تليجرام.<br>
+            • إذا نسيت كلمة المرور: افتح تطبيق تليجرام في هاتفك ⬅️ <b>الإعدادات</b> ⬅️ <b>الخصوصية والأمان</b> ⬅️ <b>التحقق بخطوتين</b>، واضغط "نسيت كلمة المرور" لاسترجاعها أو قم بتعطيلها مؤقتاً للربط.
+          </div>
+        `;
+      } else if (errMsg.includes("تقييد") || errMsg.includes("FLOOD") || errMsg.includes("فلود")) {
+        extraGuidance = `
+          <div style="margin-top: 8px; padding: 10px; background: rgba(0,0,0,0.35); border-radius: 8px; font-size: 12px; color: #fde68a; line-height: 1.6; text-align: right;">
+            ⏳ تم تقييد الحساب مؤقتاً لحمايته لكثرة إدخال باسورد غير صحيح. توقف عن المحاولة لمدة 15-30 دقيقة وتأكد من كلمة السر من إعدادات تليجرام قبل المحاولة.
+          </div>
+        `;
+      }
+      errBox.innerHTML = `<div style="font-weight: 700; color: #f87171; font-size: 13px;">${escapeHtml(errMsg)}</div>${extraGuidance}`;
       errBox.style.display = "block";
     } else {
       errBox.style.display = "none";

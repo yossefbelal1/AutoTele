@@ -1344,6 +1344,8 @@
                   <span id="icon-toggle-api"></span>
                 </div>
 
+                <div id="step1-error-banner" class="hidden" style="margin-top: 14px; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 12px; padding: 14px 16px; color: #fca5a5; font-size: 13px; line-height: 1.6;"></div>
+
                 <button type="submit" id="btn-send-code" class="btn btn-primary" style="margin-top: 12px; width: 100%; font-size: 15px; font-weight: 700; padding: 13px;">
                   <span class="btn-text">إرسال كود التحقق الآمن 📨</span>
                   <span class="spinner hidden"></span>
@@ -1396,6 +1398,8 @@
                   </div>
                   <p class="input-hint" style="color: #94a3b8; margin-top: 5px;">إذا كنت قد كتبته في الخطوة السابقة، فستجده مسجلاً هنا تلقائياً.</p>
                 </div>
+
+                <div id="step2-error-banner" class="hidden" style="margin-top: 14px; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 12px; padding: 14px 16px; color: #fca5a5; font-size: 13px; line-height: 1.6;"></div>
 
                 <div class="button-row" style="margin-top: 16px;">
                   <button type="button" id="btn-back-to-step1" class="btn btn-secondary">تعديل البيانات السابقة</button>
@@ -1823,7 +1827,7 @@
        6. MODAL: 2FA Cloud Password Dedicated Popup Modal
        ========================================== -->
   <div id="modal-2fa-password" class="modal-overlay hidden">
-    <div class="modal-card" style="background: linear-gradient(145deg, #1e293b, #0f172a); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 18px; width: 100%; max-width: 480px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); direction: rtl; text-align: right; overflow: hidden;">
+    <div class="modal-card" style="background: linear-gradient(145deg, #1e293b, #0f172a); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 18px; width: 100%; max-width: 480px; max-height: 90dvh; overflow-y: auto; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); direction: rtl; text-align: right;">
       
       <div style="padding: 20px 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between;">
         <div style="display: flex; align-items: center; gap: 10px;">
