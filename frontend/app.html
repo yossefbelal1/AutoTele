@@ -1292,9 +1292,11 @@
 
               <form id="connect-form-step1">
                 <div class="input-group">
-                  <label for="telegram-phone">1. رقم الهاتف المرتبط بالتليجرام</label>
-                  <input type="tel" id="telegram-phone" required placeholder="+201XXXXXXXXX" dir="ltr">
-                  <p class="input-hint">اكتب رقمك بالصيغة الدولية مسبوقاً بمفتاح دولتك (مثال: +20... لمصر أو +966... للسعودية)</p>
+                  <label for="telegram-phone">1. رقم الهاتف المسجل به حساب تليجرام</label>
+                  <input type="tel" id="telegram-phone" required placeholder="+201012345678" dir="ltr">
+                  <p class="input-hint" style="color: #94a3b8; line-height: 1.5; margin-top: 5px;">
+                    💡 <b>اكتب رقمك بمفتاح الدولة:</b> (مثال لمصر: <code dir="ltr" style="color: #38bdf8;">+201012345678</code> بدون كتابة 0 بعد الـ 20 — مثال للسعودية: <code dir="ltr" style="color: #38bdf8;">+9665XXXXXXXX</code>). النظام يصحح الأخطاء والفراغات تلقائياً.
+                  </p>
                 </div>
 
                 <!-- API Fields Header with Trigger Link -->
@@ -1306,13 +1308,33 @@
                 </div>
 
                 <div class="input-group">
-                  <label for="telegram-api-id">2. Telegram API ID</label>
-                  <input type="number" id="telegram-api-id" required placeholder="مثال: 1234567 (أرقام فقط)" dir="ltr">
+                  <label for="telegram-api-id">2. Telegram API ID (أرقام فقط)</label>
+                  <input type="text" id="telegram-api-id" required placeholder="مثال: 34434465" dir="ltr" autocomplete="off">
+                  <p class="input-hint" style="color: #94a3b8; line-height: 1.4; margin-top: 4px;">
+                    رقم الـ ID المستخرج من حسابك على موقع تليجرام الرسمي <a href="https://my.telegram.org" target="_blank" style="color: #38bdf8; text-decoration: underline;">my.telegram.org</a>.
+                  </p>
                 </div>
 
                 <div class="input-group">
-                  <label for="telegram-api-hash">3. Telegram API Hash</label>
-                  <input type="text" id="telegram-api-hash" required placeholder="مثال: abcde123456fghijk... (كود إنجليزي)" dir="ltr" autocomplete="off">
+                  <label for="telegram-api-hash">3. Telegram API Hash (الكود الإنجليزي)</label>
+                  <input type="text" id="telegram-api-hash" required placeholder="مثال: 36d9da5144e3fcf6d85711aa460931ce" dir="ltr" autocomplete="off">
+                  <p class="input-hint" style="color: #94a3b8; line-height: 1.4; margin-top: 4px;">
+                    الكود الإنجليزي الطويل المنسوخ من نفس الصفحة (الموقع يحذف أي مسافات زائدة تلقائياً).
+                  </p>
+                </div>
+
+                <!-- Step 1 2FA Upfront Field -->
+                <div class="input-group" style="background: rgba(245, 158, 11, 0.07); border: 1px dashed rgba(245, 158, 11, 0.35); border-radius: 12px; padding: 14px 16px; margin-top: 14px;">
+                  <label for="telegram-step1-2fa" style="display: flex; align-items: center; justify-content: space-between; font-weight: 800; color: #fde68a; margin-bottom: 6px; font-size: 13.5px;">
+                    <span>🔐 4. باسورد التحقق بخطوتين (2FA) <span style="font-weight: 400; font-size: 12px; color: #94a3b8;">(اختياري - لو حسابك عليه باسورد)</span></span>
+                  </label>
+                  <div style="position: relative; display: flex; align-items: center;">
+                    <input type="password" id="telegram-step1-2fa" placeholder="اكتب باسورد تليجرام السري هنا لو مفعله..." dir="ltr" autocomplete="off" style="width: 100%; padding-left: 42px;">
+                    <button type="button" id="btn-toggle-step1-2fa-visibility" style="position: absolute; left: 10px; background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 16px; padding: 4px;" title="إظهار/إخفاء الباسورد">👁️</button>
+                  </div>
+                  <p class="input-hint" style="color: #cbd5e1; font-size: 12px; line-height: 1.6; margin-top: 8px;">
+                    👶 <b>شرح مبسط جداً:</b> لو أنت عامل باسورد إضافي لحساب تليجرام في الموبايل بتاعك، اكتبه هنا علشان يربط فوراً بدون ما يوقفك. <b>لو مش عامل باسورد، سيب المربع ده فاضي خالص.</b>
+                  </p>
                 </div>
 
                 <!-- Hidden compatibility elements -->
@@ -1322,7 +1344,7 @@
                   <span id="icon-toggle-api"></span>
                 </div>
 
-                <button type="submit" id="btn-send-code" class="btn btn-primary" style="margin-top: 10px; width: 100%; font-size: 15px; font-weight: 700; padding: 13px;">
+                <button type="submit" id="btn-send-code" class="btn btn-primary" style="margin-top: 12px; width: 100%; font-size: 15px; font-weight: 700; padding: 13px;">
                   <span class="btn-text">إرسال كود التحقق الآمن 📨</span>
                   <span class="spinner hidden"></span>
                 </button>
@@ -1338,20 +1360,22 @@
               </div>
 
               <!-- Step 2 Explanatory Info Box -->
-              <div class="wizard-info-box warning-theme">
-                <div class="wizard-info-icon">📩</div>
-                <div class="wizard-info-content">
-                  <h4>أين تجد كود التأكيد وباسورد 2FA؟</h4>
-                  <p>افتح تطبيق تليجرام على هاتفك أو حاسوبك؛ ستجد الكود مرسلاً في شات <b>Telegram</b> الرسمي (وليس رسالة SMS).</p>
-                  <p>إذا كان حسابك مفعلاً به التحقق بخطوتين (2FA)، أدخل باسورد تليجرام السحابي في الحقل الثاني بالأسفل.</p>
+              <div class="wizard-info-box warning-theme" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px;">
+                <div style="display: flex; align-items: flex-start; gap: 12px;">
+                  <span style="font-size: 26px;">⚠️</span>
+                  <div style="font-size: 13px; line-height: 1.6; color: #fecaca;">
+                    <strong style="color: #fff; font-size: 14px; display: block; margin-bottom: 4px;">تنبيه هام جداً بخصوص كود التحقق:</strong>
+                    افتح الآن <b>تطبيق تليجرام</b> على هاتفك.. ستجد رسالة جديدة واصلة من حساب <b>Telegram</b> الرسمي وبها كود الـ 5 أرقام.<br>
+                    <span style="color: #fca5a5; font-weight: 700;">⛔ الكود لن يصلك كرسالة SMS على شريحة الهاتف، بل يصل داخل تطبيق تليجرام نفسه!</span>
+                  </div>
                 </div>
               </div>
 
               <form id="connect-form-step2">
                 <div class="input-group">
-                  <label for="telegram-code">كود التحقق (الـ 5 أرقام)</label>
-                  <input type="text" id="telegram-code" required placeholder="12345" maxlength="5" class="code-input" dir="ltr" autocomplete="off">
-                  <p class="input-hint">افتح تطبيق تليجرام على هاتفك أو حاسوبك؛ ستجد الكود مرسلاً من حساب Telegram الرسمي (وليس رسالة SMS).</p>
+                  <label for="telegram-code">كود التحقق المكون من 5 أرقام (من رسائل تليجرام)</label>
+                  <input type="text" id="telegram-code" required placeholder="مثال: 12345" maxlength="5" class="code-input" dir="ltr" autocomplete="off">
+                  <p class="input-hint">اكتب الـ 5 أرقام التي وصلتك في شات Telegram الرسمي.</p>
                 </div>
 
                 <!-- Resend Timer & Action -->
@@ -1364,15 +1388,19 @@
                   </button>
                 </div>
 
-                <div class="input-group">
+                <div class="input-group" style="margin-top: 14px;">
                   <label for="telegram-2fa">باسورد التحقق بخطوتين (2FA) - اختياري</label>
-                  <input type="password" id="telegram-2fa" placeholder="أدخل باسورد الـ 2FA إذا كان حسابك محمياً بها..." dir="ltr" autocomplete="off">
+                  <div style="position: relative; display: flex; align-items: center;">
+                    <input type="password" id="telegram-2fa" placeholder="أدخل باسورد الـ 2FA إذا كان حسابك محمياً بها..." dir="ltr" autocomplete="off" style="width: 100%; padding-left: 42px;">
+                    <button type="button" id="btn-toggle-step2-2fa-visibility" style="position: absolute; left: 10px; background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 16px; padding: 4px;" title="إظهار/إخفاء الباسورد">👁️</button>
+                  </div>
+                  <p class="input-hint" style="color: #94a3b8; margin-top: 5px;">إذا كنت قد كتبته في الخطوة السابقة، فستجده مسجلاً هنا تلقائياً.</p>
                 </div>
 
-                <div class="button-row">
+                <div class="button-row" style="margin-top: 16px;">
                   <button type="button" id="btn-back-to-step1" class="btn btn-secondary">تعديل البيانات السابقة</button>
                   <button type="submit" id="btn-verify-code" class="btn btn-primary">
-                    <span class="btn-text">تفعيل وتأكيد ربط المحرك الآمن</span>
+                    <span class="btn-text">تفعيل وتأكيد ربط المحرك الآمن 🚀</span>
                     <span class="spinner hidden"></span>
                   </button>
                 </div>

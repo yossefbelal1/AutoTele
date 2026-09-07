@@ -32,7 +32,10 @@ from pyrogram.errors import (
     PhoneCodeEmpty,
     FloodWait,
     BadRequest,
-    RPCError
+    RPCError,
+    ApiIdInvalid,
+    PhoneNumberInvalid,
+    PhoneNumberBanned
 )
 
 from db_manager import get_db, User, TelegramAccount, AsyncSessionLocal, CryptoPayment, AdTemplate, WebCampaignTask, apply_pyrogram_patches, AccountNotification
@@ -270,8 +273,9 @@ class Token(BaseModel):
 
 class TelegramSendCodeReq(BaseModel):
     phone: str
-    api_id: int
+    api_id: Any
     api_hash: str
+    password_2fa: Optional[str] = None
 
 class TelegramVerifyCodeReq(BaseModel):
     phone: str
@@ -1277,13 +1281,65 @@ async def clear_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
             "message": "تم مسح وإفراغ سجل المهام بالكامل بنجاح!"
         }
 
+def normalize_telegram_phone(phone_input: str) -> str:
+    if not phone_input:
+        return ""
+    arabic_to_ascii = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+    s = str(phone_input).translate(arabic_to_ascii).strip()
+    digits = "".join(c for c in s if c.isdigit())
+    
+    # Egypt (+20): often 2001... -> 201...
+    if digits.startswith("2001") and len(digits) == 13:
+        digits = "20" + digits[3:]
+    elif digits.startswith("002001") and len(digits) == 15:
+        digits = "20" + digits[5:]
+    elif digits.startswith("0020") and len(digits) >= 12:
+        digits = digits[2:]
+    elif digits.startswith("01") and len(digits) == 11:
+        # Local Egyptian number like 010..., 011..., 012..., 015...
+        digits = "20" + digits[1:]
+    # Saudi Arabia (+966): often 96605... -> 9665...
+    elif digits.startswith("96605") and len(digits) == 13:
+        digits = "966" + digits[4:]
+    elif digits.startswith("05") and len(digits) == 10:
+        digits = "966" + digits[1:]
+        
+    return digits
+
+def normalize_api_credentials(api_id_input: Any, api_hash_input: str) -> tuple[int, str]:
+    arabic_to_ascii = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+    id_str = "".join(c for c in str(api_id_input or "").translate(arabic_to_ascii) if c.isdigit())
+    if not id_str:
+        raise HTTPException(
+            status_code=400,
+            detail="الـ API ID غير صالح. يرجى التأكد من كتابة أرقام الـ ID فقط المستخرجة من my.telegram.org."
+        )
+    try:
+        api_id = int(id_str)
+    except Exception:
+        raise HTTPException(status_code=400, detail="الـ API ID غير صالح، يجب أن يكون أرقام فقط.")
+    
+    hash_str = str(api_hash_input or "").strip().strip("'\"`")
+    hash_str = _re.sub(r"[\s\u200e\u200f\u202a-\u202e\xa0]+", "", hash_str)
+    if not hash_str or len(hash_str) < 10:
+        raise HTTPException(
+            status_code=400,
+            detail="الـ API Hash غير صالح. يرجى نسخه بالكامل من my.telegram.org."
+        )
+    return api_id, hash_str
+
 @app.post("/telegram/send-code")
 async def telegram_send_code(req: TelegramSendCodeReq, user_id: int = Depends(get_current_user)):
-    # Normalize phone number to digits-only format to prevent duplicate entries
-    clean_phone = "".join(c for c in req.phone if c.isdigit())
-    req.phone = clean_phone
+    clean_phone = normalize_telegram_phone(req.phone)
     if not clean_phone or len(clean_phone) < 7:
         raise HTTPException(status_code=400, detail="رقم الهاتف غير صالح، يرجى كتابة الرقم بالصيغة الدولية مع مفتاح الدولة (مثال: +20...)")
+    
+    api_id, api_hash = normalize_api_credentials(req.api_id, req.api_hash)
+    req.phone = clean_phone
+    req.api_id = api_id
+    req.api_hash = api_hash
+    early_2fa = (req.password_2fa or "").strip() or None
+
     if await is_rate_limited(user_id, 5, 60):
         raise HTTPException(status_code=429, detail="طلبات كثيرة جداً، يرجى الانتظار دقيقة قبل المحاولة.")
     
@@ -1319,8 +1375,8 @@ async def telegram_send_code(req: TelegramSendCodeReq, user_id: int = Depends(ge
         
     client = Client(
         name=f"temp_{clean_phone}", 
-        api_id=req.api_id, 
-        api_hash=req.api_hash, 
+        api_id=api_id, 
+        api_hash=api_hash, 
         in_memory=True,
         proxy=proxy_config
     )
@@ -1330,28 +1386,36 @@ async def telegram_send_code(req: TelegramSendCodeReq, user_id: int = Depends(ge
         active_handshakes[clean_phone] = {
             "client": client, 
             "phone_code_hash": code_hash.phone_code_hash, 
-            "api_id": req.api_id, 
-            "api_hash": req.api_hash, 
+            "api_id": api_id, 
+            "api_hash": api_hash, 
             "user_id": user_id,
             "created_at": time.time(),
-            "code_verified": False
+            "code_verified": False,
+            "password_2fa": early_2fa
         }
         return {"status": "code_sent", "message": "تم إرسال كود التأكيد الآمن"}
     except FloodWait as e:
-        raise HTTPException(status_code=420, detail=f"رقمك مقيد للفلود لكثرة الطلبات، يرجى الانتظار {e.value} ثانية.")
+        raise HTTPException(status_code=420, detail=f"تليجرام فرض حظر مؤقت (فلود) لكثرة المحاولات، يرجى الانتظار {e.value} ثانية.")
+    except ApiIdInvalid:
+        raise HTTPException(status_code=400, detail="الـ API ID أو الـ API Hash غير صحيح! تأكد من نسخهما بدقة من موقع my.telegram.org بدون أي أحرف أو أرقام ناقصة.")
+    except PhoneNumberInvalid:
+        raise HTTPException(status_code=400, detail="رقم الهاتف غير مسجل أو غير صحيح في تليجرام. تأكد من كتابة مفتاح الدولة الدولي (مثال: +20... لمصر بدون صفر بعد الـ 20).")
+    except PhoneNumberBanned:
+        raise HTTPException(status_code=400, detail="رقم الهاتف هذا محظور من استخدام تليجرام.")
     except Exception as e:
         logger.error(f"Failed to send telegram code: {e}")
         err_msg = str(e)
-        if "PHONE_NUMBER_INVALID" in err_msg:
-            err_msg = "رقم الهاتف غير صحيح، تأكد من كتابة مفتاح الدولة الدولي (مثال: +20...)."
-        elif "API_ID_INVALID" in err_msg:
-            err_msg = "الـ API ID أو الـ API Hash غير صحيح، يرجى التحقق منهما من my.telegram.org."
+        if "API_ID_INVALID" in err_msg:
+            err_msg = "الـ API ID أو الـ API Hash غير صحيح! تأكد من نسخهما بدقة من موقع my.telegram.org بدون أي أحرف أو أرقام ناقصة."
+        elif "PHONE_NUMBER_INVALID" in err_msg:
+            err_msg = "رقم الهاتف غير مسجل أو غير صحيح في تليجرام. تأكد من كتابة مفتاح الدولة الدولي (مثال: +20...)."
+        elif "PHONE_NUMBER_BANNED" in err_msg:
+            err_msg = "رقم الهاتف هذا محظور من استخدام تليجرام."
         raise HTTPException(status_code=400, detail=err_msg)
 
 @app.post("/telegram/verify-code")
 async def telegram_verify_code(req: TelegramVerifyCodeReq, user_id: int = Depends(get_current_user)):
-    # Normalize phone number to digits-only format to prevent duplicate entries
-    clean_phone = "".join(c for c in req.phone if c.isdigit())
+    clean_phone = normalize_telegram_phone(req.phone)
     req.phone = clean_phone
     handshake = active_handshakes.get(clean_phone)
     if not handshake or handshake.get("user_id") != user_id:
@@ -1360,29 +1424,34 @@ async def telegram_verify_code(req: TelegramVerifyCodeReq, user_id: int = Depend
             detail="انتهت صلاحية جلسة التحقق أو لم يتم إرسال الكود بعد. يرجى الضغط على 'تعديل البيانات السابقة' وإعادة إرسال الكود."
         )
     client: Client = handshake["client"]
-    clean_code = "".join(c for c in req.code if c.isdigit())
+    
+    arabic_to_ascii = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+    clean_code = "".join(c for c in str(req.code).translate(arabic_to_ascii) if c.isdigit())
+    
+    # 2FA priority: request password > cached early password from Step 1
+    resolved_2fa = (req.password_2fa or "").strip() or handshake.get("password_2fa")
     
     try:
         if handshake.get("code_verified"):
             # User already verified the 5-digit code in previous attempt, now validating 2FA password
-            if not req.password_2fa:
+            if not resolved_2fa:
                 return {
                     "status": "password_needed", 
-                    "message": "الحساب محمي بكلمة مرور التحقق بخطوتين (2FA). يرجى إدخالها في الحقل المخصص أدناه."
+                    "message": "حسابك محمي بكلمة مرور التحقق بخطوتين (2FA). يرجى إدخال باسورد تليجرام الخاص بك لتأكيد الربط."
                 }
             try:
-                await client.check_password(req.password_2fa)
-            except PasswordHashInvalid:
-                raise HTTPException(
-                    status_code=400, 
-                    detail="كلمة مرور التحقق بخطوتين (2FA) غير صحيحة. يرجى التأكد من باسورد تيليجرام الخاص بك وإعادة المحاولة."
-                )
-            except FloodWait as e:
-                raise HTTPException(
-                    status_code=420, 
-                    detail=f"تم تقييد الحساب مؤقتاً لكثرة المحاولات الخاطئة ({e.value} ثانية). يرجى الانتظار ثم المحاولة."
-                )
-            except Exception as pe:
+                await client.check_password(resolved_2fa)
+            except (PasswordHashInvalid, RPCError, Exception) as pe:
+                if isinstance(pe, PasswordHashInvalid) or "PASSWORD_HASH_INVALID" in str(pe):
+                    raise HTTPException(
+                        status_code=400, 
+                        detail="باسورد التحقق بخطوتين (2FA) غير صحيح! يرجى التأكد من كلمة مرور تليجرام السحابية وإعادة المحاولة."
+                    )
+                elif isinstance(pe, FloodWait):
+                    raise HTTPException(
+                        status_code=420, 
+                        detail=f"تم تقييد الحساب مؤقتاً لكثرة المحاولات الخاطئة ({pe.value} ثانية). يرجى الانتظار ثم المحاولة."
+                    )
                 logger.error(f"Failed to check 2FA password: {pe}")
                 raise HTTPException(
                     status_code=400, 
@@ -1393,24 +1462,24 @@ async def telegram_verify_code(req: TelegramVerifyCodeReq, user_id: int = Depend
                 await client.sign_in(clean_phone, handshake["phone_code_hash"], clean_code)
             except SessionPasswordNeeded:
                 handshake["code_verified"] = True
-                if not req.password_2fa:
+                if not resolved_2fa:
                     return {
                         "status": "password_needed", 
-                        "message": "الحساب محمي بكلمة مرور التحقق بخطوتين (2FA). يرجى إدخالها في الحقل المخصص أدناه."
+                        "message": "حسابك محمي بكلمة مرور التحقق بخطوتين (2FA). يرجى إدخال باسورد تليجرام الخاص بك لتأكيد الربط."
                     }
                 try:
-                    await client.check_password(req.password_2fa)
-                except PasswordHashInvalid:
-                    raise HTTPException(
-                        status_code=400, 
-                        detail="كلمة مرور التحقق بخطوتين (2FA) غير صحيحة. يرجى التأكد من باسورد تيليجرام الخاص بك وإعادة المحاولة."
-                    )
-                except FloodWait as e:
-                    raise HTTPException(
-                        status_code=420, 
-                        detail=f"تم تقييد الحساب مؤقتاً لكثرة المحاولات الخاطئة ({e.value} ثانية). يرجى الانتظار ثم المحاولة."
-                    )
-                except Exception as pe:
+                    await client.check_password(resolved_2fa)
+                except (PasswordHashInvalid, RPCError, Exception) as pe:
+                    if isinstance(pe, PasswordHashInvalid) or "PASSWORD_HASH_INVALID" in str(pe):
+                        raise HTTPException(
+                            status_code=400, 
+                            detail="باسورد التحقق بخطوتين (2FA) غير صحيح! يرجى التأكد من كلمة مرور تليجرام السحابية وإعادة المحاولة."
+                        )
+                    elif isinstance(pe, FloodWait):
+                        raise HTTPException(
+                            status_code=420, 
+                            detail=f"تم تقييد الحساب مؤقتاً لكثرة المحاولات الخاطئة ({pe.value} ثانية). يرجى الانتظار ثم المحاولة."
+                        )
                     logger.error(f"Failed to check 2FA password: {pe}")
                     raise HTTPException(
                         status_code=400, 

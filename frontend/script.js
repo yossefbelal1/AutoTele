@@ -829,32 +829,90 @@ window.switchWizardStep = function(targetStep) {
   }
 };
 
+function cleanArabicDigits(str) {
+  if (!str) return "";
+  const easternArabic = ["٠","١","٢","٣","٤","٥","٦","٧","٨","٩"];
+  const persian = ["۰","۱","۲","۳","۴","۵","۶","۷","۸","۹"];
+  let res = String(str);
+  for (let i = 0; i < 10; i++) {
+    res = res.replaceAll(easternArabic[i], String(i)).replaceAll(persian[i], String(i));
+  }
+  return res;
+}
+
+function cleanTelegramPhone(rawPhone) {
+  if (!rawPhone) return "";
+  let s = cleanArabicDigits(rawPhone).trim();
+  s = s.replace(/[\s\u200e\u200f\u202a-\u202e\xa0\-\(\)]/g, "");
+  
+  let digits = s.replace(/\D/g, "");
+  
+  // Auto-correct common mistakes:
+  // Egypt (+20): 2001... -> 201...
+  if (digits.startsWith("2001") && digits.length === 13) {
+    digits = "20" + digits.substring(3);
+  } else if (digits.startsWith("002001") && digits.length === 15) {
+    digits = "20" + digits.substring(5);
+  } else if (digits.startsWith("0020") && digits.length >= 12) {
+    digits = digits.substring(2);
+  } else if (digits.startsWith("01") && digits.length === 11) {
+    digits = "20" + digits.substring(1);
+  }
+  // Saudi Arabia (+966): 96605... -> 9665...
+  else if (digits.startsWith("96605") && digits.length === 13) {
+    digits = "966" + digits.substring(4);
+  } else if (digits.startsWith("05") && digits.length === 10) {
+    digits = "966" + digits.substring(1);
+  }
+  
+  return "+" + digits;
+}
+
 async function handleTelegramSendCode(e) {
   if (e && e.preventDefault) e.preventDefault();
 
-  const phone = document.getElementById("telegram-phone").value.trim().replace(/\s+/g, "");
-  const apiId = parseInt(document.getElementById("telegram-api-id").value);
-  const apiHash = document.getElementById("telegram-api-hash").value.trim();
+  const rawPhone = document.getElementById("telegram-phone")?.value || "";
+  const phone = cleanTelegramPhone(rawPhone);
 
-  if (!phone || !phone.startsWith("+")) {
-    showToast("يرجى إدخال رقم الهاتف مسبوقاً بمفتاح الدولة الدولي (مثال: +20... أو +966...).", "warning");
+  const rawApiId = document.getElementById("telegram-api-id")?.value || "";
+  const cleanIdStr = cleanArabicDigits(rawApiId).replace(/\D/g, "");
+  const apiId = parseInt(cleanIdStr, 10);
+
+  const rawApiHash = document.getElementById("telegram-api-hash")?.value || "";
+  // Strip ALL spaces, newlines, tabs, quotes, invisible chars
+  const apiHash = rawApiHash.replace(/[\s\u200e\u200f\u202a-\u202e\xa0'"`]/g, "");
+
+  const step12Fa = document.getElementById("telegram-step1-2fa")?.value.trim() || "";
+
+  if (!phone || phone.length < 8) {
+    showToast("يرجى إدخال رقم الهاتف مع مفتاح الدولة الدولي (مثال: +20... لمصر أو +966... للسعودية).", "warning");
     const pInput = document.getElementById("telegram-phone");
     if (pInput) pInput.focus();
     return;
   }
 
+  // Update input with cleaned format
+  const pInput = document.getElementById("telegram-phone");
+  if (pInput) pInput.value = phone;
+
   if (!apiId || isNaN(apiId)) {
-    showToast("يرجى إدخال الـ Telegram API ID (أرقام فقط مستخرجة من الخطوة 4).", "warning");
+    showToast("يرجى إدخال الـ Telegram API ID (أرقام فقط مستخرجة من my.telegram.org).", "warning");
     const idInput = document.getElementById("telegram-api-id");
     if (idInput) idInput.focus();
     return;
   }
 
   if (!apiHash || apiHash.length < 10) {
-    showToast("يرجى إدخال الـ Telegram API Hash الصحيح المستخرج من الخطوة 4.", "warning");
+    showToast("يرجى إدخال الـ Telegram API Hash بالكامل وبدقة من موقع my.telegram.org.", "warning");
     const hashInput = document.getElementById("telegram-api-hash");
     if (hashInput) hashInput.focus();
     return;
+  }
+
+  // Sync 2FA password to Step 2 right away if user entered it
+  const step22FaInput = document.getElementById("telegram-2fa");
+  if (step22FaInput && step12Fa) {
+    step22FaInput.value = step12Fa;
   }
 
   setButtonLoading("btn-send-code", true);
@@ -865,12 +923,13 @@ async function handleTelegramSendCode(e) {
       body: JSON.stringify({
         phone: phone,
         api_id: apiId,
-        api_hash: apiHash
+        api_hash: apiHash,
+        password_2fa: step12Fa || undefined
       })
     });
 
     if (data.status === "code_sent") {
-      showToast("تم إرسال كود التأكيد الآمن لتطبيق تليجرام الخاص بك 📲", "success");
+      showToast("تم إرسال كود التأكيد! افتح رسائل تطبيق تليجرام الآن 📲", "success");
       
       // Update phone display label
       const phoneLabel = document.getElementById("phone-display-label");
@@ -906,12 +965,18 @@ async function handleTelegramSendCode(e) {
 async function handleTelegramVerifyCode(e) {
   if (e && e.preventDefault) e.preventDefault();
 
-  const phone = document.getElementById("telegram-phone").value.trim().replace(/\s+/g, "");
-  const code = document.getElementById("telegram-code").value.trim().replace(/\D/g, "");
-  const password2fa = document.getElementById("telegram-2fa").value.trim() || null;
+  const rawPhone = document.getElementById("telegram-phone")?.value || "";
+  const phone = cleanTelegramPhone(rawPhone);
+
+  const rawCode = document.getElementById("telegram-code")?.value || "";
+  const code = cleanArabicDigits(rawCode).replace(/\D/g, "");
+
+  const password2fa = document.getElementById("telegram-2fa")?.value.trim() 
+                   || document.getElementById("telegram-step1-2fa")?.value.trim() 
+                   || null;
 
   if (!code || code.length < 5) {
-    showToast("يرجى إدخال كود التحقق المكون من 5 أرقام بدقة.", "warning");
+    showToast("يرجى كتابة كود التحقق المكون من 5 أرقام كما وصلك في رسائل تطبيق تليجرام.", "warning");
     const codeInput = document.getElementById("telegram-code");
     if (codeInput) codeInput.focus();
     return;
@@ -936,6 +1001,9 @@ async function handleTelegramVerifyCode(e) {
         resendTimerInterval = null;
       }
 
+      // Close 2FA modal if open
+      close2FaModal();
+
       // Update Step 3 connected account summary
       const step3Phone = document.getElementById("step3-connected-phone");
       if (step3Phone) {
@@ -954,34 +1022,35 @@ async function handleTelegramVerifyCode(e) {
       showToast("🎉 تم تفعيل وربط المحرك السحابي بنجاح تام!", "success");
 
       // Reset form inputs for clean state
-      document.getElementById("connect-form-step1").reset();
-      document.getElementById("connect-form-step2").reset();
+      document.getElementById("connect-form-step1")?.reset();
+      document.getElementById("connect-form-step2")?.reset();
 
       // Sync fresh dashboard data in background
       syncDashboardData();
     } else if (data.status === "password_needed") {
-      open2FaModal(data.message || "الحساب محمي بكلمة مرور التحقق بخطوتين (2FA). أدخل كلمة المرور للمتابعة.");
-      showToast(data.message || "الحساب محمي بكلمة مرور التحقق بخطوتين (2FA). يرجى إدخالها في الحقل المخصص أدناه.", "warning");
+      showToast(data.message || "حسابك محمي بباسورد سري (تحقق بخطوتين 2FA). يرجى إدخال الباسورد لتأكيد الربط.", "warning");
+      open2FaModal(data.message || "حسابك محمي بباسورد سري (تحقق بخطوتين 2FA). يرجى إدخال الباسورد لتأكيد الربط.");
+      
       const faLabel = document.querySelector("label[for='telegram-2fa']");
       if (faLabel) {
-        faLabel.innerHTML = '⚠️ باسورد التحقق بخطوتين (2FA) <span style="color: #ef4444; font-weight: bold;">(مطلوب لحسابك)</span>';
+        faLabel.innerHTML = '⚠️ باسورد التحقق بخطوتين (2FA) <span style="color: #f59e0b; font-weight: bold;">(مطلوب لحسابك لتأكيد الربط)</span>';
       }
       const faInput = document.getElementById("telegram-2fa");
       if (faInput) {
         faInput.focus();
         faInput.style.borderColor = "#f59e0b";
-        faInput.style.boxShadow = "0 0 0 2px rgba(245, 158, 11, 0.2)";
+        faInput.style.boxShadow = "0 0 0 2px rgba(245, 158, 11, 0.3)";
       }
     }
   } catch (error) {
     console.error("Telegram Verify Code Error:", error);
-    if (error && error.message && error.message.includes("2FA")) {
+    if (error && error.message && (error.message.includes("2FA") || error.message.includes("التحقق بخطوتين"))) {
       open2FaModal(error.message);
       const faInput = document.getElementById("telegram-2fa");
       if (faInput) {
         faInput.focus();
         faInput.style.borderColor = "#ef4444";
-        faInput.style.boxShadow = "0 0 0 2px rgba(239, 68, 68, 0.2)";
+        faInput.style.boxShadow = "0 0 0 2px rgba(239, 68, 68, 0.3)";
       }
     }
   } finally {
@@ -1015,7 +1084,7 @@ function open2FaModal(errMsg = "") {
     }
   }
   if (input) {
-    const existingVal = document.getElementById("telegram-2fa")?.value || "";
+    const existingVal = document.getElementById("telegram-2fa")?.value || document.getElementById("telegram-step1-2fa")?.value || "";
     input.value = existingVal;
     setTimeout(() => input.focus(), 150);
   }
@@ -2351,8 +2420,10 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("login-form").addEventListener("submit", handleLogin);
   document.getElementById("signup-form").addEventListener("submit", handleSignup);
   document.getElementById("crypto-payment-form").addEventListener("submit", handleCryptoPayment);
+  // Step 1 & Step 2 Form Submissions
   document.getElementById("connect-form-step1").addEventListener("submit", handleTelegramSendCode);
   document.getElementById("connect-form-step2").addEventListener("submit", handleTelegramVerifyCode);
+
   const btnBackStep1 = document.getElementById("btn-back-to-step1");
   if (btnBackStep1) {
     btnBackStep1.addEventListener("click", () => {
@@ -2720,7 +2791,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (btnTriggerGuide) {
     btnTriggerGuide.addEventListener("click", openApiWizardModal);
   }
-  const btnCloseApiWizard = document.getElementById("btn-close-api-wizard");
+  const btnCloseApiWizard = document.getElementById("btn-close-api-wizard") || document.getElementById("btn-close-api-wizard-modal");
   if (btnCloseApiWizard) btnCloseApiWizard.addEventListener("click", closeApiWizardModal);
   const btnCloseApiWizardFooter = document.getElementById("btn-close-api-wizard-footer");
   if (btnCloseApiWizardFooter) btnCloseApiWizardFooter.addEventListener("click", closeApiWizardModal);
@@ -2757,6 +2828,40 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  const btnToggleStep12Fa = document.getElementById("btn-toggle-step1-2fa-visibility");
+  if (btnToggleStep12Fa) {
+    btnToggleStep12Fa.addEventListener("click", () => {
+      const input = document.getElementById("telegram-step1-2fa");
+      if (input) {
+        input.type = input.type === "password" ? "text" : "password";
+        btnToggleStep12Fa.textContent = input.type === "password" ? "👁️" : "🙈";
+      }
+    });
+  }
+
+  const btnToggleStep22Fa = document.getElementById("btn-toggle-step2-2fa-visibility");
+  if (btnToggleStep22Fa) {
+    btnToggleStep22Fa.addEventListener("click", () => {
+      const input = document.getElementById("telegram-2fa");
+      if (input) {
+        input.type = input.type === "password" ? "text" : "password";
+        btnToggleStep22Fa.textContent = input.type === "password" ? "👁️" : "🙈";
+      }
+    });
+  }
+
+  // Two-way sync between Step 1 2FA and Step 2 2FA inputs
+  const step1FaInput = document.getElementById("telegram-step1-2fa");
+  const step2FaInput = document.getElementById("telegram-2fa");
+  if (step1FaInput && step2FaInput) {
+    step1FaInput.addEventListener("input", () => {
+      step2FaInput.value = step1FaInput.value;
+    });
+    step2FaInput.addEventListener("input", () => {
+      step1FaInput.value = step2FaInput.value;
+    });
+  }
+
   const btnSubmit2FaModal = document.getElementById("btn-submit-2fa-modal");
   if (btnSubmit2FaModal) {
     btnSubmit2FaModal.addEventListener("click", () => {
@@ -2773,6 +2878,8 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       const faInput = document.getElementById("telegram-2fa");
       if (faInput) faInput.value = val;
+      const step1Fa = document.getElementById("telegram-step1-2fa");
+      if (step1Fa) step1Fa.value = val;
       close2FaModal();
       const connectFormStep2 = document.getElementById("connect-form-step2");
       if (connectFormStep2) {
