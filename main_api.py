@@ -35,7 +35,8 @@ from pyrogram.errors import (
     RPCError,
     ApiIdInvalid,
     PhoneNumberInvalid,
-    PhoneNumberBanned
+    PhoneNumberBanned,
+    PhonePasswordFlood
 )
 
 from db_manager import get_db, User, TelegramAccount, AsyncSessionLocal, CryptoPayment, AdTemplate, WebCampaignTask, apply_pyrogram_patches, AccountNotification
@@ -1402,6 +1403,8 @@ async def telegram_send_code(req: TelegramSendCodeReq, user_id: int = Depends(ge
         raise HTTPException(status_code=400, detail="رقم الهاتف غير مسجل أو غير صحيح في تليجرام. تأكد من كتابة مفتاح الدولة الدولي (مثال: +20... لمصر بدون صفر بعد الـ 20).")
     except PhoneNumberBanned:
         raise HTTPException(status_code=400, detail="رقم الهاتف هذا محظور من استخدام تليجرام.")
+    except PhonePasswordFlood:
+        raise HTTPException(status_code=429, detail="تم تقييد إرسال الكود مؤقتاً من قِبل تليجرام بسبب تكرار إدخال كلمة سر خاطئة عدة مرات. يرجى الانتظار (15-30 دقيقة) قبل المحاولة مرة أخرى.")
     except Exception as e:
         logger.error(f"Failed to send telegram code: {e}")
         err_msg = str(e)
@@ -1411,6 +1414,8 @@ async def telegram_send_code(req: TelegramSendCodeReq, user_id: int = Depends(ge
             err_msg = "رقم الهاتف غير مسجل أو غير صحيح في تليجرام. تأكد من كتابة مفتاح الدولة الدولي (مثال: +20...)."
         elif "PHONE_NUMBER_BANNED" in err_msg:
             err_msg = "رقم الهاتف هذا محظور من استخدام تليجرام."
+        elif "PHONE_PASSWORD_FLOOD" in err_msg:
+            err_msg = "تم تقييد إرسال الكود مؤقتاً من قِبل تليجرام بسبب تكرار إدخال كلمة سر خاطئة عدة مرات. يرجى الانتظار (15-30 دقيقة) قبل المحاولة مرة أخرى."
         raise HTTPException(status_code=400, detail=err_msg)
 
 @app.post("/telegram/verify-code")
