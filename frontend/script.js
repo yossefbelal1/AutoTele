@@ -3545,8 +3545,7 @@ function checkEngineOnboardingPrompt() {
 }
 
 function showEngineOnboardingModal() {
-  const existing = document.getElementById("engine-onboarding-modal");
-  if (existing) existing.remove();
+  // Disabled per user request
 }
 
 function initMobileHeaderScroll() {
