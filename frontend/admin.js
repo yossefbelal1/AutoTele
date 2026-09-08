@@ -449,31 +449,41 @@ async function loadAdminStats() {
 // ==========================================
 async function loadAdminPayments() {
   const tbody = document.getElementById("admin-payments-table-body");
-  if (!tbody) return;
-  tbody.innerHTML = `<tr><td colspan="7" class="text-center">جاري تحميل البيانات...</td></tr>`;
+  const mobileContainer = document.getElementById("admin-payments-mobile-cards");
+  const countBadge = document.getElementById("payments-count-badge");
+  
+  if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center">جاري تحميل البيانات...</td></tr>`;
+  if (mobileContainer) mobileContainer.innerHTML = `<div style="text-align: center; padding: 24px; color: #708499;">جاري تحميل البيانات...</div>`;
 
   try {
     const payments = await adminApiRequest("/admin/payments");
+    if (countBadge) countBadge.textContent = `${payments.length} معاملة`;
+
     if (payments.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" class="text-center">لا توجد إيصالات دفع مسجلة.</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center">لا توجد إيصالات دفع مسجلة.</td></tr>`;
+      if (mobileContainer) mobileContainer.innerHTML = `<div style="text-align: center; padding: 24px; color: #708499;">لا توجد إيصالات دفع مسجلة حالياً.</div>`;
       return;
     }
 
-    tbody.innerHTML = "";
+    if (tbody) tbody.innerHTML = "";
+    if (mobileContainer) mobileContainer.innerHTML = "";
+
     payments.forEach(payment => {
-      const tr = document.createElement("tr");
-      
       let statusLabel = payment.status;
       let statusClass = "";
+      let statusBadge = "";
       if (payment.status === "pending") {
         statusLabel = "قيد المراجعة";
         statusClass = "gold-text";
+        statusBadge = `<span style="background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">🟡 قيد المراجعة</span>`;
       } else if (payment.status === "approved") {
         statusLabel = "مقبول ومفعل";
         statusClass = "green-text";
+        statusBadge = `<span style="background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">🟢 مقبول ومفعل</span>`;
       } else if (payment.status === "rejected") {
         statusLabel = "مرفوض";
         statusClass = "red-text";
+        statusBadge = `<span style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">🔴 مرفوض</span>`;
       }
 
       let planName = payment.plan_selected;
@@ -495,47 +505,105 @@ async function loadAdminPayments() {
         actionButtons = `<span style="font-size: 11px; color: #708499;">لا توجد إجراءات</span>`;
       }
 
-      tr.innerHTML = `
-        <td>${payment.id}</td>
-        <td>${escapeHtml(payment.email)}</td>
-        <td>${planName}</td>
-        <td style="font-family: monospace; font-size: 11px;">${escapeHtml(payment.txid)}</td>
-        <td>${payment.created_at}</td>
-        <td class="${statusClass}">${statusLabel}</td>
-        <td>${actionButtons}</td>
-      `;
-      tbody.appendChild(tr);
-
-      if (payment.status === "pending") {
-        const proxyTr = document.createElement("tr");
-        proxyTr.className = "proxy-form-row";
-        proxyTr.innerHTML = `
-          <td colspan="7" style="background: rgba(255, 255, 255, 0.015); border-top: none; padding: 12px 24px;">
-            <div class="proxy-fields" style="display: flex; gap: 15px; align-items: center; justify-content: flex-start; flex-wrap: wrap;">
-              <span style="font-size: 12px; font-weight: 600; color: #a5b4fc;">بيانات البروكسي المخصص (SOCKS5):</span>
-              <input type="text" id="proxy-host-${payment.id}" placeholder="Host (الخادم)" style="background-color: #17212b; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 6px 12px; color: #fff; font-size: 13px; outline: none; width: 160px;" />
-              <input type="number" id="proxy-port-${payment.id}" placeholder="Port (المنفذ)" style="background-color: #17212b; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 6px 12px; color: #fff; font-size: 13px; outline: none; width: 90px;" />
-              <input type="text" id="proxy-user-${payment.id}" placeholder="User (اسم المستخدم)" style="background-color: #17212b; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 6px 12px; color: #fff; font-size: 13px; outline: none; width: 130px;" />
-              <input type="password" id="proxy-pass-${payment.id}" placeholder="Pass (كلمة المرور)" style="background-color: #17212b; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 6px 12px; color: #fff; font-size: 13px; outline: none; width: 130px;" />
-            </div>
-          </td>
+      // 1. Desktop Row
+      if (tbody) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${payment.id}</td>
+          <td>${escapeHtml(payment.email)}</td>
+          <td>${planName}</td>
+          <td style="font-family: monospace; font-size: 11px;">${escapeHtml(payment.txid)}</td>
+          <td>${payment.created_at}</td>
+          <td class="${statusClass}">${statusLabel}</td>
+          <td>${actionButtons}</td>
         `;
-        tbody.appendChild(proxyTr);
+        tbody.appendChild(tr);
+
+        if (payment.status === "pending") {
+          const proxyTr = document.createElement("tr");
+          proxyTr.className = "proxy-form-row";
+          proxyTr.innerHTML = `
+            <td colspan="7" style="background: rgba(255, 255, 255, 0.015); border-top: none; padding: 12px 24px;">
+              <div class="proxy-fields" style="display: flex; gap: 15px; align-items: center; justify-content: flex-start; flex-wrap: wrap;">
+                <span style="font-size: 12px; font-weight: 600; color: #a5b4fc;">بيانات البروكسي المخصص (SOCKS5):</span>
+                <input type="text" id="proxy-host-${payment.id}" placeholder="Host (الخادم)" style="background-color: #17212b; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 6px 12px; color: #fff; font-size: 13px; outline: none; width: 160px;" />
+                <input type="number" id="proxy-port-${payment.id}" placeholder="Port (المنفذ)" style="background-color: #17212b; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 6px 12px; color: #fff; font-size: 13px; outline: none; width: 90px;" />
+                <input type="text" id="proxy-user-${payment.id}" placeholder="User (اسم المستخدم)" style="background-color: #17212b; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 6px 12px; color: #fff; font-size: 13px; outline: none; width: 130px;" />
+                <input type="password" id="proxy-pass-${payment.id}" placeholder="Pass (كلمة المرور)" style="background-color: #17212b; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 6px 12px; color: #fff; font-size: 13px; outline: none; width: 130px;" />
+              </div>
+            </td>
+          `;
+          tbody.appendChild(proxyTr);
+        }
+      }
+
+      // 2. Mobile Interactive Card
+      if (mobileContainer) {
+        let mobilePending = "";
+        if (payment.status === "pending") {
+          mobilePending = `
+            <div class="apc-proxy-box" style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(165, 180, 252, 0.2); border-radius: 10px; padding: 10px; margin-top: 8px;">
+              <div style="font-size: 11.5px; font-weight: 700; color: #a5b4fc; margin-bottom: 6px;">بيانات البروكسي (SOCKS5):</div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                <input type="text" id="m-proxy-host-${payment.id}" placeholder="Host (الخادم)" style="background: #17212b; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 6px 8px; color: #fff; font-size: 12px; width: 100%; box-sizing: border-box;" />
+                <input type="number" id="m-proxy-port-${payment.id}" placeholder="Port" style="background: #17212b; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 6px 8px; color: #fff; font-size: 12px; width: 100%; box-sizing: border-box;" />
+                <input type="text" id="m-proxy-user-${payment.id}" placeholder="User" style="background: #17212b; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 6px 8px; color: #fff; font-size: 12px; width: 100%; box-sizing: border-box;" />
+                <input type="password" id="m-proxy-pass-${payment.id}" placeholder="Pass" style="background: #17212b; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 6px 8px; color: #fff; font-size: 12px; width: 100%; box-sizing: border-box;" />
+              </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px;">
+              <button type="button" class="btn-card-action btn-card-approve" onclick="approveCryptoPayment(${payment.id}, true)" style="background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); padding: 8px; border-radius: 8px; font-weight: 700; cursor: pointer;">
+                <span>✅ قبول وتفعيل</span>
+              </button>
+              <button type="button" class="btn-card-action btn-card-reject" onclick="rejectCryptoPayment(${payment.id})" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 8px; border-radius: 8px; font-weight: 700; cursor: pointer;">
+                <span>❌ رفض</span>
+              </button>
+            </div>
+          `;
+        }
+
+        const mCard = document.createElement("div");
+        mCard.className = "admin-payment-card";
+        mCard.innerHTML = `
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+            <div>
+              <span style="font-family: monospace; font-weight: 800; font-size: 13px; color: #38bdf8;">معاملة #${payment.id}</span>
+              <div style="font-size: 13px; font-weight: 700; color: #fff; margin-top: 2px;">${escapeHtml(payment.email)}</div>
+            </div>
+            ${statusBadge}
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.5); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; font-size: 12px;">
+            <div><span style="color: #94a3b8;">الباقة: </span><strong style="color: #38bdf8;">${planName}</strong></div>
+            <div style="color: #64748b; font-size: 11px;">${payment.created_at}</div>
+          </div>
+          <div style="background: rgba(15, 23, 42, 0.7); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px;">
+            <span style="font-size: 10.5px; color: #94a3b8; display: block;">معرف التحويل (TxID):</span>
+            <code style="font-family: monospace; font-size: 11px; color: #e2e8f0; word-break: break-all; direction: ltr; display: block;">${escapeHtml(payment.txid)}</code>
+          </div>
+          ${mobilePending}
+        `;
+        mobileContainer.appendChild(mCard);
       }
     });
   } catch (error) {
     console.error("Failed to load admin payments:", error);
-    tbody.innerHTML = `<tr><td colspan="7" class="text-center red-text">فشل تحميل إيصالات الدفع.</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center red-text">فشل تحميل إيصالات الدفع.</td></tr>`;
+    if (mobileContainer) mobileContainer.innerHTML = `<div style="text-align: center; padding: 24px; color: #f87171;">فشل تحميل إيصالات الدفع.</div>`;
   }
 }
 
-window.approveCryptoPayment = async function(paymentId) {
+window.approveCryptoPayment = async function(paymentId, isMobile = false) {
   if (!confirm("هل أنت متأكد من قبول هذا الإيصال وتفعيل الاشتراك للمستخدم؟")) return;
   try {
-    const hostVal = document.getElementById(`proxy-host-${paymentId}`).value.trim();
-    const portVal = document.getElementById(`proxy-port-${paymentId}`).value.trim();
-    const userVal = document.getElementById(`proxy-user-${paymentId}`).value.trim();
-    const passVal = document.getElementById(`proxy-pass-${paymentId}`).value.trim();
+    const hostPrefix = isMobile ? `m-proxy-host-${paymentId}` : `proxy-host-${paymentId}`;
+    const portPrefix = isMobile ? `m-proxy-port-${paymentId}` : `proxy-port-${paymentId}`;
+    const userPrefix = isMobile ? `m-proxy-user-${paymentId}` : `proxy-user-${paymentId}`;
+    const passPrefix = isMobile ? `m-proxy-pass-${paymentId}` : `proxy-pass-${paymentId}`;
+
+    const hostVal = (document.getElementById(hostPrefix)?.value || document.getElementById(`proxy-host-${paymentId}`)?.value || "").trim();
+    const portVal = (document.getElementById(portPrefix)?.value || document.getElementById(`proxy-port-${paymentId}`)?.value || "").trim();
+    const userVal = (document.getElementById(userPrefix)?.value || document.getElementById(`proxy-user-${paymentId}`)?.value || "").trim();
+    const passVal = (document.getElementById(passPrefix)?.value || document.getElementById(`proxy-pass-${paymentId}`)?.value || "").trim();
 
     const payload = {
       payment_id: paymentId,
@@ -583,13 +651,19 @@ window.rejectCryptoPayment = async function(paymentId) {
 // ==========================================
 async function loadAdminUsers() {
   const tbody = document.getElementById("admin-users-table-body");
-  if (!tbody) return;
-  tbody.innerHTML = `<tr><td colspan="7" class="text-center" style="padding: 24px; color: #708499;">جاري تحميل بيانات المشتركين...</td></tr>`;
+  const mobileContainer = document.getElementById("admin-users-mobile-cards");
+  const countBadge = document.getElementById("users-count-badge");
+  
+  if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center" style="padding: 24px; color: #708499;">جاري تحميل بيانات المشتركين...</td></tr>`;
+  if (mobileContainer) mobileContainer.innerHTML = `<div style="text-align: center; padding: 24px; color: #708499;">جاري تحميل بيانات المشتركين...</div>`;
 
   try {
     const users = await adminApiRequest("/admin/users");
+    if (countBadge) countBadge.textContent = `${users.length} مشترك`;
+
     if (users.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" class="text-center" style="padding: 24px; color: #708499;">لا يوجد مستخدمون مسجلون حالياً.</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center" style="padding: 24px; color: #708499;">لا يوجد مستخدمون مسجلون حالياً.</td></tr>`;
+      if (mobileContainer) mobileContainer.innerHTML = `<div style="text-align: center; padding: 24px; color: #708499;">لا يوجد مستخدمون مسجلون حالياً.</div>`;
       return;
     }
 
@@ -609,47 +683,16 @@ async function loadAdminUsers() {
       broadcastSelect.value = currentVal || "all";
     }
 
-    tbody.innerHTML = "";
+    if (tbody) tbody.innerHTML = "";
+    if (mobileContainer) mobileContainer.innerHTML = "";
+
     users.forEach(user => {
-      const tr = document.createElement("tr");
-
-      // 1. ID Badge
+      // 1. Badges & Formatted Data
       const idBadge = `<span style="font-family: monospace; font-weight: 700; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.25);">#${user.id}</span>`;
-
-      // 2. Client Name & Email with Avatar
       const rawName = user.full_name || user.email.split('@')[0];
       const initials = rawName.substring(0, 2).toUpperCase();
-      const roleTag = user.is_admin ? `<span style="background: rgba(225, 29, 72, 0.15); color: #f43f5e; border: 1px solid rgba(225, 29, 72, 0.3); font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 700; margin-right: 6px;">مدير</span>` : '';
+      const roleTag = user.is_admin ? `<span class="badge" style="background: rgba(225, 29, 72, 0.15); color: #f43f5e; border: 1px solid rgba(225, 29, 72, 0.3); font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 700; margin-right: 6px;">مدير</span>` : '';
       
-      const clientCell = `
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <div style="width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, #1e293b, #0f172a); border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; color: #38bdf8; flex-shrink: 0; box-shadow: 0 2px 6px rgba(0,0,0,0.3);">
-            ${escapeHtml(initials)}
-          </div>
-          <div>
-            <div style="display: flex; align-items: center;">
-              <strong style="color: #ffffff; font-size: 14px; font-weight: 700;">${escapeHtml(rawName)}</strong>
-              ${roleTag}
-            </div>
-            <div style="color: #708499; font-size: 12px; margin-top: 2px; font-family: monospace;">${escapeHtml(user.email)}</div>
-          </div>
-        </div>
-      `;
-
-      // 3. Phone Numbers
-      let phoneCell = '';
-      if (user.phones && user.phones.length > 0) {
-        phoneCell = user.phones.map(p => `
-          <div style="display: inline-flex; align-items: center; gap: 6px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); color: #10b981; padding: 4px 10px; border-radius: 6px; font-family: monospace; font-size: 13px; font-weight: 700; direction: ltr; margin: 2px 0;">
-            <span style="font-size: 12px;">📞</span>
-            <span>${escapeHtml(p)}</span>
-          </div>
-        `).join('<br>');
-      } else {
-        phoneCell = `<span style="color: #64748b; font-size: 12px; font-style: italic; background: rgba(255,255,255,0.03); padding: 4px 8px; border-radius: 4px;">لا يوجد رقم</span>`;
-      }
-
-      // 4. Plan & Status
       let planBadge = '';
       if (user.subscription_plan === "yearly") {
         planBadge = `<span style="background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">👑 سنوي</span>`;
@@ -665,15 +708,8 @@ async function loadAdminUsers() {
         ? `<span style="background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">🟢 نشط</span>`
         : `<span style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">🔴 منتهي</span>`;
 
-      const planAndStatusCell = `
-        <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-start;">
-          ${planBadge}
-          ${statusBadge}
-        </div>
-      `;
-
-      // 5. Expiry Date & Remaining Days
       let expiryCell = '--';
+      let expiryShort = '--';
       if (user.subscription_end) {
         const dateStr = user.subscription_end.split(" ")[0];
         const remDays = user.remaining_days !== undefined ? user.remaining_days : 0;
@@ -682,9 +718,24 @@ async function loadAdminUsers() {
           <div style="font-family: monospace; font-size: 13px; color: #fff; font-weight: 600;">${dateStr}</div>
           ${remText}
         `;
+        expiryShort = `<span style="font-family: monospace; font-size: 12px; color: #fff;">${dateStr}</span> <span style="${user.subscription_status === 'active' ? 'color: #38bdf8;' : 'color: #f43f5e;'} font-weight: 700; font-size: 11px;">(${user.subscription_status === 'active' ? `باقي ${remDays} يوم` : 'منتهي'})</span>`;
       }
 
-      // 6. Telegram Accounts
+      let phoneCell = '';
+      let phoneDisplay = '';
+      if (user.phones && user.phones.length > 0) {
+        phoneCell = user.phones.map(p => `
+          <div style="display: inline-flex; align-items: center; gap: 6px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); color: #10b981; padding: 4px 10px; border-radius: 6px; font-family: monospace; font-size: 13px; font-weight: 700; direction: ltr; margin: 2px 0;">
+            <span style="font-size: 12px;">📞</span>
+            <span>${escapeHtml(p)}</span>
+          </div>
+        `).join('<br>');
+        phoneDisplay = user.phones.map(p => `<span style="direction: ltr; font-family: monospace; font-size: 12px; color: #10b981; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); padding: 3px 8px; border-radius: 6px; display: inline-block;">📞 ${escapeHtml(p)}</span>`).join(' ');
+      } else {
+        phoneCell = `<span style="color: #64748b; font-size: 12px; font-style: italic; background: rgba(255,255,255,0.03); padding: 4px 8px; border-radius: 4px;">لا يوجد رقم</span>`;
+        phoneDisplay = `<span style="color: #64748b; font-size: 11px; font-style: italic;">لا يوجد هاتف</span>`;
+      }
+
       let tgEnginesCell = '';
       if (user.telegram_accounts_count > 0) {
         tgEnginesCell = `
@@ -697,35 +748,142 @@ async function loadAdminUsers() {
         tgEnginesCell = `<span style="color: #64748b; font-size: 12px; font-style: italic;">غير مربوط</span>`;
       }
 
-      // 7. Action Buttons
       const userJson = JSON.stringify(user)
         .replace(/&/g, '&amp;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
-      const actionButtons = `
-        <div class="action-btn-group" style="justify-content: center; gap: 6px;">
-          <button type="button" class="btn-table btn-edit" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 5px 10px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="openAdminEditModal(${userJson})">تعديل</button>
-          <button type="button" class="btn-table btn-reboot" style="background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); padding: 5px 10px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="rebootUserService(${user.id})">ريبوت</button>
-          <button type="button" class="btn-table btn-delete" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 5px 10px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="deleteUserAccount(${user.id})">حذف</button>
-        </div>
-      `;
 
-      tr.innerHTML = `
-        <td>${idBadge}</td>
-        <td>${clientCell}</td>
-        <td>${phoneCell}</td>
-        <td>${planAndStatusCell}</td>
-        <td>${expiryCell}</td>
-        <td>${tgEnginesCell}</td>
-        <td style="text-align: center;">${actionButtons}</td>
-      `;
-      tbody.appendChild(tr);
+      // 1. Populate Desktop Table Row
+      if (tbody) {
+        const tr = document.createElement("tr");
+        const clientCell = `
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, #1e293b, #0f172a); border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; color: #38bdf8; flex-shrink: 0; box-shadow: 0 2px 6px rgba(0,0,0,0.3);">
+              ${escapeHtml(initials)}
+            </div>
+            <div>
+              <div style="display: flex; align-items: center;">
+                <strong style="color: #ffffff; font-size: 14px; font-weight: 700;">${escapeHtml(rawName)}</strong>
+                ${roleTag}
+              </div>
+              <div style="color: #708499; font-size: 12px; margin-top: 2px; font-family: monospace;">${escapeHtml(user.email)}</div>
+            </div>
+          </div>
+        `;
+        const planAndStatusCell = `
+          <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-start;">
+            ${planBadge}
+            ${statusBadge}
+          </div>
+        `;
+        const actionButtons = `
+          <div class="action-btn-group" style="justify-content: center; gap: 6px;">
+            <button type="button" class="btn-table btn-edit" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 5px 10px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="openAdminEditModal(${userJson})">تعديل</button>
+            <button type="button" class="btn-table btn-reboot" style="background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); padding: 5px 10px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="rebootUserService(${user.id})">ريبوت</button>
+            <button type="button" class="btn-table btn-delete" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 5px 10px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="deleteUserAccount(${user.id})">حذف</button>
+          </div>
+        `;
+        tr.innerHTML = `
+          <td>${idBadge}</td>
+          <td>${clientCell}</td>
+          <td>${phoneCell}</td>
+          <td>${planAndStatusCell}</td>
+          <td>${expiryCell}</td>
+          <td>${tgEnginesCell}</td>
+          <td style="text-align: center;">${actionButtons}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+
+      // 2. Populate Mobile Card
+      if (mobileContainer) {
+        const card = document.createElement("div");
+        card.className = "admin-user-card";
+        const searchKeywords = `${rawName} ${user.email} ${(user.phones || []).join(' ')} #${user.id}`.toLowerCase();
+        card.setAttribute("data-user-search", searchKeywords);
+        card.innerHTML = `
+          <div class="auc-top">
+            <div class="auc-avatar">${escapeHtml(initials)}</div>
+            <div class="auc-info">
+              <div class="auc-name-row">
+                <strong class="auc-name">${escapeHtml(rawName)}</strong>
+                ${roleTag}
+              </div>
+              <div class="auc-email">${escapeHtml(user.email)}</div>
+            </div>
+            <div class="auc-id">#${user.id}</div>
+          </div>
+
+          <div class="auc-pills-row">
+            <div class="auc-pill-group">
+              <span class="auc-pill-label">الباقة:</span>
+              ${planBadge}
+            </div>
+            <div class="auc-pill-group">
+              <span class="auc-pill-label">الحالة:</span>
+              ${statusBadge}
+            </div>
+          </div>
+
+          <div class="auc-details-box">
+            <div class="auc-detail-row">
+              <span class="auc-detail-label">⏳ الصلاحية:</span>
+              <span class="auc-detail-val">${expiryShort}</span>
+            </div>
+            <div class="auc-detail-row">
+              <span class="auc-detail-label">📱 الهاتف:</span>
+              <span class="auc-detail-val">${phoneDisplay}</span>
+            </div>
+            <div class="auc-detail-row">
+              <span class="auc-detail-label">⚡ المحركات:</span>
+              <span class="auc-detail-val">${tgEnginesCell}</span>
+            </div>
+          </div>
+
+          <div class="auc-actions">
+            <button type="button" class="btn-card-action btn-card-edit" onclick="openAdminEditModal(${userJson})">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              <span>تعديل</span>
+            </button>
+            <button type="button" class="btn-card-action btn-card-reboot" onclick="rebootUserService(${user.id})">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              <span>ريبوت</span>
+            </button>
+            <button type="button" class="btn-card-action btn-card-delete" onclick="deleteUserAccount(${user.id})">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              <span>حذف</span>
+            </button>
+          </div>
+        `;
+        mobileContainer.appendChild(card);
+      }
     });
+
+    // Wire instant search filter
+    const searchInput = document.getElementById("admin-users-search");
+    if (searchInput) {
+      searchInput.oninput = function(e) {
+        const query = e.target.value.toLowerCase().trim();
+        // Filter mobile cards
+        document.querySelectorAll("#admin-users-mobile-cards .admin-user-card").forEach(card => {
+          const haystack = card.getAttribute("data-user-search") || "";
+          card.style.display = haystack.includes(query) ? "" : "none";
+        });
+        // Filter desktop table rows
+        if (tbody) {
+          Array.from(tbody.querySelectorAll("tr")).forEach(row => {
+            const rowText = row.textContent.toLowerCase();
+            row.style.display = rowText.includes(query) ? "" : "none";
+          });
+        }
+      };
+    }
   } catch (error) {
     console.error("Failed to load admin users:", error);
-    tbody.innerHTML = `<tr><td colspan="7" class="text-center red-text" style="padding: 24px;">فشل تحميل قائمة المستخدمين.</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center red-text" style="padding: 24px;">فشل تحميل قائمة المستخدمين.</td></tr>`;
+    if (mobileContainer) mobileContainer.innerHTML = `<div style="text-align: center; padding: 24px; color: #f87171;">فشل تحميل قائمة المستخدمين.</div>`;
   }
 }
 
