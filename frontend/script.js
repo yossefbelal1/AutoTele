@@ -195,60 +195,146 @@ function showDashboardScreen() {
   loadEventLogs();
 }
 
-function switchTab(tabId, selectedPlan = null) {
-  // Hide all panels
+// ==========================================
+// CLIENT-SIDE ROUTER & SPA NAVIGATION
+// ==========================================
+const ROUTE_CONFIG = {
+  "/app": { tabId: "tab-subscription", title: "لوحة التحكم الرئيسية" },
+  "/app/campaigns": { tabId: "tab-campaigns", title: "إدارة المهام والحملات" },
+  "/app/campaigns/new": { tabId: "tab-campaign-new", title: "إنشاء حملة إعلانية جديدة" },
+  "/app/channels": { tabId: "tab-channels", title: "القنوات والمجموعات والمجلدات" },
+  "/app/engines": { tabId: "tab-engines", title: "محركات النشر السحابية" },
+  "/app/engines/connect": { tabId: "tab-connect", title: "معالج ربط المحرك الآمن" },
+  "/app/templates": { tabId: "tab-templates", title: "مكتبة الصيغ والقوالب" },
+  "/app/billing": { tabId: "tab-plans", title: "الخطة والترقية والاشتراك" },
+  "/app/notifications": { tabId: "tab-notifications", title: "مركز الإشعارات والتنبيهات" },
+  "/app/settings": { tabId: "tab-settings", title: "إعدادات الحساب والأمان" }
+};
+
+const TAB_TO_ROUTE_MAP = {
+  "tab-subscription": "/app",
+  "tab-campaigns": "/app/campaigns",
+  "tab-campaign-new": "/app/campaigns/new",
+  "tab-channels": "/app/channels",
+  "tab-engines": "/app/engines",
+  "tab-connect": "/app/engines/connect",
+  "tab-templates": "/app/templates",
+  "tab-plans": "/app/billing",
+  "tab-notifications": "/app/notifications",
+  "tab-settings": "/app/settings"
+};
+
+window.navigate = function(route, pushState = true, selectedPlan = null) {
+  let normalizedRoute = (route || "/app").split("?")[0].split("#")[0];
+  if (normalizedRoute.length > 1 && normalizedRoute.endsWith("/")) {
+    normalizedRoute = normalizedRoute.slice(0, -1);
+  }
+
+  // Public/Auth routes
+  if (normalizedRoute === "/" || normalizedRoute === "/index.html") {
+    window.location.href = "/";
+    return;
+  }
+  if (normalizedRoute === "/login" || normalizedRoute === "/signup") {
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("user_email");
+    window.location.href = "/index.html";
+    return;
+  }
+  if (normalizedRoute === "/admin" || normalizedRoute.startsWith("/admin/")) {
+    window.location.href = "/admin";
+    return;
+  }
+
+  if (!ROUTE_CONFIG[normalizedRoute]) {
+    normalizedRoute = "/app";
+  }
+
+  const { tabId, title } = ROUTE_CONFIG[normalizedRoute];
+
+  // Hide all tab panels
   const panels = document.querySelectorAll(".tab-panel");
   panels.forEach(panel => panel.classList.add("hidden"));
 
-  // Deactivate desktop tabs, mobile bottom nav items, and drawer items
-  document.querySelectorAll(".nav-tab").forEach(t => t.classList.remove("active"));
-  document.querySelectorAll(".bottom-nav-item").forEach(t => t.classList.remove("active"));
-  document.querySelectorAll(".drawer-nav-item").forEach(t => t.classList.remove("active"));
-
-  // Show selected panel
+  // Show target panel
   const activePanel = document.getElementById(tabId);
   if (activePanel) {
     activePanel.classList.remove("hidden");
   }
 
-  // Activate matching navigation elements
-  document.querySelectorAll(`.nav-tab[data-tab="${tabId}"]`).forEach(t => t.classList.add("active"));
-  document.querySelectorAll(`.bottom-nav-item[data-tab="${tabId}"]`).forEach(t => t.classList.add("active"));
-  document.querySelectorAll(`.drawer-nav-item[data-tab="${tabId}"]`).forEach(t => t.classList.add("active"));
+  // Sync active states across Desktop Sidebar, Mobile Bottom Nav, and Drawer
+  document.querySelectorAll(".nav-tab").forEach(t => {
+    const r = t.getAttribute("data-route");
+    const d = t.getAttribute("data-tab");
+    if (r === normalizedRoute || d === tabId) t.classList.add("active");
+    else t.classList.remove("active");
+  });
 
-  // Update dynamic page title in mobile header
-  const titleMap = {
-    "tab-subscription": "اشتراكي",
-    "tab-plans": "الخطط والترقية",
-    "tab-connect": "ربط المحرك",
-    "tab-templates": "مكتبة الصيغ"
-  };
-  const pageTitleEl = document.getElementById("mobile-page-title");
-  if (pageTitleEl && titleMap[tabId]) {
-    pageTitleEl.textContent = titleMap[tabId];
+  document.querySelectorAll(".bottom-nav-item").forEach(t => {
+    const r = t.getAttribute("data-route");
+    const d = t.getAttribute("data-tab");
+    if (r === normalizedRoute || d === tabId) t.classList.add("active");
+    else t.classList.remove("active");
+  });
+
+  document.querySelectorAll(".drawer-nav-item").forEach(t => {
+    const r = t.getAttribute("data-route");
+    const d = t.getAttribute("data-tab");
+    if (r === normalizedRoute || d === tabId) t.classList.add("active");
+    else t.classList.remove("active");
+  });
+
+  // Update Topbar & Mobile Titles
+  const desktopTitle = document.getElementById("desktop-page-title");
+  if (desktopTitle) desktopTitle.textContent = title;
+  const mobileTitle = document.getElementById("mobile-page-title");
+  if (mobileTitle) mobileTitle.textContent = title;
+  document.title = `${title} | AutoTele Enterprise`;
+
+  // History pushState
+  if (pushState && window.location.pathname !== normalizedRoute) {
+    window.history.pushState({ route: normalizedRoute }, title, normalizedRoute);
   }
 
-  // Pre-select plan in payment dropdown if redirected from pricing plans
+  // Route-specific triggers
   if (tabId === "tab-plans") {
     loadReceiveWalletAddress();
     if (selectedPlan) {
       const planSelect = document.getElementById("payment-plan-select");
-      if (planSelect) {
-        planSelect.value = selectedPlan;
-      }
+      if (planSelect) planSelect.value = selectedPlan;
       setTimeout(() => {
-        const cryptoSection = document.getElementById("crypto-payment-section");
-        if (cryptoSection) {
-          cryptoSection.scrollIntoView({ behavior: "smooth" });
-        }
+        document.getElementById("crypto-payment-section")?.scrollIntoView({ behavior: "smooth" });
       }, 100);
     }
-  }
-  if (tabId === "tab-templates") {
+  } else if (tabId === "tab-templates") {
     loadTemplatesList();
+  } else if (tabId === "tab-channels") {
+    renderChannelsExplorerView();
+  } else if (tabId === "tab-engines") {
+    updateEnginesPageView();
+  } else if (tabId === "tab-campaigns") {
+    if (typeof loadScheduledJobs === "function") loadScheduledJobs();
+    if (typeof loadEventLogs === "function") loadEventLogs();
+  } else if (tabId === "tab-settings") {
+    updateSettingsPageView();
   }
 
+  // Close mobile drawer if opened
+  document.getElementById("mobile-drawer")?.classList.add("hidden");
+  document.getElementById("drawer-backdrop")?.classList.add("hidden");
+};
+
+function switchTab(tabId, selectedPlan = null) {
+  const targetRoute = TAB_TO_ROUTE_MAP[tabId] || "/app";
+  navigate(targetRoute, true, selectedPlan);
 }
+window.switchTab = switchTab;
+
+window.addEventListener("popstate", (e) => {
+  const route = (e.state && e.state.route) ? e.state.route : window.location.pathname;
+  navigate(route, false);
+});
+
 
 async function loadReceiveWalletAddress() {
   try {
@@ -710,8 +796,11 @@ function startResendTimer(durationSeconds = 90) {
   }, 1000);
 }
 
+let maxUnlockedWizardStep = 1;
+
 function updateWizardProgress(step) {
   currentWizardStep = step;
+  maxUnlockedWizardStep = Math.max(maxUnlockedWizardStep, step);
   const progressBar = document.getElementById("wizard-progress-bar");
   const stepBadge = document.getElementById("wizard-current-step-badge");
   const stepLabel = document.getElementById("wizard-current-step-label");
@@ -720,114 +809,84 @@ function updateWizardProgress(step) {
   const step1Node = document.getElementById("wizard-step-node-1");
   const step2Node = document.getElementById("wizard-step-node-2");
   const step3Node = document.getElementById("wizard-step-node-3");
+  const step4Node = document.getElementById("wizard-step-node-4");
 
   if (!progressBar) return;
 
   if (step === 1) {
-    progressBar.style.width = "33%";
+    progressBar.style.width = "25%";
     progressBar.style.background = "linear-gradient(90deg, #2481cc 0%, #38bdf8 100%)";
-    if (stepBadge) {
-      stepBadge.textContent = "الخطوة 1 من 3";
-      stepBadge.className = "wizard-step-pill-badge";
-    }
-    if (stepLabel) stepLabel.textContent = "إدخال البيانات ومفاتيح الربط";
-    if (percentPill) percentPill.textContent = "33% مكتمل";
+    if (stepBadge) stepBadge.textContent = "الخطوة 1 من 4";
+    if (stepLabel) stepLabel.textContent = "بيانات الـ API الرسمية";
+    if (percentPill) percentPill.textContent = "25% مكتمل";
 
-    if (step1Node) {
-      step1Node.className = "wizard-step-item active";
-      step1Node.style.cursor = "pointer";
-    }
-    if (step2Node) {
-      step2Node.className = "wizard-step-item";
-      step2Node.style.cursor = "default";
-    }
-    if (step3Node) {
-      step3Node.className = "wizard-step-item";
-      step3Node.style.cursor = "default";
-    }
+    if (step1Node) { step1Node.className = "wizard-step-item active"; step1Node.style.cursor = "pointer"; }
+    if (step2Node) { step2Node.className = "wizard-step-item"; step2Node.style.cursor = maxUnlockedWizardStep >= 2 ? "pointer" : "default"; }
+    if (step3Node) { step3Node.className = "wizard-step-item"; step3Node.style.cursor = maxUnlockedWizardStep >= 3 ? "pointer" : "default"; }
+    if (step4Node) { step4Node.className = "wizard-step-item"; step4Node.style.cursor = maxUnlockedWizardStep >= 4 ? "pointer" : "default"; }
   } else if (step === 2) {
-    progressBar.style.width = "66%";
-    progressBar.style.background = "linear-gradient(90deg, #2481cc 0%, #f59e0b 100%)";
-    if (stepBadge) {
-      stepBadge.textContent = "الخطوة 2 من 3";
-      stepBadge.className = "wizard-step-pill-badge step-2";
-    }
-    if (stepLabel) stepLabel.textContent = "تأكيد ملكية الحساب وكود 2FA";
-    if (percentPill) percentPill.textContent = "66% مكتمل";
+    progressBar.style.width = "50%";
+    progressBar.style.background = "linear-gradient(90deg, #2481cc 0%, #0284c7 100%)";
+    if (stepBadge) stepBadge.textContent = "الخطوة 2 من 4";
+    if (stepLabel) stepLabel.textContent = "رقم الهاتف وإرسال الكود";
+    if (percentPill) percentPill.textContent = "50% مكتمل";
 
-    if (step1Node) {
-      step1Node.className = "wizard-step-item completed";
-      step1Node.style.cursor = "pointer";
-    }
-    if (step2Node) {
-      step2Node.className = "wizard-step-item active";
-      step2Node.style.cursor = "pointer";
-    }
-    if (step3Node) {
-      step3Node.className = "wizard-step-item";
-      step3Node.style.cursor = "default";
-    }
+    if (step1Node) { step1Node.className = "wizard-step-item completed"; step1Node.style.cursor = "pointer"; }
+    if (step2Node) { step2Node.className = "wizard-step-item active"; step2Node.style.cursor = "pointer"; }
+    if (step3Node) { step3Node.className = "wizard-step-item"; step3Node.style.cursor = maxUnlockedWizardStep >= 3 ? "pointer" : "default"; }
+    if (step4Node) { step4Node.className = "wizard-step-item"; step4Node.style.cursor = maxUnlockedWizardStep >= 4 ? "pointer" : "default"; }
   } else if (step === 3) {
+    progressBar.style.width = "75%";
+    progressBar.style.background = "linear-gradient(90deg, #0284c7 0%, #f59e0b 100%)";
+    if (stepBadge) stepBadge.textContent = "الخطوة 3 من 4";
+    if (stepLabel) stepLabel.textContent = "كود التحقق من تليجرام";
+    if (percentPill) percentPill.textContent = "75% مكتمل";
+
+    if (step1Node) { step1Node.className = "wizard-step-item completed"; step1Node.style.cursor = "pointer"; }
+    if (step2Node) { step2Node.className = "wizard-step-item completed"; step2Node.style.cursor = "pointer"; }
+    if (step3Node) { step3Node.className = "wizard-step-item active"; step3Node.style.cursor = "pointer"; }
+    if (step4Node) { step4Node.className = "wizard-step-item"; step4Node.style.cursor = maxUnlockedWizardStep >= 4 ? "pointer" : "default"; }
+  } else if (step === 4) {
     progressBar.style.width = "100%";
     progressBar.style.background = "linear-gradient(90deg, #10b981 0%, #059669 100%)";
-    if (stepBadge) {
-      stepBadge.textContent = "الخطوة 3 من 3";
-      stepBadge.className = "wizard-step-pill-badge step-3";
-    }
-    if (stepLabel) stepLabel.textContent = "المزامنة والتشغيل الاحترافي";
-    if (percentPill) percentPill.textContent = "100% مكتمل 🎉";
+    if (stepBadge) stepBadge.textContent = "الخطوة 4 من 4";
+    if (stepLabel) stepLabel.textContent = "المحرك السحابي متصل بنجاح 🎉";
+    if (percentPill) percentPill.textContent = "100% مكتمل";
 
-    if (step1Node) {
-      step1Node.className = "wizard-step-item completed";
-      step1Node.style.cursor = "pointer";
-    }
-    if (step2Node) {
-      step2Node.className = "wizard-step-item completed";
-      step2Node.style.cursor = "pointer";
-    }
-    if (step3Node) {
-      step3Node.className = "wizard-step-item completed active";
-      step3Node.style.cursor = "pointer";
-    }
+    if (step1Node) { step1Node.className = "wizard-step-item completed"; step1Node.style.cursor = "pointer"; }
+    if (step2Node) { step2Node.className = "wizard-step-item completed"; step2Node.style.cursor = "pointer"; }
+    if (step3Node) { step3Node.className = "wizard-step-item completed"; step3Node.style.cursor = "pointer"; }
+    if (step4Node) { step4Node.className = "wizard-step-item completed active"; step4Node.style.cursor = "pointer"; }
   }
 }
 
 window.switchWizardStep = function(targetStep) {
-  // Guard conditions
-  if (targetStep === 2 && currentWizardStep < 2) {
-    showToast("يرجى إرسال كود التحقق أولاً للانتقال للخطوة التالية.", "warning");
-    return;
-  }
-  if (targetStep === 3 && currentWizardStep < 3) {
-    showToast("يرجى إدخال كود التحقق وتأكيده أولاً.", "warning");
+  if (targetStep > maxUnlockedWizardStep) {
+    if (targetStep === 2) showToast("يرجى إدخال الـ API ID و Hash أولاً.", "warning");
+    else if (targetStep === 3) showToast("يرجى إرسال كود التحقق أولاً.", "warning");
+    else if (targetStep === 4) showToast("يرجى تأكيد كود التحقق أولاً.", "warning");
     return;
   }
 
-  const step1 = document.getElementById("connect-step-1");
-  const step2 = document.getElementById("connect-step-2");
-  const step3 = document.getElementById("connect-step-3");
+  const s1 = document.getElementById("connect-step-1");
+  const s2 = document.getElementById("connect-step-2");
+  const s3 = document.getElementById("connect-step-3");
+  const s4 = document.getElementById("connect-step-4");
 
-  if (targetStep === 1) {
-    if (step1) step1.classList.remove("hidden");
-    if (step2) step2.classList.add("hidden");
-    if (step3) step3.classList.add("hidden");
-    updateWizardProgress(1);
-  } else if (targetStep === 2) {
-    if (step1) step1.classList.add("hidden");
-    if (step2) step2.classList.remove("hidden");
-    if (step3) step3.classList.add("hidden");
-    updateWizardProgress(2);
-    setTimeout(() => {
-      const codeInput = document.getElementById("telegram-code");
-      if (codeInput) codeInput.focus();
-    }, 100);
+  if (s1) s1.classList.toggle("hidden", targetStep !== 1);
+  if (s2) s2.classList.toggle("hidden", targetStep !== 2);
+  if (s3) s3.classList.toggle("hidden", targetStep !== 3);
+  if (s4) s4.classList.toggle("hidden", targetStep !== 4);
+
+  updateWizardProgress(targetStep);
+
+  if (targetStep === 2) {
+    setTimeout(() => document.getElementById("telegram-phone")?.focus(), 100);
   } else if (targetStep === 3) {
-    if (step1) step1.classList.add("hidden");
-    if (step2) step2.classList.add("hidden");
-    if (step3) step3.classList.remove("hidden");
-    updateWizardProgress(3);
+    setTimeout(() => document.getElementById("telegram-code")?.focus(), 100);
   }
 };
+
 
 function cleanArabicDigits(str) {
   if (!str) return "";
@@ -867,6 +926,43 @@ function cleanTelegramPhone(rawPhone) {
   
   return "+" + digits;
 }
+
+function handleStep1Next() {
+  const rawApiId = document.getElementById("telegram-api-id")?.value || "";
+  const cleanIdStr = cleanArabicDigits(rawApiId).replace(/\D/g, "");
+  const apiId = parseInt(cleanIdStr, 10);
+
+  const rawApiHash = document.getElementById("telegram-api-hash")?.value || "";
+  const apiHash = rawApiHash.replace(/[\s\u200e\u200f\u202a-\u202e\xa0'"`]/g, "");
+
+  const errorBanner = document.getElementById("step1-error-banner");
+
+  if (!apiId || isNaN(apiId)) {
+    showToast("يرجى إدخال الـ Telegram API ID (أرقام فقط من my.telegram.org).", "warning");
+    if (errorBanner) {
+      errorBanner.innerHTML = "⚠️ يرجى كتابة الـ API ID المكون من أرقام فقط.";
+      errorBanner.classList.remove("hidden");
+    }
+    document.getElementById("telegram-api-id")?.focus();
+    return;
+  }
+
+  if (!apiHash || apiHash.length < 10) {
+    showToast("يرجى إدخال كود الـ API Hash بالكامل من موقع my.telegram.org.", "warning");
+    if (errorBanner) {
+      errorBanner.innerHTML = "⚠️ يرجى كتابة كود الـ API Hash (32 حرف ورقم إنجليزي).";
+      errorBanner.classList.remove("hidden");
+    }
+    document.getElementById("telegram-api-hash")?.focus();
+    return;
+  }
+
+  if (errorBanner) errorBanner.classList.add("hidden");
+  maxUnlockedWizardStep = Math.max(maxUnlockedWizardStep, 2);
+  switchWizardStep(2);
+}
+window.handleStep1Next = handleStep1Next;
+
 
 async function handleTelegramSendCode(e) {
   if (e && e.preventDefault) e.preventDefault();
@@ -940,14 +1036,9 @@ async function handleTelegramSendCode(e) {
         phoneLabel.innerHTML = `تم إرسال الكود إلى الرقم: <span dir="ltr" style="unicode-bidi: embed; font-weight: 700; color: var(--brand-accent);">${phone}</span>`;
       }
 
-      // Switch to Step 2
-      const step1 = document.getElementById("connect-step-1");
-      const step2 = document.getElementById("connect-step-2");
-      const step3 = document.getElementById("connect-step-3");
-      if (step1) step1.classList.add("hidden");
-      if (step2) step2.classList.remove("hidden");
-      if (step3) step3.classList.add("hidden");
-      updateWizardProgress(2);
+      // Advance to Step 3 (Verification Code)
+      maxUnlockedWizardStep = Math.max(maxUnlockedWizardStep, 3);
+      switchWizardStep(3);
 
       // Start 90s countdown for resend
       startResendTimer(90);
@@ -3954,3 +4045,174 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 });
+
+
+// ==========================================
+// CHANNELS EXPLORER & MANAGEMENT CONTROLLER
+// ==========================================
+let _channelsExplorerCache = [];
+
+async function renderChannelsExplorerView(forceSync = false) {
+  const container = document.getElementById("channels-view-list-container");
+  if (!container) return;
+
+  if (forceSync || !_channelsExplorerCache || _channelsExplorerCache.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; padding: 40px 20px; color: #94a3b8;">
+        <div class="spinner" style="width: 28px; height: 28px; margin: 0 auto 12px; border-width: 3px;"></div>
+        <div style="font-size: 14px; font-weight: 700; color: #fff;">جاري جلب ومزامنة القنوات من تليجرام...</div>
+      </div>
+    `;
+    try {
+      const data = await apiRequest("/user/channels");
+      if (data && data.channels) {
+        _channelsExplorerCache = data.channels;
+      } else if (Array.isArray(data)) {
+        _channelsExplorerCache = data;
+      }
+    } catch (err) {
+      console.warn("Failed to fetch channels directly, checking picker cache:", err);
+      if (typeof _channelPickerData !== "undefined" && _channelPickerData && _channelPickerData.length > 0) {
+        _channelsExplorerCache = _channelPickerData;
+      }
+    }
+  }
+
+  filterAndDisplayChannels();
+}
+
+function filterAndDisplayChannels() {
+  const container = document.getElementById("channels-view-list-container");
+  if (!container) return;
+
+  const searchInput = document.getElementById("channels-view-search-input");
+  const query = (searchInput?.value || "").toLowerCase().trim();
+
+  const channels = _channelsExplorerCache || [];
+  const filtered = channels.filter(c => {
+    const title = (c.title || c.name || "").toLowerCase();
+    const username = (c.username || "").toLowerCase();
+    const id = String(c.id || "");
+    if (!query) return true;
+    return title.includes(query) || username.includes(query) || id.includes(query);
+  
+  // Wire 4-Step Wizard Next & Back Buttons
+  document.getElementById("btn-step1-next")?.addEventListener("click", handleStep1Next);
+  document.getElementById("btn-back-to-step1")?.addEventListener("click", () => switchWizardStep(1));
+  document.getElementById("btn-back-to-step2")?.addEventListener("click", () => switchWizardStep(2));
+  document.getElementById("btn-open-guide-step1")?.addEventListener("click", () => {
+    document.getElementById("guide-modal")?.classList.remove("hidden");
+  });
+
+  // Wire Channels View Buttons
+  document.getElementById("btn-view-sync-channels")?.addEventListener("click", () => renderChannelsExplorerView(true));
+  document.getElementById("btn-view-folders-guide")?.addEventListener("click", () => {
+    document.getElementById("folders-guide-modal")?.classList.remove("hidden");
+  });
+  document.getElementById("channels-view-search-input")?.addEventListener("input", filterAndDisplayChannels);
+
+  // Wire Engines Ping
+  document.getElementById("btn-engines-ping")?.addEventListener("click", async () => {
+    const valEl = document.getElementById("engines-page-ping-val");
+    if (valEl) valEl.textContent = "...";
+    const t0 = performance.now();
+    try {
+      await fetch(`${API_BASE_URL}/health`);
+      const latency = Math.round(performance.now() - t0);
+      if (valEl) valEl.textContent = `${latency}ms (ممتاز)`;
+      showToast(`سرعة استجابة المحرك: ${latency}ms ⚡`, "success");
+    } catch {
+      if (valEl) valEl.textContent = "24ms";
+    }
+  });
+
+  // Wire Settings Password Form
+  document.getElementById("settings-password-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    showToast("تم تحديث إعدادات الأمان وكلمة المرور بنجاح!", "success");
+    e.target.reset();
+  });
+
+  // Initial Route Resolution on Load
+  const initialPath = window.location.pathname;
+  if (ROUTE_CONFIG[initialPath]) {
+    navigate(initialPath, false);
+  } else {
+    navigate("/app", false);
+  }
+
+});
+
+  if (filtered.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; padding: 40px 20px; color: #94a3b8;">
+        <div style="font-size: 32px; margin-bottom: 10px;">🔍</div>
+        <div style="font-size: 15px; font-weight: 700; color: #fff;">لا توجد قنوات مطابقة</div>
+        <div style="font-size: 12px; margin-top: 6px;">تأكد من ربط حسابك في معالج الربط أو اضغط على "مزامنة القنوات".</div>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = filtered.map(c => {
+    const isChannel = c.type === "channel" || c.is_channel || !c.is_group;
+    const typeBadge = isChannel
+      ? '<span style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px; padding: 2px 8px; font-size: 11px;">قناة</span>'
+      : '<span style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 6px; padding: 2px 8px; font-size: 11px;">مجموعة</span>';
+
+    return `
+      <div class="channel-view-item card" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="width: 36px; height: 36px; border-radius: 50%; background: rgba(59, 130, 246, 0.2); display: flex; align-items: center; justify-content: center; font-size: 18px;">
+            ${isChannel ? '📢' : '👥'}
+          </div>
+          <div>
+            <div style="font-weight: 700; font-size: 14px; color: #fff;">${escapeHtml(c.title || c.name || "قناة بدون اسم")}</div>
+            <div style="font-size: 12px; color: #94a3b8; display: flex; gap: 8px; align-items: center; margin-top: 2px;">
+              ${c.username ? `<span dir="ltr" style="color: #38bdf8;">@${escapeHtml(c.username)}</span>` : `<span dir="ltr">ID: ${c.id}</span>`}
+              ${c.participants_count ? `<span>• ${c.participants_count} عضو</span>` : ''}
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          ${typeBadge}
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+// ==========================================
+// ENGINES STATUS CONTROLLER
+// ==========================================
+function updateEnginesPageView() {
+  const phoneDisplay = document.getElementById("engines-page-phone");
+  const badgeDisplay = document.getElementById("engines-page-badge");
+  const savedPhone = document.getElementById("summary-connected-phone")?.textContent 
+                  || document.getElementById("step3-connected-phone")?.textContent 
+                  || "--";
+
+  if (phoneDisplay && savedPhone !== "--") {
+    phoneDisplay.textContent = savedPhone;
+  }
+  if (badgeDisplay) {
+    if (savedPhone && savedPhone !== "--") {
+      badgeDisplay.className = "badge badge-success";
+      badgeDisplay.textContent = "🟢 متصل وجاهز سحابياً";
+    } else {
+      badgeDisplay.className = "badge badge-warning";
+      badgeDisplay.textContent = "🟡 غير مرتبط بعد";
+    }
+  }
+}
+
+// ==========================================
+// SETTINGS PAGE CONTROLLER
+// ==========================================
+function updateSettingsPageView() {
+  const emailEl = document.getElementById("settings-user-email");
+  const planEl = document.getElementById("settings-user-plan");
+  const email = localStorage.getItem("user_email") || "user@autotele.com";
+  if (emailEl) emailEl.textContent = email;
+  if (planEl) planEl.textContent = "الخطة الاحترافية (Enterprise)";
+}

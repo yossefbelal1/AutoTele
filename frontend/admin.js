@@ -124,15 +124,54 @@ function showAuthScreen() {
   tempPassword = null;
 }
 
-function showDashboardScreen() {
+const ADMIN_ROUTE_MAP = {
+  "/admin": "tab-stats",
+  "/admin/": "tab-stats",
+  "/admin/payments": "tab-payments",
+  "/admin/users": "tab-users",
+  "/admin/broadcast": "tab-broadcast",
+  "/admin/logs": "tab-logs",
+  "/admin/health": "tab-health",
+  "/admin/subscriptions": "tab-subscriptions"
+};
+
+const TAB_TO_ADMIN_ROUTE = {
+  "tab-stats": "/admin",
+  "tab-payments": "/admin/payments",
+  "tab-users": "/admin/users",
+  "tab-broadcast": "/admin/broadcast",
+  "tab-logs": "/admin/logs",
+  "tab-health": "/admin/health",
+  "tab-subscriptions": "/admin/subscriptions"
+};
+
+function navigateAdmin(route, pushState = true) {
+  const token = localStorage.getItem("admin_token");
+  if (!token) {
+    showAuthScreen();
+    return;
+  }
+  const cleanRoute = (route || "/admin").split("?")[0].replace(/\/$/, "") || "/admin";
+  const targetTab = ADMIN_ROUTE_MAP[cleanRoute] || "tab-stats";
+  const canonicalRoute = TAB_TO_ADMIN_ROUTE[targetTab] || "/admin";
+
+  if (pushState && window.location.pathname !== canonicalRoute) {
+    window.history.pushState(null, "", canonicalRoute);
+  }
+
+  showDashboardScreen(targetTab);
+}
+
+function showDashboardScreen(preferredTab = null) {
   document.getElementById("auth-view").classList.add("hidden");
   document.getElementById("dashboard-view").classList.remove("hidden");
   
   // Set display email if available
   document.getElementById("admin-email-display").textContent = "المشرف الرئيسي";
   
-  // Go to default tab
-  switchTab("tab-stats");
+  const currentPath = window.location.pathname.replace(/\/$/, "") || "/admin";
+  const activeTab = preferredTab || ADMIN_ROUTE_MAP[currentPath] || "tab-stats";
+  switchTab(activeTab);
 }
 
 function switchTab(tabId) {
@@ -216,35 +255,85 @@ async function handleAdminLogin(e) {
 
   const email = document.getElementById("login-email").value.trim();
   const password = document.getElementById("login-password").value;
-  const otpCode = document.getElementById("login-otp").value.trim() || null;
+  const otpGroup = document.getElementById("group-otp");
+  const isOtpStep = otpGroup && !otpGroup.classList.contains("hidden");
+  const otpCode = document.getElementById("login-otp")?.value.trim() || null;
 
   setButtonLoading("btn-login", true);
 
   try {
-    const response = await fetch(`${API_BASE_URL}/admin/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, otp_code: otpCode })
-    });
+    if (!isOtpStep) {
+      // Step 1: Submit email & password
+      const response = await fetch(`${API_BASE_URL}/admin/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
 
-    const data = await response.json();
+      const data = await response.json();
 
-    if (!response.ok) {
-      showToast(data.detail || "فشل تسجيل الدخول.", "error");
-      return;
-    }
+      if (!response.ok) {
+        showToast(data.detail || "فشل تسجيل الدخول.", "error");
+        return;
+      }
 
-    if (data.status === "prompt_2fa") {
-      // 2FA disabled per admin request — bypass OTP and proceed with login
-      localStorage.setItem("admin_token", data.access_token);
-      showToast("تم تسجيل الدخول بنجاح!", "success");
-      showDashboardScreen();
-      return;
-    } else if (data.status === "success") {
-      // Verification succeeded
-      localStorage.setItem("admin_token", data.access_token);
-      showToast("تم التحقق الثنائي وتسجيل الدخول بنجاح!", "success");
-      showDashboardScreen();
+      if (data.status === "prompt_2fa") {
+        // Store challenge token for verification step
+        if (data.challenge_token) {
+          sessionStorage.setItem("admin_challenge_token", data.challenge_token);
+        }
+        otpGroup.classList.remove("hidden");
+        const btnText = document.getElementById("btn-login").querySelector(".btn-text");
+        if (btnText) btnText.textContent = "تأكيد كود 2FA والمتابعة";
+        const otpInput = document.getElementById("login-otp");
+        if (otpInput) {
+          otpInput.setAttribute("required", "required");
+          otpInput.focus();
+        }
+        showToast(data.message || "تم إرسال كود التحقق 2FA عبر تليجرام!", "info");
+        return;
+      } else if (data.status === "success") {
+        // Direct success (if 2FA was disabled or not required)
+        localStorage.setItem("admin_token", data.access_token);
+        showToast("تم تسجيل الدخول بنجاح!", "success");
+        navigateAdmin(window.location.pathname.startsWith("/admin/") ? window.location.pathname : "/admin");
+      }
+    } else {
+      // Step 2: Submit OTP with challenge token
+      if (!otpCode || otpCode.length < 5) {
+        showToast("يرجى إدخال كود التحقق المكون من 6 أرقام.", "warning");
+        return;
+      }
+
+      const challengeToken = sessionStorage.getItem("admin_challenge_token");
+      let response;
+      if (challengeToken) {
+        response = await fetch(`${API_BASE_URL}/admin/auth/verify-otp`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ challenge_token: challengeToken, otp_code: otpCode })
+        });
+      } else {
+        response = await fetch(`${API_BASE_URL}/admin/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password, otp_code: otpCode })
+        });
+      }
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        showToast(data.detail || "كود التحقق غير صحيح أو منتهي الصلاحية.", "error");
+        return;
+      }
+
+      if (data.status === "success" && data.access_token) {
+        sessionStorage.removeItem("admin_challenge_token");
+        localStorage.setItem("admin_token", data.access_token);
+        showToast("تم التحقق الثنائي وتسجيل الدخول بنجاح!", "success");
+        navigateAdmin(window.location.pathname.startsWith("/admin/") ? window.location.pathname : "/admin");
+      }
     }
   } catch (error) {
     console.error("Admin Login Error:", error);
@@ -834,20 +923,32 @@ function clearLogConsole() {
 // ==========================================
 document.addEventListener("DOMContentLoaded", () => {
   
-  // Check auth status
+  // Check auth status & route
   const token = localStorage.getItem("admin_token");
   if (token) {
-    showDashboardScreen();
+    navigateAdmin(window.location.pathname, false);
   } else {
     showAuthScreen();
   }
 
-  // Sidebar navigation
+  // Sidebar navigation with History API
   document.querySelectorAll(".nav-tab").forEach(tab => {
-    tab.addEventListener("click", () => {
+    tab.addEventListener("click", (e) => {
+      e.preventDefault();
       const tabTarget = tab.getAttribute("data-tab");
-      switchTab(tabTarget);
+      const routeTarget = tab.getAttribute("data-route") || TAB_TO_ADMIN_ROUTE[tabTarget] || "/admin";
+      navigateAdmin(routeTarget);
     });
+  });
+
+  // Browser back/forward navigation
+  window.addEventListener("popstate", () => {
+    const activeToken = localStorage.getItem("admin_token");
+    if (activeToken) {
+      navigateAdmin(window.location.pathname, false);
+    } else {
+      showAuthScreen();
+    }
   });
 
 async function handleAdminBroadcast(e) {
