@@ -112,7 +112,7 @@ if len(JWT_SECRET) < 32:
 if JWT_SECRET in ["SUPER_SECRET_SaaS_KEY_2026_DONOT_SHARE", "LOCAL_LAB_TESTING_SECRET_KEY"]:
     raise RuntimeError("JWT_SECRET cannot be set to a known default testing key in production.")
 JWT_ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 1440
+ACCESS_TOKEN_EXPIRE_MINUTES = 43200  # 30 days persistent login session
 
 # ===========================================================================
 # IMMUTABLE SERVER-SIDE PRICING DICTIONARY
@@ -987,14 +987,19 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
                 pass
                 
         # 2. Web-scheduled jobs from PostgreSQL
-        from db_manager import WebCampaignTask
+        from db_manager import WebCampaignTask, ActiveAd
+        from sqlalchemy import func
         from datetime import datetime, timezone, timedelta
-        one_day_ago = datetime.now(timezone.utc) - timedelta(hours=24)
+        recent_cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
         stmt_web = select(WebCampaignTask).where(
             WebCampaignTask.telegram_account_id == tg_account.id,
-            (WebCampaignTask.status.in_(["pending", "processing", "active"])) | (WebCampaignTask.created_at >= one_day_ago)
+            (WebCampaignTask.status.in_(["pending", "processing", "active"])) | (WebCampaignTask.created_at >= recent_cutoff)
         ).order_by(WebCampaignTask.created_at.desc())
         web_tasks = (await session.execute(stmt_web)).scalars().all()
+
+        live_active_ads_count = (await session.execute(
+            select(func.count(ActiveAd.id)).where(ActiveAd.telegram_account_id == tg_account.id)
+        )).scalar() or 0
         
         campaign_type_names = {
             "wave": "حملة التبادل عشوائي (ويب)",
@@ -1044,8 +1049,10 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
                         rem_seconds = (next_wave - now_utc).total_seconds()
                         if rem_seconds > 0:
                             details = f"بانتظار الموجة القادمة | متبقي {int(rem_seconds // 60)} دقيقة و {int(rem_seconds % 60)} ثانية"
-                        else:
+                        elif rem_seconds > -300:
                             details = "جاري إطلاق الموجة القادمة حالياً..."
+                        else:
+                            details = "التبادل التلقائي نشط | جاري المزامنة وإطلاق الدورة التالية..."
                     except Exception:
                         details = f"التبادل التلقائي نشط | الفاصل: {wave_interval // 60} دقيقة"
                 else:
@@ -1101,6 +1108,7 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
                 "delay_start": task.delay_start,
                 "delay_between_channels": task.delay_between_channels,
                 "ad_lifespan": task.ad_lifespan or ad_lifespan_minutes,
+                "current_active_ads_count": live_active_ads_count,
                 "custom_text": task.custom_text or "",
                 "target_link": task.target_link or "",
             })

@@ -4241,6 +4241,18 @@ async def supervisor_loop():
                     for k, v in acc.items():
                         setattr(t_acc, k, v)
                     asyncio.create_task(start_tenant_worker(t_acc))
+                elif is_connected:
+                    # Supervisor self-healing: verify wave_publisher_worker is running if bot_system_state is active
+                    try:
+                        async with AsyncSessionLocal() as chk_sess:
+                            bot_state = await get_setting(chk_sess, acc_id, "bot_system_state")
+                        if bot_state == "active":
+                            w_task = running_tasks.get(acc_id)
+                            if not w_task or w_task.done():
+                                logger.warning(f"Supervisor: wave_publisher_worker for tenant {acc_id} was not running (done/missing). Reviving now!")
+                                running_tasks[acc_id] = asyncio.create_task(wave_publisher_worker(acc_id))
+                    except Exception as she:
+                        logger.error(f"Supervisor check for tenant {acc_id} wave worker failed: {she}")
                     
         except Exception as e:
             logger.error(f"Supervisor loop encountered error: {e}")
@@ -4902,6 +4914,18 @@ async def wave_publisher_worker(tenant_id: int):
                     await asyncio.sleep(15)
                     continue
                 
+                if tenant_id not in last_wave_time:
+                    try:
+                        saved_lw = await redis_client.get(f"tenant:{tenant_id}:last_wave_time")
+                        if saved_lw:
+                            saved_lw_str = saved_lw.decode("utf-8") if isinstance(saved_lw, bytes) else saved_lw
+                            dt_val = datetime.fromisoformat(saved_lw_str)
+                            if dt_val.tzinfo is None:
+                                dt_val = dt_val.replace(tzinfo=timezone.utc)
+                            last_wave_time[tenant_id] = dt_val
+                    except Exception as he:
+                        logger.debug(f"Could not hydrate last_wave_time from Redis for tenant {tenant_id}: {he}")
+
                 last_time = last_wave_time.get(tenant_id)
                 logger.info(f"[Debug Loop] Tenant {tenant_id} is active. last_wave_time={last_time.isoformat() if last_time else 'None'}")
                     
@@ -5892,7 +5916,7 @@ async def run_web_campaign_task(task_id: int):
                 except Exception as se:
                     logger.debug(f"Could not send start status message to Saved Messages: {se}")
             
-            if task.campaign_type == "wave":
+            if task.campaign_type in ["wave", "activate_exchange"]:
                 async with AsyncSessionLocal() as db_session:
                     await set_setting(db_session, tenant_id, "bot_system_state", "active")
                     if task.ad_lifespan > 0:
@@ -5900,15 +5924,13 @@ async def run_web_campaign_task(task_id: int):
                     if task.delay_between_channels > 0:
                         await set_setting(db_session, tenant_id, "wave_interval", str(task.delay_between_channels * 60))
                     await db_session.commit()
-                await trigger_manual_wave(tenant_id=tenant_id, status_msg=status_msg)
-            elif task.campaign_type == "activate_exchange":
-                async with AsyncSessionLocal() as db_session:
-                    await set_setting(db_session, tenant_id, "bot_system_state", "active")
-                    if task.ad_lifespan > 0:
-                        await set_setting(db_session, tenant_id, "ad_lifespan", str(task.ad_lifespan * 60))
-                    if task.delay_between_channels > 0:
-                        await set_setting(db_session, tenant_id, "wave_interval", str(task.delay_between_channels * 60))
-                    await db_session.commit()
+
+                # Ensure background wave publisher worker loop is actively running for this tenant
+                w_task = running_tasks.get(tenant_id)
+                if not w_task or w_task.done():
+                    logger.info(f"Reviving wave_publisher_worker for tenant {tenant_id} on campaign task {task_id} dispatch.")
+                    running_tasks[tenant_id] = asyncio.create_task(wave_publisher_worker(tenant_id))
+
                 await trigger_manual_wave(tenant_id=tenant_id, status_msg=status_msg)
             elif task.campaign_type == "single":
                 await run_single_campaign_logic(

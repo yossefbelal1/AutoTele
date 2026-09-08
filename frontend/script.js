@@ -2331,6 +2331,8 @@ async function loadScheduledJobs() {
           dateStr = job.start_time;
         }
 
+        const isWave = job.campaign_type === "wave" || job.campaign_type === "activate_exchange" || (job.type && (job.type.includes("التبادل") || job.type === "wave" || job.type === "activate_exchange"));
+
         let statusBadge = "";
         let cardStyle = "";
         
@@ -2338,7 +2340,7 @@ async function loadScheduledJobs() {
           statusBadge = `<span class="pulse-text-animation" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">🔄 جاري التنفيذ...</span>`;
           cardStyle = "background: rgba(59, 130, 246, 0.04); border: 1px solid rgba(59, 130, 246, 0.35); box-shadow: 0 4px 20px rgba(59, 130, 246, 0.1);";
         } else if (job.status === "active") {
-          if (job.type === "wave" || job.type === "activate_exchange") {
+          if (isWave) {
             statusBadge = `<span class="pulse-text-animation" style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">🔄 التبادل التلقائي نشط</span>`;
             cardStyle = "background: rgba(16, 185, 129, 0.02); border: 1px solid rgba(16, 185, 129, 0.25);";
           } else {
@@ -2358,8 +2360,30 @@ async function loadScheduledJobs() {
 
         let progressHtml = "";
 
-        // Live countdown + progress bar for active timed_post
-        if (job.status === "active" && job.expires_at) {
+        if (isWave && job.status === "active") {
+          const liveAds = (typeof job.current_active_ads_count === "number") ? job.current_active_ads_count : 0;
+          let liveAdsNotice = "";
+          if (liveAds > 0) {
+            liveAdsNotice = `
+              <div style="margin-top: 8px; padding: 10px 14px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; color: #a7f3d0; font-size: 12.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; direction: rtl;">
+                <span>📢 الإعلانات الحية بالقنوات حالياً: <b style="color: #34d399; font-size: 14px;">${liveAds} إعلان</b> (سيتم حذفها تلقائياً عند انتهاء المدة).</span>
+              </div>
+            `;
+          } else {
+            liveAdsNotice = `
+              <div style="margin-top: 8px; padding: 10px 14px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 8px; color: #93c5fd; font-size: 12.5px; font-weight: 500; display: flex; align-items: center; gap: 8px; direction: rtl;">
+                <span>ℹ️ تم مسح إعلانات الموجة السابقة تلقائياً بعد انتهاء مدتها (0 إعلان حالياً). الدورة القادمة ستنطلق تلقائياً.</span>
+              </div>
+            `;
+          }
+          const summaryBox = job.result_summary ? `
+            <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.05); padding: 12px; border-radius: 8px; margin-top: 8px; color: #cbd5e1; font-size: 12px; line-height: 1.6; white-space: pre-wrap; direction: rtl; text-align: right;">
+              <div style="font-weight: 600; color: #94a3b8; margin-bottom: 6px;">📊 تقرير آخر دورة نُشرت:</div>
+              ${formatTelegramText(job.result_summary)}
+            </div>
+          ` : '';
+          progressHtml = liveAdsNotice + summaryBox;
+        } else if (job.status === "active" && job.expires_at) {
           const expiresMs   = new Date(job.expires_at).getTime();
           const lifespanMs  = (job.ad_lifespan || 15) * 60 * 1000;
           const startedMs   = expiresMs - lifespanMs;
