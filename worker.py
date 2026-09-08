@@ -7,7 +7,7 @@ import logging
 import asyncio
 import random
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Union
 import pytz
 import concurrent.futures
 
@@ -5026,14 +5026,40 @@ async def wave_publisher_worker(tenant_id: int):
             await asyncio.sleep(60)
         await asyncio.sleep(15)
 
-async def sweep_single_channel(client: Client, cid: int, known_msg_ids: set, sticker_unique_id: Optional[str], me, ad_keywords: list) -> int:
+async def sweep_single_channel(client: Client, ch: Union[dict, int], known_msg_ids: set, sticker_unique_id: Optional[str], me, ad_keywords: list) -> int:
+    cid = ch["id"] if isinstance(ch, dict) else ch
+    is_creator = ch.get("is_creator", False) if isinstance(ch, dict) else False
+    is_group = ch.get("is_group", False) if isinstance(ch, dict) else False
+    is_broadcast = ch.get("is_broadcast", not is_group) if isinstance(ch, dict) else True
+    ch_username = (ch.get("username") or "").lower().lstrip("@") if isinstance(ch, dict) else ""
+    ch_invite_link = (ch.get("invite_link") or "").lower() if isinstance(ch, dict) else ""
+
+    my_names = []
+    if me:
+        if getattr(me, "first_name", None): my_names.append(me.first_name.lower())
+        if getattr(me, "last_name", None): my_names.append(me.last_name.lower())
+        if getattr(me, "username", None): my_names.append(me.username.lower())
+    my_id = getattr(me, "id", None) if me else None
+
+    # Base Arabic & English ad detection keywords
+    default_keywords = [
+        "تبادل", "إعلان", "اعلان", "اشترك", "انضم", "قناة", "توصيات", "مدفوعة", "vip",
+        "برعاية", "خصم", "عرض خاص", "رابط القناة", "سارع", "فرصة", "أقوى قناة", "أفضل قناة",
+        "نوصيكم", "ننصحكم", "للاشتراك", "للتواصل", "بوت", "جروب", "قروب", "شات", "ارباح",
+        "أرباح", "استثمار", "لا يفوتك", "متفوتش", "تابعونا", "قنواتنا", "رابط:", "الرابط:",
+        "صفقات", "دخول مجاني", "قناة مميزة"
+    ]
+    all_ad_keywords = set(k.lower() for k in default_keywords)
+    if ad_keywords:
+        all_ad_keywords.update(kw.lower() for kw in ad_keywords)
 
     try:
         async def _scan():
             deleted = 0
             history = []
             try:
-                async for msg in client.get_chat_history(chat_id=cid, limit=15):
+                # Scan last 20 messages for thorough clearance
+                async for msg in client.get_chat_history(chat_id=cid, limit=20):
                     history.append(msg)
             except Exception as e:
                 logger.debug(f"Failed history scan in channel {cid}: {e}")
@@ -5053,57 +5079,147 @@ async def sweep_single_channel(client: Client, cid: int, known_msg_ids: set, sti
                 msg = history[h_idx]
                 is_ad = False
                 
-                # Protect pinned messages
+                # 1. ALWAYS Protect pinned messages (Channel rules, main announcements)
                 if pinned_msg_id and msg.id == pinned_msg_id:
                     h_idx += 1
                     continue
                 
+                # 2. ALWAYS Protect polls / quizzes
+                if getattr(msg, "poll", None):
+                    h_idx += 1
+                    continue
+                
+                # 3. SAFETY in Groups/Supergroups: NEVER delete messages from other users!
+                if is_group:
+                    if msg.from_user and not msg.from_user.is_self and not msg.outgoing:
+                        h_idx += 1
+                        continue
+
+                # Check signature
                 is_my_sig = False
-                if msg.author_signature:
+                if getattr(msg, "author_signature", None):
                     sig = msg.author_signature.lower()
-                    my_names = []
-                    if me.first_name: my_names.append(me.first_name.lower())
-                    if me.last_name: my_names.append(me.last_name.lower())
-                    if me.username: my_names.append(me.username.lower())
                     if any(name and name in sig for name in my_names):
                         is_my_sig = True
-                
-                is_my_msg = msg.outgoing or (msg.from_user and msg.from_user.is_self) or is_my_sig
 
+                is_explicitly_my_msg = (
+                    msg.outgoing or 
+                    (msg.from_user and msg.from_user.is_self) or 
+                    (my_id and getattr(msg.from_user, "id", None) == my_id) or
+                    is_my_sig
+                )
+
+                # 4. SAFETY in Channels where user is NOT the creator (قنوات الناس):
+                # Never delete anything unless we are 100% sure it was posted by our system/account!
+                if not is_creator:
+                    is_our_item = (
+                        (cid, msg.id) in known_msg_ids or
+                        (msg.sticker and sticker_unique_id and msg.sticker.file_unique_id == sticker_unique_id) or
+                        is_explicitly_my_msg
+                    )
+                    if not is_our_item:
+                        # Belongs to the channel owner or other admins - DO NOT TOUCH!
+                        h_idx += 1
+                        continue
+
+                # 5. Ad Detection Logic:
+                # Check A: Automated ad recorded in database (ActiveAd / PublishLog)
                 if (cid, msg.id) in known_msg_ids:
                     is_ad = True
+                
+                # Check B: Unique ad sticker
                 elif msg.sticker and sticker_unique_id and msg.sticker.file_unique_id == sticker_unique_id:
                     is_ad = True
-                elif is_my_msg:
-                    text_content = (msg.text or msg.caption or "").lower()
-                    has_ad_indicator = (
-                        any(kw.lower() in text_content for kw in ad_keywords) or
-                        "t.me/" in text_content or
-                        "@" in text_content or
-                        "http" in text_content
-                    )
-                    if msg.sticker:
-                        is_ad = False
-                    elif has_ad_indicator:
+                
+                # Check C: Forwarded from another channel / external user (Manual cross-promotion)
+                elif msg.forward_from_chat and msg.forward_from_chat.id != cid:
+                    is_ad = True
+                elif msg.forward_from and (not my_id or msg.forward_from.id != my_id):
+                    fwd_text = (msg.text or msg.caption or "").lower()
+                    if any(kw in fwd_text for kw in all_ad_keywords) or "t.me/" in fwd_text or "@" in fwd_text:
                         is_ad = True
-                        
+                
+                # Check D: Inline buttons with external links
+                else:
+                    has_external_btn = False
+                    if getattr(msg, "reply_markup", None) and hasattr(msg.reply_markup, "inline_keyboard"):
+                        for row in msg.reply_markup.inline_keyboard:
+                            for btn in row:
+                                btn_url = getattr(btn, "url", None)
+                                if btn_url:
+                                    u_lower = btn_url.lower()
+                                    if ch_username and ch_username in u_lower:
+                                        pass
+                                    elif ch_invite_link and ch_invite_link in u_lower:
+                                        pass
+                                    else:
+                                        has_external_btn = True
+                                        break
+                            if has_external_btn:
+                                break
+                    
+                    if has_external_btn:
+                        is_ad = True
+                    else:
+                        # Check E: External link/mention + promotional context (Keywords / Format)
+                        text_content = (msg.text or msg.caption or "").lower()
+                        if text_content and not msg.sticker:
+                            # 1. Check for invite link to another channel (t.me/+ or t.me/joinchat)
+                            has_external_invite = False
+                            if "t.me/+" in text_content or "t.me/joinchat" in text_content or "telegram.me/+" in text_content:
+                                for part in text_content.split():
+                                    if ("t.me/+" in part or "t.me/joinchat" in part or "telegram.me/+" in part):
+                                        if not (ch_invite_link and ch_invite_link in part):
+                                            has_external_invite = True
+                                            break
+                            
+                            # 2. Check for other external links
+                            has_external_link = False
+                            if "t.me/" in text_content or "http://" in text_content or "https://" in text_content:
+                                for part in text_content.split():
+                                    if "t.me/" in part or "http" in part:
+                                        if ch_username and ch_username in part:
+                                            continue
+                                        if ch_invite_link and ch_invite_link in part:
+                                            continue
+                                        has_external_link = True
+                                        break
+                            
+                            # 3. Check for external mentions
+                            has_external_mention = False
+                            if "@" in text_content:
+                                for part in text_content.split():
+                                    if part.startswith("@") or "/@" in part:
+                                        m_clean = part.strip("@/.,()[]{}").lower()
+                                        if m_clean and m_clean != ch_username and (not me or m_clean != (me.username or "").lower()):
+                                            has_external_mention = True
+                                            break
+                            
+                            has_ad_kw = any(kw in text_content for kw in all_ad_keywords)
+                            has_ad_emoji = any(em in text_content for em in ["👇", "⬇️", "🔗", "🏆", "🔥", "🚨", "💰", "💎"])
+                            
+                            # Decision: Must have an external target PLUS promotional signal
+                            # Normal posts (analysis, signals without external links, educational) are 100% PROTECTED!
+                            if has_external_invite:
+                                is_ad = True
+                            elif (has_external_link or has_external_mention) and (has_ad_kw or has_ad_emoji):
+                                is_ad = True
+
+                # In groups, double-check that we only delete messages that were explicitly sent by this account
+                if is_group and not is_explicitly_my_msg:
+                    is_ad = False
+
                 if is_ad:
                     to_delete.add(msg.id)
+                    # Check paired sticker (pre-ad or post-ad sticker)
                     if h_idx + 1 < len(history):
                         older_msg = history[h_idx + 1]
                         if pinned_msg_id and older_msg.id == pinned_msg_id:
                             pass
                         elif older_msg.sticker:
-                            is_older_match = False
-                            if older_msg.outgoing or (older_msg.from_user and older_msg.from_user.is_self):
-                                is_older_match = True
-                            elif sticker_unique_id and older_msg.sticker.file_unique_id == sticker_unique_id:
-                                is_older_match = True
-                            elif (cid, older_msg.id) in known_msg_ids:
-                                is_older_match = True
-                                
-                            if is_older_match:
+                            if is_creator or older_msg.outgoing or (older_msg.from_user and older_msg.from_user.is_self) or (sticker_unique_id and older_msg.sticker.file_unique_id == sticker_unique_id):
                                 to_delete.add(older_msg.id)
+                                
                 h_idx += 1
                 
             if to_delete:
@@ -5114,9 +5230,9 @@ async def sweep_single_channel(client: Client, cid: int, known_msg_ids: set, sti
                     logger.debug(f"Failed to delete messages in channel {cid}: {e}")
             return deleted
 
-        return await asyncio.wait_for(_scan(), timeout=15.0)
+        return await asyncio.wait_for(_scan(), timeout=18.0)
     except asyncio.TimeoutError:
-        logger.warning(f"Timeout (15s) sweeping channel {cid}")
+        logger.warning(f"Timeout (18s) sweeping channel {cid}")
         return 0
     except Exception as e:
         logger.debug(f"Error sweeping channel {cid}: {e}")
@@ -5310,15 +5426,28 @@ async def run_clear_logic(tenant_id: int, client: Client, reply_to_message: Opti
         
         await safe_edit_message(status_msg, "🧹 **1. جاري استعلام الإعلانات النشطة لحذفها...**")
         
-        # Get No_Post channel IDs live from Telegram to skip any deletion in them
-        no_post_ids = await get_no_post_channel_ids_live(tenant_id, client)
+        # Comprehensive exclusion set: live no_post, redis no_post, redis banned, and DB blacklist
+        live_no_post = await get_no_post_channel_ids_live(tenant_id, client)
+        banned_ids = []
+        redis_no_post_ids = []
+        try:
+            from cache_manager import redis_client
+            raw_banned = await redis_client.get(f"tenant:{tenant_id}:banned")
+            raw_no_post = await redis_client.get(f"tenant:{tenant_id}:no_post")
+            banned_ids = json.loads(raw_banned) if raw_banned else []
+            redis_no_post_ids = json.loads(raw_no_post) if raw_no_post else []
+        except Exception as re_err:
+            logger.warning(f"Could not fetch banned/no_post from Redis for tenant {tenant_id}: {re_err}")
         
         async with AsyncSessionLocal() as session:
+            blacklist_ids = await get_blacklist_for_tenant(session, tenant_id)
             stmt = select(ActiveAd).where(ActiveAd.telegram_account_id == tenant_id)
             ads = (await session.execute(stmt)).scalars().all()
             
-        # Skip ads in channels that are in the No_Post folder
-        ads = [ad for ad in ads if ad.chat_id not in no_post_ids]
+        all_excluded_ids = set(live_no_post) | set(redis_no_post_ids) | set(banned_ids) | set(blacklist_ids)
+        
+        # Skip ads in channels that are in No_Post, Banned, or Blacklist
+        ads = [ad for ad in ads if ad.chat_id not in all_excluded_ids]
         total_ads = len(ads)
         deleted_count = 0
         for ad in ads:
@@ -5363,12 +5492,12 @@ async def run_clear_logic(tenant_id: int, client: Client, reply_to_message: Opti
                     )
                 
         
-        await safe_edit_message(status_msg, "🧹 **2. جاري فحص وتطهير القنوات من أي آثار إعلانية (آخر 15 رسالة)...**")
+        await safe_edit_message(status_msg, "🧹 **2. جاري فحص وتطهير القنوات من أي آثار إعلانية (آخر 20 رسالة)...**")
         
         scanned_del = 0
         channels = await get_channels_cache(tenant_id)
-        # Skip channels that are in the No_Post folder
-        channels = [ch for ch in channels if (ch.get("id") or ch.get("chat_id")) not in no_post_ids]
+        # Skip channels that are in No_Post, Banned, or Blacklist
+        channels = [ch for ch in channels if (ch.get("id") or ch.get("chat_id")) not in all_excluded_ids]
         total_ch = len(channels)
         ad_keywords = ["قنواتنا", "تابعوا", "شات", "الرابط:", "متفوتش", "تنبيه", "حملة", "إعلان", "صفقات", "الذهب"]
         
@@ -5408,15 +5537,15 @@ async def run_clear_logic(tenant_id: int, client: Client, reply_to_message: Opti
             async def sem_sweep(ch):
                 nonlocal completed_count, scanned_del
                 async with sem:
-                    deleted = await sweep_single_channel(client, ch["id"], known_msg_ids, sticker_unique_id, me, ad_keywords)
+                    deleted = await sweep_single_channel(client, ch, known_msg_ids, sticker_unique_id, me, ad_keywords)
                     scanned_del += deleted
                     completed_count += 1
                     if completed_count % 5 == 0 or completed_count == total_ch:
                         await safe_edit_message(
                             status_msg,
-                            f"🧹 **جاري تفتيش القنوات أمنياً (آخر 15 رسالة):**\n"
+                            f"🧹 **جاري تفتيش القنوات أمنياً (آخر 20 رسالة):**\n"
                             f"• تم فحص `{completed_count}` من `{total_ch}` قناة.\n"
-                            f"• تم إزالة وتطهير `{scanned_del}` رسالة إعلانية قديمة."
+                            f"• تم إزالة وتطهير `{scanned_del}` إعلان (بما فيها الإعلانات اليدوية)."
                         )
             
             await asyncio.gather(*(sem_sweep(ch) for ch in channels))
@@ -5424,15 +5553,17 @@ async def run_clear_logic(tenant_id: int, client: Client, reply_to_message: Opti
         report = (
             f"🧹 **اكتملت مكنسة المسح والتنظيف التام (.مسح):**\n"
             f"• تم إلغاء جميع المهام المؤجلة وتوقف النشر التلقائي مؤقتاً.\n"
-            f"• تم مسح `{deleted_count}` إعلان من الداتابيز والقنوات.\n"
-            f"• تم إزالة `{scanned_del}` رسالة إعلانية قديمة بالمسح الأمني (15 رسالة)."
+            f"• تم مسح `{deleted_count}` إعلان مجدول من القنوات.\n"
+            f"• تم تطهير وإزالة `{scanned_del}` إعلان (بما فيها الإعلانات اليدوية) بأمان تام دون المساس بمحتوى القنوات أو قنوات الآخرين."
         )
         if status_msg:
             try:
                 await safe_edit_message(status_msg, report)
             except Exception:
                 pass
-        await log_tenant_event(tenant_id, f"اكتمل المسح السريع بنجاح! تم مسح {deleted_count} إعلان وتطهير {scanned_del} رسالة.")
+        if web_task_id:
+            await update_task_progress_in_db(web_task_id, report)
+        await log_tenant_event(tenant_id, f"اكتمل المسح السريع بنجاح! تم مسح {deleted_count} إعلان مجدول وتطهير {scanned_del} إعلان من القنوات.")
         logger.info(f"run_clear_logic: Completed successfully for tenant {tenant_id}")
     except Exception as e:
         logger.error(f"Error in sweep handler: {e}")
@@ -5506,25 +5637,36 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
             )
             await session.commit()
         
-        # Get channels and no_post folders live from Telegram before clearing them
+        # Comprehensive exclusion set: live no_post, redis no_post, redis banned, and DB blacklist
         pre_channels = await get_channels_cache(tenant_id)
-        no_post_ids = await get_no_post_channel_ids_live(tenant_id, client)
-
-
+        live_no_post = await get_no_post_channel_ids_live(tenant_id, client)
+        banned_ids = []
+        redis_no_post_ids = []
+        try:
+            from cache_manager import redis_client
+            raw_banned = await redis_client.get(f"tenant:{tenant_id}:banned")
+            raw_no_post = await redis_client.get(f"tenant:{tenant_id}:no_post")
+            banned_ids = json.loads(raw_banned) if raw_banned else []
+            redis_no_post_ids = json.loads(raw_no_post) if raw_no_post else []
+        except Exception as re_err:
+            logger.warning(f"Could not fetch banned/no_post from Redis for tenant {tenant_id}: {re_err}")
             
         await log_tenant_event(tenant_id, "بدء المسح الأمني العميق وإيقاف كافة الحملات والمهام وتصفير الكاش...")
         
         await safe_edit_message(status_msg, "🚨 **1. جاري استعلام الإعلانات النشطة لحذفها وتصفير الكاش...**")
         
         async with AsyncSessionLocal() as session:
+            blacklist_ids = await get_blacklist_for_tenant(session, tenant_id)
             await set_setting(session, tenant_id, "bot_system_state", "stopped")
             
             stmt_ads = select(ActiveAd).where(ActiveAd.telegram_account_id == tenant_id)
             ads = (await session.execute(stmt_ads)).scalars().all()
             await session.commit()
             
-        # Skip ads in channels that are in the No_Post folder
-        ads = [ad for ad in ads if ad.chat_id not in no_post_ids]
+        all_excluded_ids = set(live_no_post) | set(redis_no_post_ids) | set(banned_ids) | set(blacklist_ids)
+            
+        # Skip ads in channels that are in No_Post, Banned, or Blacklist
+        ads = [ad for ad in ads if ad.chat_id not in all_excluded_ids]
         total_ads = len(ads)
         deleted_count = 0
         for ad in ads:
@@ -5561,10 +5703,10 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
                 except Exception as db_e:
                     logger.error(f"Failed to remove ad {ad.id} from DB in run_deep_clear_logic: {db_e}")
             
-        await safe_edit_message(status_msg, "🚨 **2. جاري التحضير لمسح آخر 15 رسالة في كافة القنوات...**")
+        await safe_edit_message(status_msg, "🚨 **2. جاري التحضير لمسح آخر 20 رسالة في كافة القنوات...**")
         
-        # Skip channels in the No_Post folder
-        channels = [ch for ch in pre_channels if (ch.get("id") or ch.get("chat_id")) not in no_post_ids]
+        # Skip channels in No_Post, Banned, or Blacklist
+        channels = [ch for ch in pre_channels if (ch.get("id") or ch.get("chat_id")) not in all_excluded_ids]
         total_ch = len(channels)
         wiped_count = 0
         ad_keywords = ["قنواتنا", "تابعوا", "شات", "الرابط:", "متفوتش", "تنبيه", "حملة", "إعلان", "صفقات", "الذهب"]
@@ -5610,15 +5752,15 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
             async def sem_sweep(ch):
                 nonlocal completed_count, wiped_count
                 async with sem:
-                    deleted = await sweep_single_channel(client, ch["id"], known_msg_ids, sticker_unique_id, me, ad_keywords)
+                    deleted = await sweep_single_channel(client, ch, known_msg_ids, sticker_unique_id, me, ad_keywords)
                     wiped_count += deleted
                     completed_count += 1
                     if completed_count % 5 == 0 or completed_count == total_ch:
                         await safe_edit_message(
                             status_msg,
-                            f"🚨 **جاري المسح الأمني العميق (آخر 15 رسالة):**\n"
+                            f"🚨 **جاري المسح الأمني العميق (آخر 20 رسالة):**\n"
                             f"• تم فحص وتطهير `{completed_count}` من `{total_ch}` قناة.\n"
-                            f"• تم مسح `{wiped_count}` رسالة إعلانية ومخالفة بنجاح."
+                            f"• تم مسح `{wiped_count}` إعلان (بما فيها الإعلانات اليدوية) بنجاح."
                         )
             
             await asyncio.gather(*(sem_sweep(ch) for ch in channels))
@@ -5687,7 +5829,7 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
             f"🔥 **اكتمل المسح الأمني العميق وإعادة الضبط النووي التام (صفر نظيف)!**\n"
             f"• تم مسح وإلغاء كافة الحملات والمهام المجدولة والنشر تلقائياً.\n"
             f"• تم مسح `{deleted_count}` إعلان نشط من القنوات وقاعدة البيانات.\n"
-            f"• تم تطهير `{wiped_count}` إعلان مخالف في آخر 15 رسالة بجميع القنوات.\n"
+            f"• تم تطهير `{wiped_count}` إعلان (بما فيها الإعلانات اليدوية) في آخر 20 رسالة بجميع القنوات.\n"
             f"• تم مسح وتصفير كافة الصيغ (Templates)، الإعدادات (Settings)، والمسودات.\n"
             f"• تم إلغاء وتصفير استيكر التبادل بالكامل (يتطلب التسجيل مجدداً).\n\n"
             f"⚠️ **هام جداً:** لتشغيل البوت مرة أخرى، يجب عليك إرسال أمر **`.تحديث`** لإعادة قراءة القنوات، ثم تسجيل الاستيكر مجدداً باستخدام **`.استيكر`**."
@@ -5697,7 +5839,9 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
                 await safe_edit_message(status_msg, report)
             except Exception:
                 pass
-        await log_tenant_event(tenant_id, f"اكتمل المسح الأمني النووي بنجاح! تم مسح {deleted_count} إعلان نشط وتطهير {wiped_count} رسالة مخالفة وتصفير كافة إعدادات الحساب.")
+        if web_task_id:
+            await update_task_progress_in_db(web_task_id, report)
+        await log_tenant_event(tenant_id, f"اكتمل المسح الأمني النووي بنجاح! تم مسح {deleted_count} إعلان نشط وتطهير {wiped_count} إعلان وتصفير كافة إعدادات الحساب.")
         logger.info(f"run_deep_clear_logic: Completed successfully for tenant {tenant_id}")
     except Exception as e:
         logger.error(f"Error in deep clean handler: {e}")
