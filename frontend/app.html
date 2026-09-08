@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
+  <base href="/">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#17212b">
@@ -12,7 +13,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>لوحة تحكم AutoTele Enterprise SaaS</title>
-  <link rel="manifest" href="manifest.json">
+  <link rel="manifest" href="/manifest.json">
   
   <!-- Google Fonts: Cairo & Tajawal -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -20,7 +21,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
   
   <!-- CSS Stylesheet -->
-  <link rel="stylesheet" href="style.css?v=2.6.0">
+  <link rel="stylesheet" href="/style.css?v=4.2.0">
 
   <!-- Google Sign-In API -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -1254,14 +1255,11 @@
 
         <!-- Tab 3: معالج ربط المحرك الآمن (4-Step Connection Wizard) -->
         <section id="tab-connect" class="tab-panel hidden">
-          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px;">
+          <div class="panel-header">
             <div>
               <h1 class="panel-title">معالج ربط المحرك السحابي الآمن لتليجرام</h1>
               <p class="panel-subtitle">نربط حسابك عبر بروتوكول تليجرام الرسمي مباشرة لجدولة وإرسال الرسائل بدقة</p>
             </div>
-            <button type="button" id="btn-open-engine-guide-modal" class="btn btn-secondary" style="font-size: 13px; display: inline-flex; align-items: center; gap: 6px;">
-              <span>📖 شرح خطوات الربط بالتفصيل</span>
-            </button>
           </div>
 
           <div class="connection-wizard-layout card">
@@ -1905,7 +1903,7 @@
   </div>
 
   <!-- JavaScript Main Script -->
-  <script src="script.js?_t=1787019024&v=3.2.94"></script>
+  <script src="/script.js?v=4.2.0"></script>
 
   <!-- Edit Scheduled Job Modal -->
   <div id="edit-job-modal" class="modal-overlay hidden" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 99999; padding: 16px; opacity: 0; pointer-events: none; transition: all 0.3s ease;">

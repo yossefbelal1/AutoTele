@@ -194,9 +194,6 @@ function showDashboardScreen() {
   if (isNewSignup) {
     sessionStorage.removeItem("is_new_signup");
     switchTab("tab-connect");
-    setTimeout(() => {
-      showEngineOnboardingModal();
-    }, 400);
   } else if (savedPlan) {
     localStorage.removeItem('selectedPlan');
     if (savedPlan === 'trial') {
@@ -205,8 +202,12 @@ function showDashboardScreen() {
       switchTab("tab-plans", savedPlan);
     }
   } else {
-    // Default to first tab
-    switchTab("tab-subscription");
+    const currentPath = window.location.pathname;
+    if (ROUTE_CONFIG[currentPath]) {
+      navigate(currentPath, false);
+    } else {
+      switchTab("tab-subscription");
+    }
   }
   
   // Run live sync
@@ -573,12 +574,7 @@ async function syncDashboardData() {
     const response = await apiRequest("/user/subscription");
     if (!response) return;
     
-    // Check if Telegram Engine is linked, and prompt onboarding wizard if not linked
-    try {
-      checkEngineOnboardingPrompt(response);
-    } catch (e) {
-      console.warn("Engine onboarding prompt error:", e);
-    }
+    // User metadata update
     
     // 1. Update user metadata (Null-safe)
     const displayName = response.full_name || response.email || "user@domain.com";
@@ -1055,6 +1051,7 @@ async function handleTelegramSendCode(e) {
 
   // Hide any previous error banner
   document.getElementById("step1-error-banner")?.classList.add("hidden");
+  document.getElementById("step2-phone-error-banner")?.classList.add("hidden");
 
   setButtonLoading("btn-send-code", true);
 
@@ -1093,7 +1090,7 @@ async function handleTelegramSendCode(e) {
     }
   } catch (error) {
     console.error("Telegram Send Code Error:", error);
-    const banner = document.getElementById("step1-error-banner");
+    const banner = document.getElementById("step2-phone-error-banner") || document.getElementById("step1-error-banner");
     if (banner) {
       const msg = error.message || "حدث خطأ أثناء محاولة إرسال كود التحقق.";
       let extraGuidance = "";
@@ -1137,7 +1134,8 @@ async function handleTelegramVerifyCode(e) {
   const rawCode = document.getElementById("telegram-code")?.value || "";
   const code = cleanArabicDigits(rawCode).replace(/\D/g, "");
 
-  const password2fa = document.getElementById("telegram-2fa")?.value.trim() 
+  const password2fa = document.getElementById("modal-2fa-input")?.value.trim()
+                   || document.getElementById("telegram-2fa")?.value.trim() 
                    || document.getElementById("telegram-step1-2fa")?.value.trim() 
                    || null;
 
@@ -1173,7 +1171,7 @@ async function handleTelegramVerifyCode(e) {
       // Close 2FA modal if open
       close2FaModal();
 
-      // Update Step 3 connected account summary
+      // Update Step 4 connected account summary
       const step3Phone = document.getElementById("step3-connected-phone");
       if (step3Phone) {
         step3Phone.textContent = phone;
@@ -1183,20 +1181,16 @@ async function handleTelegramVerifyCode(e) {
         step3Name.textContent = data.account_name || "حساب تليجرام النشط";
       }
 
-      // Transition to Step 3 Celebration View
-      const step1 = document.getElementById("connect-step-1");
-      const step2 = document.getElementById("connect-step-2");
-      const step3 = document.getElementById("connect-step-3");
-      if (step1) step1.classList.add("hidden");
-      if (step2) step2.classList.add("hidden");
-      if (step3) step3.classList.remove("hidden");
-      updateWizardProgress(3);
+      // Transition to Step 4 Celebration View
+      maxUnlockedWizardStep = 4;
+      switchWizardStep(4);
 
       showToast("🎉 تم تفعيل وربط المحرك السحابي بنجاح تام!", "success");
 
       // Reset form inputs for clean state
       document.getElementById("connect-form-step1")?.reset();
       document.getElementById("connect-form-step2")?.reset();
+      document.getElementById("connect-form-step3")?.reset();
 
       // Sync fresh dashboard data in background
       syncDashboardData();
@@ -2637,33 +2631,19 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("login-form").addEventListener("submit", handleLogin);
   document.getElementById("signup-form").addEventListener("submit", handleSignup);
   document.getElementById("crypto-payment-form").addEventListener("submit", handleCryptoPayment);
-  // Step 1 & Step 2 Form Submissions
-  document.getElementById("connect-form-step1").addEventListener("submit", handleTelegramSendCode);
-  document.getElementById("connect-form-step2").addEventListener("submit", handleTelegramVerifyCode);
+  // Connect Engine 4-Step Wizard Forms & Buttons
+  document.getElementById("connect-form-step1")?.addEventListener("submit", handleStep1Next);
+  document.getElementById("btn-step1-next")?.addEventListener("click", handleStep1Next);
 
-  const btnBackStep1 = document.getElementById("btn-back-to-step1");
-  if (btnBackStep1) {
-    btnBackStep1.addEventListener("click", () => {
-      switchWizardStep(1);
-      const faLabel = document.querySelector("label[for='telegram-2fa']");
-      if (faLabel) {
-        faLabel.textContent = "باسورد التحقق بخطوتين (2FA) - اختياري";
-      }
-      const faInput = document.getElementById("telegram-2fa");
-      if (faInput) {
-        faInput.style.borderColor = "";
-        faInput.style.boxShadow = "";
-      }
-    });
-  }
+  document.getElementById("connect-form-step2")?.addEventListener("submit", handleTelegramSendCode);
+  document.getElementById("btn-send-code")?.addEventListener("click", handleTelegramSendCode);
 
-  // Resend code button
-  const btnResendCode = document.getElementById("btn-resend-code");
-  if (btnResendCode) {
-    btnResendCode.addEventListener("click", () => {
-      handleTelegramSendCode(null);
-    });
-  }
+  document.getElementById("connect-form-step3")?.addEventListener("submit", handleTelegramVerifyCode);
+  document.getElementById("btn-verify-code")?.addEventListener("click", handleTelegramVerifyCode);
+
+  document.getElementById("btn-back-to-step1")?.addEventListener("click", () => switchWizardStep(1));
+  document.getElementById("btn-back-to-step2")?.addEventListener("click", () => switchWizardStep(2));
+  document.getElementById("btn-resend-code")?.addEventListener("click", () => handleTelegramSendCode(null));
 
   // Step 3 Actions
   const btnStep3Dashboard = document.getElementById("btn-step3-go-dashboard");
@@ -3098,10 +3078,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const step1Fa = document.getElementById("telegram-step1-2fa");
       if (step1Fa) step1Fa.value = val;
       close2FaModal();
-      const connectFormStep2 = document.getElementById("connect-form-step2");
-      if (connectFormStep2) {
-        connectFormStep2.dispatchEvent(new Event("submit", { cancelable: true }));
-      }
+      handleTelegramVerifyCode(null);
     });
   }
   const modal2FaInput = document.getElementById("modal-2fa-input");
@@ -3561,176 +3538,15 @@ function updateCampaignProgressBar() {
 }
 
 // ==========================================
-// TELEGRAM ENGINE ONBOARDING MODAL & PROMPT
+// TELEGRAM ENGINE ONBOARDING MODAL & PROMPT (DISABLED PER USER REQUEST)
 // ==========================================
-function checkEngineOnboardingPrompt(response) {
-  // If user does not have an active telegram account linked
-  const isLinked = response.telegram_account_id && response.bot_status && response.bot_status !== "غير مربوط" && response.bot_status !== "Disconnected";
-  if (!isLinked) {
-    if (!sessionStorage.getItem("engine_onboarding_shown")) {
-      sessionStorage.setItem("engine_onboarding_shown", "true");
-      setTimeout(() => {
-        showEngineOnboardingModal();
-      }, 500);
-    }
-  }
+function checkEngineOnboardingPrompt() {
+  // Disabled as requested by the user
 }
 
 function showEngineOnboardingModal() {
   const existing = document.getElementById("engine-onboarding-modal");
   if (existing) existing.remove();
-
-  const modalHtml = `
-    <div id="engine-onboarding-modal" class="modal-overlay" style="display: flex; align-items: center; justify-content: center; z-index: 100000; padding: 16px;">
-      <div class="modal-card" style="max-width: 580px; width: 100%; background: #17212b; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 20px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8); overflow: hidden;">
-        
-        <!-- Header -->
-        <div class="modal-header" style="padding: 18px 24px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center; background: rgba(36, 129, 204, 0.06);">
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <span style="font-size: 26px;">🚀</span>
-            <div>
-              <h3 style="margin: 0; color: #fff; font-size: 17px; font-weight: 700;">دليل ربط المحرك السحابي (3 خطوات)</h3>
-              <p style="margin: 2px 0 0 0; font-size: 12px; color: #94a3b8;">لإطلاق حملاتك وإدارة قنواتك سحابياً 24/7 دون الحاجة لفتح هاتفك</p>
-            </div>
-          </div>
-          <button id="btn-close-engine-onboarding" class="close-btn" style="background: none; border: none; color: #94a3b8; font-size: 24px; cursor: pointer; line-height: 1;">&times;</button>
-        </div>
-
-        <!-- Body -->
-        <div class="modal-body" style="padding: 22px 24px; color: #cbd5e1; font-size: 13px; line-height: 1.6; max-height: 75vh; overflow-y: auto;">
-          
-          <!-- Stepper & Progress Bar inside Modal -->
-          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 14px 18px; margin-bottom: 20px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-              <span style="font-size: 11px; font-weight: 700; color: #38bdf8; letter-spacing: 0.5px;">شريط تقدم الربط (PROGRESS)</span>
-              <span style="font-size: 11px; font-weight: 700; color: #94a3b8;">الخطوة 1 من 3</span>
-            </div>
-            <!-- Visual Progress Bar -->
-            <div style="width: 100%; height: 6px; background: rgba(255,255,255,0.08); border-radius: 999px; overflow: hidden; margin-bottom: 12px;">
-              <div style="width: 33%; height: 100%; background: linear-gradient(90deg, #2481cc 0%, #38bdf8 100%); border-radius: 999px;"></div>
-            </div>
-            <!-- Steps Pills -->
-            <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 11px;">
-              <div style="display: flex; align-items: center; gap: 6px; color: #fff; font-weight: 700;">
-                <span style="width: 22px; height: 22px; border-radius: 50%; background: #2481cc; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px;">1</span>
-                <span>البيانات والـ API</span>
-              </div>
-              <div style="display: flex; align-items: center; gap: 6px; color: #64748b;">
-                <span style="width: 22px; height: 22px; border-radius: 50%; background: rgba(255,255,255,0.08); color: #94a3b8; display: flex; align-items: center; justify-content: center; font-size: 11px;">2</span>
-                <span>كود التحقق و 2FA</span>
-              </div>
-              <div style="display: flex; align-items: center; gap: 6px; color: #64748b;">
-                <span style="width: 22px; height: 22px; border-radius: 50%; background: rgba(255,255,255,0.08); color: #94a3b8; display: flex; align-items: center; justify-content: center; font-size: 11px;">3</span>
-                <span>المزامنة والتشغيل</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- The 3 Steps Cards Detailed Explanation -->
-          <div style="display: flex; flex-direction: column; gap: 12px;">
-            
-            <!-- Step 1 Card -->
-            <div style="display: flex; gap: 14px; background: rgba(36, 129, 204, 0.07); border: 1px solid rgba(36, 129, 204, 0.25); border-radius: 14px; padding: 14px 16px;">
-              <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(36, 129, 204, 0.2); border: 1px solid rgba(56, 189, 248, 0.4); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;">
-                📱
-              </div>
-              <div style="flex: 1;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                  <h4 style="margin: 0; font-size: 14px; font-weight: 700; color: #fff;">الخطوة الأولى: رقم هاتفك وبيانات الـ API الرسمية</h4>
-                  <span style="font-size: 11px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 2px 8px; border-radius: 6px; font-weight: 600;">دقيقة واحدة</span>
-                </div>
-                <p style="margin: 0 0 8px 0; font-size: 12px; color: #cbd5e1; line-height: 1.6;">
-                  • <b>كيف تستخرج الـ API ID والـ API Hash في دقيقة واحدة مجاناً؟</b><br>
-                  1️⃣ ادخل على موقع تليجرام الرسمي: <a href="https://my.telegram.org" target="_blank" style="color: #38bdf8; text-decoration: underline; font-weight: 700;">my.telegram.org</a> واكتب رقمك واضغط <b>Next</b>.<br>
-                  2️⃣ سيصلك كود تأكيد في رسائل تطبيق تليجرام، انسخه والصقه في الموقع واضغط <b>Sign In</b>.<br>
-                  3️⃣ اضغط على خيار <b>API development tools</b> واكتب أي كلمة إنجليزية في أول خانتين ثم اضغط <b>Create application</b>.<br>
-                  4️⃣ ستظهر بياناتك: انسخ <b>App api_id</b> (أرقام) و <b>App api_hash</b> (كود) وضعهما في الخانات المخصصة بالأسفل!
-                </p>
-                <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-                  <a href="https://my.telegram.org" target="_blank" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; text-decoration: none; border: 1px solid rgba(56, 189, 248, 0.3);">
-                    🌐 فتح my.telegram.org
-                  </a>
-                  <button type="button" id="btn-modal-open-guide" style="background: none; border: none; color: #38bdf8; font-size: 12px; font-weight: 600; cursor: pointer; padding: 4px 0; text-decoration: underline;">
-                    📸 اضغط هنا لعرض شرح بالصور خطوة بخطوة
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Step 2 Card -->
-            <div style="display: flex; gap: 14px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 14px; padding: 14px 16px;">
-              <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;">
-                📩
-              </div>
-              <div style="flex: 1;">
-                <h4 style="margin: 0 0 4px 0; font-size: 14px; font-weight: 700; color: #fff;">الخطوة الثانية: كود التحقق السحابي و 2FA</h4>
-                <p style="margin: 0; font-size: 12.5px; color: #94a3b8;">
-                  • سيصلك كود تأكيد من 5 أرقام داخل <b>تطبيق تليجرام الرسمي</b> في شات Telegram (وليس رسالة SMS).<br>
-                  • إذا كان حسابك مفعلاً به التحقق بخطوتين، اكتب باسورد تليجرام السحابي في خانة 2FA للمتابعة.
-                </p>
-              </div>
-            </div>
-
-            <!-- Step 3 Card -->
-            <div style="display: flex; gap: 14px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 14px; padding: 14px 16px;">
-              <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;">
-                ⚡
-              </div>
-              <div style="flex: 1;">
-                <h4 style="margin: 0 0 4px 0; font-size: 14px; font-weight: 700; color: #fff;">الخطوة الثالثة: التفعيل التلقائي والمزامنة</h4>
-                <p style="margin: 0; font-size: 12.5px; color: #94a3b8;">
-                  • يتم تفعيل المحرك فوراً، وتصلك 3 رسائل ترحيبية ودليل أوامر التحكم الـ 17 في "الرسائل المحفوظة".<br>
-                  • يفحص المحرك قنواتك الترويجية ومجلداتك تلقائياً لتبدأ إطلاق الحملات بضغطة زر.
-                </p>
-              </div>
-            </div>
-
-          </div>
-        </div>
-
-        <!-- Footer -->
-        <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.15);">
-          <button id="btn-dismiss-engine-onboarding" class="btn btn-secondary" style="font-size: 13px;">لاحقاً</button>
-          <button id="btn-start-engine-linking" class="btn btn-primary" style="font-size: 14px; font-weight: 700; padding: 10px 22px; background: linear-gradient(135deg, #2481cc 0%, #1d4ed8 100%);">
-            ابدأ ربط المحرك الآن ⚡
-          </button>
-        </div>
-
-      </div>
-    </div>
-  `;
-
-  document.body.insertAdjacentHTML("beforeend", modalHtml);
-
-  // Event Listeners
-  document.getElementById("btn-close-engine-onboarding").addEventListener("click", () => {
-    const modal = document.getElementById("engine-onboarding-modal");
-    if (modal) modal.remove();
-  });
-  document.getElementById("btn-dismiss-engine-onboarding").addEventListener("click", () => {
-    const modal = document.getElementById("engine-onboarding-modal");
-    if (modal) modal.remove();
-  });
-  const guideBtn = document.getElementById("btn-modal-open-guide");
-  if (guideBtn) {
-    guideBtn.addEventListener("click", () => {
-      const modal = document.getElementById("engine-onboarding-modal");
-      if (modal) modal.remove();
-      openGuideModal();
-    });
-  }
-  document.getElementById("btn-start-engine-linking").addEventListener("click", () => {
-    const modal = document.getElementById("engine-onboarding-modal");
-    if (modal) modal.remove();
-    switchTab("tab-connect");
-    setTimeout(() => {
-      const phoneInput = document.getElementById("telegram-phone");
-      if (phoneInput) {
-        phoneInput.focus();
-        phoneInput.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-    }, 200);
-  });
 }
 
 function initMobileHeaderScroll() {
@@ -4155,53 +3971,7 @@ function filterAndDisplayChannels() {
     const id = String(c.id || "");
     if (!query) return true;
     return title.includes(query) || username.includes(query) || id.includes(query);
-  
-  // Wire 4-Step Wizard Next & Back Buttons
-  document.getElementById("btn-step1-next")?.addEventListener("click", handleStep1Next);
-  document.getElementById("btn-back-to-step1")?.addEventListener("click", () => switchWizardStep(1));
-  document.getElementById("btn-back-to-step2")?.addEventListener("click", () => switchWizardStep(2));
-  document.getElementById("btn-open-guide-step1")?.addEventListener("click", () => {
-    document.getElementById("guide-modal")?.classList.remove("hidden");
   });
-
-  // Wire Channels View Buttons
-  document.getElementById("btn-view-sync-channels")?.addEventListener("click", () => renderChannelsExplorerView(true));
-  document.getElementById("btn-view-folders-guide")?.addEventListener("click", () => {
-    document.getElementById("folders-guide-modal")?.classList.remove("hidden");
-  });
-  document.getElementById("channels-view-search-input")?.addEventListener("input", filterAndDisplayChannels);
-
-  // Wire Engines Ping
-  document.getElementById("btn-engines-ping")?.addEventListener("click", async () => {
-    const valEl = document.getElementById("engines-page-ping-val");
-    if (valEl) valEl.textContent = "...";
-    const t0 = performance.now();
-    try {
-      await fetch(`${API_BASE_URL}/health`);
-      const latency = Math.round(performance.now() - t0);
-      if (valEl) valEl.textContent = `${latency}ms (ممتاز)`;
-      showToast(`سرعة استجابة المحرك: ${latency}ms ⚡`, "success");
-    } catch {
-      if (valEl) valEl.textContent = "24ms";
-    }
-  });
-
-  // Wire Settings Password Form
-  document.getElementById("settings-password-form")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    showToast("تم تحديث إعدادات الأمان وكلمة المرور بنجاح!", "success");
-    e.target.reset();
-  });
-
-  // Initial Route Resolution on Load
-  const initialPath = window.location.pathname;
-  if (ROUTE_CONFIG[initialPath]) {
-    navigate(initialPath, false);
-  } else {
-    navigate("/app", false);
-  }
-
-});
 
   if (filtered.length === 0) {
     container.innerHTML = `
@@ -4241,6 +4011,38 @@ function filterAndDisplayChannels() {
     `;
   }).join("");
 }
+
+// Wire Channels Explorer, Ping, and Route listeners
+document.addEventListener("DOMContentLoaded", () => {
+  // Wire Channels View Buttons
+  document.getElementById("btn-view-sync-channels")?.addEventListener("click", () => renderChannelsExplorerView(true));
+  document.getElementById("btn-view-folders-guide")?.addEventListener("click", () => {
+    document.getElementById("folders-guide-modal")?.classList.remove("hidden");
+  });
+  document.getElementById("channels-view-search-input")?.addEventListener("input", filterAndDisplayChannels);
+
+  // Wire Engines Ping
+  document.getElementById("btn-engines-ping")?.addEventListener("click", async () => {
+    const valEl = document.getElementById("engines-page-ping-val");
+    if (valEl) valEl.textContent = "...";
+    const t0 = performance.now();
+    try {
+      await fetch(`${API_BASE_URL}/health`);
+      const latency = Math.round(performance.now() - t0);
+      if (valEl) valEl.textContent = `${latency}ms (ممتاز)`;
+      showToast(`سرعة استجابة المحرك: ${latency}ms ⚡`, "success");
+    } catch {
+      if (valEl) valEl.textContent = "24ms";
+    }
+  });
+
+  // Wire Settings Password Form
+  document.getElementById("settings-password-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    showToast("تم تحديث إعدادات الأمان وكلمة المرور بنجاح!", "success");
+    e.target.reset();
+  });
+});
 
 // ==========================================
 // ENGINES STATUS CONTROLLER
