@@ -39,7 +39,11 @@ from pyrogram.errors import (
     PhonePasswordFlood
 )
 
-from db_manager import get_db, User, TelegramAccount, AsyncSessionLocal, CryptoPayment, AdTemplate, WebCampaignTask, apply_pyrogram_patches, AccountNotification
+from db_manager import (
+    get_db, User, TelegramAccount, AsyncSessionLocal, CryptoPayment,
+    AdTemplate, WebCampaignTask, apply_pyrogram_patches, AccountNotification,
+    ActiveAd, PublishLog
+)
 from cache_manager import is_rate_limited, is_key_rate_limited, redis_client, clear_tenant_cache, get_channels_cache
 
 import redis
