@@ -7,7 +7,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>لوحة التحكم الإدارية المؤمّنة | 2FA Admin</title>
-  <link rel="manifest" href="manifest.json">
+  <base href="/">
+  <link rel="manifest" href="/manifest.json">
   
   <!-- Google Fonts: Cairo & Tajawal -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -15,7 +16,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
   
   <!-- CSS Stylesheet -->
-  <link rel="stylesheet" href="style.css?v=3.5.0">
+  <link rel="stylesheet" href="/style.css?v=4.0.0">
 </head>
 <body class="admin-body">
 
@@ -239,6 +240,38 @@
 
       <!-- Content Panels Wrapper -->
       <div class="app-main-wrapper" style="flex: 1; display: flex; flex-direction: column; min-width: 0;">
+        
+        <!-- Desktop Sticky Topbar -->
+        <header class="app-topbar desktop-topbar admin-desktop-topbar">
+          <div class="topbar-left" style="display: flex; align-items: center; gap: 8px;">
+            <span style="color: #94a3b8; font-size: 13px;">AutoTele</span>
+            <span style="color: #475569; font-size: 12px;">/</span>
+            <span style="color: #f43f5e; font-size: 13px; font-weight: 700;">🛡️ الإدارة المركزية</span>
+            <span style="color: #475569; font-size: 12px;">/</span>
+            <h2 id="desktop-admin-page-title" style="margin: 0; font-size: 15px; font-weight: 700; color: #fff;">لوحة التحكم والإحصائيات</h2>
+          </div>
+          
+          <div class="topbar-right" style="display: flex; align-items: center; gap: 12px;">
+            <div id="desktop-server-status-pill" class="engine-status-pill" style="display: flex; align-items: center; gap: 6px; padding: 5px 12px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 20px; font-size: 12px; color: #10b981; font-weight: 600;">
+              <span style="width: 7px; height: 7px; border-radius: 50%; background: #10b981; display: inline-block; box-shadow: 0 0 8px #10b981;"></span>
+              <span>الخادم نشط</span>
+            </div>
+            
+            <button type="button" class="btn btn-sm" onclick="runSystemDiagnostics()" style="padding: 6px 14px; font-size: 12.5px; border-radius: 8px; font-weight: 700; background: rgba(225, 29, 72, 0.15); color: #f43f5e; border: 1px solid rgba(225, 29, 72, 0.3);">
+              <span>⚡ فحص النظام</span>
+            </button>
+
+            <button type="button" class="btn btn-sm btn-outline" onclick="refreshCurrentAdminTab()" title="تحديث البيانات" style="padding: 6px 12px; font-size: 12.5px; border-radius: 8px; color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); background: rgba(56, 189, 248, 0.08);">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19"/></svg>
+              <span style="margin-right: 4px;">تحديث</span>
+            </button>
+
+            <a href="/app" class="btn btn-sm" style="padding: 6px 14px; font-size: 12.5px; border-radius: 8px; font-weight: 700; background: rgba(255, 255, 255, 0.06); color: #94a3b8; border: 1px solid rgba(255, 255, 255, 0.1); text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+              <span>لوحة العميل ←</span>
+            </a>
+          </div>
+        </header>
+
         <main class="content-area">
         
         <!-- Tab A: Stats & Dashboard Home -->
@@ -784,6 +817,6 @@
   </div>
 
   <!-- JavaScript Admin Script -->
-  <script src="admin.js?v=3.5.0"></script>
+  <script src="/admin.js?v=4.0.0"></script>
 </body>
 </html>

@@ -261,10 +261,14 @@ function switchTab(tabId) {
   const activeBottomNav = document.querySelector(`.bottom-nav-item[data-tab="${tabId}"]`);
   if (activeBottomNav) activeBottomNav.classList.add("active");
 
-  // Update mobile page title pill
+  // Update mobile and desktop page title
   const mobilePageTitle = document.getElementById("admin-mobile-page-title");
   if (mobilePageTitle) {
     mobilePageTitle.textContent = TAB_TITLES[tabId] || "لوحة المشرف";
+  }
+  const desktopPageTitle = document.getElementById("desktop-admin-page-title");
+  if (desktopPageTitle) {
+    desktopPageTitle.textContent = TAB_TITLES[tabId] || "لوحة التحكم والإحصائيات";
   }
 
   // Close mobile drawer upon switching

@@ -2493,6 +2493,22 @@ body.drawer-open {
   box-shadow: 0 4px 14px rgba(225, 29, 72, 0.35);
 }
 
+/* Admin Desktop Topbar */
+.admin-desktop-topbar {
+  border-bottom: 1px solid rgba(225, 29, 72, 0.2) !important;
+  background: rgba(15, 23, 42, 0.85) !important;
+  backdrop-filter: blur(12px) !important;
+}
+
+@media (min-width: 1025px) {
+  .admin-mobile-app-bar,
+  .admin-mobile-bottom-nav,
+  .admin-mobile-drawer,
+  #admin-drawer-backdrop {
+    display: none !important;
+  }
+}
+
 /* Admin Mobile App Bar */
 .admin-mobile-app-bar {
   border-bottom: 1px solid rgba(225, 29, 72, 0.2) !important;
