@@ -541,6 +541,21 @@
 
         <!-- Content Panels Area -->
         <main class="content-area" id="app-router-view">
+
+        <!-- Admin Impersonation Top Banner -->
+        <div id="impersonation-banner" class="impersonation-banner hidden">
+          <div class="imp-banner-inner">
+            <div class="imp-info">
+              <span class="imp-shield-icon">🛡️</span>
+              <span class="imp-badge">وضع الإدارة (Impersonation)</span>
+              <span class="imp-text">أنت تتصفح حالياً حساب العميل: <strong id="imp-user-email">--</strong></span>
+            </div>
+            <button type="button" class="btn-exit-impersonation" onclick="exitImpersonation()">
+              العودة للوحة الإدارة ✕
+            </button>
+          </div>
+        </div>
+
         <section id="tab-subscription" class="tab-panel">
           <div class="panel-header compact-sub-header">
             <h2 class="panel-title">ملخص الاشتراك وحالة المحرك</h2>

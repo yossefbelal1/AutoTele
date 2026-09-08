@@ -853,10 +853,12 @@ async function loadAdminUsers() {
           </div>
         `;
         const actionButtons = `
-          <div class="action-btn-group" style="justify-content: center; gap: 6px;">
-            <button type="button" class="btn-table btn-edit" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 5px 10px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="openAdminEditModal(${userJson})">تعديل</button>
-            <button type="button" class="btn-table btn-reboot" style="${rebootBtnStyle} padding: 5px 10px; border-radius: 6px; font-weight: 600;" onclick="${rebootAction}">ريبوت</button>
-            <button type="button" class="btn-table btn-delete" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 5px 10px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="deleteUserAccount(${user.id})">حذف</button>
+          <div class="action-btn-group" style="justify-content: center; gap: 5px; flex-wrap: wrap;">
+            <button type="button" class="btn-table btn-impersonate" style="background: rgba(14, 165, 233, 0.15); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.35); padding: 5px 9px; border-radius: 6px; font-weight: 700; cursor: pointer;" title="دخول إلى حساب العميل" onclick="impersonateUser(${user.id}, '${escapeHtml(rawName)}', '${escapeHtml(user.email)}')">👤 دخول</button>
+            <button type="button" class="btn-table btn-diag" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); padding: 5px 9px; border-radius: 6px; font-weight: 700; cursor: pointer;" title="تشخيص وحل المشاكل" onclick="openUserDiagnosticsModal(${user.id})">🔍 تشخيص</button>
+            <button type="button" class="btn-table btn-edit" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 5px 8px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="openAdminEditModal(${userJson})">تعديل</button>
+            <button type="button" class="btn-table btn-reboot" style="${rebootBtnStyle} padding: 5px 8px; border-radius: 6px; font-weight: 600;" onclick="${rebootAction}">ريبوت</button>
+            <button type="button" class="btn-table btn-delete" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 5px 8px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="deleteUserAccount(${user.id})">حذف</button>
           </div>
         `;
         tr.innerHTML = `
@@ -916,6 +918,14 @@ async function loadAdminUsers() {
           </div>
 
           <div class="auc-actions">
+            <button type="button" class="btn-card-action btn-card-impersonate" style="background: rgba(14, 165, 233, 0.15); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.3);" onclick="impersonateUser(${user.id}, '${escapeHtml(rawName)}', '${escapeHtml(user.email)}')">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              <span>دخول</span>
+            </button>
+            <button type="button" class="btn-card-action btn-card-diag" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);" onclick="openUserDiagnosticsModal(${user.id})">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <span>تشخيص</span>
+            </button>
             <button type="button" class="btn-card-action btn-card-edit" onclick="openAdminEditModal(${userJson})">
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
               <span>تعديل</span>
@@ -1055,6 +1065,264 @@ window.deleteUserAccount = async function(userId) {
     loadAdminUsers();
   } catch (error) {
     console.error(error);
+  }
+};
+
+// ==============================================================================
+// 7.4 CLIENT IMPERSONATION & DEEP DIAGNOSTICS SUITE
+// ==============================================================================
+
+let currentDiagUserId = null;
+let currentDiagUserEmail = null;
+
+window.impersonateUser = async function(userId, rawName, userEmail) {
+  if (!confirm(`هل تريد الدخول إلى لوحة العميل (${rawName || userEmail}) كأنك هو؟\nستتمكن من ضبط إعلاناته وقنواته وتجربة النشر بيدك.`)) return;
+  try {
+    const res = await adminApiRequest(`/admin/users/${userId}/impersonate`, { method: "POST" });
+    if (res.access_token) {
+      // Mark return mode for banner in /app
+      localStorage.setItem("admin_return_mode", "true");
+      localStorage.setItem("impersonated_user_email", userEmail || `User #${userId}`);
+      localStorage.setItem("impersonated_user_id", userId);
+      // Set client session for /app
+      localStorage.setItem("access_token", res.access_token);
+      localStorage.setItem("user_email", userEmail || "");
+      showToast(`جاري تسجيل الدخول كـ ${userEmail || userId}...`, "success");
+      setTimeout(() => {
+        window.location.href = "/app";
+      }, 400);
+    }
+  } catch (err) {
+    showToast(err.message || "فشل الدخول كعميل", "error");
+  }
+};
+
+window.triggerImpersonateFromDiag = function() {
+  if (currentDiagUserId) {
+    impersonateUser(currentDiagUserId, currentDiagUserEmail, currentDiagUserEmail);
+  }
+};
+
+window.openUserDiagnosticsModal = async function(userId) {
+  currentDiagUserId = userId;
+  const modal = document.getElementById("modal-client-diagnostics");
+  if (!modal) return;
+  
+  modal.classList.remove("hidden");
+  const loading = document.getElementById("diag-loading");
+  const content = document.getElementById("diag-content");
+  const subhead = document.getElementById("diag-user-subhead");
+  const giftPanel = document.getElementById("diag-gift-panel");
+  if (giftPanel) giftPanel.classList.add("hidden");
+
+  if (loading) loading.classList.remove("hidden");
+  if (content) content.classList.add("hidden");
+  if (subhead) subhead.textContent = `جاري استدعاء السجلات الحية للمستخدم #${userId}...`;
+
+  try {
+    const data = await adminApiRequest(`/admin/users/${userId}/diagnostics`);
+    currentDiagUserEmail = data.user.email;
+    if (subhead) {
+      subhead.innerHTML = `المشترك: <strong style="color: #fff;">${escapeHtml(data.user.full_name)}</strong> (<span style="font-family: monospace;">${escapeHtml(data.user.email)}</span>) | المعرف: <span style="color: #38bdf8;">#${data.user.id}</span>`;
+    }
+
+    // 1. Populate Metrics
+    const statusVal = document.getElementById("diag-val-engine-status");
+    if (statusVal) {
+      const isUnlinked = data.stats.engines_count === 0;
+      statusVal.innerHTML = isUnlinked
+        ? `<span style="color: #94a3b8;">⚪ غير مربوط</span>`
+        : `<span style="color: #4ade80;">🟢 ${data.stats.engines_count} محرك</span>`;
+    }
+
+    const planVal = document.getElementById("diag-val-plan");
+    if (planVal) {
+      planVal.textContent = `${data.user.subscription_plan} (${data.user.remaining_days} يوم)`;
+    }
+
+    const stuckAdsVal = document.getElementById("diag-val-stuck-ads");
+    if (stuckAdsVal) {
+      stuckAdsVal.textContent = data.stats.stuck_ads_count;
+      stuckAdsVal.style.color = data.stats.stuck_ads_count > 0 ? "#f87171" : "#4ade80";
+    }
+
+    const channelsVal = document.getElementById("diag-val-cached-channels");
+    if (channelsVal) {
+      channelsVal.textContent = `${data.stats.total_cached_channels} قناة`;
+    }
+
+    const creditsVal = document.getElementById("diag-val-credits");
+    if (creditsVal) {
+      creditsVal.textContent = `${data.user.credits} رسالة`;
+    }
+
+    // 2. Populate Smart Problem Detector
+    const probContainer = document.getElementById("diag-problems-container");
+    if (probContainer) {
+      probContainer.innerHTML = "";
+      (data.detected_issues || []).forEach(issue => {
+        let borderCol = "rgba(56, 189, 248, 0.3)";
+        let bgCol = "rgba(56, 189, 248, 0.08)";
+        let icon = "ℹ️";
+        let titleCol = "#38bdf8";
+
+        if (issue.severity === "danger") {
+          borderCol = "rgba(239, 68, 68, 0.35)";
+          bgCol = "rgba(239, 68, 68, 0.1)";
+          icon = "🚫";
+          titleCol = "#f87171";
+        } else if (issue.severity === "warning") {
+          borderCol = "rgba(234, 179, 8, 0.35)";
+          bgCol = "rgba(234, 179, 8, 0.1)";
+          icon = "⚠️";
+          titleCol = "#facc15";
+        } else if (issue.severity === "success") {
+          borderCol = "rgba(34, 197, 94, 0.35)";
+          bgCol = "rgba(34, 197, 94, 0.1)";
+          icon = "✅";
+          titleCol = "#4ade80";
+        }
+
+        let actionBtn = "";
+        if (issue.fix_action === "purge_stuck_ads") {
+          actionBtn = `<button type="button" class="btn-problem-solve" onclick="triggerHealingAction('purge-stuck-ads')">حل فوري ⚡</button>`;
+        } else if (issue.fix_action === "resync_channels") {
+          actionBtn = `<button type="button" class="btn-problem-solve" onclick="triggerHealingAction('resync-channels')">مزامنة الآن 🔄</button>`;
+        } else if (issue.fix_action === "reset_limits") {
+          actionBtn = `<button type="button" class="btn-problem-solve" onclick="triggerHealingAction('reset-limits')">فك الحظر 🔓</button>`;
+        } else if (issue.fix_action === "gift_days") {
+          actionBtn = `<button type="button" class="btn-problem-solve" onclick="toggleQuickGiftPanel()">تمديد الاشتراك 🎁</button>`;
+        } else if (issue.fix_action === "impersonate") {
+          actionBtn = `<button type="button" class="btn-problem-solve" onclick="triggerImpersonateFromDiag()">دخول للربط 📲</button>`;
+        }
+
+        const box = document.createElement("div");
+        box.style.cssText = `display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-radius: 8px; border: 1px solid ${borderCol}; background: ${bgCol};`;
+        box.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 16px;">${icon}</span>
+            <div>
+              <strong style="color: ${titleCol}; font-size: 13px;">${escapeHtml(issue.title)}</strong>
+              <div style="color: #94a3b8; font-size: 11.5px; margin-top: 2px;">${escapeHtml(issue.desc)}</div>
+            </div>
+          </div>
+          ${actionBtn}
+        `;
+        probContainer.appendChild(box);
+      });
+    }
+
+    // 3. Populate Engines List
+    const enginesContainer = document.getElementById("diag-engines-list");
+    if (enginesContainer) {
+      enginesContainer.innerHTML = "";
+      if (data.engines.length === 0) {
+        enginesContainer.innerHTML = `<div style="color: #64748b; font-size: 12px; font-style: italic; padding: 8px;">لا توجد حسابات تليجرام مربوطة بهذا المستخدم حالياً.</div>`;
+      } else {
+        data.engines.forEach(eng => {
+          const engDiv = document.createElement("div");
+          engDiv.className = "diag-engine-item";
+          const statusCol = eng.status === "active" ? "#4ade80" : (eng.status === "banned" ? "#f87171" : "#facc15");
+          const sessionTag = eng.has_valid_session
+            ? `<span style="color: #4ade80; font-size: 11px;">🔒 الجلسة مشفرة وسارية</span>`
+            : `<span style="color: #f87171; font-size: 11px;">⚠️ الجلسة مفقودة أو غير صالحة</span>`;
+          const proxyTag = eng.proxy
+            ? `<span style="color: #94a3b8; font-family: monospace; font-size: 11px;">🌐 ${escapeHtml(eng.proxy)}</span>`
+            : `<span style="color: #64748b; font-size: 11px;">🌐 بدون بروكسي</span>`;
+
+          engDiv.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-family: monospace; font-weight: 700; color: #fff; font-size: 13px;">📞 ${escapeHtml(eng.phone)}</span>
+                <span style="color: ${statusCol}; font-size: 11px; font-weight: 700; background: ${statusCol}20; padding: 2px 6px; border-radius: 4px;">${escapeHtml(eng.status)}</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                ${sessionTag}
+                <span style="color: #64748b;">•</span>
+                <span style="color: #38bdf8; font-size: 11.5px;">📂 ${eng.cached_channels_count} قناة بالكاش</span>
+              </div>
+            </div>
+            <div style="margin-top: 4px; font-size: 11px;">
+              ${proxyTag}
+            </div>
+          `;
+          enginesContainer.appendChild(engDiv);
+        });
+      }
+    }
+
+    if (loading) loading.classList.add("hidden");
+    if (content) content.classList.remove("hidden");
+
+  } catch (err) {
+    if (loading) loading.classList.add("hidden");
+    showToast(err.message || "فشل جلب تشخيص المشترك", "error");
+    closeUserDiagnosticsModal();
+  }
+};
+
+window.closeUserDiagnosticsModal = function() {
+  const modal = document.getElementById("modal-client-diagnostics");
+  if (modal) modal.classList.add("hidden");
+  currentDiagUserId = null;
+  currentDiagUserEmail = null;
+};
+
+window.triggerHealingAction = async function(actionName) {
+  if (!currentDiagUserId) return;
+  try {
+    const res = await adminApiRequest(`/admin/users/${currentDiagUserId}/actions/${actionName}`, { method: "POST" });
+    showToast(res.message || "تم تنفيذ الإجراء بنجاح", "success");
+    // Reload diagnostics to show updated state
+    openUserDiagnosticsModal(currentDiagUserId);
+    loadAdminUsers();
+  } catch (err) {
+    showToast(err.message || "فشل تنفيذ الإجراء", "error");
+  }
+};
+
+window.toggleQuickGiftPanel = function() {
+  const panel = document.getElementById("diag-gift-panel");
+  if (panel) panel.classList.toggle("hidden");
+};
+
+window.sendQuickGift = async function(giftType) {
+  if (!currentDiagUserId) return;
+  try {
+    const res = await adminApiRequest(`/admin/users/${currentDiagUserId}/actions/quick-gift`, {
+      method: "POST",
+      body: JSON.stringify({ gift_type: giftType })
+    });
+    showToast(res.message || "تم إهداء الرصيد/الأيام بنجاح 🎁", "success");
+    openUserDiagnosticsModal(currentDiagUserId);
+    loadAdminUsers();
+  } catch (err) {
+    showToast(err.message || "فشل إرسال الهدية", "error");
+  }
+};
+
+window.sendClientDirectNotice = async function() {
+  if (!currentDiagUserId) return;
+  const input = document.getElementById("diag-notice-input");
+  const msg = input ? input.value.trim() : "";
+  if (!msg) {
+    showToast("يرجى كتابة نص التنبيه أولاً", "warning");
+    return;
+  }
+
+  try {
+    const res = await adminApiRequest(`/admin/users/${currentDiagUserId}/actions/send-notice`, {
+      method: "POST",
+      body: JSON.stringify({
+        title: "🔔 تنبيه من الإدارة والدعم الفني",
+        message: msg,
+        notice_type: "system_alert"
+      })
+    });
+    showToast(res.message || "تم إرسال التنبيه للعميل بنجاح", "success");
+    if (input) input.value = "";
+  } catch (err) {
+    showToast(err.message || "فشل إرسال التنبيه", "error");
   }
 };
 

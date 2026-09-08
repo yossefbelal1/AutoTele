@@ -385,7 +385,7 @@
                     <th>نوع الباقة والصلاحية</th>
                     <th>حالة التشغيل الفعلية (Live)</th>
                     <th>محركات البوت</th>
-                    <th style="text-align: center; width: 175px;">الإجراءات</th>
+                    <th style="text-align: center; width: 260px;">الإجراءات والتحكم الشامل</th>
                   </tr>
                 </thead>
                 <tbody id="admin-users-table-body">
@@ -838,6 +838,121 @@
             <span class="spinner hidden"></span>
           </button>
         </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       5. MODAL: Deep Client Diagnostics & Quick Healing
+       ========================================== -->
+  <div id="modal-client-diagnostics" class="modal-overlay hidden">
+    <div class="modal-card diagnostics-modal-card">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 22px;">🔍</span>
+          <div>
+            <h3 style="margin: 0; font-size: 16px; font-weight: 800;">مركز تشخيص وحل مشاكل المشترك</h3>
+            <div id="diag-user-subhead" style="font-size: 12px; color: #94a3b8; margin-top: 2px;">جاري الفحص...</div>
+          </div>
+        </div>
+        <button id="btn-close-diagnostics-modal" class="close-btn" onclick="closeUserDiagnosticsModal()">&times;</button>
+      </div>
+      
+      <div class="modal-body" style="max-height: 80vh; overflow-y: auto; padding: 20px;">
+        <!-- Loading Spinner -->
+        <div id="diag-loading" style="text-align: center; padding: 40px 0;">
+          <div class="spinner" style="width: 36px; height: 36px; border-width: 3px; margin: 0 auto 12px; border-color: rgba(56, 189, 248, 0.2); border-top-color: #38bdf8;"></div>
+          <div style="color: #94a3b8; font-size: 13px;">جاري فحص حالة الجلسات والقنوات وسجلات الأخطاء الحية...</div>
+        </div>
+
+        <div id="diag-content" class="hidden">
+          <!-- 1. Smart Problem Detector (Alerts) -->
+          <div style="margin-bottom: 20px;">
+            <div style="font-size: 12px; font-weight: 700; color: #64748b; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">⚡ كشف المشاكل والتشخيص الذكي:</div>
+            <div id="diag-problems-container" style="display: flex; flex-direction: column; gap: 8px;">
+              <!-- Injected dynamically -->
+            </div>
+          </div>
+
+          <!-- 2. Overview Metrics Grid -->
+          <div class="diag-metrics-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 20px;">
+            <div class="diag-metric-box">
+              <span class="dmb-label">حالة المحرك</span>
+              <span id="diag-val-engine-status" class="dmb-val">--</span>
+            </div>
+            <div class="diag-metric-box">
+              <span class="dmb-label">الباقة والصلاحية</span>
+              <span id="diag-val-plan" class="dmb-val">--</span>
+            </div>
+            <div class="diag-metric-box">
+              <span class="dmb-label">الإعلانات العالقة</span>
+              <span id="diag-val-stuck-ads" class="dmb-val" style="color: #f87171;">0</span>
+            </div>
+            <div class="diag-metric-box">
+              <span class="dmb-label">القنوات في الكاش</span>
+              <span id="diag-val-cached-channels" class="dmb-val" style="color: #38bdf8;">0</span>
+            </div>
+            <div class="diag-metric-box">
+              <span class="dmb-label">رصيد الرسائل</span>
+              <span id="diag-val-credits" class="dmb-val" style="color: #4ade80;">--</span>
+            </div>
+          </div>
+
+          <!-- 3. Telegram Engines & Sessions breakdown -->
+          <div style="margin-bottom: 20px;">
+            <div style="font-size: 12px; font-weight: 700; color: #64748b; margin-bottom: 8px;">📱 تفاصيل محركات التليجرام والجلسات:</div>
+            <div id="diag-engines-list" style="display: flex; flex-direction: column; gap: 8px;">
+              <!-- Injected dynamically -->
+            </div>
+          </div>
+
+          <!-- 4. One-Click Instant Healing Tools -->
+          <div style="margin-bottom: 20px;">
+            <div style="font-size: 12px; font-weight: 700; color: #64748b; margin-bottom: 8px;">🛠️ أدوات الإصلاح الفوري والتحكم بنقرة واحدة:</div>
+            <div class="diag-actions-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px;">
+              <button type="button" class="btn-diag-action" onclick="triggerHealingAction('purge-stuck-ads')">
+                <span>⚡ تنظيف الإعلانات العالقة</span>
+              </button>
+              <button type="button" class="btn-diag-action" onclick="triggerHealingAction('resync-channels')">
+                <span>🔄 مزامنة وسحب القنوات</span>
+              </button>
+              <button type="button" class="btn-diag-action" onclick="triggerHealingAction('reset-limits')">
+                <span>🔓 فك قيود الـ Rate Limit</span>
+              </button>
+              <button type="button" class="btn-diag-action btn-diag-danger" onclick="triggerHealingAction('emergency-stop')">
+                <span>🛑 إيقاف طارئ للحملات</span>
+              </button>
+              <button type="button" class="btn-diag-action btn-diag-gift" onclick="toggleQuickGiftPanel()">
+                <span>🎁 إهداء رصيد / أيام مجانية</span>
+              </button>
+              <button type="button" class="btn-diag-action btn-diag-impersonate" onclick="triggerImpersonateFromDiag()">
+                <span>👤 الدخول كعميل فوراً</span>
+              </button>
+            </div>
+            
+            <!-- Quick Gift Sub-Panel (Hidden by default) -->
+            <div id="diag-gift-panel" class="hidden" style="margin-top: 10px; padding: 12px; background: rgba(234, 179, 8, 0.08); border: 1px solid rgba(234, 179, 8, 0.25); border-radius: 8px;">
+              <div style="font-size: 11.5px; font-weight: 700; color: #facc15; margin-bottom: 8px;">اختر الهدية للعميل (يتم التطبيق وتمديد الصلاحية فوراً):</div>
+              <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                <button type="button" class="btn-gift-pill" onclick="sendQuickGift('days_3')">+3 أيام تعويضية</button>
+                <button type="button" class="btn-gift-pill" onclick="sendQuickGift('days_7')">+7 أيام أسبوع</button>
+                <button type="button" class="btn-gift-pill" onclick="sendQuickGift('days_30')">+30 يوماً شهر</button>
+                <button type="button" class="btn-gift-pill" onclick="sendQuickGift('credits_100')">+100 كريديت</button>
+                <button type="button" class="btn-gift-pill" onclick="sendQuickGift('credits_500')">+500 كريديت</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 5. Direct In-App Notice to User -->
+          <div style="margin-bottom: 10px;">
+            <div style="font-size: 12px; font-weight: 700; color: #64748b; margin-bottom: 8px;">💬 إرسال تنبيه مباشر في لوحة هذا العميل:</div>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="diag-notice-input" placeholder="اكتب رسالة تظهر كإشعار منبثق للعميل (مثال: تم حل المشكلة وتحديث قنواتك بنجاح)" style="flex: 1; padding: 9px 12px; font-size: 12.5px; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #fff; outline: none;">
+              <button type="button" class="btn btn-primary" style="padding: 9px 16px; font-size: 12px; background: #3b82f6; white-space: nowrap;" onclick="sendClientDirectNotice()">إرسال التنبيه</button>
+            </div>
+          </div>
+
+        </div>
       </div>
     </div>
   </div>

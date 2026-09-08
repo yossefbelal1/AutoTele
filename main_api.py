@@ -2668,6 +2668,421 @@ async def delete_user_account(target_user_id: int, admin_user: User = Depends(ch
         await session.commit()
         return {"status": "success", "message": "تم حذف حساب العميل وجميع بياناته ومحركاته نهائياً من النظام"}
 
+# ==============================================================================
+# CLIENT IMPERSONATION, DEEP DIAGNOSTICS & ONE-CLICK HEALING APIS
+# ==============================================================================
+
+@app.post("/admin/users/{target_user_id}/impersonate")
+async def impersonate_user(target_user_id: int, admin_user: User = Depends(check_admin_user)):
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.id == target_user_id))).scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="المستخدم غير موجود")
+        
+        access_token = jwt.encode(
+            {
+                "sub": user.id,
+                "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+                "impersonated_by": admin_user.id
+            },
+            JWT_SECRET,
+            algorithm=JWT_ALGORITHM
+        )
+        logger.info(f"Admin {admin_user.email} (ID: {admin_user.id}) impersonated user {user.email} (ID: {user.id})")
+        return {
+            "status": "success",
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user_id": user.id,
+            "email": user.email,
+            "full_name": user.full_name or user.email.split('@')[0]
+        }
+
+@app.get("/admin/users/{target_user_id}/diagnostics")
+async def get_user_diagnostics(target_user_id: int, admin_user: User = Depends(check_admin_user)):
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.id == target_user_id))).scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="المستخدم غير موجود")
+        
+        accounts = (await session.execute(
+            select(TelegramAccount).where(TelegramAccount.user_id == target_user_id)
+        )).scalars().all()
+        
+        now = datetime.now(timezone.utc)
+        sub_end = user.subscription_end
+        if sub_end and sub_end.tzinfo is None:
+            sub_end = sub_end.replace(tzinfo=timezone.utc)
+        is_sub_expired = sub_end is None or sub_end <= now or user.subscription_status == "expired"
+        rem_days = max(0, int((sub_end - now).total_seconds() / 86400)) if (sub_end and not is_sub_expired) else 0
+
+        acc_ids = [acc.id for acc in accounts]
+        
+        # 1. Check Active Ads & Stuck Ads
+        stuck_ads_count = 0
+        active_ads_count = 0
+        if acc_ids:
+            active_ads_count = (await session.execute(
+                select(func.count(ActiveAd.id)).where(ActiveAd.telegram_account_id.in_(acc_ids))
+            )).scalar() or 0
+            stuck_ads_count = (await session.execute(
+                select(func.count(ActiveAd.id)).where(
+                    ActiveAd.telegram_account_id.in_(acc_ids),
+                    ActiveAd.expires_at <= now
+                )
+            )).scalar() or 0
+
+        # 2. Check Failed and Pending Tasks
+        failed_tasks_count = 0
+        pending_tasks_count = 0
+        if acc_ids:
+            failed_tasks_count = (await session.execute(
+                select(func.count(WebCampaignTask.id)).where(
+                    WebCampaignTask.telegram_account_id.in_(acc_ids),
+                    WebCampaignTask.status == "failed"
+                )
+            )).scalar() or 0
+            pending_tasks_count = (await session.execute(
+                select(func.count(WebCampaignTask.id)).where(
+                    WebCampaignTask.telegram_account_id.in_(acc_ids),
+                    WebCampaignTask.status == "pending"
+                )
+            )).scalar() or 0
+
+        # 3. Check Templates & Publish Logs count
+        templates_count = 0
+        total_published_count = 0
+        if acc_ids:
+            templates_count = (await session.execute(
+                select(func.count(AdTemplate.id)).where(AdTemplate.telegram_account_id.in_(acc_ids))
+            )).scalar() or 0
+            total_published_count = (await session.execute(
+                select(func.count(PublishLog.id)).where(PublishLog.telegram_account_id.in_(acc_ids))
+            )).scalar() or 0
+
+        # 4. Engine details & Redis Cache / Cooldowns
+        engines_diagnostics = []
+        has_rate_limit = False
+        has_banned_session = False
+        total_cached_channels = 0
+
+        for acc in accounts:
+            has_session_string = bool(acc.string_session and len(acc.string_session) > 20)
+            
+            # Redis rate limit check
+            key = f"tenant:{acc.id}:ratelimit"
+            rl_hits = 0
+            try:
+                rl_hits = await redis_client.zcard(key)
+            except Exception:
+                pass
+            if rl_hits > 5:
+                has_rate_limit = True
+
+            # Cached channels check
+            cached_channels = await get_channels_cache(acc.id)
+            ch_count = len(cached_channels) if cached_channels else 0
+            total_cached_channels += ch_count
+
+            if acc.status == "banned":
+                has_banned_session = True
+
+            engines_diagnostics.append({
+                "id": acc.id,
+                "phone": acc.phone,
+                "status": acc.status,
+                "has_valid_session": has_session_string,
+                "cached_channels_count": ch_count,
+                "rate_limit_hits": rl_hits,
+                "needs_reboot": acc.needs_reboot,
+                "proxy": f"{acc.proxy_host}:{acc.proxy_port}" if acc.proxy_host else None
+            })
+
+        # 5. Automated Issue Detection & Problem Classifier
+        detected_issues = []
+        if is_sub_expired:
+            detected_issues.append({
+                "severity": "danger",
+                "code": "EXPIRED_SUB",
+                "title": "الاشتراك منتهي الصلاحية",
+                "desc": "انتهت فترة اشتراك العميل، المحرك متوقف عن النشر التلقائي.",
+                "fix_action": "gift_days",
+                "action_label": "إهداء تمديد للاشتراك 🎁"
+            })
+        if len(accounts) == 0:
+            detected_issues.append({
+                "severity": "warning",
+                "code": "UNLINKED",
+                "title": "المحرك غير مربوط بتليجرام",
+                "desc": "العميل سجل حسابه ولكنه لم يقم بربط أي رقم هاتف أو جلسة تليجرام بعد.",
+                "fix_action": "impersonate",
+                "action_label": "الدخول كعميل لربط الحساب 📲"
+            })
+        if has_banned_session:
+            detected_issues.append({
+                "severity": "danger",
+                "code": "BANNED_SESSION",
+                "title": "جلسة تليجرام محظورة أو ملغاة",
+                "desc": "تم حظر الرقم أو إلغاء الجلسة من تطبيق تليجرام، يلزم إعادة ربط الرقم.",
+                "fix_action": "reboot",
+                "action_label": "إعادة التشغيل وفحص الجلسة 🔄"
+            })
+        if stuck_ads_count > 0:
+            detected_issues.append({
+                "severity": "warning",
+                "code": "STUCK_ADS",
+                "title": f"يوجد {stuck_ads_count} إعلانات عالقة منتهية الصلاحية",
+                "desc": "هناك إعلانات انتهت مدتها الزمنية ولم تُحذف تلقائياً من القنوات بسبب انقطاع أو FloodWait.",
+                "fix_action": "purge_stuck_ads",
+                "action_label": "تنظيف وحذف الإعلانات العالقة فوراً ⚡"
+            })
+        if has_rate_limit:
+            detected_issues.append({
+                "severity": "warning",
+                "code": "RATE_LIMITED",
+                "title": "الحساب مقيد بالـ Rate Limit في Redis",
+                "desc": "تخطى الحساب معدل الإرسال المسموح ويحتاج إلى تصفير قيود الكاش.",
+                "fix_action": "reset_limits",
+                "action_label": "تصفير قيود الـ Rate Limit 🔓"
+            })
+        if len(accounts) > 0 and total_cached_channels == 0:
+            detected_issues.append({
+                "severity": "info",
+                "code": "EMPTY_CHANNELS",
+                "title": "كاش القنوات فارغ",
+                "desc": "لم يتم جلب قنوات ومجموعات التليجرام أو الكاش منتهي، يلزم عمل مزامنة.",
+                "fix_action": "resync_channels",
+                "action_label": "مزامنة وسحب القنوات الآن 🔄"
+            })
+        if failed_tasks_count > 0:
+            detected_issues.append({
+                "severity": "warning",
+                "code": "FAILED_TASKS",
+                "title": f"يوجد {failed_tasks_count} مهام حملات فاشلة",
+                "desc": "فشلت بعض مهام الإرسال المجدولة بسبب خطأ في الصلاحيات أو قيود النشر.",
+                "fix_action": "emergency_stop",
+                "action_label": "تنظيف وإيقاف المهام الفاشلة 🛑"
+            })
+
+        if len(detected_issues) == 0:
+            detected_issues.append({
+                "severity": "success",
+                "code": "HEALTHY",
+                "title": "الحساب سليم ومستقر 100%",
+                "desc": "المحرك متصل، كاش القنوات محدث، ولا توجد أي إعلانات عالقة أو قيود حظر مسجلة.",
+                "fix_action": None,
+                "action_label": None
+            })
+
+        return {
+            "status": "success",
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "full_name": user.full_name or user.email.split('@')[0],
+                "subscription_plan": user.subscription_plan,
+                "subscription_status": user.subscription_status,
+                "subscription_end": user.subscription_end.strftime("%Y-%m-%d %H:%M:%S") if user.subscription_end else None,
+                "remaining_days": rem_days,
+                "credits": user.credits,
+                "proxy": f"{user.proxy_host}:{user.proxy_port}" if user.proxy_host else None,
+                "status_bot_linked": bool(user.status_bot_chat_id),
+                "created_at": user.created_at.strftime("%Y-%m-%d %H:%M:%S") if user.created_at else None
+            },
+            "stats": {
+                "engines_count": len(accounts),
+                "active_ads_count": active_ads_count,
+                "stuck_ads_count": stuck_ads_count,
+                "templates_count": templates_count,
+                "failed_tasks_count": failed_tasks_count,
+                "pending_tasks_count": pending_tasks_count,
+                "total_published_count": total_published_count,
+                "total_cached_channels": total_cached_channels
+            },
+            "engines": engines_diagnostics,
+            "detected_issues": detected_issues
+        }
+
+@app.post("/admin/users/{target_user_id}/actions/purge-stuck-ads")
+async def admin_purge_stuck_ads(target_user_id: int, admin_user: User = Depends(check_admin_user)):
+    async with AsyncSessionLocal() as session:
+        accounts = (await session.execute(
+            select(TelegramAccount).where(TelegramAccount.user_id == target_user_id)
+        )).scalars().all()
+        if not accounts:
+            return {"status": "warning", "message": "لا توجد محركات لهذا العميل لتنظيف إعلاناتها."}
+        
+        acc_ids = [acc.id for acc in accounts]
+        now = datetime.now(timezone.utc)
+        
+        stmt = select(ActiveAd).where(
+            ActiveAd.telegram_account_id.in_(acc_ids),
+            ActiveAd.expires_at <= now
+        )
+        expired_ads = (await session.execute(stmt)).scalars().all()
+        count = len(expired_ads)
+        
+        for ad in expired_ads:
+            await session.execute(
+                update(PublishLog)
+                .where(
+                    PublishLog.telegram_account_id == ad.telegram_account_id,
+                    PublishLog.chat_id == ad.chat_id,
+                    PublishLog.msg_id == ad.msg_id,
+                    PublishLog.status == "active"
+                )
+                .values(status="deleted")
+            )
+            await session.delete(ad)
+        
+        await session.commit()
+        logger.info(f"Admin {admin_user.email} purged {count} stuck ads for user ID {target_user_id}")
+        return {"status": "success", "purged_count": count, "message": f"تم تنظيف وحذف {count} إعلان عالق بنجاح."}
+
+@app.post("/admin/users/{target_user_id}/actions/resync-channels")
+async def admin_resync_channels(target_user_id: int, admin_user: User = Depends(check_admin_user)):
+    async with AsyncSessionLocal() as session:
+        accounts = (await session.execute(
+            select(TelegramAccount).where(TelegramAccount.user_id == target_user_id)
+        )).scalars().all()
+        if not accounts:
+            return {"status": "warning", "message": "المستخدم غير مربوط بأي حساب تليجرام لمزامنته."}
+        
+        for acc in accounts:
+            await clear_tenant_cache(acc.id)
+            acc.needs_reboot = True
+            session.add(acc)
+            
+        await session.commit()
+        return {"status": "success", "message": "تم تفريغ كاش القنوات وطلب إعادة المزامنة لكافة محركات العميل."}
+
+@app.post("/admin/users/{target_user_id}/actions/reset-limits")
+async def admin_reset_limits(target_user_id: int, admin_user: User = Depends(check_admin_user)):
+    async with AsyncSessionLocal() as session:
+        accounts = (await session.execute(
+            select(TelegramAccount).where(TelegramAccount.user_id == target_user_id)
+        )).scalars().all()
+        
+        cleared = 0
+        for acc in accounts:
+            key = f"tenant:{acc.id}:ratelimit"
+            try:
+                res = await redis_client.delete(key)
+                if res: cleared += 1
+            except Exception:
+                pass
+                
+        return {"status": "success", "message": f"تم تصفير قيود الـ Rate Limit والـ FloodWait لجميع المحركات ({cleared} مفتاح)."}
+
+@app.post("/admin/users/{target_user_id}/actions/emergency-stop")
+async def admin_emergency_stop(target_user_id: int, admin_user: User = Depends(check_admin_user)):
+    async with AsyncSessionLocal() as session:
+        accounts = (await session.execute(
+            select(TelegramAccount).where(TelegramAccount.user_id == target_user_id)
+        )).scalars().all()
+        
+        cancelled = 0
+        if accounts:
+            acc_ids = [acc.id for acc in accounts]
+            stmt = update(WebCampaignTask).where(
+                WebCampaignTask.telegram_account_id.in_(acc_ids),
+                WebCampaignTask.status.in_(["pending", "processing"])
+            ).values(status="cancelled", result_summary="تم الإلغاء فورياً بأمر طارئ من المشرف")
+            res = await session.execute(stmt)
+            cancelled = res.rowcount
+            
+            for acc in accounts:
+                acc.status = "paused"
+                session.add(acc)
+                
+            await session.commit()
+            
+        return {"status": "success", "cancelled_tasks": cancelled, "message": f"تم الإيقاف الطارئ بنجاح وإلغاء {cancelled} مهمة معلقة."}
+
+class QuickGiftReq(BaseModel):
+    gift_type: str # days_3, days_7, days_30, credits_100, credits_500, credits_1000
+
+@app.post("/admin/users/{target_user_id}/actions/quick-gift")
+async def admin_quick_gift(target_user_id: int, req: QuickGiftReq, admin_user: User = Depends(check_admin_user)):
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.id == target_user_id))).scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="المستخدم غير موجود")
+        
+        now = datetime.now(timezone.utc)
+        sub_end = user.subscription_end
+        if sub_end and sub_end.tzinfo is None:
+            sub_end = sub_end.replace(tzinfo=timezone.utc)
+        if not sub_end or sub_end <= now:
+            base_date = now
+        else:
+            base_date = sub_end
+            
+        gift_desc = ""
+        if req.gift_type == "days_3":
+            user.subscription_end = base_date + timedelta(days=3)
+            user.subscription_status = "active"
+            gift_desc = "إضافة 3 أيام اشتراك مجانية 🎁"
+        elif req.gift_type == "days_7":
+            user.subscription_end = base_date + timedelta(days=7)
+            user.subscription_status = "active"
+            gift_desc = "إضافة 7 أيام اشتراك مجانية 🎁"
+        elif req.gift_type == "days_30":
+            user.subscription_end = base_date + timedelta(days=30)
+            user.subscription_status = "active"
+            gift_desc = "إضافة 30 يوماً (شهر كامل) 👑"
+        elif req.gift_type == "credits_100":
+            user.credits += 100
+            gift_desc = "إضافة 100 كريديت رصيد رسائل ⚡"
+        elif req.gift_type == "credits_500":
+            user.credits += 500
+            gift_desc = "إضافة 500 كريديت رصيد رسائل ⚡"
+        elif req.gift_type == "credits_1000":
+            user.credits += 1000
+            gift_desc = "إضافة 1000 كريديت رصيد رسائل 💎"
+        else:
+            raise HTTPException(status_code=400, detail="نوع الهدية غير معروف")
+
+        session.add(user)
+        await session.commit()
+        return {"status": "success", "message": f"تم بنجاح: {gift_desc}", "new_credits": user.credits, "new_end": user.subscription_end.strftime("%Y-%m-%d")}
+
+class SendNoticeReq(BaseModel):
+    title: str
+    message: str
+    notice_type: str = "system_alert"
+
+@app.post("/admin/users/{target_user_id}/actions/send-notice")
+async def admin_send_notice(target_user_id: int, req: SendNoticeReq, background_tasks: BackgroundTasks, admin_user: User = Depends(check_admin_user)):
+    if not req.title.strip() or not req.message.strip():
+        raise HTTPException(status_code=400, detail="العنوان والرسالة مطلوبان")
+        
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.id == target_user_id))).scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="المستخدم غير موجود")
+            
+        accounts = (await session.execute(
+            select(TelegramAccount).where(TelegramAccount.user_id == target_user_id)
+        )).scalars().all()
+        
+        if accounts:
+            notif = AccountNotification(
+                telegram_account_id=accounts[0].id,
+                user_id=user.id,
+                notification_type=req.notice_type,
+                title=req.title.strip(),
+                message=req.message.strip(),
+                actor_name="الدعم الفني / الإدارة 🛡️"
+            )
+            session.add(notif)
+            await session.commit()
+            
+        # Also dispatch via broadcast channel for live popup
+        background_tasks.add_task(dispatch_admin_broadcast, req.message.strip(), user.id)
+        
+        return {"status": "success", "message": "تم إرسال الإشعار والتنبيه للعميل بنجاح"}
+
 class BroadcastReq(BaseModel):
     message_text: str
     target_user_id: Optional[int] = None

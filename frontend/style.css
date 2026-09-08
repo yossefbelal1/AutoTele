@@ -3104,6 +3104,183 @@ body.drawer-open {
   border: 1px solid rgba(225, 29, 72, 0.35) !important;
 }
 
+/* ==========================================================================
+   Client Impersonation Banner & Deep Diagnostics Modal
+   ========================================================================== */
+.impersonation-banner {
+  margin-bottom: 14px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, rgba(234, 179, 8, 0.18), rgba(245, 158, 11, 0.1));
+  border: 1px solid rgba(234, 179, 8, 0.45);
+  border-radius: 12px;
+  box-shadow: 0 4px 18px rgba(234, 179, 8, 0.15);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.imp-banner-inner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.imp-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.imp-shield-icon {
+  font-size: 18px;
+}
+.imp-badge {
+  background: #eab308;
+  color: #0f172a;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 6px;
+  letter-spacing: 0.5px;
+}
+.imp-text {
+  font-size: 13px;
+  color: #fef08a;
+}
+.btn-exit-impersonation {
+  background: rgba(239, 68, 68, 0.25);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.btn-exit-impersonation:hover {
+  background: rgba(239, 68, 68, 0.4);
+  color: #fff;
+  border-color: #ef4444;
+}
+
+/* Diagnostics Modal Styles */
+.diagnostics-modal-card {
+  max-width: 780px !important;
+  width: 95% !important;
+  background: #0f172a !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6) !important;
+}
+.diag-metric-box {
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diag-metric-box .dmb-label {
+  font-size: 10.5px;
+  color: #64748b;
+  font-weight: 700;
+}
+.diag-metric-box .dmb-val {
+  font-size: 14px;
+  font-weight: 800;
+  color: #fff;
+}
+.diag-engine-item {
+  background: rgba(30, 41, 59, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.btn-problem-solve {
+  background: rgba(56, 189, 248, 0.2);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+.btn-problem-solve:hover {
+  background: rgba(56, 189, 248, 0.35);
+  color: #fff;
+}
+.btn-diag-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 12px;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 8px;
+  color: #60a5fa;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+.btn-diag-action:hover {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: #60a5fa;
+  color: #fff;
+}
+.btn-diag-danger {
+  background: rgba(239, 68, 68, 0.12) !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+  color: #f87171 !important;
+}
+.btn-diag-danger:hover {
+  background: rgba(239, 68, 68, 0.25) !important;
+  border-color: #ef4444 !important;
+  color: #fff !important;
+}
+.btn-diag-gift {
+  background: rgba(234, 179, 8, 0.12) !important;
+  border-color: rgba(234, 179, 8, 0.3) !important;
+  color: #facc15 !important;
+}
+.btn-diag-gift:hover {
+  background: rgba(234, 179, 8, 0.25) !important;
+  border-color: #eab308 !important;
+  color: #fff !important;
+}
+.btn-diag-impersonate {
+  background: rgba(14, 165, 233, 0.15) !important;
+  border-color: rgba(14, 165, 233, 0.35) !important;
+  color: #38bdf8 !important;
+}
+.btn-diag-impersonate:hover {
+  background: rgba(14, 165, 233, 0.3) !important;
+  border-color: #0284c7 !important;
+  color: #fff !important;
+}
+.btn-gift-pill {
+  background: rgba(234, 179, 8, 0.15);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  color: #fef08a;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.btn-gift-pill:hover {
+  background: #eab308;
+  color: #0f172a;
+}
+
+
 
 
 

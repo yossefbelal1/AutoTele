@@ -157,7 +157,32 @@ function showSignupScreen() {
   document.getElementById("signup-view").classList.remove("hidden");
 }
 
+function checkImpersonationState() {
+  const isImpersonating = localStorage.getItem("admin_return_mode") === "true";
+  const banner = document.getElementById("impersonation-banner");
+  if (banner) {
+    if (isImpersonating) {
+      banner.classList.remove("hidden");
+      const emailSpan = document.getElementById("imp-user-email");
+      const clientEmail = localStorage.getItem("impersonated_user_email") || "المشترك";
+      if (emailSpan) emailSpan.textContent = clientEmail;
+    } else {
+      banner.classList.add("hidden");
+    }
+  }
+}
+
+window.exitImpersonation = function() {
+  localStorage.removeItem("admin_return_mode");
+  localStorage.removeItem("impersonated_user_email");
+  localStorage.removeItem("impersonated_user_id");
+  localStorage.removeItem("access_token");
+  localStorage.removeItem("user_email");
+  window.location.href = "/admin/users";
+};
+
 function showDashboardScreen() {
+  checkImpersonationState();
   initNotificationCenter();
   document.getElementById("auth-view").classList.add("hidden");
   document.getElementById("signup-view").classList.add("hidden");
