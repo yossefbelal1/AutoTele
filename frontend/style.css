@@ -692,7 +692,9 @@ body.drawer-open {
    6. MOBILE & TABLET APP SHELL (< 1025px)
    ========================================================================== */
 @media (max-width: 1024px) {
-  .desktop-sidebar {
+  .desktop-sidebar,
+  .desktop-topbar,
+  .app-topbar {
     display: none !important;
   }
 
@@ -2402,8 +2404,9 @@ body.drawer-open {
     padding: 16px 14px calc(76px + env(safe-area-inset-bottom, 0px)) 14px;
   }
 
-  .app-topbar {
-    padding: 0 16px;
+  /* Prevent auto-zoom on mobile devices */
+  input, select, textarea {
+    font-size: 16px !important;
   }
 
   /* Responsive Data Tables to Cards */

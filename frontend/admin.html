@@ -49,9 +49,12 @@
 
         <!-- Step B: 2FA Input (Shown conditionally) -->
         <div class="input-group hidden" id="group-otp">
-          <label for="login-otp">كود التحقق المرسل عبر تليجرام</label>
-          <input type="text" id="login-otp" placeholder="أدخل الـ 6 أرقام المرسلة إليك..." maxlength="6" pattern="[0-9]*" inputmode="numeric" autocomplete="one-time-code">
+          <label for="login-otp">كود التحقق المرسل عبر تليجرام (OTP)</label>
+          <input type="text" id="login-otp" placeholder="••••••" maxlength="6" pattern="[0-9]*" inputmode="numeric" autocomplete="one-time-code" style="text-align: center; font-size: 24px; letter-spacing: 6px; font-family: monospace; font-weight: bold; background: rgba(15, 23, 42, 0.95); border: 2px solid #e11d48;">
           <p class="input-hint" id="otp-hint-text">تم إرسال كود التحقق الثنائي إلى حساب التليجرام الخاص بالمشرف المعتمد.</p>
+          <div style="text-align: center; margin-top: 6px;">
+            <button type="button" id="btn-back-to-credentials" class="hidden" onclick="resetAdminLoginForm()" style="background: none; border: none; color: #94a3b8; font-size: 12.5px; cursor: pointer; text-decoration: underline;">← تعديل البريد أو كلمة المرور</button>
+          </div>
         </div>
         
         <button type="submit" id="btn-login" class="btn btn-primary" style="background: linear-gradient(135deg, #e11d48 0%, #be123c 100%); box-shadow: 0 4px 12px rgba(225, 29, 72, 0.25);">

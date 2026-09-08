@@ -17,6 +17,7 @@ function escapeHtml(str) {
 // Global Admin State
 let tempEmail = null;
 let tempPassword = null;
+let currentChallengeToken = null;
 let logEventSource = null;
 let healthInterval = null;
 let subscriptionsInterval = null;
@@ -112,6 +113,22 @@ async function adminApiRequest(endpoint, options = {}) {
 // ==========================================
 // 3. ROUTER / VIEW CONTROLLER
 // ==========================================
+window.resetAdminLoginForm = function() {
+  const otpGroup = document.getElementById("group-otp");
+  if (otpGroup) otpGroup.classList.add("hidden");
+  const btnText = document.getElementById("btn-login")?.querySelector(".btn-text");
+  if (btnText) btnText.textContent = "تأكيد ومتابعة";
+  const otpInput = document.getElementById("login-otp");
+  if (otpInput) {
+    otpInput.removeAttribute("required");
+    otpInput.value = "";
+  }
+  const resetBtn = document.getElementById("btn-back-to-credentials");
+  if (resetBtn) resetBtn.classList.add("hidden");
+  currentChallengeToken = null;
+  sessionStorage.removeItem("admin_challenge_token");
+};
+
 function showAuthScreen() {
   stopLogStream();
   document.getElementById("dashboard-view").classList.add("hidden");
@@ -119,7 +136,7 @@ function showAuthScreen() {
   
   // Reset fields
   document.getElementById("admin-login-form").reset();
-  document.getElementById("group-otp").classList.add("hidden");
+  resetAdminLoginForm();
   tempEmail = null;
   tempPassword = null;
 }
@@ -277,19 +294,23 @@ async function handleAdminLogin(e) {
         return;
       }
 
-      if (data.status === "prompt_2fa") {
+      if (data.status === "otp_required" || data.status === "prompt_2fa") {
         // Store challenge token for verification step
         if (data.challenge_token) {
           sessionStorage.setItem("admin_challenge_token", data.challenge_token);
+          currentChallengeToken = data.challenge_token;
         }
         otpGroup.classList.remove("hidden");
         const btnText = document.getElementById("btn-login").querySelector(".btn-text");
-        if (btnText) btnText.textContent = "تأكيد كود 2FA والمتابعة";
+        if (btnText) btnText.textContent = "تأكيد كود 2FA وتسجيل الدخول 🚀";
         const otpInput = document.getElementById("login-otp");
         if (otpInput) {
           otpInput.setAttribute("required", "required");
-          otpInput.focus();
+          otpInput.value = "";
+          setTimeout(() => otpInput.focus(), 150);
         }
+        const backBtn = document.getElementById("btn-back-to-credentials");
+        if (backBtn) backBtn.classList.remove("hidden");
         showToast(data.message || "تم إرسال كود التحقق 2FA عبر تليجرام!", "info");
         return;
       } else if (data.status === "success") {
@@ -300,12 +321,12 @@ async function handleAdminLogin(e) {
       }
     } else {
       // Step 2: Submit OTP with challenge token
-      if (!otpCode || otpCode.length < 5) {
-        showToast("يرجى إدخال كود التحقق المكون من 6 أرقام.", "warning");
+      if (!otpCode || otpCode.length < 4) {
+        showToast("يرجى إدخال كود التحقق 2FA المرسل إليك.", "warning");
         return;
       }
 
-      const challengeToken = sessionStorage.getItem("admin_challenge_token");
+      const challengeToken = sessionStorage.getItem("admin_challenge_token") || currentChallengeToken;
       let response;
       if (challengeToken) {
         response = await fetch(`${API_BASE_URL}/admin/auth/verify-otp`, {
@@ -330,6 +351,7 @@ async function handleAdminLogin(e) {
 
       if (data.status === "success" && data.access_token) {
         sessionStorage.removeItem("admin_challenge_token");
+        currentChallengeToken = null;
         localStorage.setItem("admin_token", data.access_token);
         showToast("تم التحقق الثنائي وتسجيل الدخول بنجاح!", "success");
         navigateAdmin(window.location.pathname.startsWith("/admin/") ? window.location.pathname : "/admin");

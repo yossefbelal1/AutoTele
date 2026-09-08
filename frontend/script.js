@@ -288,7 +288,15 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
   const desktopTitle = document.getElementById("desktop-page-title");
   if (desktopTitle) desktopTitle.textContent = title;
   const mobileTitle = document.getElementById("mobile-page-title");
-  if (mobileTitle) mobileTitle.textContent = title;
+  if (mobileTitle) {
+    const compactTitles = {
+      "tab-subscription": "لوحة التحكم",
+      "tab-connect": "ربط المحرك",
+      "tab-templates": "مكتبة الصيغ",
+      "tab-plans": "الخطط والترقية"
+    };
+    mobileTitle.textContent = compactTitles[tabId] || title;
+  }
   document.title = `${title} | AutoTele Enterprise`;
 
   // History pushState
@@ -589,6 +597,14 @@ async function syncDashboardData() {
         adminNavTab.classList.remove("hidden");
       } else {
         adminNavTab.classList.add("hidden");
+      }
+    }
+    const drawerAdminLink = document.getElementById("drawer-admin-link");
+    if (drawerAdminLink) {
+      if (response.is_admin) {
+        drawerAdminLink.classList.remove("hidden");
+      } else {
+        drawerAdminLink.classList.add("hidden");
       }
     }
 
@@ -3833,28 +3849,56 @@ let notificationsData = [];
 let notifPollInterval = null;
 
 function initNotificationCenter() {
-  const btnBell = document.getElementById("btn-notif-bell");
-  const dropdown = document.getElementById("notif-dropdown");
-  const btnMarkAll = document.getElementById("btn-mark-all-read");
+  const btnBellDesktop = document.getElementById("btn-notif-bell");
+  const dropdownDesktop = document.getElementById("notif-dropdown");
+  const btnMarkAllDesktop = document.getElementById("btn-mark-all-read");
 
-  if (!btnBell || !dropdown) return;
+  const btnBellMobile = document.getElementById("btn-notif-bell-mobile");
+  const dropdownMobile = document.getElementById("mobile-notif-dropdown");
+  const btnMarkAllMobile = document.getElementById("btn-mark-all-read-mobile");
 
-  btnBell.addEventListener("click", (e) => {
-    e.stopPropagation();
-    dropdown.classList.toggle("hidden");
-    if (!dropdown.classList.contains("hidden")) {
-      fetchNotifications();
-    }
-  });
+  // Desktop Bell
+  if (btnBellDesktop && dropdownDesktop) {
+    btnBellDesktop.addEventListener("click", (e) => {
+      e.stopPropagation();
+      dropdownDesktop.classList.toggle("hidden");
+      if (!dropdownDesktop.classList.contains("hidden")) {
+        fetchNotifications();
+      }
+    });
 
-  document.addEventListener("click", (e) => {
-    if (!dropdown.contains(e.target) && !btnBell.contains(e.target)) {
-      dropdown.classList.add("hidden");
-    }
-  });
+    document.addEventListener("click", (e) => {
+      if (!dropdownDesktop.contains(e.target) && !btnBellDesktop.contains(e.target)) {
+        dropdownDesktop.classList.add("hidden");
+      }
+    });
+  }
 
-  if (btnMarkAll) {
-    btnMarkAll.addEventListener("click", async (e) => {
+  // Mobile Bell
+  if (btnBellMobile && dropdownMobile) {
+    btnBellMobile.addEventListener("click", (e) => {
+      e.stopPropagation();
+      dropdownMobile.classList.toggle("hidden");
+      if (!dropdownMobile.classList.contains("hidden")) {
+        fetchNotifications();
+      }
+    });
+
+    document.addEventListener("click", (e) => {
+      if (!dropdownMobile.contains(e.target) && !btnBellMobile.contains(e.target)) {
+        dropdownMobile.classList.add("hidden");
+      }
+    });
+  }
+
+  if (btnMarkAllDesktop) {
+    btnMarkAllDesktop.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await markNotificationsAsRead(null, true);
+    });
+  }
+  if (btnMarkAllMobile) {
+    btnMarkAllMobile.addEventListener("click", async (e) => {
       e.stopPropagation();
       await markNotificationsAsRead(null, true);
     });
@@ -3894,45 +3938,48 @@ function formatNotifTime(isoStr) {
 
 function renderNotifications(notifications, unreadCount) {
   notificationsData = notifications;
-  const badge = document.getElementById("notif-badge-count");
-  const listContainer = document.getElementById("notif-list-container");
+  const badgeDesktop = document.getElementById("notif-badge-count");
+  const badgeMobile = document.getElementById("notif-badge-count-mobile");
+  const listDesktop = document.getElementById("notif-list-container");
+  const listMobile = document.getElementById("notif-list-container-mobile");
 
-  if (badge) {
-    if (unreadCount > 0) {
-      badge.textContent = unreadCount > 99 ? "+99" : unreadCount;
-      badge.style.display = "flex";
-    } else {
-      badge.style.display = "none";
+  // Sync Badges
+  [badgeDesktop, badgeMobile].forEach(badge => {
+    if (badge) {
+      if (unreadCount > 0) {
+        badge.textContent = unreadCount > 99 ? "+99" : unreadCount;
+        badge.style.display = "flex";
+      } else {
+        badge.style.display = "none";
+      }
     }
-  }
+  });
 
-  if (!listContainer) return;
+  const contentHtml = (!notifications || notifications.length === 0)
+    ? '<div class="notif-empty">لا توجد تنبيهات جديدة حالياً ✨</div>'
+    : notifications.map(n => {
+        const isUnread = !n.is_read;
+        const timeStr = formatNotifTime(n.created_at);
+        const actorHtml = n.actor_username ? `@${escapeHtml(n.actor_username)}` : escapeHtml(n.actor_name || "مسؤول القناة");
 
-  if (!notifications || notifications.length === 0) {
-    listContainer.innerHTML = '<div class="notif-empty">لا توجد تنبيهات جديدة حالياً ✨</div>';
-    return;
-  }
-
-  listContainer.innerHTML = notifications.map(n => {
-    const isUnread = !n.is_read;
-    const timeStr = formatNotifTime(n.created_at);
-    const actorHtml = n.actor_username ? `@${escapeHtml(n.actor_username)}` : escapeHtml(n.actor_name || "مسؤول القناة");
-
-    return `
-      <div class="notif-item ${isUnread ? 'unread' : ''}" onclick="handleNotifClick(${n.id}, ${isUnread})">
-        <div class="notif-icon-box">🚨</div>
-        <div class="notif-content">
-          <div class="notif-title">${escapeHtml(n.title)}</div>
-          <div class="notif-desc">${escapeHtml(n.message)}</div>
-          <div class="notif-meta">
-            <span>بواسطة: <span class="notif-actor">${actorHtml}</span></span>
-            <span>${timeStr}</span>
+        return `
+          <div class="notif-item ${isUnread ? 'unread' : ''}" onclick="handleNotifClick(${n.id}, ${isUnread})">
+            <div class="notif-icon-box">🚨</div>
+            <div class="notif-content">
+              <div class="notif-title">${escapeHtml(n.title)}</div>
+              <div class="notif-desc">${escapeHtml(n.message)}</div>
+              <div class="notif-meta">
+                <span>بواسطة: <span class="notif-actor">${actorHtml}</span></span>
+                <span>${timeStr}</span>
+              </div>
+            </div>
+            <button type="button" class="btn-notif-delete" onclick="handleDeleteNotif(event, ${n.id})" title="حذف">✕</button>
           </div>
-        </div>
-        <button type="button" class="btn-notif-delete" onclick="handleDeleteNotif(event, ${n.id})" title="حذف">✕</button>
-      </div>
-    `;
-  }).join('');
+        `;
+      }).join('');
+
+  if (listDesktop) listDesktop.innerHTML = contentHtml;
+  if (listMobile) listMobile.innerHTML = contentHtml;
 }
 
 window.handleNotifClick = async function(notifId, isUnread) {
@@ -4030,19 +4077,6 @@ document.addEventListener("DOMContentLoaded", () => {
       closeMobileDrawer();
       const logoutBtn = document.getElementById("btn-logout");
       if (logoutBtn) logoutBtn.click();
-    });
-  }
-
-  // Mobile Notification Bell Trigger
-  const btnNotifMobile = document.getElementById("btn-notif-bell-mobile");
-  const notifDropdown = document.getElementById("notif-dropdown");
-  if (btnNotifMobile && notifDropdown) {
-    btnNotifMobile.addEventListener("click", (e) => {
-      e.stopPropagation();
-      notifDropdown.classList.toggle("hidden");
-      if (!notifDropdown.classList.contains("hidden")) {
-        fetchNotifications();
-      }
     });
   }
 });
