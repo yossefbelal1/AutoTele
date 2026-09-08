@@ -434,11 +434,29 @@ async function handleAdminLogin(e) {
 async function loadAdminStats() {
   try {
     const stats = await adminApiRequest("/admin/stats");
-    document.getElementById("admin-stat-total-users").textContent = stats.total_users;
-    document.getElementById("admin-stat-active-subs").textContent = stats.active_subscriptions;
-    document.getElementById("admin-stat-expired-subs").textContent = stats.expired_subscriptions;
-    document.getElementById("admin-stat-total-tg").textContent = stats.total_telegram_accounts;
-    document.getElementById("admin-stat-pending-payments").textContent = stats.pending_payments;
+    const elTotal = document.getElementById("admin-stat-total-users");
+    if (elTotal) elTotal.textContent = stats.total_users;
+
+    const elActive = document.getElementById("admin-stat-active-subs");
+    if (elActive) elActive.textContent = stats.users_with_active_bot !== undefined ? stats.users_with_active_bot : stats.active_subscriptions;
+
+    const elUnlinked = document.getElementById("admin-stat-unlinked-users");
+    if (elUnlinked) elUnlinked.textContent = stats.users_unlinked !== undefined ? stats.users_unlinked : 0;
+
+    const elExpired = document.getElementById("admin-stat-expired-subs");
+    if (elExpired) elExpired.textContent = stats.expired_subscriptions;
+
+    const elTg = document.getElementById("admin-stat-total-tg");
+    if (elTg) {
+      if (stats.banned_telegram_accounts) {
+        elTg.innerHTML = `<span style="color: #4ade80;">${stats.active_telegram_accounts} شغال</span> <span style="font-size: 13px; color: #f87171;">/ ${stats.banned_telegram_accounts} محظور</span>`;
+      } else {
+        elTg.textContent = `${stats.active_telegram_accounts || 0} شغال`;
+      }
+    }
+
+    const elPay = document.getElementById("admin-stat-pending-payments");
+    if (elPay) elPay.textContent = stats.pending_payments;
   } catch (error) {
     console.error("Failed to load admin stats:", error);
   }
@@ -687,12 +705,13 @@ async function loadAdminUsers() {
     if (mobileContainer) mobileContainer.innerHTML = "";
 
     users.forEach(user => {
-      // 1. Badges & Formatted Data
+      // 1. User Identity & Initials
       const idBadge = `<span style="font-family: monospace; font-weight: 700; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.25);">#${user.id}</span>`;
       const rawName = user.full_name || user.email.split('@')[0];
       const initials = rawName.substring(0, 2).toUpperCase();
       const roleTag = user.is_admin ? `<span class="badge" style="background: rgba(225, 29, 72, 0.15); color: #f43f5e; border: 1px solid rgba(225, 29, 72, 0.3); font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 700; margin-right: 6px;">مدير</span>` : '';
-      
+
+      // 2. Subscription Plan Badge
       let planBadge = '';
       if (user.subscription_plan === "yearly") {
         planBadge = `<span style="background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">👑 سنوي</span>`;
@@ -704,48 +723,94 @@ async function loadAdminUsers() {
         planBadge = `<span style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">⏳ تجريبي</span>`;
       }
 
-      const statusBadge = user.subscription_status === "active" 
-        ? `<span style="background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">🟢 نشط</span>`
-        : `<span style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">🔴 منتهي</span>`;
+      // 3. Real Live Operational Status Badge (حالة التشغيل الفعلية الحية)
+      let operationalBadge = '';
+      if (user.operational_status === "unlinked") {
+        operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(148, 163, 184, 0.12); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.25); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">⚪ غير مربوط (بانتظار الإعداد)</span>`;
+      } else if (user.operational_status === "active") {
+        operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.35); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">🟢 متصل ونشط</span>`;
+      } else if (user.operational_status === "partially_active") {
+        operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(234, 179, 8, 0.15); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.35); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">🟡 نشط جزئياً (${user.active_engines_count || 1}/${user.telegram_accounts_count})</span>`;
+      } else if (user.operational_status === "banned") {
+        operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.35); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">🚫 محظور من تليجرام</span>`;
+      } else if (user.operational_status === "expired") {
+        operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(225, 29, 72, 0.15); color: #f43f5e; border: 1px solid rgba(225, 29, 72, 0.35); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">🔴 اشتراك منتهي</span>`;
+      } else if (user.operational_status === "paused") {
+        operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(249, 115, 22, 0.15); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.35); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">⏸️ متوقف مؤقتاً</span>`;
+      } else {
+        operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">⚪ ${escapeHtml(user.operational_label || "غير نشط")}</span>`;
+      }
 
-      let expiryCell = '--';
+      // 4. Subscription Expiry String
       let expiryShort = '--';
       if (user.subscription_end) {
         const dateStr = user.subscription_end.split(" ")[0];
         const remDays = user.remaining_days !== undefined ? user.remaining_days : 0;
-        const remText = user.subscription_status === "active" ? `<small style="color: #38bdf8; font-weight: 700; font-size: 11px; display: block; margin-top: 2px;">باقي ${remDays} يوم</small>` : `<small style="color: #f43f5e; font-size: 11px; display: block; margin-top: 2px;">منتهي</small>`;
-        expiryCell = `
-          <div style="font-family: monospace; font-size: 13px; color: #fff; font-weight: 600;">${dateStr}</div>
-          ${remText}
-        `;
-        expiryShort = `<span style="font-family: monospace; font-size: 12px; color: #fff;">${dateStr}</span> <span style="${user.subscription_status === 'active' ? 'color: #38bdf8;' : 'color: #f43f5e;'} font-weight: 700; font-size: 11px;">(${user.subscription_status === 'active' ? `باقي ${remDays} يوم` : 'منتهي'})</span>`;
+        if (user.is_sub_expired || user.subscription_status === "expired") {
+          expiryShort = `<span style="color: #f43f5e; font-weight: 700;">منتهي (${dateStr})</span>`;
+        } else {
+          expiryShort = `<span style="color: #fff; font-family: monospace;">${dateStr}</span> <span style="color: #38bdf8; font-weight: 700;">(باقي ${remDays} يوم)</span>`;
+        }
       }
 
+      // 5. Telegram Phone Numbers with Real Live Status per account
       let phoneCell = '';
-      let phoneDisplay = '';
-      if (user.phones && user.phones.length > 0) {
-        phoneCell = user.phones.map(p => `
-          <div style="display: inline-flex; align-items: center; gap: 6px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); color: #10b981; padding: 4px 10px; border-radius: 6px; font-family: monospace; font-size: 13px; font-weight: 700; direction: ltr; margin: 2px 0;">
-            <span style="font-size: 12px;">📞</span>
-            <span>${escapeHtml(p)}</span>
-          </div>
-        `).join('<br>');
-        phoneDisplay = user.phones.map(p => `<span style="direction: ltr; font-family: monospace; font-size: 12px; color: #10b981; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); padding: 3px 8px; border-radius: 6px; display: inline-block;">📞 ${escapeHtml(p)}</span>`).join(' ');
+      let phoneMobile = '';
+      const tgAccs = user.telegram_accounts || [];
+      if (tgAccs.length > 0) {
+        phoneCell = tgAccs.map(acc => {
+          let statusTag = '';
+          if (acc.status === 'active') {
+            statusTag = `<span style="color: #4ade80; font-size: 10.5px; font-weight: 700; background: rgba(34, 197, 94, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(34, 197, 94, 0.25);">🟢 شغال</span>`;
+          } else if (acc.status === 'banned') {
+            statusTag = `<span style="color: #f87171; font-size: 10.5px; font-weight: 700; background: rgba(239, 68, 68, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.25);">🚫 محظور</span>`;
+          } else if (acc.status === 'paused' || acc.status === 'stopped') {
+            statusTag = `<span style="color: #fb923c; font-size: 10.5px; font-weight: 700; background: rgba(249, 115, 22, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(249, 115, 22, 0.25);">⏸️ متوقف</span>`;
+          } else {
+            statusTag = `<span style="color: #facc15; font-size: 10.5px; font-weight: 700; background: rgba(234, 179, 8, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(234, 179, 8, 0.25);">⚠️ ${escapeHtml(acc.status)}</span>`;
+          }
+          return `
+            <div style="display: flex; align-items: center; gap: 6px; margin: 3px 0;">
+              <span style="font-family: monospace; font-size: 12px; direction: ltr; font-weight: 700; color: #fff; background: rgba(15, 23, 42, 0.7); padding: 3px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08);">
+                📞 ${escapeHtml(acc.phone)}
+              </span>
+              ${statusTag}
+            </div>
+          `;
+        }).join('');
+
+        phoneMobile = tgAccs.map(acc => {
+          const color = acc.status === 'active' ? '#4ade80' : (acc.status === 'banned' ? '#f87171' : '#facc15');
+          const icon = acc.status === 'active' ? '🟢 شغال' : (acc.status === 'banned' ? '🚫 محظور' : '⚠️ متوقف');
+          return `<span style="display: inline-flex; align-items: center; gap: 4px; direction: ltr; font-family: monospace; font-size: 11.5px; color: #fff; background: rgba(15, 23, 42, 0.7); border: 1px solid ${color}40; padding: 3px 7px; border-radius: 6px; margin: 2px 0;">📞 ${escapeHtml(acc.phone)} <b style="color: ${color}; font-size: 10px;">(${icon})</b></span>`;
+        }).join(' ');
       } else {
-        phoneCell = `<span style="color: #64748b; font-size: 12px; font-style: italic; background: rgba(255,255,255,0.03); padding: 4px 8px; border-radius: 4px;">لا يوجد رقم</span>`;
-        phoneDisplay = `<span style="color: #64748b; font-size: 11px; font-style: italic;">لا يوجد هاتف</span>`;
+        phoneCell = `<span style="color: #64748b; font-size: 11.5px; font-style: italic; background: rgba(255,255,255,0.03); padding: 4px 8px; border-radius: 4px;">⚠️ لم يربط بعد</span>`;
+        phoneMobile = `<span style="color: #64748b; font-size: 11.5px; font-style: italic;">⚠️ لم يربط بعد</span>`;
       }
 
+      // 6. Bot Engines Detailed Breakdown
       let tgEnginesCell = '';
+      let tgEnginesMobile = '';
       if (user.telegram_accounts_count > 0) {
-        tgEnginesCell = `
-          <div style="display: inline-flex; align-items: center; gap: 6px; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.2); padding: 5px 10px; border-radius: 6px;">
-            <span style="font-size: 14px;">🤖</span>
-            <span style="font-weight: 700; color: #38bdf8; font-size: 12px;">${user.telegram_accounts_count} محرك</span>
-          </div>
-        `;
+        let chips = [];
+        if (user.active_engines_count > 0) {
+          chips.push(`<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(34, 197, 94, 0.12); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); padding: 2px 7px; border-radius: 5px; font-size: 11px; font-weight: 700;">🤖 ${user.active_engines_count} شغال</span>`);
+        }
+        if (user.banned_engines_count > 0) {
+          chips.push(`<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(239, 68, 68, 0.12); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 7px; border-radius: 5px; font-size: 11px; font-weight: 700;">🚫 ${user.banned_engines_count} محظور</span>`);
+        }
+        if (user.paused_engines_count > 0) {
+          chips.push(`<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(249, 115, 22, 0.12); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.3); padding: 2px 7px; border-radius: 5px; font-size: 11px; font-weight: 700;">⏸️ ${user.paused_engines_count} متوقف</span>`);
+        }
+        if (chips.length === 0) {
+          chips.push(`<span style="color: #94a3b8; font-size: 11px;">${user.telegram_accounts_count} محرك</span>`);
+        }
+        tgEnginesCell = `<div style="display: flex; flex-direction: column; gap: 4px;">${chips.join('')}</div>`;
+        tgEnginesMobile = chips.join(' ');
       } else {
-        tgEnginesCell = `<span style="color: #64748b; font-size: 12px; font-style: italic;">غير مربوط</span>`;
+        tgEnginesCell = `<span style="color: #64748b; font-size: 11.5px; font-style: italic;">⚪ لا توجد محركات</span>`;
+        tgEnginesMobile = `<span style="color: #64748b; font-size: 11.5px; font-style: italic;">⚪ غير مربوط</span>`;
       }
 
       const userJson = JSON.stringify(user)
@@ -755,7 +820,16 @@ async function loadAdminUsers() {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
 
-      // 1. Populate Desktop Table Row
+      // 7. Action buttons
+      const isUnlinked = user.telegram_accounts_count === 0;
+      const rebootBtnStyle = isUnlinked
+        ? `background: rgba(255, 255, 255, 0.05); color: #64748b; border: 1px solid rgba(255, 255, 255, 0.1); opacity: 0.5; cursor: not-allowed;`
+        : `background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); cursor: pointer;`;
+      const rebootAction = isUnlinked
+        ? `showToast('المستخدم غير مربوط بأي حساب تليجرام، لا توجد محركات لإعادة تشغيلها.', 'warning')`
+        : `rebootUserService(${user.id})`;
+
+      // 8. Populate Desktop Table Row
       if (tbody) {
         const tr = document.createElement("tr");
         const clientCell = `
@@ -772,16 +846,16 @@ async function loadAdminUsers() {
             </div>
           </div>
         `;
-        const planAndStatusCell = `
+        const planAndValidityCell = `
           <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-start;">
             ${planBadge}
-            ${statusBadge}
+            <div style="font-size: 11px; margin-top: 2px;">${expiryShort}</div>
           </div>
         `;
         const actionButtons = `
           <div class="action-btn-group" style="justify-content: center; gap: 6px;">
             <button type="button" class="btn-table btn-edit" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 5px 10px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="openAdminEditModal(${userJson})">تعديل</button>
-            <button type="button" class="btn-table btn-reboot" style="background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); padding: 5px 10px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="rebootUserService(${user.id})">ريبوت</button>
+            <button type="button" class="btn-table btn-reboot" style="${rebootBtnStyle} padding: 5px 10px; border-radius: 6px; font-weight: 600;" onclick="${rebootAction}">ريبوت</button>
             <button type="button" class="btn-table btn-delete" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 5px 10px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="deleteUserAccount(${user.id})">حذف</button>
           </div>
         `;
@@ -789,19 +863,19 @@ async function loadAdminUsers() {
           <td>${idBadge}</td>
           <td>${clientCell}</td>
           <td>${phoneCell}</td>
-          <td>${planAndStatusCell}</td>
-          <td>${expiryCell}</td>
+          <td>${planAndValidityCell}</td>
+          <td>${operationalBadge}</td>
           <td>${tgEnginesCell}</td>
           <td style="text-align: center;">${actionButtons}</td>
         `;
         tbody.appendChild(tr);
       }
 
-      // 2. Populate Mobile Card
+      // 9. Populate Mobile Card
       if (mobileContainer) {
         const card = document.createElement("div");
         card.className = "admin-user-card";
-        const searchKeywords = `${rawName} ${user.email} ${(user.phones || []).join(' ')} #${user.id}`.toLowerCase();
+        const searchKeywords = `${rawName} ${user.email} ${(user.phones || []).join(' ')} #${user.id} ${user.operational_label || ''}`.toLowerCase();
         card.setAttribute("data-user-search", searchKeywords);
         card.innerHTML = `
           <div class="auc-top">
@@ -816,29 +890,28 @@ async function loadAdminUsers() {
             <div class="auc-id">#${user.id}</div>
           </div>
 
-          <div class="auc-pills-row">
-            <div class="auc-pill-group">
-              <span class="auc-pill-label">الباقة:</span>
-              ${planBadge}
+          <div class="auc-pills-row" style="display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 10px 12px;">
+            <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+              <div class="auc-pill-group">
+                <span class="auc-pill-label">الباقة:</span>
+                ${planBadge}
+              </div>
+              <div style="font-size: 11px;">${expiryShort}</div>
             </div>
-            <div class="auc-pill-group">
-              <span class="auc-pill-label">الحالة:</span>
-              ${statusBadge}
+            <div style="display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 2px;">
+              <span class="auc-pill-label" style="font-size: 11px; color: #94a3b8;">حالة التشغيل:</span>
+              ${operationalBadge}
             </div>
           </div>
 
           <div class="auc-details-box">
             <div class="auc-detail-row">
-              <span class="auc-detail-label">⏳ الصلاحية:</span>
-              <span class="auc-detail-val">${expiryShort}</span>
+              <span class="auc-detail-label">📱 الهواتف:</span>
+              <span class="auc-detail-val" style="display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px;">${phoneMobile}</span>
             </div>
-            <div class="auc-detail-row">
-              <span class="auc-detail-label">📱 الهاتف:</span>
-              <span class="auc-detail-val">${phoneDisplay}</span>
-            </div>
-            <div class="auc-detail-row">
+            <div class="auc-detail-row" style="margin-top: 4px;">
               <span class="auc-detail-label">⚡ المحركات:</span>
-              <span class="auc-detail-val">${tgEnginesCell}</span>
+              <span class="auc-detail-val" style="display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px;">${tgEnginesMobile}</span>
             </div>
           </div>
 
@@ -847,7 +920,7 @@ async function loadAdminUsers() {
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
               <span>تعديل</span>
             </button>
-            <button type="button" class="btn-card-action btn-card-reboot" onclick="rebootUserService(${user.id})">
+            <button type="button" class="btn-card-action btn-card-reboot" style="${rebootBtnStyle}" onclick="${rebootAction}">
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
               <span>ريبوت</span>
             </button>

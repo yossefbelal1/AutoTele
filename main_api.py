@@ -2055,8 +2055,20 @@ async def get_admin_stats(admin_user: User = Depends(check_admin_user)):
         total_users = (await session.execute(select(func.count(User.id)))).scalar() or 0
         
         now = datetime.now(timezone.utc)
-        active_subs = (await session.execute(select(func.count(User.id)).where(User.subscription_end > now))).scalar() or 0
+        active_subs = (await session.execute(select(func.count(User.id)).where(User.subscription_end > now, User.subscription_status == "active"))).scalar() or 0
         expired_subs = total_users - active_subs
+        
+        # Real user breakdown: how many users actually have running bots vs unlinked
+        users_with_active_bot = (await session.execute(
+            select(func.count(func.distinct(User.id)))
+            .join(TelegramAccount, TelegramAccount.user_id == User.id)
+            .where(TelegramAccount.status == "active", User.subscription_end > now, User.subscription_status == "active")
+        )).scalar() or 0
+        
+        users_unlinked = (await session.execute(
+            select(func.count(User.id))
+            .where(~User.id.in_(select(TelegramAccount.user_id)))
+        )).scalar() or 0
         
         total_payments = (await session.execute(select(func.count(CryptoPayment.id)))).scalar() or 0
         pending_payments = (await session.execute(select(func.count(CryptoPayment.id)).where(CryptoPayment.status == "pending"))).scalar() or 0
@@ -2064,16 +2076,22 @@ async def get_admin_stats(admin_user: User = Depends(check_admin_user)):
         
         total_tg_accounts = (await session.execute(select(func.count(TelegramAccount.id)))).scalar() or 0
         active_tg_accounts = (await session.execute(select(func.count(TelegramAccount.id)).where(TelegramAccount.status == "active"))).scalar() or 0
+        banned_tg_accounts = (await session.execute(select(func.count(TelegramAccount.id)).where(TelegramAccount.status == "banned"))).scalar() or 0
+        paused_tg_accounts = (await session.execute(select(func.count(TelegramAccount.id)).where(TelegramAccount.status.in_(["paused", "stopped"])))).scalar() or 0
         
         return {
             "total_users": total_users,
             "active_subscriptions": active_subs,
             "expired_subscriptions": expired_subs,
+            "users_with_active_bot": users_with_active_bot,
+            "users_unlinked": users_unlinked,
             "total_payments": total_payments,
             "pending_payments": pending_payments,
             "approved_payments": approved_payments,
             "total_telegram_accounts": total_tg_accounts,
-            "active_telegram_accounts": active_tg_accounts
+            "active_telegram_accounts": active_tg_accounts,
+            "banned_telegram_accounts": banned_tg_accounts,
+            "paused_telegram_accounts": paused_tg_accounts
         }
 
 @app.get("/admin/system-stats")
@@ -2462,16 +2480,49 @@ async def get_admin_users(admin_user: User = Depends(check_admin_user)):
                 {
                     "id": acc.id,
                     "phone": acc.phone,
-                    "status": acc.status
+                    "status": acc.status,
+                    "needs_reboot": acc.needs_reboot
                 }
                 for acc in tg_accounts
             ]
             
-            # Compute remaining days
+            active_engines_count = sum(1 for acc in tg_accounts if acc.status == "active")
+            banned_engines_count = sum(1 for acc in tg_accounts if acc.status == "banned")
+            paused_engines_count = sum(1 for acc in tg_accounts if acc.status in ["paused", "stopped"])
+            error_engines_count = sum(1 for acc in tg_accounts if acc.status in ["error", "unauthorized"])
+            
+            # Compute remaining days & subscription expiration
             sub_end = user.subscription_end
             if sub_end and sub_end.tzinfo is None:
                 sub_end = sub_end.replace(tzinfo=timezone.utc)
-            rem_days = max(0, int((sub_end - now).total_seconds() / 86400)) if sub_end else 0
+            is_sub_expired = sub_end is None or sub_end <= now or user.subscription_status == "expired"
+            rem_days = max(0, int((sub_end - now).total_seconds() / 86400)) if (sub_end and not is_sub_expired) else 0
+
+            # Real Live Operational Status (حالة التشغيل الفعلية الحية)
+            if is_sub_expired:
+                operational_status = "expired"
+                operational_label = "اشتراك منتهي"
+            elif len(tg_accounts) == 0:
+                operational_status = "unlinked"
+                operational_label = "غير مربوط (بانتظار الإعداد)"
+            elif active_engines_count > 0 and banned_engines_count == 0 and error_engines_count == 0:
+                operational_status = "active"
+                operational_label = "متصل ونشط"
+            elif active_engines_count > 0 and (banned_engines_count > 0 or error_engines_count > 0):
+                operational_status = "partially_active"
+                operational_label = f"نشط جزئياً ({active_engines_count}/{len(tg_accounts)})"
+            elif banned_engines_count > 0 and active_engines_count == 0:
+                operational_status = "banned"
+                operational_label = "محظور من تليجرام"
+            elif error_engines_count > 0 and active_engines_count == 0:
+                operational_status = "error"
+                operational_label = "خطأ في الجلسة"
+            elif paused_engines_count > 0:
+                operational_status = "paused"
+                operational_label = "متوقف مؤقتاً"
+            else:
+                operational_status = "inactive"
+                operational_label = "غير نشط"
             
             users_list.append({
                 "id": user.id,
@@ -2481,6 +2532,13 @@ async def get_admin_users(admin_user: User = Depends(check_admin_user)):
                 "phones": phones,
                 "telegram_accounts": accounts_data,
                 "telegram_accounts_count": len(tg_accounts),
+                "active_engines_count": active_engines_count,
+                "banned_engines_count": banned_engines_count,
+                "paused_engines_count": paused_engines_count,
+                "error_engines_count": error_engines_count,
+                "operational_status": operational_status,
+                "operational_label": operational_label,
+                "is_sub_expired": is_sub_expired,
                 "is_admin": user.is_admin,
                 "subscription_plan": user.subscription_plan,
                 "subscription_status": user.subscription_status,
@@ -2580,6 +2638,9 @@ async def reboot_user_service(target_user_id: int, admin_user: User = Depends(ch
             select(TelegramAccount).where(TelegramAccount.user_id == target_user_id)
         )).scalars().all()
         
+        if not accounts:
+            return {"status": "warning", "message": "المستخدم غير مربوط بأي حساب تليجرام حالياً، لا توجد محركات لإعادة تشغيلها."}
+
         for acc in accounts:
             await clear_tenant_cache(acc.id)
             acc.status = "active"

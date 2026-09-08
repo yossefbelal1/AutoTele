@@ -281,20 +281,24 @@
           <!-- Stats Counters Grid -->
           <div class="admin-stats-grid">
             <div class="card stat-mini-card">
-              <span class="stat-label">إجمالي المستخدمين</span>
+              <span class="stat-label">إجمالي المسجلين</span>
               <h3 id="admin-stat-total-users" class="stat-val">--</h3>
             </div>
             <div class="card stat-mini-card">
-              <span class="stat-label">الاشتراكات النشطة</span>
+              <span class="stat-label">المشتركون النشطون فعلياً</span>
               <h3 id="admin-stat-active-subs" class="stat-val green-text">--</h3>
+            </div>
+            <div class="card stat-mini-card">
+              <span class="stat-label">بانتظار ربط الحساب</span>
+              <h3 id="admin-stat-unlinked-users" class="stat-val" style="color: #94a3b8;">--</h3>
             </div>
             <div class="card stat-mini-card">
               <span class="stat-label">الاشتراكات المنتهية</span>
               <h3 id="admin-stat-expired-subs" class="stat-val red-text">--</h3>
             </div>
             <div class="card stat-mini-card">
-              <span class="stat-label">المحركات المربوطة</span>
-              <h3 id="admin-stat-total-tg" class="stat-val blue-text">--</h3>
+              <span class="stat-label">المحركات السحابية الحية</span>
+              <h3 id="admin-stat-total-tg" class="stat-val blue-text" style="font-size: 18px;">--</h3>
             </div>
             <div class="card stat-mini-card">
               <span class="stat-label">إيصالات الدفع المعلقة</span>
@@ -375,13 +379,13 @@
               <table class="admin-table">
                 <thead>
                   <tr>
-                    <th style="width: 60px;">ID</th>
+                    <th style="width: 55px;">ID</th>
                     <th>بيانات المشترك</th>
-                    <th>رقم الهاتف (تليجرام)</th>
-                    <th>الباقة والحالة</th>
-                    <th>صلاحية الاشتراك</th>
+                    <th>أرقام الهواتف (تليجرام)</th>
+                    <th>نوع الباقة والصلاحية</th>
+                    <th>حالة التشغيل الفعلية (Live)</th>
                     <th>محركات البوت</th>
-                    <th style="text-align: center;">الإجراءات</th>
+                    <th style="text-align: center; width: 175px;">الإجراءات</th>
                   </tr>
                 </thead>
                 <tbody id="admin-users-table-body">
