@@ -179,12 +179,56 @@ function navigateAdmin(route, pushState = true) {
   showDashboardScreen(targetTab);
 }
 
+const TAB_TITLES = {
+  "tab-stats": "الإحصائيات الحية",
+  "tab-payments": "إيصالات الكريبتو",
+  "tab-users": "إدارة المشتركين",
+  "tab-broadcast": "بث إشعار عام",
+  "tab-logs": "السجلات الحية",
+  "tab-health": "صحة النظام وحل المشاكل",
+  "tab-subscriptions": "دورة الاشتراكات"
+};
+
+function openAdminMobileDrawer() {
+  const drawer = document.getElementById("admin-mobile-drawer");
+  const backdrop = document.getElementById("admin-drawer-backdrop");
+  if (drawer) drawer.classList.add("open");
+  if (backdrop) {
+    backdrop.classList.remove("hidden");
+    backdrop.classList.add("active");
+  }
+  document.body.style.overflow = "hidden";
+}
+
+function closeAdminMobileDrawer() {
+  const drawer = document.getElementById("admin-mobile-drawer");
+  const backdrop = document.getElementById("admin-drawer-backdrop");
+  if (drawer) drawer.classList.remove("open");
+  if (backdrop) {
+    backdrop.classList.remove("active");
+    backdrop.classList.add("hidden");
+  }
+  document.body.style.overflow = "";
+}
+window.openAdminMobileDrawer = openAdminMobileDrawer;
+window.closeAdminMobileDrawer = closeAdminMobileDrawer;
+
+window.refreshCurrentAdminTab = function() {
+  const currentPath = window.location.pathname.replace(/\/$/, "") || "/admin";
+  const activeTab = ADMIN_ROUTE_MAP[currentPath] || "tab-stats";
+  switchTab(activeTab);
+  showToast("تم تحديث البيانات بنجاح!", "info");
+};
+
 function showDashboardScreen(preferredTab = null) {
   document.getElementById("auth-view").classList.add("hidden");
   document.getElementById("dashboard-view").classList.remove("hidden");
   
   // Set display email if available
-  document.getElementById("admin-email-display").textContent = "المشرف الرئيسي";
+  const emailDisplay = document.getElementById("admin-email-display");
+  if (emailDisplay) emailDisplay.textContent = "المشرف الرئيسي";
+  const drawerEmailDisplay = document.getElementById("admin-drawer-email");
+  if (drawerEmailDisplay) drawerEmailDisplay.textContent = "المشرف الرئيسي";
   
   const currentPath = window.location.pathname.replace(/\/$/, "") || "/admin";
   const activeTab = preferredTab || ADMIN_ROUTE_MAP[currentPath] || "tab-stats";
@@ -196,20 +240,35 @@ function switchTab(tabId) {
   const panels = document.querySelectorAll(".tab-panel");
   panels.forEach(panel => panel.classList.add("hidden"));
 
-  // Deactivate all nav buttons
-  const navTabs = document.querySelectorAll(".nav-tab");
-  navTabs.forEach(tab => tab.classList.remove("active"));
+  // Deactivate all nav buttons across desktop sidebar, mobile drawer, and bottom nav
+  document.querySelectorAll(".nav-tab").forEach(tab => tab.classList.remove("active"));
+  document.querySelectorAll(".drawer-nav-item").forEach(tab => tab.classList.remove("active"));
+  document.querySelectorAll(".bottom-nav-item").forEach(tab => tab.classList.remove("active"));
 
-  // Show panel & active tab
+  // Show active panel
   const activePanel = document.getElementById(tabId);
   if (activePanel) {
     activePanel.classList.remove("hidden");
   }
 
+  // Activate matching elements across all navigation bars
   const activeNav = document.querySelector(`.nav-tab[data-tab="${tabId}"]`);
-  if (activeNav) {
-    activeNav.classList.add("active");
+  if (activeNav) activeNav.classList.add("active");
+
+  const activeDrawerNav = document.querySelector(`.drawer-nav-item[data-tab="${tabId}"]`);
+  if (activeDrawerNav) activeDrawerNav.classList.add("active");
+
+  const activeBottomNav = document.querySelector(`.bottom-nav-item[data-tab="${tabId}"]`);
+  if (activeBottomNav) activeBottomNav.classList.add("active");
+
+  // Update mobile page title pill
+  const mobilePageTitle = document.getElementById("admin-mobile-page-title");
+  if (mobilePageTitle) {
+    mobilePageTitle.textContent = TAB_TITLES[tabId] || "لوحة المشرف";
   }
+
+  // Close mobile drawer upon switching
+  closeAdminMobileDrawer();
 
   // Close log stream if navigating away from tab-logs
   if (tabId !== "tab-logs") {
@@ -1034,6 +1093,8 @@ async function handleAdminBroadcast(e) {
   // Logout handler
   const handleLogout = () => {
     localStorage.removeItem("admin_token");
+    sessionStorage.removeItem("admin_challenge_token");
+    closeAdminMobileDrawer();
     showToast("تم تسجيل الخروج بنجاح وأمان.", "info");
     showAuthScreen();
   };
@@ -1041,11 +1102,46 @@ async function handleAdminBroadcast(e) {
   if (logoutBtn) logoutBtn.addEventListener("click", handleLogout);
   const logoutMobileBtn = document.getElementById("btn-logout-mobile");
   if (logoutMobileBtn) logoutMobileBtn.addEventListener("click", handleLogout);
+  const mobileTopLogoutBtn = document.getElementById("btn-admin-mobile-logout");
+  if (mobileTopLogoutBtn) mobileTopLogoutBtn.addEventListener("click", handleLogout);
+  const drawerLogoutBtn = document.getElementById("btn-admin-drawer-logout");
+  if (drawerLogoutBtn) drawerLogoutBtn.addEventListener("click", handleLogout);
+
+  // Mobile Drawer Toggle Listeners
+  const btnDrawerToggle = document.getElementById("btn-admin-drawer-toggle");
+  if (btnDrawerToggle) btnDrawerToggle.addEventListener("click", openAdminMobileDrawer);
+  const btnCloseDrawer = document.getElementById("btn-close-admin-drawer");
+  if (btnCloseDrawer) btnCloseDrawer.addEventListener("click", closeAdminMobileDrawer);
+  const drawerBackdrop = document.getElementById("admin-drawer-backdrop");
+  if (drawerBackdrop) drawerBackdrop.addEventListener("click", closeAdminMobileDrawer);
+  const btnBottomMenu = document.getElementById("btn-admin-bottom-menu");
+  if (btnBottomMenu) btnBottomMenu.addEventListener("click", openAdminMobileDrawer);
+
+  // Mobile Bottom Nav Click Handlers
+  document.querySelectorAll(".admin-mobile-bottom-nav .bottom-nav-item[data-route]").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const route = btn.getAttribute("data-route");
+      if (route) navigateAdmin(route);
+    });
+  });
+
+  // Mobile Drawer Nav Click Handlers
+  document.querySelectorAll(".admin-mobile-drawer .drawer-nav-item[data-route]").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const route = btn.getAttribute("data-route");
+      if (route) {
+        navigateAdmin(route);
+        closeAdminMobileDrawer();
+      }
+    });
+  });
 
   // Refresh stats every 30 seconds if stats tab is active
   setInterval(() => {
     const dashboardVisible = !document.getElementById("dashboard-view").classList.contains("hidden");
-    const statsTabActive = document.querySelector('.nav-tab[data-tab="tab-stats"]').classList.contains("active");
+    const statsTabActive = document.querySelector('.nav-tab[data-tab="tab-stats"]')?.classList.contains("active");
     if (dashboardVisible && statsTabActive) {
       loadAdminStats();
     }
@@ -1054,6 +1150,106 @@ async function handleAdminBroadcast(e) {
   // Initialize mobile header scroll behavior
   initMobileHeaderScroll();
 });
+
+// ==========================================
+// TROUBLESHOOTING & SYSTEM DIAGNOSTICS HUB
+// ==========================================
+window.runSystemDiagnostics = async function() {
+  const pingBtn = document.getElementById("btn-troubleshoot-ping");
+  const latencyBadge = document.getElementById("badge-db-latency");
+  const resultsBox = document.getElementById("troubleshoot-results-box");
+  const dbResult = document.getElementById("ping-result-db");
+  const redisResult = document.getElementById("ping-result-redis");
+  const botsResult = document.getElementById("ping-result-bots");
+  const overallBadge = document.getElementById("troubleshoot-overall-badge");
+
+  if (latencyBadge) latencyBadge.textContent = "جاري الفحص...";
+  if (pingBtn) pingBtn.style.opacity = "0.7";
+
+  try {
+    const data = await adminApiRequest("/admin/troubleshoot/ping", { method: "POST" });
+    
+    if (resultsBox) resultsBox.classList.remove("hidden");
+
+    if (dbResult) {
+      dbResult.textContent = `${data.db.latency_ms} ms (${data.db.healthy ? 'ممتاز ✅' : 'خطأ ❌'})`;
+      dbResult.style.color = data.db.healthy ? '#27c93f' : '#e11d48';
+    }
+
+    if (redisResult) {
+      redisResult.textContent = `${data.redis.latency_ms} ms (${data.redis.healthy ? 'ممتاز ✅' : 'خطأ ❌'})`;
+      redisResult.style.color = data.redis.healthy ? '#27c93f' : '#e11d48';
+    }
+
+    if (latencyBadge) {
+      latencyBadge.textContent = `${data.db.latency_ms} ms`;
+      latencyBadge.style.color = data.overall_healthy ? '#10b981' : '#f43f5e';
+    }
+
+    if (overallBadge) {
+      overallBadge.style.display = "inline-block";
+      if (data.overall_healthy) {
+        overallBadge.textContent = "✅ الأنظمة تعمل بكفاءة تامة";
+        overallBadge.style.background = "rgba(16, 185, 129, 0.15)";
+        overallBadge.style.color = "#10b981";
+        overallBadge.style.border = "1px solid rgba(16, 185, 129, 0.3)";
+      } else {
+        overallBadge.textContent = "⚠️ يوجد بطء أو مشكلة اتصال";
+        overallBadge.style.background = "rgba(225, 29, 72, 0.15)";
+        overallBadge.style.color = "#f43f5e";
+        overallBadge.style.border = "1px solid rgba(225, 29, 72, 0.3)";
+      }
+    }
+
+    showToast(`نتائج الفحص: قاعدة البيانات (${data.db.latency_ms}ms) | Redis (${data.redis.latency_ms}ms)`, data.overall_healthy ? "success" : "warning");
+    
+    // Also refresh system stats
+    loadAdminHealth();
+  } catch (error) {
+    console.error("System diagnostics failed:", error);
+    if (latencyBadge) latencyBadge.textContent = "فشل ❌";
+    showToast("فشل إجراء الفحص الشامل للأنظمة.", "error");
+  } finally {
+    if (pingBtn) pingBtn.style.opacity = "1";
+  }
+};
+
+window.clearSystemCache = async function() {
+  if (!confirm("هل ترغب في تنظيف الذاكرة المؤقتة (Cache) وكاش المحادثات والقنوات المؤقت؟ هذا الإجراء آمن ولن يؤثر على الجلسات النشطة.")) return;
+
+  const cachePill = document.getElementById("badge-clear-cache");
+  if (cachePill) cachePill.textContent = "جاري المسح...";
+
+  try {
+    const res = await adminApiRequest("/admin/troubleshoot/clear-cache", { method: "POST" });
+    showToast(res.message || "تم تنظيف الذاكرة المؤقتة بنجاح!", "success");
+    if (cachePill) cachePill.textContent = "تم التنظيف ✅";
+    setTimeout(() => {
+      if (cachePill) cachePill.textContent = "تنظيف 🧹";
+    }, 3000);
+  } catch (error) {
+    console.error("Clear cache failed:", error);
+    if (cachePill) cachePill.textContent = "خطأ ❌";
+  }
+};
+
+window.syncTelegramEngines = async function() {
+  const syncPill = document.getElementById("badge-sync-bots");
+  if (syncPill) syncPill.textContent = "جاري المزامنة...";
+
+  try {
+    const res = await adminApiRequest("/admin/troubleshoot/resync-bots", { method: "POST" });
+    showToast(res.message || "تمت مزامنة محركات تيليجرام بنجاح!", "success");
+    if (syncPill) syncPill.textContent = "تمت المزامنة ✅";
+    loadAdminHealth();
+    setTimeout(() => {
+      if (syncPill) syncPill.textContent = "مزامنة 🔄";
+    }, 3000);
+  } catch (error) {
+    console.error("Sync engines failed:", error);
+    if (syncPill) syncPill.textContent = "خطأ ❌";
+  }
+};
 
 // ==========================================
 // SYSTEM HEALTH MONITORING ENGINE

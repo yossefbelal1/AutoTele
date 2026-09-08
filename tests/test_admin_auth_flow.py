@@ -50,5 +50,20 @@ class AdminAuthFlowTests(unittest.TestCase):
         self.assertTrue(decoded.get("is_admin"))
         self.assertEqual(decoded.get("sub"), user_id)
 
+    def test_troubleshoot_endpoints_require_admin_claim(self):
+        """Verify that normal user token (without is_admin: True) is rejected for troubleshoot endpoints."""
+        normal_user_token = jwt.encode(
+            {
+                "sub": 101,
+                "exp": datetime.now(timezone.utc) + timedelta(minutes=60),
+                "is_admin": False
+            },
+            self.jwt_secret,
+            algorithm=self.jwt_algorithm
+        )
+        decoded = jwt.decode(normal_user_token, self.jwt_secret, algorithms=[self.jwt_algorithm])
+        self.assertFalse(decoded.get("is_admin", False))
+
 if __name__ == "__main__":
     unittest.main()
+

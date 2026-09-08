@@ -2687,6 +2687,105 @@ async def live_logs_stream(tenant_id: Optional[int] = None, admin_user: User = D
         }
     )
 
+# ==========================================
+# ADMIN TROUBLESHOOTING & DIAGNOSTICS API
+# ==========================================
+
+@app.post("/admin/troubleshoot/ping")
+async def admin_troubleshoot_ping(admin_user: User = Depends(check_admin_user)):
+    import time
+    from cache_manager import redis_client
+    
+    db_ok = False
+    db_ms = 0.0
+    t0 = time.perf_counter()
+    try:
+        async with AsyncSessionLocal() as session:
+            from sqlalchemy import text
+            await session.execute(text("SELECT 1"))
+            db_ms = round((time.perf_counter() - t0) * 1000, 2)
+            db_ok = True
+    except Exception as e:
+        logger.error(f"Troubleshoot DB Ping Failed: {e}")
+        db_ms = round((time.perf_counter() - t0) * 1000, 2)
+
+    redis_ok = False
+    redis_ms = 0.0
+    t1 = time.perf_counter()
+    try:
+        await redis_client.ping()
+        redis_ms = round((time.perf_counter() - t1) * 1000, 2)
+        redis_ok = True
+    except Exception as e:
+        logger.error(f"Troubleshoot Redis Ping Failed: {e}")
+        redis_ms = round((time.perf_counter() - t1) * 1000, 2)
+
+    overall_ok = db_ok and redis_ok
+    status_text = "أنظمة السيرفر تعمل بكفاءة تامة" if overall_ok else "يوجد بطء أو خلل في بعض الخدمات"
+
+    return {
+        "status": "success",
+        "overall_healthy": overall_ok,
+        "message": status_text,
+        "db": {
+            "healthy": db_ok,
+            "latency_ms": db_ms
+        },
+        "redis": {
+            "healthy": redis_ok,
+            "latency_ms": redis_ms
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+@app.post("/admin/troubleshoot/clear-cache")
+async def admin_troubleshoot_clear_cache(admin_user: User = Depends(check_admin_user)):
+    from cache_manager import redis_client
+    cleared_count = 0
+    try:
+        patterns = ["tenant:*:admin_chats", "tenant:*:dialogs*", "cache:temp:*"]
+        for pat in patterns:
+            keys = await redis_client.keys(pat)
+            if keys:
+                cleared_count += len(keys)
+                await redis_client.delete(*keys)
+        
+        logger.info(f"Admin {admin_user.email} cleared {cleared_count} cache keys via Troubleshoot Hub.")
+        return {
+            "status": "success",
+            "cleared_keys": cleared_count,
+            "message": f"تم تنظيف الذاكرة المؤقتة بنجاح (تم مسح {cleared_count} مفتاح كاش مؤقت)."
+        }
+    except Exception as e:
+        logger.error(f"Failed to clear cache: {e}")
+        raise HTTPException(status_code=500, detail=f"فشل تنظيف الكاش: {str(e)}")
+
+@app.post("/admin/troubleshoot/resync-bots")
+async def admin_troubleshoot_resync_bots(admin_user: User = Depends(check_admin_user)):
+    try:
+        async with AsyncSessionLocal() as session:
+            stmt = select(TelegramAccount)
+            accounts = (await session.execute(stmt)).scalars().all()
+            
+            resynced = 0
+            for acc in accounts:
+                if acc.status not in ["active", "paused", "stopped", "error", "banned"]:
+                    acc.status = "stopped"
+                    resynced += 1
+                    session.add(acc)
+            if resynced > 0:
+                await session.commit()
+                
+            return {
+                "status": "success",
+                "total_accounts": len(accounts),
+                "resynced": resynced,
+                "message": f"تمت مراجعة ومزامنة {len(accounts)} محرك تيليجرام بنجاح."
+            }
+    except Exception as e:
+        logger.error(f"Failed to resync bots: {e}")
+        raise HTTPException(status_code=500, detail=f"فشل مزامنة المحركات: {str(e)}")
+
 # ========================================# ==========================================
 # NOTIFICATIONS API
 # ==========================================

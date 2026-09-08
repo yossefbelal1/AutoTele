@@ -73,12 +73,119 @@
   <!-- ==========================================
        3. VIEW: Admin Dashboard Panel
        ========================================== -->
-  <div id="dashboard-view" class="view-container hidden">
-    <div class="dashboard-layout">
+  <div id="dashboard-view" class="dashboard-view-root hidden">
+    
+    <!-- Mobile Admin Top Bar (Visible only on mobile/tablet < 1025px) -->
+    <header class="mobile-app-bar admin-mobile-app-bar">
+      <div class="mobile-app-bar-left">
+        <button id="btn-admin-drawer-toggle" type="button" class="btn-app-bar-icon" aria-label="قائمة المشرف" title="القائمة">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <div class="mobile-brand">
+          <span class="mobile-brand-logo" style="color: #f43f5e; font-size: 20px;">🛡️</span>
+          <span class="mobile-brand-title" style="letter-spacing: -0.3px;">AutoTele <span style="font-size: 10px; background: rgba(225,29,72,0.2); color: #f43f5e; padding: 2px 6px; border-radius: 4px; font-weight: 800; border: 1px solid rgba(225,29,72,0.3); vertical-align: middle;">ADMIN</span></span>
+        </div>
+      </div>
+
+      <div class="mobile-page-pill admin-page-pill" id="admin-mobile-page-pill">
+        <span class="pill-dot" style="background: #e11d48; box-shadow: 0 0 8px #e11d48;"></span>
+        <span id="admin-mobile-page-title">الإحصائيات</span>
+      </div>
+
+      <div class="mobile-app-bar-right">
+        <button id="btn-admin-mobile-refresh" type="button" class="btn-app-bar-icon" title="تحديث البيانات" onclick="refreshCurrentAdminTab()" style="color: #38bdf8;">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19"/></svg>
+        </button>
+        <button id="btn-admin-mobile-logout" type="button" class="btn-app-bar-icon" title="تسجيل الخروج" style="color: #f43f5e;">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Mobile Drawer Overlay & Sheet -->
+    <div id="admin-drawer-backdrop" class="mobile-drawer-backdrop hidden"></div>
+    <aside id="admin-mobile-drawer" class="mobile-nav-drawer admin-mobile-drawer">
+      <div class="drawer-header" style="background: rgba(225, 29, 72, 0.08); border-bottom: 1px solid rgba(225, 29, 72, 0.15);">
+        <div class="drawer-user-info">
+          <div class="user-avatar" style="background: linear-gradient(135deg, #e11d48, #9f1239); color: #fff; font-size: 13px; font-weight: 800; border: 2px solid rgba(255,255,255,0.2);">🛡️</div>
+          <div class="user-meta">
+            <h4 id="admin-drawer-email" class="user-email">admin@domain.com</h4>
+            <span class="badge" style="background: rgba(225, 29, 72, 0.15); color: #f43f5e; border-color: rgba(225, 29, 72, 0.3);">مشرف النظام المعتمد</span>
+          </div>
+        </div>
+        <button id="btn-close-admin-drawer" type="button" class="btn-close-drawer" aria-label="إغلاق">&times;</button>
+      </div>
+
+      <div class="drawer-content">
+        <div class="drawer-section-title">لوحات الإدارة والعمليات</div>
+        <div class="drawer-nav-list">
+          <button class="drawer-nav-item active" data-tab="tab-stats" data-route="/admin" onclick="navigateAdmin('/admin'); closeAdminMobileDrawer();">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="9" y1="9" x2="21" y2="9"/><line x1="9" y1="15" x2="21" y2="15"/></svg>
+            <span>لوحة التحكم والإحصائيات</span>
+          </button>
+          <button class="drawer-nav-item" data-tab="tab-payments" data-route="/admin/payments" onclick="navigateAdmin('/admin/payments'); closeAdminMobileDrawer();">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            <span>إيصالات التحويل بالكريبتو</span>
+          </button>
+          <button class="drawer-nav-item" data-tab="tab-users" data-route="/admin/users" onclick="navigateAdmin('/admin/users'); closeAdminMobileDrawer();">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <span>إدارة المشتركين والتراخيص</span>
+          </button>
+        </div>
+
+        <div class="drawer-section-title">أدوات الصيانة وحل المشاكل</div>
+        <div class="drawer-nav-list">
+          <button class="drawer-nav-item" data-tab="tab-health" data-route="/admin/health" onclick="navigateAdmin('/admin/health'); closeAdminMobileDrawer();">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            <span>صحة وأداء النظام وحل المشاكل 🛠️</span>
+          </button>
+          <button class="drawer-nav-item" data-tab="tab-logs" data-route="/admin/logs" onclick="navigateAdmin('/admin/logs'); closeAdminMobileDrawer();">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            <span>مراقبة السجلات الحية (Live Logs)</span>
+          </button>
+          <button class="drawer-nav-item" data-tab="tab-broadcast" data-route="/admin/broadcast" onclick="navigateAdmin('/admin/broadcast'); closeAdminMobileDrawer();">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <span>بث إشعار عام للمشتركين</span>
+          </button>
+          <button class="drawer-nav-item" data-tab="tab-subscriptions" data-route="/admin/subscriptions" onclick="navigateAdmin('/admin/subscriptions'); closeAdminMobileDrawer();">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            <span>إدارة دورة حياة الاشتراكات</span>
+          </button>
+        </div>
+
+        <div class="drawer-section-title">روابط النظام</div>
+        <div class="drawer-nav-list">
+          <a href="/app" class="drawer-nav-item helper-link">
+            <span>⚡</span>
+            <span>لوحة تحكم العميل (Client App)</span>
+          </a>
+          <a href="/" class="drawer-nav-item helper-link">
+            <span>🌐</span>
+            <span>الموقع التعريفي الرئيسي</span>
+          </a>
+        </div>
+      </div>
+
+      <div class="drawer-footer">
+        <button id="btn-admin-drawer-logout" class="btn-logout-drawer" type="button">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          <span>تسجيل الخروج الآمن</span>
+        </button>
+      </div>
+    </aside>
+
+    <div class="dashboard-layout app-shell admin-shell">
       
-      <!-- Sidebar Panel -->
-      <aside class="sidebar" style="border-left: 1px solid rgba(225, 29, 72, 0.1);">
+      <!-- Desktop Sidebar Panel -->
+      <aside class="sidebar desktop-sidebar app-sidebar" style="border-left: 1px solid rgba(225, 29, 72, 0.15);">
         <div class="sidebar-header" style="border-bottom: 1px solid rgba(255, 255, 255, 0.04);">
+          <div class="app-brand" style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+            <div style="width: 38px; height: 38px; border-radius: 10px; background: linear-gradient(135deg, #e11d48, #9f1239); display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 4px 12px rgba(225, 29, 72, 0.4);">🛡️</div>
+            <div>
+              <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #fff; letter-spacing: -0.5px;">AutoTele</h3>
+              <span style="font-size: 11px; color: #f43f5e; font-weight: 700;">Admin Control</span>
+            </div>
+          </div>
           <div class="user-info">
             <div class="user-avatar" style="background: #e11d48;">ADMIN</div>
             <div class="user-meta">
@@ -130,8 +237,9 @@
         </div>
       </aside>
 
-      <!-- Content Panels -->
-      <main class="content-area">
+      <!-- Content Panels Wrapper -->
+      <div class="app-main-wrapper" style="flex: 1; display: flex; flex-direction: column; min-width: 0;">
+        <main class="content-area">
         
         <!-- Tab A: Stats & Dashboard Home -->
         <section id="tab-stats" class="tab-panel">
@@ -186,12 +294,12 @@
                 <thead>
                   <tr>
                     <th style="width: 60px;">ID</th>
-                    <th>بيانات العميل</th>
-                    <th>رقم الهاتف (تليجرام)</th>
-                    <th>الباقة والحالة</th>
-                    <th>صلاحية الاشتراك</th>
-                    <th>محركات البوت</th>
-                    <th style="text-align: center;">الإجراءات</th>
+                    <th>بيانات العميل (Email)</th>
+                    <th>الباقة المختارة</th>
+                    <th>معرف المعاملة (TxID)</th>
+                    <th>تاريخ الإرسال</th>
+                    <th>حالة الدفع</th>
+                    <th style="text-align: center;">الإجراءات والموافقة</th>
                   </tr>
                 </thead>
                 <tbody id="admin-payments-table-body">
@@ -218,7 +326,7 @@
                 <thead>
                   <tr>
                     <th style="width: 60px;">ID</th>
-                    <th>بيانات العميل</th>
+                    <th>بيانات المشترك</th>
                     <th>رقم الهاتف (تليجرام)</th>
                     <th>الباقة والحالة</th>
                     <th>صلاحية الاشتراك</th>
@@ -228,7 +336,7 @@
                 </thead>
                 <tbody id="admin-users-table-body">
                   <tr>
-                    <td colspan="8" class="text-center">جاري تحميل البيانات...</td>
+                    <td colspan="7" class="text-center">جاري تحميل البيانات...</td>
                   </tr>
                 </tbody>
               </table>
@@ -404,6 +512,77 @@
               </div>
             </div>
           </div>
+
+          <!-- Troubleshooting & Quick Fixes Hub -->
+          <div class="card troubleshoot-card" style="margin-top: 25px; border-right: 4px solid #38bdf8; background: linear-gradient(135deg, rgba(23, 33, 43, 0.7) 0%, rgba(11, 17, 32, 0.9) 100%);">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 12px;">
+              <div>
+                <h3 class="card-title" style="margin: 0; padding: 0; border: none; display: flex; align-items: center; gap: 8px;">
+                  <span>🛠️ مركز التشخيص الفوري وحل المشاكل (Troubleshooting Hub)</span>
+                </h3>
+                <p style="font-size: 12.5px; color: #94a3b8; margin: 4px 0 0 0;">أدوات التدخل السريع للمشرف لفحص كفاءة السيرفر، قياس سرعة الاستجابة، تنظيف الكاش ومزامنة المحركات</p>
+              </div>
+              <div id="troubleshoot-overall-badge" style="display: none; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700;"></div>
+            </div>
+
+            <!-- Action Buttons Grid -->
+            <div class="troubleshoot-actions-grid">
+              <button type="button" id="btn-troubleshoot-ping" class="btn-troubleshoot-card" onclick="runSystemDiagnostics()">
+                <div class="troubleshoot-icon-box" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8;">🩺</div>
+                <div class="troubleshoot-info">
+                  <span class="troubleshoot-btn-title">فحص شامل وفوري للأنظمة (Ping)</span>
+                  <span class="troubleshoot-btn-desc">قياس سرعة استجابة قاعدة البيانات ومخزن Redis بالميللي ثانية</span>
+                </div>
+                <span class="troubleshoot-metric-pill" id="badge-db-latency">فحص ⚡</span>
+              </button>
+
+              <button type="button" id="btn-troubleshoot-cache" class="btn-troubleshoot-card" onclick="clearSystemCache()">
+                <div class="troubleshoot-icon-box" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">🧹</div>
+                <div class="troubleshoot-info">
+                  <span class="troubleshoot-btn-title">تنظيف الكاش والذاكرة المؤقتة</span>
+                  <span class="troubleshoot-btn-desc">حل مشكلة بطء القنوات ومسح كاش المحادثات التالف فوراً</span>
+                </div>
+                <span class="troubleshoot-metric-pill" id="badge-clear-cache">تنظيف 🧹</span>
+              </button>
+
+              <button type="button" id="btn-troubleshoot-bots" class="btn-troubleshoot-card" onclick="syncTelegramEngines()">
+                <div class="troubleshoot-icon-box" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">🤖</div>
+                <div class="troubleshoot-info">
+                  <span class="troubleshoot-btn-title">مزامنة وفحص محركات المشتركين</span>
+                  <span class="troubleshoot-btn-desc">فحص المحركات المعلقة وتحديث حالتها فورياً</span>
+                </div>
+                <span class="troubleshoot-metric-pill" id="badge-sync-bots">مزامنة 🔄</span>
+              </button>
+
+              <button type="button" class="btn-troubleshoot-card" onclick="loadAdminHealth(); showToast('تم تحديث بيانات السيرفر الحية!', 'info');">
+                <div class="troubleshoot-icon-box" style="background: rgba(168, 85, 247, 0.15); color: #c084fc;">⚡</div>
+                <div class="troubleshoot-info">
+                  <span class="troubleshoot-btn-title">تحديث فوري لجميع المؤشرات</span>
+                  <span class="troubleshoot-btn-desc">إعادة تحميل إحصائيات المعالج والذاكرة ومساحة القرص</span>
+                </div>
+                <span class="troubleshoot-metric-pill">تحديث ⚡</span>
+              </button>
+            </div>
+
+            <!-- Ping Results Box -->
+            <div id="troubleshoot-results-box" class="troubleshoot-results-box hidden" style="margin-top: 16px; padding: 14px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px;">
+              <div style="font-size: 12.5px; font-weight: 700; color: #fff; margin-bottom: 8px;">نتائج فحص زمن الاستجابة (Latency Diagnostic Results):</div>
+              <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                <div style="background: rgba(255,255,255,0.04); padding: 8px 12px; border-radius: 8px; font-size: 12px;">
+                  <span style="color: #94a3b8;">قاعدة بيانات PostgreSQL: </span>
+                  <strong id="ping-result-db" style="color: #27c93f;">-- ms</strong>
+                </div>
+                <div style="background: rgba(255,255,255,0.04); padding: 8px 12px; border-radius: 8px; font-size: 12px;">
+                  <span style="color: #94a3b8;">خادم الذاكرة Redis: </span>
+                  <strong id="ping-result-redis" style="color: #27c93f;">-- ms</strong>
+                </div>
+                <div style="background: rgba(255,255,255,0.04); padding: 8px 12px; border-radius: 8px; font-size: 12px;">
+                  <span style="color: #94a3b8;">محركات اليوزربوت: </span>
+                  <strong id="ping-result-bots" style="color: #38bdf8;">--</strong>
+                </div>
+              </div>
+            </div>
+          </div>
         </section>
 
         <!-- Tab G: Subscriptions Lifecycle Dashboard -->
@@ -485,8 +664,33 @@
           </div>
         </section>
 
-      </main>
+        </main>
+      </div>
     </div>
+
+    <!-- Mobile Bottom Navigation Dock for Admin -->
+    <nav class="mobile-bottom-nav admin-mobile-bottom-nav" aria-label="تنقل المشرف السفلي">
+      <button class="bottom-nav-item active" data-tab="tab-stats" data-route="/admin" title="الإحصائيات">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="9" y1="9" x2="21" y2="9"/><line x1="9" y1="15" x2="21" y2="15"/></svg>
+        <span>الإحصائيات</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="tab-payments" data-route="/admin/payments" title="المدفوعات">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        <span>المدفوعات</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="tab-users" data-route="/admin/users" title="المشتركين">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span>المشتركين</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="tab-health" data-route="/admin/health" title="حل المشاكل">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        <span>حل المشاكل 🛠️</span>
+      </button>
+      <button class="bottom-nav-item" id="btn-admin-bottom-menu" type="button" title="المزيد">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        <span>المزيد</span>
+      </button>
+    </nav>
   </div>
 
   <!-- ==========================================
