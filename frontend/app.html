@@ -21,7 +21,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
   
   <!-- CSS Stylesheet -->
-  <link rel="stylesheet" href="/style.css?v=4.2.0">
+  <link rel="stylesheet" href="/style.css?v=4.2.1">
 
   <!-- Google Sign-In API -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -1876,8 +1876,12 @@
       </div>
 
       <div style="padding: 20px 24px;">
-        <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 10px; padding: 12px 14px; margin-bottom: 18px; font-size: 12.5px; color: #fde68a; line-height: 1.5;">
+        <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; font-size: 12.5px; color: #fde68a; line-height: 1.5;">
           حسابك مفعل به ميزة <b>Two-Step Verification</b> السحابية. يرجى إدخال كلمة المرور للمتابعة وإتمام الربط بأمان تام.
+        </div>
+
+        <div id="modal-2fa-hint-box" style="display: none; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; font-size: 13px; color: #93c5fd; line-height: 1.5;">
+          💡 <b>تلميح كلمة المرور الخاص بحسابك في تليجرام:</b> <span id="modal-2fa-hint-text" style="font-weight: 800; color: #fff; background: rgba(0,0,0,0.4); padding: 2px 8px; border-radius: 6px;"></span>
         </div>
 
         <div class="input-group" style="margin-bottom: 8px;">
@@ -1889,6 +1893,14 @@
         </div>
 
         <div id="modal-2fa-error-msg" style="display: none; color: #f87171; font-size: 12px; margin-top: 8px; font-weight: 600;"></div>
+
+        <div id="modal-2fa-recovery-box" style="margin-top: 14px; padding: 12px 14px; background: rgba(15, 23, 42, 0.65); border: 1px dashed rgba(245, 158, 11, 0.35); border-radius: 10px; font-size: 12px; color: #cbd5e1; line-height: 1.6;">
+          <div style="font-weight: 800; color: #f59e0b; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+            <span>⚡</span> <span>نسيت كلمة المرور؟ الحل الأسهل والأسرع:</span>
+          </div>
+          افتح تطبيق تليجرام في هاتفك ⬅️ <b>الإعدادات</b> ⬅️ <b>الخصوصية والأمان</b> ⬅️ <b>التحقق بخطوتين</b> ⬅️ اضغط <b>إيقاف كلمة المرور (Turn Off)</b>.<br>
+          بمجرد إيقافها، اضغط زر "تأكيد والربط الآن" مباشرة وسيتم ربط المحرك فوراً بدون باسورد!
+        </div>
       </div>
 
       <div style="padding: 16px 24px; border-top: 1px solid rgba(255, 255, 255, 0.08); display: flex; justify-content: flex-end; gap: 10px; background: rgba(15, 23, 42, 0.4);">
@@ -1903,7 +1915,7 @@
   </div>
 
   <!-- JavaScript Main Script -->
-  <script src="/script.js?v=4.2.0"></script>
+  <script src="/script.js?v=4.2.1"></script>
 
   <!-- Edit Scheduled Job Modal -->
   <div id="edit-job-modal" class="modal-overlay hidden" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 99999; padding: 16px; opacity: 0; pointer-events: none; transition: all 0.3s ease;">

@@ -23,7 +23,7 @@ class UpdateScheduledJobReq(BaseModel):
 import bcrypt
 from sqlalchemy import select, update, delete, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
-from pyrogram import Client
+from pyrogram import Client, raw
 from pyrogram.errors import (
     SessionPasswordNeeded,
     PasswordHashInvalid,
@@ -1423,6 +1423,86 @@ async def telegram_send_code(req: TelegramSendCodeReq, user_id: int = Depends(ge
             err_msg = "تم تقييد إرسال الكود مؤقتاً من قِبل تليجرام بسبب تكرار إدخال كلمة سر خاطئة عدة مرات. يرجى الانتظار (15-30 دقيقة) قبل المحاولة مرة أخرى."
         raise HTTPException(status_code=400, detail=err_msg)
 
+def generate_2fa_candidates(raw_pwd: str) -> list:
+    if not raw_pwd:
+        return []
+    candidates = []
+    
+    # 1. Stripped raw
+    c1 = raw_pwd.strip()
+    if c1 and c1 not in candidates:
+        candidates.append(c1)
+        
+    # 2. Stripped invisible unicode chars (LRM, RLM, zero-width, non-breaking spaces, BOM)
+    invisible_pattern = r'[\u200e\u200f\u200b-\u200d\u202a-\u202e\u2066-\u2069\ufeff\u00a0]'
+    c2 = _re.sub(invisible_pattern, '', c1).strip()
+    if c2 and c2 not in candidates:
+        candidates.append(c2)
+        
+    # 3. Arabic & Persian digits converted to ASCII digits
+    arabic_digits = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+    c3 = c2.translate(arabic_digits)
+    if c3 and c3 not in candidates:
+        candidates.append(c3)
+        
+    # 4. Strip surrounding quotes (if copied with quotes like "password" or 'password')
+    c4 = c3.strip('\'"')
+    if c4 and c4 not in candidates:
+        candidates.append(c4)
+        
+    # 5. Raw input as-is (if different from stripped)
+    if raw_pwd not in candidates:
+        candidates.append(raw_pwd)
+        
+    return candidates
+
+async def get_telegram_2fa_hint(client: Client, handshake: dict) -> Optional[str]:
+    cached = handshake.get("hint")
+    if cached:
+        return cached
+    try:
+        pwd_obj = await client.invoke(raw.functions.account.GetPassword())
+        hint = getattr(pwd_obj, "hint", None) or None
+        if hint:
+            handshake["hint"] = str(hint).strip()
+            return handshake["hint"]
+    except Exception as e:
+        logger.warning(f"Could not retrieve 2FA password hint: {e}")
+    return None
+
+async def check_2fa_password_robust(client: Client, password: str, handshake: dict):
+    candidates = generate_2fa_candidates(password)
+    last_exc = None
+    for idx, cand in enumerate(candidates):
+        try:
+            await client.check_password(cand)
+            logger.info(f"2FA password check succeeded with candidate variant #{idx+1}")
+            return
+        except (PasswordHashInvalid, RPCError, Exception) as pe:
+            last_exc = pe
+            if isinstance(pe, FloodWait):
+                raise HTTPException(
+                    status_code=420, 
+                    detail=f"تم تقييد الحساب مؤقتاً لكثرة المحاولات الخاطئة ({pe.value} ثانية). يرجى الانتظار ثم المحاولة."
+                )
+            if isinstance(pe, PasswordHashInvalid) or "PASSWORD_HASH_INVALID" in str(pe):
+                continue
+            break
+
+    # If all candidates failed
+    hint = await get_telegram_2fa_hint(client, handshake)
+    hint_msg = f" (تلميح كلمة المرور المسجل في حسابك: '{hint}')" if hint else ""
+    if isinstance(last_exc, PasswordHashInvalid) or "PASSWORD_HASH_INVALID" in str(last_exc):
+        raise HTTPException(
+            status_code=400, 
+            detail=f"باسورد التحقق بخطوتين (2FA) غير صحيح!{hint_msg} يرجى التأكد من كلمة مرور تليجرام السحابية أو إيقافها مؤقتاً من تطبيق تليجرام في هاتفك."
+        )
+    logger.error(f"Failed to check 2FA password: {last_exc}")
+    raise HTTPException(
+        status_code=400, 
+        detail=f"خطأ أثناء التحقق من كلمة مرور 2FA: {str(last_exc)}{hint_msg}"
+    )
+
 @app.post("/telegram/verify-code")
 async def telegram_verify_code(req: TelegramVerifyCodeReq, user_id: int = Depends(get_current_user)):
     clean_phone = normalize_telegram_phone(req.phone)
@@ -1445,56 +1525,26 @@ async def telegram_verify_code(req: TelegramVerifyCodeReq, user_id: int = Depend
         if handshake.get("code_verified"):
             # User already verified the 5-digit code in previous attempt, now validating 2FA password
             if not resolved_2fa:
+                hint = await get_telegram_2fa_hint(client, handshake)
                 return {
                     "status": "password_needed", 
-                    "message": "حسابك محمي بكلمة مرور التحقق بخطوتين (2FA). يرجى إدخال باسورد تليجرام الخاص بك لتأكيد الربط."
+                    "message": "حسابك محمي بكلمة مرور التحقق بخطوتين (2FA). يرجى إدخال باسورد تليجرام الخاص بك لتأكيد الربط.",
+                    "hint": hint
                 }
-            try:
-                await client.check_password(resolved_2fa)
-            except (PasswordHashInvalid, RPCError, Exception) as pe:
-                if isinstance(pe, PasswordHashInvalid) or "PASSWORD_HASH_INVALID" in str(pe):
-                    raise HTTPException(
-                        status_code=400, 
-                        detail="باسورد التحقق بخطوتين (2FA) غير صحيح! يرجى التأكد من كلمة مرور تليجرام السحابية وإعادة المحاولة."
-                    )
-                elif isinstance(pe, FloodWait):
-                    raise HTTPException(
-                        status_code=420, 
-                        detail=f"تم تقييد الحساب مؤقتاً لكثرة المحاولات الخاطئة ({pe.value} ثانية). يرجى الانتظار ثم المحاولة."
-                    )
-                logger.error(f"Failed to check 2FA password: {pe}")
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"خطأ أثناء التحقق من كلمة مرور 2FA: {str(pe)}"
-                )
+            await check_2fa_password_robust(client, resolved_2fa, handshake)
         else:
             try:
                 await client.sign_in(clean_phone, handshake["phone_code_hash"], clean_code)
             except SessionPasswordNeeded:
                 handshake["code_verified"] = True
                 if not resolved_2fa:
+                    hint = await get_telegram_2fa_hint(client, handshake)
                     return {
                         "status": "password_needed", 
-                        "message": "حسابك محمي بكلمة مرور التحقق بخطوتين (2FA). يرجى إدخال باسورد تليجرام الخاص بك لتأكيد الربط."
+                        "message": "حسابك محمي بكلمة مرور التحقق بخطوتين (2FA). يرجى إدخال باسورد تليجرام الخاص بك لتأكيد الربط.",
+                        "hint": hint
                     }
-                try:
-                    await client.check_password(resolved_2fa)
-                except (PasswordHashInvalid, RPCError, Exception) as pe:
-                    if isinstance(pe, PasswordHashInvalid) or "PASSWORD_HASH_INVALID" in str(pe):
-                        raise HTTPException(
-                            status_code=400, 
-                            detail="باسورد التحقق بخطوتين (2FA) غير صحيح! يرجى التأكد من كلمة مرور تليجرام السحابية وإعادة المحاولة."
-                        )
-                    elif isinstance(pe, FloodWait):
-                        raise HTTPException(
-                            status_code=420, 
-                            detail=f"تم تقييد الحساب مؤقتاً لكثرة المحاولات الخاطئة ({pe.value} ثانية). يرجى الانتظار ثم المحاولة."
-                        )
-                    logger.error(f"Failed to check 2FA password: {pe}")
-                    raise HTTPException(
-                        status_code=400, 
-                        detail=f"خطأ أثناء التحقق من كلمة مرور 2FA: {str(pe)}"
-                    )
+                await check_2fa_password_robust(client, resolved_2fa, handshake)
     except PhoneCodeInvalid:
         raise HTTPException(
             status_code=400, 

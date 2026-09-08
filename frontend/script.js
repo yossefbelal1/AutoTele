@@ -1196,7 +1196,7 @@ async function handleTelegramVerifyCode(e) {
       syncDashboardData();
     } else if (data.status === "password_needed") {
       showToast(data.message || "حسابك محمي بباسورد سري (تحقق بخطوتين 2FA). يرجى إدخال الباسورد لتأكيد الربط.", "warning");
-      open2FaModal(data.message || "حسابك محمي بباسورد سري (تحقق بخطوتين 2FA). يرجى إدخال الباسورد لتأكيد الربط.");
+      open2FaModal(data.message || "حسابك محمي بباسورد سري (تحقق بخطوتين 2FA). يرجى إدخال الباسورد لتأكيد الربط.", data.hint || "");
       
       const faLabel = document.querySelector("label[for='telegram-2fa']");
       if (faLabel) {
@@ -1250,6 +1250,7 @@ async function handleTelegramVerifyCode(e) {
     }
   } finally {
     setButtonLoading("btn-verify-code", false);
+    setButtonLoading("btn-submit-2fa-modal", false);
   }
 }
 
@@ -1266,19 +1267,39 @@ function closeApiWizardModal() {
   if (modal) modal.classList.add("hidden");
 }
 
-function open2FaModal(errMsg = "") {
+function open2FaModal(errMsg = "", hint = "") {
   const modal = document.getElementById("modal-2fa-password");
   const input = document.getElementById("modal-2fa-input");
   const errBox = document.getElementById("modal-2fa-error-msg");
+
+  // 1. Handle hint extraction & display
+  let activeHint = (hint || "").trim();
+  if (!activeHint && errMsg) {
+    const m = errMsg.match(/تلميح كلمة المرور المسجل في حسابك:\s*'([^']+)'/) || errMsg.match(/تلميح حسابك في تليجرام:\s*'([^']+)'/);
+    if (m) activeHint = m[1];
+  }
+  const hintBox = document.getElementById("modal-2fa-hint-box");
+  const hintText = document.getElementById("modal-2fa-hint-text");
+  if (hintBox && hintText) {
+    if (activeHint) {
+      hintText.textContent = activeHint;
+      hintBox.style.display = "block";
+    } else {
+      hintBox.style.display = "none";
+    }
+  }
+
+  // 2. Handle error message display
   if (errBox) {
     if (errMsg) {
       let extraGuidance = "";
       if (errMsg.includes("غير صحيح") || errMsg.includes("2FA") || errMsg.includes("التحقق بخطوتين")) {
         extraGuidance = `
           <div style="margin-top: 8px; padding: 10px; background: rgba(0,0,0,0.35); border-radius: 8px; font-size: 12px; color: #fde68a; line-height: 1.6; text-align: right;">
-            💡 <b>توضيح هام لحل المشكلة:</b><br>
-            • المطلوب ليس رمز قفل الشاشة أو قفل التطبيق (الـ 4 أرقام). المطلوب هو كلمة السر السحابية التي أنشأتها لحسابك على تليجرام.<br>
-            • إذا نسيت كلمة المرور: افتح تطبيق تليجرام في هاتفك ⬅️ <b>الإعدادات</b> ⬅️ <b>الخصوصية والأمان</b> ⬅️ <b>التحقق بخطوتين</b>، واضغط "نسيت كلمة المرور" لاسترجاعها أو قم بتعطيلها مؤقتاً للربط.
+            💡 <b>توضيح لحل المشكلة:</b><br>
+            • المطلوب هو كلمة السر السحابية (Cloud Password) التي أنشأتها لتليجرام وليس رمز قفل الشاشة.<br>
+            • تأكد من الأحرف الكبيرة والصغيرة (Capital/Small) بالضغط على علامة العين 👁️.<br>
+            • <b>الحل الأسرع إذا لم تتذكرها:</b> افتح تطبيق تليجرام في هاتفك ⬅️ <b>الإعدادات</b> ⬅️ <b>الخصوصية والأمان</b> ⬅️ <b>التحقق بخطوتين</b> ⬅️ اضغط <b>إيقاف كلمة المرور</b>. ثم اضغط زر التأكيد هنا مباشرة!
           </div>
         `;
       } else if (errMsg.includes("تقييد") || errMsg.includes("FLOOD") || errMsg.includes("فلود")) {
@@ -1294,11 +1315,19 @@ function open2FaModal(errMsg = "") {
       errBox.style.display = "none";
     }
   }
+
+  // 3. Preserve user input instead of wiping it, and auto-focus/select
   if (input) {
-    const existingVal = document.getElementById("telegram-2fa")?.value || document.getElementById("telegram-step1-2fa")?.value || "";
-    input.value = existingVal;
-    setTimeout(() => input.focus(), 150);
+    if (!input.value) {
+      const existingVal = document.getElementById("telegram-2fa")?.value || document.getElementById("telegram-step1-2fa")?.value || "";
+      if (existingVal) input.value = existingVal;
+    }
+    setTimeout(() => {
+      input.focus();
+      if (input.value) input.select();
+    }, 150);
   }
+
   if (modal) modal.classList.remove("hidden");
 }
 
@@ -3077,7 +3106,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (faInput) faInput.value = val;
       const step1Fa = document.getElementById("telegram-step1-2fa");
       if (step1Fa) step1Fa.value = val;
-      close2FaModal();
+      setButtonLoading("btn-submit-2fa-modal", true);
       handleTelegramVerifyCode(null);
     });
   }
