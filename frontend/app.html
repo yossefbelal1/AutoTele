@@ -378,27 +378,11 @@
       </div>
 
       <div class="drawer-content">
-        <div class="drawer-section-title">التنقل الرئيسي</div>
+                <div class="drawer-section-title">التنقل الرئيسي</div>
         <div class="drawer-nav-list">
           <button class="drawer-nav-item active" data-tab="tab-subscription" data-route="/app" onclick="navigate('/app'); closeMobileDrawer();">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-            <span>لوحة التحكم الرئيسية</span>
-          </button>
-          <button class="drawer-nav-item" data-tab="tab-campaigns" data-route="/app/campaigns" onclick="navigate('/app/campaigns'); closeMobileDrawer();">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-            <span>الحملات الإعلانية والمهام</span>
-          </button>
-          <button class="drawer-nav-item" data-tab="tab-campaign-new" data-route="/app/campaigns/new" onclick="navigate('/app/campaigns/new'); closeMobileDrawer();">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
-            <span style="color: #38bdf8; font-weight: bold;">إطلاق حملة جديدة ✨</span>
-          </button>
-          <button class="drawer-nav-item" data-tab="tab-channels" data-route="/app/channels" onclick="navigate('/app/channels'); closeMobileDrawer();">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a9 9 0 0 1 9 9"></path><path d="M4 4a16 16 0 0 1 16 16"></path><circle cx="5" cy="19" r="1"></circle></svg>
-            <span>القنوات والمجموعات</span>
-          </button>
-          <button class="drawer-nav-item" data-tab="tab-engines" data-route="/app/engines" onclick="navigate('/app/engines'); closeMobileDrawer();">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
-            <span>محركات النشر السحابية</span>
+            <span>لوحة التحكم والأوامر</span>
           </button>
           <button class="drawer-nav-item" data-tab="tab-connect" data-route="/app/engines/connect" onclick="navigate('/app/engines/connect'); closeMobileDrawer();">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
@@ -411,14 +395,6 @@
           <button class="drawer-nav-item" data-tab="tab-plans" data-route="/app/billing" onclick="navigate('/app/billing'); closeMobileDrawer();">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
             <span>الخطط والترقية والدفع</span>
-          </button>
-          <button class="drawer-nav-item" data-tab="tab-notifications" data-route="/app/notifications" onclick="navigate('/app/notifications'); closeMobileDrawer();">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-            <span>مركز الإشعارات والتنبيهات</span>
-          </button>
-          <button class="drawer-nav-item" data-tab="tab-settings" data-route="/app/settings" onclick="navigate('/app/settings'); closeMobileDrawer();">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-            <span>الإعدادات والأمان</span>
           </button>
         </div>
 
@@ -547,9 +523,7 @@
               <span id="topbar-engine-text">المحرك السحابي</span>
             </div>
             
-            <button type="button" class="btn btn-sm btn-primary" data-route="/app/campaigns/new" onclick="navigate('/app/campaigns/new')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 8px; font-weight: 700;">
-              <span>🚀 حملة جديدة</span>
-            </button>
+            <button type="button" class="btn btn-sm btn-primary" onclick="scrollToCampaignForm()" style="padding: 6px 14px; font-size: 12.5px; border-radius: 8px; font-weight: 700;"><span>🚀 حملة جديدة</span></button>
 
             <!-- Top Notification Bell Center -->
             <div class="notif-bell-wrapper" style="position: relative;">
@@ -577,24 +551,7 @@
 
         <!-- Content Panels Area -->
         <main class="content-area" id="app-router-view">
-        
-        <!-- Tab 1: اشتراكي (Dashboard Metrics) -->
-        
-        <!-- View 1: اشتراكي (Dashboard Metrics & Overview) -->
         <section id="tab-subscription" class="tab-panel">
-          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-            <div>
-              <h1 class="panel-title" style="font-size: 20px; font-weight: 800; color: #fff; margin: 0 0 4px 0;">لوحة التحكم العامة (Dashboard)</h1>
-              <p class="panel-subtitle" style="color: #94a3b8; font-size: 13px; margin: 0;">نظرة عامة على حالة اشتراكك، إحصائيات البث المباشر، والوصول السريع للأدوات</p>
-            </div>
-            <div style="display: flex; gap: 10px;">
-              <button type="button" class="btn btn-primary btn-sm" onclick="navigate('/app/campaigns/new')">
-                <span>🚀 إنشاء حملة جديدة</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Subscription Summary Card -->
           <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <h1 class="panel-title" style="margin: 0;">تفاصيل اشتراكك ونشاط المحرك</h1>
             
@@ -687,255 +644,7 @@
           </div>
 
           <!-- Cloud Campaign Control Panel -->
-
-          <!-- Quick Action Shortcuts -->
-          <div class="dashboard-quick-shortcuts-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 24px; margin-bottom: 24px;">
-            <div class="quick-shortcut-card card" onclick="navigate('/app/campaigns/new')" style="padding: 18px 20px; background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 14px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 14px;">
-              <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(59, 130, 246, 0.15); display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0;">🚀</div>
-              <div>
-                <strong style="display: block; color: #fff; font-size: 14px; margin-bottom: 3px;">حملة إعلانية جديدة</strong>
-                <span style="color: #94a3b8; font-size: 11.5px;">إنشاء وتخصيص حملة بث فوري أو مجدول</span>
-              </div>
-            </div>
-
-            <div class="quick-shortcut-card card" onclick="navigate('/app/campaigns')" style="padding: 18px 20px; background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 14px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 14px;">
-              <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(16, 185, 129, 0.15); display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0;">📢</div>
-              <div>
-                <strong style="display: block; color: #fff; font-size: 14px; margin-bottom: 3px;">الحملات والمهام الجارية</strong>
-                <span style="color: #94a3b8; font-size: 11.5px;">متابعة مهام النشر وسجل الأحداث الحي</span>
-              </div>
-            </div>
-
-            <div class="quick-shortcut-card card" onclick="navigate('/app/channels')" style="padding: 18px 20px; background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 14px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 14px;">
-              <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(245, 158, 11, 0.15); display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0;">📂</div>
-              <div>
-                <strong style="display: block; color: #fff; font-size: 14px; margin-bottom: 3px;">القنوات والمجموعات</strong>
-                <span style="color: #94a3b8; font-size: 11.5px;">استعراض المجموعات ومجلدات تليجرام</span>
-              </div>
-            </div>
-
-            <div class="quick-shortcut-card card" onclick="navigate('/app/engines')" style="padding: 18px 20px; background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(168, 85, 247, 0.2); border-radius: 14px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 14px;">
-              <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(168, 85, 247, 0.15); display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0;">⚡</div>
-              <div>
-                <strong style="display: block; color: #fff; font-size: 14px; margin-bottom: 3px;">المحرك السحابي الآمن</strong>
-                <span style="color: #94a3b8; font-size: 11.5px;">حالة الجلسة المشفرة وفحص الاتصال</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Active Ads Stream Card -->
-          <div class="card active-ads-stream-card" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;" class="card-header-flex">
-              <div style="display: flex; align-items: center; gap: 12px;">
-                <span style="font-size: 20px;">🔥</span>
-                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">خريطة التدفق الحي للإعلانات النشطة</h3>
-              </div>
-            </div>
-            
-            <!-- Live Progress Bar -->
-            <div id="live-progress-section" class="hidden" style="margin-bottom: 20px; background: rgba(15, 23, 42, 0.6); padding: 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.03);">
-              <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
-                <span style="color: #60a5fa; font-weight: 600; display: flex; align-items: center; gap: 6px;">
-                  <span class="spinner" style="width: 12px; height: 12px; border-width: 1.5px;"></span>
-                  <span>جاري نشر الحملة حالياً...</span>
-                </span>
-                <span id="live-progress-text" style="color: #94a3b8; font-weight: bold;">0% (0/0 قناة)</span>
-              </div>
-              <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden; position: relative;">
-                <div id="live-progress-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3b82f6, #06b6d4); transition: width 0.4s ease; border-radius: 4px;"></div>
-              </div>
-              <div id="live-next-channel-hint" style="color: #94a3b8; font-size: 11px; margin-top: 8px; text-align: left;">جاري تهيئة قنوات النشر...</div>
-            </div>
-
-            <!-- Active Ads Summary (Static Details) -->
-            <div id="active-ads-summary-container" style="display: flex; align-items: center; justify-content: space-between; background: rgba(15, 23, 42, 0.3); border: 1px solid rgba(255,255,255,0.03); padding: 12px 20px; border-radius: 12px; font-size: 13.5px; color: #cbd5e1;">
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <span>📢</span>
-                <span>إجمالي الإعلانات النشطة حالياً في قنوات التليجرام:</span>
-              </div>
-              <span id="active-ads-total-count" style="font-weight: 700; color: #10b981; font-size: 16px; font-family: monospace;">0 إعلان</span>
-            </div>
-          </div>
-
-          <!-- Active Tasks Box -->
-        </section>
-
-        <!-- View 2: إدارة المهام والحملات (Campaigns Manager) -->
-        <section id="tab-campaigns" class="tab-panel hidden">
-          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
-            <div>
-              <h1 class="panel-title" style="font-size: 20px; font-weight: 800; color: #fff; margin: 0 0 4px 0;">إدارة المهام والحملات الإعلانية</h1>
-              <p class="panel-subtitle" style="color: #94a3b8; font-size: 13px; margin: 0;">متابعة مهام النشر الجارية والمجدولة، سجل العمليات، والتحكم الفوري في البث</p>
-            </div>
-            <div style="display: flex; gap: 10px;">
-              <button type="button" class="btn btn-primary btn-sm" onclick="navigate('/app/campaigns/new')">
-                <span>🚀 إنشاء حملة جديدة</span>
-              </button>
-              <button type="button" class="btn btn-secondary btn-sm" id="btn-refresh-jobs" onclick="fetchJobs()">
-                <span>🔄 تحديث المهام</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Tasks Lists (Active, Scheduled, Finished) and Live Event Log -->
-          <div class="card active-tasks-card" id="active-tasks-card-container" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(59, 130, 246, 0.15); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px); display: none; box-shadow: 0 4px 20px rgba(59,130,246,0.05);">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
-              <div style="display: flex; align-items: center; gap: 12px;">
-                <span class="pulse-text-animation" style="font-size: 20px;">🔄</span>
-                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">العمليات والمهام النشطة حالياً</h3>
-              </div>
-            </div>
-            <div id="active-jobs-list" style="display: grid; grid-template-columns: 1fr; gap: 12px;">
-            </div>
-          </div>
-
-          <!-- Scheduled Tasks Box -->
-          <div class="card scheduled-tasks-card" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
-              <div style="display: flex; align-items: center; gap: 12px;">
-                <span style="font-size: 20px;">📅</span>
-                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">المهام والحملات المجدولة المستقبلية</h3>
-              </div>
-              <div style="display: flex; align-items: center; gap: 12px;">
-                <button type="button" id="btn-refresh-jobs" style="background: none; border: none; color: #60a5fa; cursor: pointer; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 4px;">
-                  <span>🔄 تحديث</span>
-                </button>
-                <button type="button" id="btn-clear-jobs" style="background: none; border: none; color: #f87171; cursor: pointer; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 4px;">
-                  <span>🗑️ إلغاء المجدول</span>
-                </button>
-              </div>
-            </div>
-            <div id="scheduled-jobs-list" style="display: grid; grid-template-columns: 1fr; gap: 12px;">
-              <p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; padding: 12px; border: 1px dashed rgba(255,255,255,0.05); border-radius: 8px;">لا توجد حملات أو مهام مجدولة قيد الانتظار.</p>
-            </div>
-          </div>
-
-          <!-- Recently Finished Tasks Box -->
-          <div class="card finished-tasks-card" id="finished-tasks-card-container" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
-              <div style="display: flex; align-items: center; gap: 12px;">
-                <span style="font-size: 20px;">✅</span>
-                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">المهام والعمليات المنتهية مؤخراً</h3>
-              </div>
-            </div>
-            <div id="finished-jobs-list" style="display: grid; grid-template-columns: 1fr; gap: 12px; max-height: 280px; overflow-y: auto; padding-inline-end: 6px;">
-              <p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; padding: 12px; border: 1px dashed rgba(255,255,255,0.05); border-radius: 8px;">لا توجد مهام منتهية مؤخراً.</p>
-            </div>
-          </div>
-
-          <!-- live event log center -->
-          <div class="card event-log-card" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
-              <div style="display: flex; align-items: center; gap: 12px;">
-                <span style="font-size: 20px;">💬</span>
-                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">
-                  <span class="hidden-mobile">مركز الإشعارات وسجل الأحداث (Saved Messages Log)</span>
-                  <span class="show-mobile">سجل الأحداث</span>
-                </h3>
-              </div>
-              <div style="display: flex; align-items: center; gap: 12px;">
-                <button type="button" id="btn-refresh-logs" style="background: none; border: none; color: #60a5fa; cursor: pointer; font-size: 13px; font-weight: 500; margin-left: 8px;">🔄 تحديث</button>
-                <button type="button" id="btn-clear-logs-web" style="background: none; border: none; color: #f87171; cursor: pointer; font-size: 13px; font-weight: 500;">🧹 مسح السجل</button>
-              </div>
-            </div>
-            <div id="logs-container" style="background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; padding: 16px; max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 13px; line-height: 1.6; display: flex; flex-direction: column; gap: 10px;">
-              <p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; font-family: sans-serif;">سجل الأحداث فارغ حالياً.</p>
-            </div>
-          </div>
-        </section>
-
-        <!-- Tab 2: الخطة والترقية -->
-
-          <!-- Maintenance Action Controls Grid -->
-          <div class="card" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
-            <div style="margin-top: 24px; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 20px;">
-              <h4 style="margin: 0 0 16px 0; font-size: 14px; color: #fff; font-weight: 600;">إجراءات الصيانة والتحكم الإضافية</h4>
-              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
-                
-                <!-- Clear Action -->
-                <div class="maintenance-action-card" style="display: flex; align-items: center; justify-content: space-between; gap: 16px; background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.1); padding: 14px; border-radius: 12px;">
-                  <div style="flex-grow: 1;">
-                    <div style="font-weight: 600; color: #f87171; font-size: 13px; display: flex; align-items: center; gap: 6px;">
-                      <span>🧹</span>
-                      <span>مسح سريع</span>
-                    </div>
-                    <div style="color: #94a3b8; font-size: 11px; margin-top: 4px; line-height: 1.4;">حذف سريع للإعلانات المنشورة تلقائياً.</div>
-                  </div>
-                  <button type="button" id="btn-clear-web" class="btn" style="flex-shrink: 0; font-weight: 600; padding: 8px 16px; border-radius: 8px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); cursor: pointer; color: #f87171; font-size: 12px;">
-                    <span class="btn-text">مسح</span>
-                    <span class="spinner hidden"></span>
-                  </button>
-                </div>
-                
-                <!-- Deep Clear Action -->
-                <div class="maintenance-action-card" style="display: flex; align-items: center; justify-content: space-between; gap: 16px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); padding: 14px; border-radius: 12px;">
-                  <div style="flex-grow: 1;">
-                    <div style="font-weight: 600; color: #fff; font-size: 13px; display: flex; align-items: center; gap: 6px;">
-                      <span>🚨</span>
-                      <span>مسح عميق</span>
-                    </div>
-                    <div style="color: #cbd5e1; font-size: 11px; margin-top: 4px; line-height: 1.4;">مسح شامل لآخر رسائل القنوات وإيقاف التبادل.</div>
-                  </div>
-                  <button type="button" id="btn-deep-clear-web" class="btn" style="flex-shrink: 0; font-weight: 600; padding: 8px 16px; border-radius: 8px; background: rgba(239, 68, 68, 0.8); border: none; cursor: pointer; color: #fff; font-size: 12px;">
-                    <span class="btn-text">تطهير</span>
-                    <span class="spinner hidden"></span>
-                  </button>
-                </div>
-                
-                <!-- Update Engine Action -->
-                <div class="maintenance-action-card" style="display: flex; align-items: center; justify-content: space-between; gap: 16px; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.1); padding: 14px; border-radius: 12px;">
-                  <div style="flex-grow: 1;">
-                    <div style="font-weight: 600; color: #60a5fa; font-size: 13px; display: flex; align-items: center; gap: 6px;">
-                      <span>🔄</span>
-                      <span>تحديث المحرك</span>
-                    </div>
-                    <div style="color: #94a3b8; font-size: 11px; margin-top: 4px; line-height: 1.4;">تحديث المجلدات والقنوات فورياً.</div>
-                  </div>
-                  <button type="button" id="btn-update-web" class="btn" style="flex-shrink: 0; font-weight: 600; padding: 8px 16px; border-radius: 8px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); cursor: pointer; color: #60a5fa; font-size: 12px;">
-                    <span class="btn-text">مزامنة</span>
-                    <span class="spinner hidden"></span>
-                  </button>
-                </div>
-
-                <!-- Stop Everything Action -->
-                <div class="maintenance-action-card stop-everything-card" style="display: flex; align-items: center; justify-content: space-between; gap: 16px; background: rgba(239, 68, 68, 0.12); border: 2px solid rgba(239, 68, 68, 0.4); padding: 16px; border-radius: 12px; grid-column: 1 / -1; box-shadow: 0 4px 14px rgba(239, 68, 68, 0.15);">
-                  <div style="flex-grow: 1;">
-                    <div style="font-weight: 700; color: #ef4444; font-size: 14px; display: flex; align-items: center; gap: 8px;">
-                      <span>🛑</span>
-                      <span>إيقاف كل شيء فورا</span>
-                    </div>
-                    <div style="color: #cbd5e1; font-size: 12px; margin-top: 4px; line-height: 1.4; font-weight: 500;">إيقاف فوري لجميع العمليات الجارية: موجات النشر التبادلي، الحملات الفردية أو المجمعة، المزامنة، أو أي أوامر جارية.</div>
-                  </div>
-                  <button type="button" id="btn-stop-everything-web" class="btn" style="flex-shrink: 0; font-weight: 700; padding: 10px 22px; border-radius: 8px; background: #ef4444; border: none; cursor: pointer; color: #fff; font-size: 13px; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3); transition: all 0.2s;">
-                    <span class="btn-text">إيقاف كل شيء</span>
-                    <span class="spinner hidden"></span>
-                  </button>
-                </div>
-                
-              </div>
-            </div>
-          </div>
-
-          <!-- Active Ads Stream Card -->
-          </div>
-        </section>
-
-        <!-- View 3: إنشاء حملة جديدة (New Campaign Builder) -->
-        <section id="tab-campaign-new" class="tab-panel hidden">
-          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
-            <div>
-              <h1 class="panel-title" style="font-size: 20px; font-weight: 800; color: #fff; margin: 0 0 4px 0;">إنشاء حملة إعلانية جديدة</h1>
-              <p class="panel-subtitle" style="color: #94a3b8; font-size: 13px; margin: 0;">اختر القنوات المستهدفة، جهّز الرسالة والوسائط، وجدول موعد الإرسال التلقائي</p>
-            </div>
-            <div>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="navigate('/app/campaigns')">
-                <span>📋 استعراض المهام والحملات الجارية ←</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Campaign Form Card -->
-          <div class="card campaign-panel-card" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
+          <div id="campaign-panel-card" class="card campaign-panel-card" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
               <div style="display: flex; align-items: center; gap: 12px;">
                 <span style="font-size: 24px;">🕹️</span>
@@ -1253,394 +962,178 @@
             </div>
 
             <!-- Maintenance & Maintenance Controls panel -->
-            </div>
-          </div>
-        </section>
-
-        <!-- View 4: القنوات والمجموعات (Channels Explorer) -->
-        <section id="tab-channels" class="tab-panel hidden">
-          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
-            <div>
-              <h1 class="panel-title" style="font-size: 20px; font-weight: 800; color: #fff; margin: 0 0 4px 0;">القنوات والمجموعات والمجلدات</h1>
-              <p class="panel-subtitle" style="color: #94a3b8; font-size: 13px; margin: 0;">استعراض كافة الحوارات والقنوات المكتشفة في حسابك لتضمينها في الحملات الإعلانية</p>
-            </div>
-            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-              <button type="button" id="btn-view-sync-channels" class="btn btn-secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px;">
-                <span>🔄 مزامنة القنوات من تليجرام</span>
-              </button>
-              <button type="button" id="btn-view-folders-guide" class="btn btn-secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px;">
-                <span>📂 دليل مجلدات تليجرام</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Channel Explorer Card -->
-          <div class="card" style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; flex-wrap: wrap; gap: 12px;">
-              <div style="flex: 1; min-width: 260px;">
-                <input type="text" id="channels-view-search-input" placeholder="🔍 بحث في أسماء القنوات أو المعرفات..." style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 10px; color: #fff; font-size: 13.5px;">
-              </div>
-              <div style="display: flex; gap: 8px;">
-                <button type="button" class="btn btn-sm btn-secondary active" id="filter-chan-all">الكل</button>
-                <button type="button" class="btn btn-sm btn-secondary" id="filter-chan-broadcast">قنوات</button>
-                <button type="button" class="btn btn-sm btn-secondary" id="filter-chan-groups">مجموعات</button>
-              </div>
-            </div>
-
-            <!-- Channels Container List -->
-            <div id="channels-view-list-container" style="display: flex; flex-direction: column; gap: 10px; max-height: 520px; overflow-y: auto; padding-right: 4px;">
-              <div style="text-align: center; padding: 40px 20px; color: #94a3b8;">
-                <div style="font-size: 32px; margin-bottom: 10px;">📡</div>
-                <div style="font-size: 15px; font-weight: 700; color: #fff;">جاري فحص وتحديث قائمة القنوات...</div>
-                <div style="font-size: 12px; margin-top: 6px;">يرجى التأكد من ربط حساب تليجرام في معالج ربط المحرك.</div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- View 5: محركات النشر السحابية (Engines Status) -->
-        <section id="tab-engines" class="tab-panel hidden">
-          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
-            <div>
-              <h1 class="panel-title" style="font-size: 20px; font-weight: 800; color: #fff; margin: 0 0 4px 0;">محركات النشر السحابية</h1>
-              <p class="panel-subtitle" style="color: #94a3b8; font-size: 13px; margin: 0;">مراقبة جلسات MTProto الآمنة وحالة الخوادم السحابية المسؤولة عن النشر والجدولة</p>
-            </div>
-            <div style="display: flex; gap: 10px;">
-              <button type="button" class="btn btn-primary btn-sm" onclick="navigate('/app/engines/connect')">
-                <span>⚡ معالج ربط المحرك الآمن</span>
-              </button>
-            </div>
-          </div>
-
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
-            <!-- Engine Status Card -->
-            <div class="card" style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                  <div style="width: 40px; height: 40px; border-radius: 10px; background: rgba(16, 185, 129, 0.15); display: flex; align-items: center; justify-content: center; font-size: 20px;">⚡</div>
-                  <div>
-                    <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: #fff;">المحرك السحابي الأساسي</h3>
-                    <span style="font-size: 12px; color: #94a3b8;">MTProto 2.0 Direct Engine</span>
+            <div style="margin-top: 24px; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 20px;">
+              <h4 style="margin: 0 0 16px 0; font-size: 14px; color: #fff; font-weight: 600;">إجراءات الصيانة والتحكم الإضافية</h4>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+                
+                <!-- Clear Action -->
+                <div class="maintenance-action-card" style="display: flex; align-items: center; justify-content: space-between; gap: 16px; background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.1); padding: 14px; border-radius: 12px;">
+                  <div style="flex-grow: 1;">
+                    <div style="font-weight: 600; color: #f87171; font-size: 13px; display: flex; align-items: center; gap: 6px;">
+                      <span>🧹</span>
+                      <span>مسح سريع</span>
+                    </div>
+                    <div style="color: #94a3b8; font-size: 11px; margin-top: 4px; line-height: 1.4;">حذف سريع للإعلانات المنشورة تلقائياً.</div>
                   </div>
-                </div>
-                <span id="engines-page-badge" class="badge badge-success" style="padding: 4px 10px; font-size: 12px; font-weight: 700;">🟢 متصل وجاهز</span>
-              </div>
-
-              <div style="display: flex; flex-direction: column; gap: 12px; margin: 20px 0; padding: 14px; background: rgba(15, 23, 42, 0.5); border-radius: 12px; font-size: 13px;">
-                <div style="display: flex; justify-content: space-between;">
-                  <span style="color: #94a3b8;">رقم الهاتف المتصل:</span>
-                  <strong id="engines-page-phone" style="color: #fff;" dir="ltr">--</strong>
-                </div>
-                <div style="display: flex; justify-content: space-between;">
-                  <span style="color: #94a3b8;">بروتوكول التشفير:</span>
-                  <span style="color: #38bdf8; font-weight: 600;">AES-256 MTProto v2</span>
-                </div>
-                <div style="display: flex; justify-content: space-between;">
-                  <span style="color: #94a3b8;">سرعة الاستجابة (Latency):</span>
-                  <span id="engines-page-ping-val" style="color: #10b981; font-weight: 700;">~18ms</span>
-                </div>
-              </div>
-
-              <div style="display: flex; gap: 10px;">
-                <button type="button" class="btn btn-secondary btn-sm" id="btn-engines-ping" style="flex: 1;">
-                  <span>📶 اختبار الاتصال (Ping)</span>
-                </button>
-                <button type="button" class="btn btn-primary btn-sm" onclick="navigate('/app/engines/connect')" style="flex: 1;">
-                  <span>🔄 إعادة تهيئة المحرك</span>
-                </button>
-              </div>
-            </div>
-
-            <!-- Cloud Infrastructure Info Card -->
-            <div class="card" style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
-              <h3 style="margin: 0 0 12px 0; font-size: 15px; font-weight: 700; color: #fff;">🛡️ حماية الحسابات من الحظر</h3>
-              <p style="color: #94a3b8; font-size: 13px; line-height: 1.6; margin-bottom: 16px;">
-                يستخدم AutoTele نظام محاكاة السلوك البشري الطبيعي مع فواصل زمنية متغيرة تلقائياً لمنع ظهور أي علامات سبام وتجنب قيود FloodWait من تليجرام.
-              </p>
-              <div style="padding: 12px 14px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 10px; font-size: 12px; color: #93c5fd; line-height: 1.5;">
-                💡 <b>نصيحة للمحترفين:</b> للحصول على أقصى أداء، استخدم مجلدات تليجرام الرسمية لتصنيف القنوات المستهدفة واستبعاد القنوات الهامة.
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- View 6: معالج ربط المحرك الآمن (4-Step Connection Wizard) -->
-        <section id="tab-connect" class="tab-panel hidden">
-          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px;">
-            <div>
-              <h1 class="panel-title">معالج ربط المحرك السحابي الآمن لتليجرام</h1>
-              <p class="panel-subtitle">نربط حسابك عبر بروتوكول تليجرام الرسمي مباشرة لجدولة وإرسال الرسائل بدقة</p>
-            </div>
-            <button type="button" id="btn-open-engine-guide-modal" class="btn btn-secondary" style="font-size: 13px; display: inline-flex; align-items: center; gap: 6px;">
-              <span>📖 شرح خطوات الربط بالتفصيل والـ Progress</span>
-            </button>
-          </div>
-
-          <div class="connection-wizard-layout card">
-
-            <!-- 4-Step Progress Bar & Stepper -->
-            <div class="wizard-stepper-container">
-              <div class="wizard-header-status-row">
-                <div class="wizard-status-left">
-                  <span class="wizard-step-pill-badge" id="wizard-current-step-badge">الخطوة 1 من 4</span>
-                  <span class="wizard-step-label-text" id="wizard-current-step-label">بيانات الـ API الرسمية</span>
-                </div>
-                <div class="wizard-status-right">
-                  <span class="wizard-percentage-pill" id="wizard-percentage-pill">25% مكتمل</span>
-                </div>
-              </div>
-
-              <div class="wizard-progress-track">
-                <div class="wizard-progress-bar" id="wizard-progress-bar" style="width: 25%;"></div>
-              </div>
-
-              <div class="wizard-steps-list">
-                <div class="wizard-step-item active" id="wizard-step-node-1" onclick="switchWizardStep(1)" style="cursor: pointer;">
-                  <div class="wizard-step-circle">
-                    <span class="step-num">1</span>
-                    <span class="step-check hidden">✓</span>
-                  </div>
-                  <div class="wizard-step-text">
-                    <span class="wizard-step-title">بيانات الـ API</span>
-                    <span class="wizard-step-desc">مفاتيح الربط الرسمية</span>
-                  </div>
-                </div>
-
-                <div class="wizard-step-item" id="wizard-step-node-2" onclick="switchWizardStep(2)" style="cursor: pointer;">
-                  <div class="wizard-step-circle">
-                    <span class="step-num">2</span>
-                    <span class="step-check hidden">✓</span>
-                  </div>
-                  <div class="wizard-step-text">
-                    <span class="wizard-step-title">رقم الهاتف</span>
-                    <span class="wizard-step-desc">إرسال كود التأكيد</span>
-                  </div>
-                </div>
-
-                <div class="wizard-step-item" id="wizard-step-node-3" onclick="switchWizardStep(3)" style="cursor: pointer;">
-                  <div class="wizard-step-circle">
-                    <span class="step-num">3</span>
-                    <span class="step-check hidden">✓</span>
-                  </div>
-                  <div class="wizard-step-text">
-                    <span class="wizard-step-title">كود التحقق</span>
-                    <span class="wizard-step-desc">تأكيد ملكية الحساب</span>
-                  </div>
-                </div>
-
-                <div class="wizard-step-item" id="wizard-step-node-4" onclick="switchWizardStep(4)" style="cursor: pointer;">
-                  <div class="wizard-step-circle">
-                    <span class="step-num">4</span>
-                    <span class="step-check hidden">✓</span>
-                  </div>
-                  <div class="wizard-step-text">
-                    <span class="wizard-step-title">التشغيل السحابي</span>
-                    <span class="wizard-step-desc">جاهزية المحرك</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- STEP 1: API ID & API Hash ONLY -->
-            <div id="connect-step-1" class="wizard-step">
-              <div class="wizard-header">
-                <div class="step-badge" id="badge-step-1">الخطوة 1 من 4</div>
-                <h3>بيانات الـ Telegram API الرسمية</h3>
-                <p class="step-description">مفاتيح تطبيق تليجرام الرسمية المستخرجة من موقع <a href="https://my.telegram.org" target="_blank" style="color: #38bdf8; text-decoration: underline;">my.telegram.org</a></p>
-              </div>
-
-              <!-- Action Banner to open guide -->
-              <div class="wizard-info-box guide-callout" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 12px; padding: 14px 16px; margin-bottom: 20px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                  <span style="font-size: 24px;">💡</span>
-                  <div style="font-size: 13px; line-height: 1.5; color: #e2e8f0;">
-                    <strong style="color: #38bdf8;">ليس لديك API ID أو API Hash بعد؟</strong><br>
-                    استخرجهم في دقيقة واحدة باتباع الدليل المصور والشرح خطوة بخطوة.
-                  </div>
-                </div>
-                <button type="button" id="btn-open-guide-step1" class="btn btn-secondary" style="font-size: 12.5px; padding: 6px 14px; white-space: nowrap;">
-                  <span>📖 فتح الدليل المصور ←</span>
-                </button>
-              </div>
-
-              <form id="connect-form-step1" onsubmit="return false;">
-                <div class="input-group">
-                  <label for="telegram-api-id">1. Telegram API ID (أرقام فقط)</label>
-                  <input type="text" id="telegram-api-id" required placeholder="مثال: 34434465" dir="ltr" autocomplete="off">
-                  <p class="input-hint" style="color: #94a3b8; line-height: 1.4; margin-top: 4px;">
-                    رقم الـ ID المستخرج من صفحة API development tools على موقع تليجرام الرسمي <a href="https://my.telegram.org" target="_blank" style="color: #38bdf8; text-decoration: underline;">my.telegram.org</a>.
-                  </p>
-                </div>
-
-                <div class="input-group" style="margin-top: 16px;">
-                  <label for="telegram-api-hash">2. Telegram API Hash (الكود الإنجليزي - 32 حرف ورقم)</label>
-                  <input type="text" id="telegram-api-hash" required placeholder="مثال: 36d9da5144e3fcf6d85711aa460931ce" dir="ltr" autocomplete="off">
-                  <p class="input-hint" style="color: #94a3b8; line-height: 1.4; margin-top: 4px;">
-                    الكود الإنجليزي الطويل المنسوخ من نفس الصفحة (الموقع يحذف أي مسافات زائدة تلقائياً).
-                  </p>
-                </div>
-
-                <div id="step1-error-banner" class="hidden" style="margin-top: 14px; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 12px; padding: 14px 16px; color: #fca5a5; font-size: 13px; line-height: 1.6;"></div>
-
-                <button type="button" id="btn-step1-next" class="btn btn-primary" style="margin-top: 20px; width: 100%; font-size: 15px; font-weight: 700; padding: 13px;">
-                  <span>المتابعة لإدخال رقم الهاتف 📱 ←</span>
-                </button>
-              </form>
-            </div>
-
-            <!-- STEP 2: Phone Number ONLY & Send Code -->
-            <div id="connect-step-2" class="wizard-step hidden">
-              <div class="wizard-header">
-                <div class="step-badge" id="badge-step-2">الخطوة 2 من 4</div>
-                <h3>أدخل رقم الهاتف المسجل به الحساب</h3>
-                <p class="step-description">سنرسل كود تحقق رسمي إلى تطبيق تليجرام على هاتفك لتأكيد الملكية</p>
-              </div>
-
-              <form id="connect-form-step2">
-                <div class="input-group">
-                  <label for="telegram-phone">رقم الهاتف بمفتاح الدولة الدولي</label>
-                  <input type="tel" id="telegram-phone" required placeholder="+201012345678" dir="ltr">
-                  <p class="input-hint" style="color: #94a3b8; line-height: 1.5; margin-top: 5px;">
-                    💡 <b>اكتب رقمك بمفتاح الدولة:</b> (مثال لمصر: <code dir="ltr" style="color: #38bdf8;">+201012345678</code> بدون 0 بعد الـ 20 — مثال للسعودية: <code dir="ltr" style="color: #38bdf8;">+9665XXXXXXXX</code>).
-                  </p>
-                </div>
-
-                <div id="step2-phone-error-banner" class="hidden" style="margin-top: 14px; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 12px; padding: 14px 16px; color: #fca5a5; font-size: 13px; line-height: 1.6;"></div>
-
-                <div class="button-row" style="margin-top: 20px; display: flex; gap: 12px;">
-                  <button type="button" id="btn-back-to-step1" class="btn btn-secondary" style="flex: 1;">← تعديل بيانات الـ API</button>
-                  <button type="submit" id="btn-send-code" class="btn btn-primary" style="flex: 2; font-weight: 700;">
-                    <span class="btn-text">إرسال كود التحقق الآمن 📨</span>
+                  <button type="button" id="btn-clear-web" class="btn" style="flex-shrink: 0; font-weight: 600; padding: 8px 16px; border-radius: 8px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); cursor: pointer; color: #f87171; font-size: 12px;">
+                    <span class="btn-text">مسح</span>
                     <span class="spinner hidden"></span>
                   </button>
                 </div>
-              </form>
-            </div>
-
-            <!-- STEP 3: Verification Code (5 Digits) -->
-            <div id="connect-step-3" class="wizard-step hidden">
-              <div class="wizard-header">
-                <div class="step-badge" id="badge-step-3">الخطوة 3 من 4</div>
-                <h3>أدخل كود التأكيد المرسل إليك</h3>
-                <p id="phone-display-label" class="step-description">تم إرسال الكود إلى الرقم: --</p>
-              </div>
-
-              <!-- Explanatory Info Box -->
-              <div class="wizard-info-box warning-theme" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px;">
-                <div style="display: flex; align-items: flex-start; gap: 12px;">
-                  <span style="font-size: 26px;">⚠️</span>
-                  <div style="font-size: 13px; line-height: 1.6; color: #fecaca;">
-                    <strong style="color: #fff; font-size: 14px; display: block; margin-bottom: 4px;">تنبيه هام جداً بخصوص كود التحقق:</strong>
-                    افتح الآن <b>تطبيق تليجرام</b> على هاتفك.. ستجد رسالة جديدة واصلة من حساب <b>Telegram</b> الرسمي وبها كود الـ 5 أرقام.<br>
-                    <span style="color: #fca5a5; font-weight: 700;">⛔ الكود يصل داخل تطبيق تليجرام نفسه، ولا يصل كرسالة SMS عادية!</span>
+                
+                <!-- Deep Clear Action -->
+                <div class="maintenance-action-card" style="display: flex; align-items: center; justify-content: space-between; gap: 16px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); padding: 14px; border-radius: 12px;">
+                  <div style="flex-grow: 1;">
+                    <div style="font-weight: 600; color: #fff; font-size: 13px; display: flex; align-items: center; gap: 6px;">
+                      <span>🚨</span>
+                      <span>مسح عميق</span>
+                    </div>
+                    <div style="color: #cbd5e1; font-size: 11px; margin-top: 4px; line-height: 1.4;">مسح شامل لآخر رسائل القنوات وإيقاف التبادل.</div>
                   </div>
-                </div>
-              </div>
-
-              <form id="connect-form-step3">
-                <div class="input-group">
-                  <label for="telegram-code">كود التحقق المكون من 5 أرقام</label>
-                  <input type="text" id="telegram-code" required placeholder="مثال: 12345" maxlength="5" class="code-input" dir="ltr" autocomplete="off">
-                  <p class="input-hint">اكتب الـ 5 أرقام التي وصلتك في شات Telegram الرسمي.</p>
-                </div>
-
-                <!-- Resend Timer & Action -->
-                <div class="resend-code-wrapper" style="margin-top: 12px; display: flex; align-items: center; justify-content: space-between;">
-                  <span id="resend-timer-label" style="font-size: 12.5px; color: #94a3b8;">
-                    لم يصلك الكود؟ يمكنك طلب كود جديد بعد: <strong id="resend-countdown" style="color: #38bdf8;">01:30</strong>
-                  </span>
-                  <button type="button" id="btn-resend-code" class="btn-resend-link hidden" style="background: none; border: none; color: #38bdf8; cursor: pointer; text-decoration: underline; font-size: 12.5px;">
-                    🔄 إعادة إرسال كود التأكيد الآن
-                  </button>
-                </div>
-
-                <div id="step2-error-banner" class="hidden" style="margin-top: 14px; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 12px; padding: 14px 16px; color: #fca5a5; font-size: 13px; line-height: 1.6;"></div>
-
-                <div class="button-row" style="margin-top: 18px; display: flex; gap: 12px;">
-                  <button type="button" id="btn-back-to-step2" class="btn btn-secondary" style="flex: 1;">← تعديل رقم الهاتف</button>
-                  <button type="submit" id="btn-verify-code" class="btn btn-primary" style="flex: 2; font-weight: 700;">
-                    <span class="btn-text">تفعيل وتأكيد ربط المحرك الآمن 🚀</span>
+                  <button type="button" id="btn-deep-clear-web" class="btn" style="flex-shrink: 0; font-weight: 600; padding: 8px 16px; border-radius: 8px; background: rgba(239, 68, 68, 0.8); border: none; cursor: pointer; color: #fff; font-size: 12px;">
+                    <span class="btn-text">تطهير</span>
                     <span class="spinner hidden"></span>
                   </button>
                 </div>
-              </form>
-            </div>
-
-            <!-- STEP 4: Celebration Screen -->
-            <div id="connect-step-4" class="wizard-step hidden">
-              <div class="wizard-step-success-card">
-                <div class="success-celebration-header">
-                  <div class="success-icon-pulse">
-                    <div class="success-icon-inner">✓</div>
-                  </div>
-                  <div class="step-badge success" id="badge-step-4" style="margin-top: 14px;">الخطوة 4 من 4: اكتملت العملية بنجاح!</div>
-                  <h2 class="success-title">🎉 تم تفعيل وربط المحرك السحابي بنجاح تام!</h2>
-                  <p class="success-desc">
-                    أصبح حسابك متصلاً الآن بنظام السحابة الآمن، وبإمكانك إطلاق حملاتك الإعلانية وجدولتها تلقائياً 24/7 دون أي انقطاع.
-                  </p>
-                </div>
-
-                <!-- Checkpoints -->
-                <div class="sync-checkpoints-card">
-                  <h4 class="checkpoints-title">حالة المحرك السحابي والجاهزية الفورية:</h4>
-                  <div class="checkpoint-item completed">
-                    <span class="checkpoint-icon">✓</span>
-                    <div class="checkpoint-text">
-                      <strong>توثيق الجلسة وتشفيرها بنجاح</strong>
-                      <small>تم تشفير جلسة Telegram بتقنية 256-bit AES المقاومة للاختراق.</small>
+                
+                <!-- Update Engine Action -->
+                <div class="maintenance-action-card" style="display: flex; align-items: center; justify-content: space-between; gap: 16px; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.1); padding: 14px; border-radius: 12px;">
+                  <div style="flex-grow: 1;">
+                    <div style="font-weight: 600; color: #60a5fa; font-size: 13px; display: flex; align-items: center; gap: 6px;">
+                      <span>🔄</span>
+                      <span>تحديث المحرك</span>
                     </div>
+                    <div style="color: #94a3b8; font-size: 11px; margin-top: 4px; line-height: 1.4;">تحديث المجلدات والقنوات فورياً.</div>
                   </div>
-                  <div class="checkpoint-item completed">
-                    <span class="checkpoint-icon">✓</span>
-                    <div class="checkpoint-text">
-                      <strong>المحرك السحابي متصل ويعمل (Engine Online)</strong>
-                      <small>خوادم AutoTele متصلة ومستعدة لتنفيذ مهام النشر بدقة.</small>
-                    </div>
-                  </div>
-                  <div class="checkpoint-item completed">
-                    <span class="checkpoint-icon">✓</span>
-                    <div class="checkpoint-text">
-                      <strong>جاهز لجدولة ونشر الحملات الإعلانية</strong>
-                      <small>يمكنك الآن إنشاء حملاتك واختيار القنوات والمجلدات المستهدفة.</small>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Connected Account Summary -->
-                <div class="connected-account-summary">
-                  <div class="summary-field">
-                    <span class="summary-label">رقم الهاتف المتصل:</span>
-                    <strong class="summary-value" id="step3-connected-phone" dir="ltr">+--</strong>
-                  </div>
-                  <div class="summary-field">
-                    <span class="summary-label">حالة المحرك:</span>
-                    <span class="status-badge-active">🟢 متصل ونشط سحابياً</span>
-                  </div>
-                  <div class="summary-field">
-                    <span class="summary-label">نوع التشفير:</span>
-                    <span class="encryption-tag">🔒 End-to-End Encrypted</span>
-                  </div>
-                </div>
-
-                <!-- Quick Action Buttons -->
-                <div class="step3-actions-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 24px;">
-                  <button type="button" class="btn btn-primary" onclick="navigate('/app/campaigns/new')">
-                    <span>🚀 إنشاء أول حملة إعلانية</span>
-                  </button>
-                  <button type="button" class="btn btn-secondary" onclick="navigate('/app/channels')">
-                    <span>📂 استعراض القنوات والمجموعات</span>
-                  </button>
-                  <button type="button" class="btn btn-secondary" onclick="navigate('/app')">
-                    <span>📊 الانتقال للوحة التحكم</span>
+                  <button type="button" id="btn-update-web" class="btn" style="flex-shrink: 0; font-weight: 600; padding: 8px 16px; border-radius: 8px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); cursor: pointer; color: #60a5fa; font-size: 12px;">
+                    <span class="btn-text">مزامنة</span>
+                    <span class="spinner hidden"></span>
                   </button>
                 </div>
+
+                <!-- Stop Everything Action -->
+                <div class="maintenance-action-card stop-everything-card" style="display: flex; align-items: center; justify-content: space-between; gap: 16px; background: rgba(239, 68, 68, 0.12); border: 2px solid rgba(239, 68, 68, 0.4); padding: 16px; border-radius: 12px; grid-column: 1 / -1; box-shadow: 0 4px 14px rgba(239, 68, 68, 0.15);">
+                  <div style="flex-grow: 1;">
+                    <div style="font-weight: 700; color: #ef4444; font-size: 14px; display: flex; align-items: center; gap: 8px;">
+                      <span>🛑</span>
+                      <span>إيقاف كل شيء فورا</span>
+                    </div>
+                    <div style="color: #cbd5e1; font-size: 12px; margin-top: 4px; line-height: 1.4; font-weight: 500;">إيقاف فوري لجميع العمليات الجارية: موجات النشر التبادلي، الحملات الفردية أو المجمعة، المزامنة، أو أي أوامر جارية.</div>
+                  </div>
+                  <button type="button" id="btn-stop-everything-web" class="btn" style="flex-shrink: 0; font-weight: 700; padding: 10px 22px; border-radius: 8px; background: #ef4444; border: none; cursor: pointer; color: #fff; font-size: 13px; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3); transition: all 0.2s;">
+                    <span class="btn-text">إيقاف كل شيء</span>
+                    <span class="spinner hidden"></span>
+                  </button>
+                </div>
+                
               </div>
             </div>
+          </div>
 
+          <!-- Active Ads Stream Card -->
+          <div id="active-ads-stream-card" class="card active-ads-stream-card" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;" class="card-header-flex">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-size: 20px;">🔥</span>
+                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">خريطة التدفق الحي للإعلانات النشطة</h3>
+              </div>
+            </div>
+            
+            <!-- Live Progress Bar -->
+            <div id="live-progress-section" class="hidden" style="margin-bottom: 20px; background: rgba(15, 23, 42, 0.6); padding: 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.03);">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
+                <span style="color: #60a5fa; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+                  <span class="spinner" style="width: 12px; height: 12px; border-width: 1.5px;"></span>
+                  <span>جاري نشر الحملة حالياً...</span>
+                </span>
+                <span id="live-progress-text" style="color: #94a3b8; font-weight: bold;">0% (0/0 قناة)</span>
+              </div>
+              <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden; position: relative;">
+                <div id="live-progress-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3b82f6, #06b6d4); transition: width 0.4s ease; border-radius: 4px;"></div>
+              </div>
+              <div id="live-next-channel-hint" style="color: #94a3b8; font-size: 11px; margin-top: 8px; text-align: left;">جاري تهيئة قنوات النشر...</div>
+            </div>
+
+            <!-- Active Ads Summary (Static Details) -->
+            <div id="active-ads-summary-container" style="display: flex; align-items: center; justify-content: space-between; background: rgba(15, 23, 42, 0.3); border: 1px solid rgba(255,255,255,0.03); padding: 12px 20px; border-radius: 12px; font-size: 13.5px; color: #cbd5e1;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span>📢</span>
+                <span>إجمالي الإعلانات النشطة حالياً في قنوات التليجرام:</span>
+              </div>
+              <span id="active-ads-total-count" style="font-weight: 700; color: #10b981; font-size: 16px; font-family: monospace;">0 إعلان</span>
+            </div>
+          </div>
+
+          <!-- Active Tasks Box -->
+          <div class="card active-tasks-card" id="active-tasks-card-container" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(59, 130, 246, 0.15); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px); display: none; box-shadow: 0 4px 20px rgba(59,130,246,0.05);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span class="pulse-text-animation" style="font-size: 20px;">🔄</span>
+                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">العمليات والمهام النشطة حالياً</h3>
+              </div>
+            </div>
+            <div id="active-jobs-list" style="display: grid; grid-template-columns: 1fr; gap: 12px;">
+            </div>
+          </div>
+
+          <!-- Scheduled Tasks Box -->
+          <div class="card scheduled-tasks-card" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-size: 20px;">📅</span>
+                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">المهام والحملات المجدولة المستقبلية</h3>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <button type="button" id="btn-refresh-jobs" style="background: none; border: none; color: #60a5fa; cursor: pointer; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 4px;">
+                  <span>🔄 تحديث</span>
+                </button>
+                <button type="button" id="btn-clear-jobs" style="background: none; border: none; color: #f87171; cursor: pointer; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 4px;">
+                  <span>🗑️ إلغاء المجدول</span>
+                </button>
+              </div>
+            </div>
+            <div id="scheduled-jobs-list" style="display: grid; grid-template-columns: 1fr; gap: 12px;">
+              <p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; padding: 12px; border: 1px dashed rgba(255,255,255,0.05); border-radius: 8px;">لا توجد حملات أو مهام مجدولة قيد الانتظار.</p>
+            </div>
+          </div>
+
+          <!-- Recently Finished Tasks Box -->
+          <div class="card finished-tasks-card" id="finished-tasks-card-container" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-size: 20px;">✅</span>
+                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">المهام والعمليات المنتهية مؤخراً</h3>
+              </div>
+            </div>
+            <div id="finished-jobs-list" style="display: grid; grid-template-columns: 1fr; gap: 12px; max-height: 280px; overflow-y: auto; padding-inline-end: 6px;">
+              <p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; padding: 12px; border: 1px dashed rgba(255,255,255,0.05); border-radius: 8px;">لا توجد مهام منتهية مؤخراً.</p>
+            </div>
+          </div>
+
+          <!-- live event log center -->
+          <div class="card event-log-card" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-size: 20px;">💬</span>
+                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">
+                  <span class="hidden-mobile">مركز الإشعارات وسجل الأحداث (Saved Messages Log)</span>
+                  <span class="show-mobile">سجل الأحداث</span>
+                </h3>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <button type="button" id="btn-refresh-logs" style="background: none; border: none; color: #60a5fa; cursor: pointer; font-size: 13px; font-weight: 500; margin-left: 8px;">🔄 تحديث</button>
+                <button type="button" id="btn-clear-logs-web" style="background: none; border: none; color: #f87171; cursor: pointer; font-size: 13px; font-weight: 500;">🧹 مسح السجل</button>
+              </div>
+            </div>
+            <div id="logs-container" style="background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; padding: 16px; max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 13px; line-height: 1.6; display: flex; flex-direction: column; gap: 10px;">
+              <p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; font-family: sans-serif;">سجل الأحداث فارغ حالياً.</p>
+            </div>
           </div>
         </section>
 
-<section id="tab-plans" class="tab-panel hidden">
+        <!-- Tab 2: الخطة والترقية -->
+
+        <section id="tab-plans" class="tab-panel hidden">
           <div class="panel-header">
             <h1 class="panel-title">خطط تفعيل المحرك السحابي المتاحة</h1>
             <p class="panel-subtitle">اختر الخطة المناسبة لحجم نشاطك وقم بالترقية فوراً</p>
@@ -1784,7 +1277,275 @@
 
         <!-- Tab 4: ربط المحرك (Telegram 2-Step Handshake) -->
 
-<section id="tab-templates" class="tab-panel hidden">
+        <!-- Tab 3: معالج ربط المحرك الآمن (4-Step Connection Wizard) -->
+        <section id="tab-connect" class="tab-panel hidden">
+          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px;">
+            <div>
+              <h1 class="panel-title">معالج ربط المحرك السحابي الآمن لتليجرام</h1>
+              <p class="panel-subtitle">نربط حسابك عبر بروتوكول تليجرام الرسمي مباشرة لجدولة وإرسال الرسائل بدقة</p>
+            </div>
+            <button type="button" id="btn-open-engine-guide-modal" class="btn btn-secondary" style="font-size: 13px; display: inline-flex; align-items: center; gap: 6px;">
+              <span>📖 شرح خطوات الربط بالتفصيل</span>
+            </button>
+          </div>
+
+          <div class="connection-wizard-layout card">
+
+            <!-- 4-Step Stepper Header -->
+            <div class="wizard-stepper-container">
+              <div class="wizard-header-status-row">
+                <div class="wizard-status-left">
+                  <span class="wizard-step-pill-badge" id="wizard-current-step-badge">الخطوة 1 من 4</span>
+                  <span class="wizard-step-label-text" id="wizard-current-step-label">بيانات الـ API الرسمية</span>
+                </div>
+                <div class="wizard-status-right">
+                  <span class="wizard-percentage-pill" id="wizard-percentage-pill">25% مكتمل</span>
+                </div>
+              </div>
+
+              <div class="wizard-progress-track">
+                <div class="wizard-progress-bar" id="wizard-progress-bar" style="width: 25%;"></div>
+              </div>
+
+              <div class="wizard-steps-list">
+                <div class="wizard-step-item active" id="wizard-step-node-1" onclick="switchWizardStep(1)" style="cursor: pointer;">
+                  <div class="wizard-step-circle">
+                    <span class="step-num">1</span>
+                    <span class="step-check hidden">✓</span>
+                  </div>
+                  <div class="wizard-step-text">
+                    <span class="wizard-step-title">بيانات الـ API</span>
+                    <span class="wizard-step-desc">مفاتيح الربط الرسمية</span>
+                  </div>
+                </div>
+
+                <div class="wizard-step-item" id="wizard-step-node-2" onclick="switchWizardStep(2)" style="cursor: pointer;">
+                  <div class="wizard-step-circle">
+                    <span class="step-num">2</span>
+                    <span class="step-check hidden">✓</span>
+                  </div>
+                  <div class="wizard-step-text">
+                    <span class="wizard-step-title">رقم الهاتف</span>
+                    <span class="wizard-step-desc">إرسال كود التأكيد</span>
+                  </div>
+                </div>
+
+                <div class="wizard-step-item" id="wizard-step-node-3" onclick="switchWizardStep(3)" style="cursor: pointer;">
+                  <div class="wizard-step-circle">
+                    <span class="step-num">3</span>
+                    <span class="step-check hidden">✓</span>
+                  </div>
+                  <div class="wizard-step-text">
+                    <span class="wizard-step-title">كود التحقق</span>
+                    <span class="wizard-step-desc">تأكيد ملكية الحساب</span>
+                  </div>
+                </div>
+
+                <div class="wizard-step-item" id="wizard-step-node-4" onclick="switchWizardStep(4)" style="cursor: pointer;">
+                  <div class="wizard-step-circle">
+                    <span class="step-num">4</span>
+                    <span class="step-check hidden">✓</span>
+                  </div>
+                  <div class="wizard-step-text">
+                    <span class="wizard-step-title">التشغيل السحابي</span>
+                    <span class="wizard-step-desc">جاهزية المحرك</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- STEP 1: API ID & API Hash ONLY -->
+            <div id="connect-step-1" class="wizard-step">
+              <div class="wizard-header">
+                <div class="step-badge" id="badge-step-1">الخطوة 1 من 4</div>
+                <h3>بيانات الـ Telegram API الرسمية</h3>
+                <p class="step-description">مفاتيح تطبيق تليجرام الرسمية المستخرجة من موقع <a href="https://my.telegram.org" target="_blank" style="color: #38bdf8; text-decoration: underline;">my.telegram.org</a></p>
+              </div>
+
+              <!-- Guide callout -->
+              <div class="wizard-info-box guide-callout" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 12px; padding: 14px 16px; margin-bottom: 20px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="font-size: 24px;">💡</span>
+                  <div style="font-size: 13px; line-height: 1.5; color: #e2e8f0;">
+                    <strong style="color: #38bdf8;">ليس لديك API ID أو API Hash بعد؟</strong><br>
+                    استخرجهم في دقيقة واحدة باتباع الدليل المصور والشرح خطوة بخطوة.
+                  </div>
+                </div>
+                <button type="button" id="btn-open-guide-step1" class="btn btn-secondary" style="font-size: 12.5px; padding: 6px 14px; white-space: nowrap;">
+                  <span>📖 فتح الدليل المصور ←</span>
+                </button>
+              </div>
+
+              <form id="connect-form-step1" onsubmit="return false;">
+                <div class="input-group">
+                  <label for="telegram-api-id">1. Telegram API ID (أرقام فقط)</label>
+                  <input type="text" id="telegram-api-id" required placeholder="مثال: 34434465" dir="ltr" autocomplete="off">
+                  <p class="input-hint" style="color: #94a3b8; line-height: 1.4; margin-top: 4px;">
+                    رقم الـ ID المستخرج من صفحة API development tools على موقع تليجرام الرسمي <a href="https://my.telegram.org" target="_blank" style="color: #38bdf8; text-decoration: underline;">my.telegram.org</a>.
+                  </p>
+                </div>
+
+                <div class="input-group" style="margin-top: 16px;">
+                  <label for="telegram-api-hash">2. Telegram API Hash (الكود الإنجليزي - 32 حرف ورقم)</label>
+                  <input type="text" id="telegram-api-hash" required placeholder="مثال: 36d9da5144e3fcf6d85711aa460931ce" dir="ltr" autocomplete="off">
+                  <p class="input-hint" style="color: #94a3b8; line-height: 1.4; margin-top: 4px;">
+                    الكود الإنجليزي الطويل المنسوخ من نفس الصفحة (الموقع يحذف أي مسافات زائدة تلقائياً).
+                  </p>
+                </div>
+
+                <div id="step1-error-banner" class="hidden" style="margin-top: 14px; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 12px; padding: 14px 16px; color: #fca5a5; font-size: 13px; line-height: 1.6;"></div>
+
+                <button type="button" id="btn-step1-next" class="btn btn-primary" style="margin-top: 20px; width: 100%; font-size: 15px; font-weight: 700; padding: 13px;">
+                  <span>المتابعة لإدخال رقم الهاتف 📱 ←</span>
+                </button>
+              </form>
+            </div>
+
+            <!-- STEP 2: Phone Number ONLY -->
+            <div id="connect-step-2" class="wizard-step hidden">
+              <div class="wizard-header">
+                <div class="step-badge" id="badge-step-2">الخطوة 2 من 4</div>
+                <h3>أدخل رقم الهاتف المسجل به الحساب</h3>
+                <p class="step-description">سنرسل كود تحقق رسمي إلى تطبيق تليجرام على هاتفك لتأكيد الملكية</p>
+              </div>
+
+              <form id="connect-form-step2">
+                <div class="input-group">
+                  <label for="telegram-phone">رقم الهاتف بمفتاح الدولة الدولي</label>
+                  <input type="tel" id="telegram-phone" required placeholder="+201012345678" dir="ltr">
+                  <p class="input-hint" style="color: #94a3b8; line-height: 1.5; margin-top: 5px;">
+                    💡 <b>اكتب رقمك بمفتاح الدولة:</b> (مثال لمصر: <code dir="ltr" style="color: #38bdf8;">+201012345678</code> بدون 0 بعد الـ 20 — مثال للسعودية: <code dir="ltr" style="color: #38bdf8;">+9665XXXXXXXX</code>).
+                  </p>
+                </div>
+
+                <div id="step2-phone-error-banner" class="hidden" style="margin-top: 14px; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 12px; padding: 14px 16px; color: #fca5a5; font-size: 13px; line-height: 1.6;"></div>
+
+                <div class="button-row" style="margin-top: 20px; display: flex; gap: 12px;">
+                  <button type="button" id="btn-back-to-step1" class="btn btn-secondary" style="flex: 1;">← تعديل بيانات الـ API</button>
+                  <button type="submit" id="btn-send-code" class="btn btn-primary" style="flex: 2; font-weight: 700;">
+                    <span class="btn-text">إرسال كود التحقق الآمن 📨</span>
+                    <span class="spinner hidden"></span>
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            <!-- STEP 3: Verification Code (5 Digits) -->
+            <div id="connect-step-3" class="wizard-step hidden">
+              <div class="wizard-header">
+                <div class="step-badge" id="badge-step-3">الخطوة 3 من 4</div>
+                <h3>أدخل كود التأكيد المرسل إليك</h3>
+                <p id="phone-display-label" class="step-description">تم إرسال الكود إلى الرقم: --</p>
+              </div>
+
+              <div class="wizard-info-box warning-theme" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px;">
+                <div style="display: flex; align-items: flex-start; gap: 12px;">
+                  <span style="font-size: 26px;">⚠️</span>
+                  <div style="font-size: 13px; line-height: 1.6; color: #fecaca;">
+                    <strong style="color: #fff; font-size: 14px; display: block; margin-bottom: 4px;">تنبيه هام جداً بخصوص كود التحقق:</strong>
+                    افتح الآن <b>تطبيق تليجرام</b> على هاتفك.. ستجد رسالة جديدة واصلة من حساب <b>Telegram</b> الرسمي وبها كود الـ 5 أرقام.<br>
+                    <span style="color: #fca5a5; font-weight: 700;">⛔ الكود يصل داخل تطبيق تليجرام نفسه، ولا يصل كرسالة SMS عادية!</span>
+                  </div>
+                </div>
+              </div>
+
+              <form id="connect-form-step3">
+                <div class="input-group">
+                  <label for="telegram-code">كود التحقق المكون من 5 أرقام</label>
+                  <input type="text" id="telegram-code" required placeholder="مثال: 12345" maxlength="5" class="code-input" dir="ltr" autocomplete="off">
+                  <p class="input-hint">اكتب الـ 5 أرقام التي وصلتك في شات Telegram الرسمي.</p>
+                </div>
+
+                <div class="resend-code-wrapper" style="margin-top: 12px; display: flex; align-items: center; justify-content: space-between;">
+                  <span id="resend-timer-label" style="font-size: 12.5px; color: #94a3b8;">
+                    لم يصلك الكود؟ يمكنك طلب كود جديد بعد: <strong id="resend-countdown" style="color: #38bdf8;">01:30</strong>
+                  </span>
+                  <button type="button" id="btn-resend-code" class="btn-resend-link hidden" style="background: none; border: none; color: #38bdf8; cursor: pointer; text-decoration: underline; font-size: 12.5px;">
+                    🔄 إعادة إرسال كود التأكيد الآن
+                  </button>
+                </div>
+
+                <div id="step2-error-banner" class="hidden" style="margin-top: 14px; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 12px; padding: 14px 16px; color: #fca5a5; font-size: 13px; line-height: 1.6;"></div>
+
+                <div class="button-row" style="margin-top: 18px; display: flex; gap: 12px;">
+                  <button type="button" id="btn-back-to-step2" class="btn btn-secondary" style="flex: 1;">← تعديل رقم الهاتف</button>
+                  <button type="submit" id="btn-verify-code" class="btn btn-primary" style="flex: 2; font-weight: 700;">
+                    <span class="btn-text">تفعيل وتأكيد ربط المحرك الآمن 🚀</span>
+                    <span class="spinner hidden"></span>
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            <!-- STEP 4: Celebration Screen -->
+            <div id="connect-step-4" class="wizard-step hidden">
+              <div class="wizard-step-success-card">
+                <div class="success-celebration-header">
+                  <div class="success-icon-pulse">
+                    <div class="success-icon-inner">✓</div>
+                  </div>
+                  <div class="step-badge success" id="badge-step-4" style="margin-top: 14px;">الخطوة 4 من 4: اكتملت العملية بنجاح!</div>
+                  <h2 class="success-title">🎉 تم تفعيل وربط المحرك السحابي بنجاح تام!</h2>
+                  <p class="success-desc">
+                    أصبح حسابك متصلاً الآن بنظام السحابة الآمن، وبإمكانك إطلاق حملاتك الإعلانية وجدولتها تلقائياً 24/7 دون أي انقطاع.
+                  </p>
+                </div>
+
+                <div class="sync-checkpoints-card">
+                  <h4 class="checkpoints-title">حالة المحرك السحابي والجاهزية الفورية:</h4>
+                  <div class="checkpoint-item completed">
+                    <span class="checkpoint-icon">✓</span>
+                    <div class="checkpoint-text">
+                      <strong>توثيق الجلسة وتشفيرها بنجاح</strong>
+                      <small>تم تشفير جلسة Telegram بتقنية 256-bit AES المقاومة للاختراق.</small>
+                    </div>
+                  </div>
+                  <div class="checkpoint-item completed">
+                    <span class="checkpoint-icon">✓</span>
+                    <div class="checkpoint-text">
+                      <strong>المحرك السحابي متصل ويعمل (Engine Online)</strong>
+                      <small>خوادم AutoTele متصلة ومستعدة لتنفيذ مهام النشر بدقة.</small>
+                    </div>
+                  </div>
+                  <div class="checkpoint-item completed">
+                    <span class="checkpoint-icon">✓</span>
+                    <div class="checkpoint-text">
+                      <strong>جاهز لجدولة ونشر الحملات الإعلانية</strong>
+                      <small>يمكنك الآن إنشاء حملاتك واختيار القنوات والمجلدات المستهدفة.</small>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="connected-account-summary">
+                  <div class="summary-field">
+                    <span class="summary-label">رقم الهاتف المتصل:</span>
+                    <strong class="summary-value" id="step3-connected-phone" dir="ltr">+--</strong>
+                  </div>
+                  <div class="summary-field">
+                    <span class="summary-label">حالة المحرك:</span>
+                    <span class="status-badge-active">🟢 متصل ونشط سحابياً</span>
+                  </div>
+                  <div class="summary-field">
+                    <span class="summary-label">نوع التشفير:</span>
+                    <span class="encryption-tag">🔒 End-to-End Encrypted</span>
+                  </div>
+                </div>
+
+                <div class="step3-actions-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 24px;">
+                  <button type="button" class="btn btn-primary" onclick="navigate('/app'); setTimeout(scrollToCampaignForm, 100);">
+                    <span>🚀 البدء بإنشاء حملة إعلانية</span>
+                  </button>
+                  <button type="button" class="btn btn-secondary" onclick="navigate('/app')">
+                    <span>📊 الانتقال للوحة التحكم والأوامر</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <section id="tab-templates" class="tab-panel hidden">
           <div class="panel-header">
             <h1 class="panel-title">مكتبة صيغ الإعلانات المتكاملة</h1>
             <p class="panel-subtitle">أضف الصيغ والرسائل التسويقية وسيتم تعويض الحقول والروابط ديناميكياً لكل إعلان</p>
@@ -1820,107 +1581,29 @@
 
           </div>
         </section>
-
-        <!-- View 9: مركز الإشعارات والتنبيهات (Notifications Center) -->
-        <section id="tab-notifications" class="tab-panel hidden">
-          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
-            <div>
-              <h1 class="panel-title" style="font-size: 20px; font-weight: 800; color: #fff; margin: 0 0 4px 0;">مركز الإشعارات والتنبيهات</h1>
-              <p class="panel-subtitle" style="color: #94a3b8; font-size: 13px; margin: 0;">سجل التنبيهات الأمنية، اكتمال الحملات، وتحديثات النظام</p>
-            </div>
-            <div>
-              <button type="button" class="btn btn-secondary btn-sm" id="btn-page-mark-all-read">
-                <span>✓ تحديد الكل كمقروء</span>
-              </button>
-            </div>
-          </div>
-
-          <div class="card" style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
-            <div id="notifications-page-list" style="display: flex; flex-direction: column; gap: 12px;">
-              <div style="padding: 16px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 12px; display: flex; align-items: flex-start; gap: 12px;">
-                <span style="font-size: 20px;">🛡️</span>
-                <div style="flex: 1;">
-                  <strong style="color: #fff; font-size: 13.5px; display: block;">حماية الجلسات والمصادقة نشطة</strong>
-                  <span style="color: #94a3b8; font-size: 12px;">تم تأمين جلسة الحساب وتشفير جميع الاتصالات بتقنية MTProto v2.</span>
-                </div>
-                <span style="color: #64748b; font-size: 11px;">الآن</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- View 10: إعدادات الحساب والأمان (Settings & Security) -->
-        <section id="tab-settings" class="tab-panel hidden">
-          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
-            <div>
-              <h1 class="panel-title" style="font-size: 20px; font-weight: 800; color: #fff; margin: 0 0 4px 0;">إعدادات الحساب والأمان</h1>
-              <p class="panel-subtitle" style="color: #94a3b8; font-size: 13px; margin: 0;">إدارة بيانات الدخول، كلمة المرور، وجلسات الأمان النشطة</p>
-            </div>
-          </div>
-
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
-            <!-- Profile Info Card -->
-            <div class="card" style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
-              <h3 style="margin: 0 0 16px 0; font-size: 15px; font-weight: 700; color: #fff;">👤 الملف الشخصي</h3>
-              <div style="display: flex; flex-direction: column; gap: 12px; font-size: 13px;">
-                <div style="display: flex; justify-content: space-between; padding: 10px; background: rgba(15, 23, 42, 0.5); border-radius: 8px;">
-                  <span style="color: #94a3b8;">البريد الإلكتروني:</span>
-                  <strong id="settings-user-email" style="color: #fff;">--</strong>
-                </div>
-                <div style="display: flex; justify-content: space-between; padding: 10px; background: rgba(15, 23, 42, 0.5); border-radius: 8px;">
-                  <span style="color: #94a3b8;">حالة الاشتراك:</span>
-                  <span id="settings-user-plan" style="color: #10b981; font-weight: 700;">نشط</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Password Change Card -->
-            <div class="card" style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
-              <h3 style="margin: 0 0 16px 0; font-size: 15px; font-weight: 700; color: #fff;">🔐 تغيير كلمة المرور</h3>
-              <form id="settings-password-form">
-                <div class="input-group" style="margin-bottom: 12px;">
-                  <label for="settings-current-pwd">كلمة المرور الحالية</label>
-                  <input type="password" id="settings-current-pwd" placeholder="••••••••" required>
-                </div>
-                <div class="input-group" style="margin-bottom: 12px;">
-                  <label for="settings-new-pwd">كلمة المرور الجديدة</label>
-                  <input type="password" id="settings-new-pwd" placeholder="••••••••" required minlength="6">
-                </div>
-                <button type="submit" class="btn btn-primary btn-sm" style="width: 100%; font-weight: 700; padding: 10px;">
-                  <span>حفظ كلمة المرور الجديدة</span>
-                </button>
-              </form>
-            </div>
-          </div>
-        </section>
-
 </main>
     </div>
 
     <!-- Mobile Bottom Navigation Dock (Visible on Mobile & Tablet < 1025px) -->
         <!-- Mobile Bottom Navigation Dock (Fixed 5 Destinations) -->
+        <!-- Mobile Bottom Navigation Dock -->
+        <!-- Mobile Bottom Navigation Dock -->
     <nav class="mobile-bottom-nav" aria-label="التنقل السفلي">
       <button class="bottom-nav-item active" data-tab="tab-subscription" data-route="/app" onclick="navigate('/app')">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-        <span>الرئيسية</span>
+        <span>الرئيسية (الأوامر)</span>
       </button>
-      <button class="bottom-nav-item" data-tab="tab-campaigns" data-route="/app/campaigns" onclick="navigate('/app/campaigns')">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        <span>الحملات</span>
+      <button class="bottom-nav-item" data-tab="tab-connect" data-route="/app/engines/connect" onclick="navigate('/app/engines/connect')">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+        <span>ربط المحرك</span>
       </button>
-      <button class="bottom-nav-item bottom-nav-fab" data-tab="tab-campaign-new" data-route="/app/campaigns/new" onclick="navigate('/app/campaigns/new')">
-        <div class="fab-circle" style="width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, #3b82f6, #2563eb); display: flex; align-items: center; justify-content: center; margin: 0 auto 2px; box-shadow: 0 4px 12px rgba(37,99,235,0.4); color: #fff;">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-        </div>
-        <span style="font-weight: 700; color: #60a5fa;">حملة جديدة</span>
+      <button class="bottom-nav-item" data-tab="tab-templates" data-route="/app/templates" onclick="navigate('/app/templates')">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        <span>الصيغ</span>
       </button>
-      <button class="bottom-nav-item" data-tab="tab-channels" data-route="/app/channels" onclick="navigate('/app/channels')">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a9 9 0 0 1 9 9"></path><path d="M4 4a16 16 0 0 1 16 16"></path><circle cx="5" cy="19" r="1"></circle></svg>
-        <span>القنوات</span>
-      </button>
-      <button class="bottom-nav-item" data-tab="tab-engines" data-route="/app/engines" onclick="navigate('/app/engines')">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
-        <span>المحرك</span>
+      <button class="bottom-nav-item" data-tab="tab-plans" data-route="/app/billing" onclick="navigate('/app/billing')">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        <span>الخطط</span>
       </button>
     </nav>
 

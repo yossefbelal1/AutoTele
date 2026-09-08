@@ -199,29 +199,29 @@ function showDashboardScreen() {
 // CLIENT-SIDE ROUTER & SPA NAVIGATION
 // ==========================================
 const ROUTE_CONFIG = {
-  "/app": { tabId: "tab-subscription", title: "لوحة التحكم الرئيسية" },
-  "/app/campaigns": { tabId: "tab-campaigns", title: "إدارة المهام والحملات" },
-  "/app/campaigns/new": { tabId: "tab-campaign-new", title: "إنشاء حملة إعلانية جديدة" },
-  "/app/channels": { tabId: "tab-channels", title: "القنوات والمجموعات والمجلدات" },
-  "/app/engines": { tabId: "tab-engines", title: "محركات النشر السحابية" },
+  "/app": { tabId: "tab-subscription", title: "لوحة التحكم والأوامر" },
+  "/app/campaigns": { tabId: "tab-subscription", scrollTo: "active-tasks-card-container", title: "الحملات والمهام" },
+  "/app/campaigns/new": { tabId: "tab-subscription", scrollTo: "campaign-panel-card", title: "إنشاء حملة جديدة" },
+  "/app/connect": { tabId: "tab-connect", title: "معالج ربط المحرك الآمن" },
+  "/app/engines": { tabId: "tab-connect", title: "معالج ربط المحرك الآمن" },
   "/app/engines/connect": { tabId: "tab-connect", title: "معالج ربط المحرك الآمن" },
-  "/app/templates": { tabId: "tab-templates", title: "مكتبة الصيغ والقوالب" },
-  "/app/billing": { tabId: "tab-plans", title: "الخطة والترقية والاشتراك" },
-  "/app/notifications": { tabId: "tab-notifications", title: "مركز الإشعارات والتنبيهات" },
-  "/app/settings": { tabId: "tab-settings", title: "إعدادات الحساب والأمان" }
+  "/app/templates": { tabId: "tab-templates", title: "مكتبة الصيغ" },
+  "/app/billing": { tabId: "tab-plans", title: "الخطة والترقية" }
 };
 
 const TAB_TO_ROUTE_MAP = {
   "tab-subscription": "/app",
-  "tab-campaigns": "/app/campaigns",
-  "tab-campaign-new": "/app/campaigns/new",
-  "tab-channels": "/app/channels",
-  "tab-engines": "/app/engines",
-  "tab-connect": "/app/engines/connect",
-  "tab-templates": "/app/templates",
   "tab-plans": "/app/billing",
-  "tab-notifications": "/app/notifications",
-  "tab-settings": "/app/settings"
+  "tab-connect": "/app/engines/connect",
+  "tab-templates": "/app/templates"
+};
+
+window.scrollToCampaignForm = function() {
+  navigate("/app", true);
+  setTimeout(() => {
+    const el = document.getElementById("campaign-panel-card");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, 100);
 };
 
 window.navigate = function(route, pushState = true, selectedPlan = null) {
@@ -250,7 +250,7 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
     normalizedRoute = "/app";
   }
 
-  const { tabId, title } = ROUTE_CONFIG[normalizedRoute];
+  const { tabId, title, scrollTo } = ROUTE_CONFIG[normalizedRoute];
 
   // Hide all tab panels
   const panels = document.querySelectorAll(".tab-panel");
@@ -296,6 +296,16 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
     window.history.pushState({ route: normalizedRoute }, title, normalizedRoute);
   }
 
+  // Handle scrollTo target if present
+  if (scrollTo) {
+    setTimeout(() => {
+      const target = document.getElementById(scrollTo);
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 150);
+  }
+
   // Route-specific triggers
   if (tabId === "tab-plans") {
     loadReceiveWalletAddress();
@@ -308,15 +318,6 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
     }
   } else if (tabId === "tab-templates") {
     loadTemplatesList();
-  } else if (tabId === "tab-channels") {
-    renderChannelsExplorerView();
-  } else if (tabId === "tab-engines") {
-    updateEnginesPageView();
-  } else if (tabId === "tab-campaigns") {
-    if (typeof loadScheduledJobs === "function") loadScheduledJobs();
-    if (typeof loadEventLogs === "function") loadEventLogs();
-  } else if (tabId === "tab-settings") {
-    updateSettingsPageView();
   }
 
   // Close mobile drawer if opened
