@@ -411,6 +411,10 @@
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
             <span>الخطط والترقية والدفع</span>
           </button>
+          <button class="drawer-nav-item" data-tab="tab-profile" data-route="/app/settings/profile" onclick="navigate('/app/settings/profile'); closeMobileDrawer();">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span>الملف الشخصي والإعدادات</span>
+          </button>
         </div>
 
         <div class="drawer-section-title">أدلة وخدمات مساعدة</div>
@@ -454,13 +458,16 @@
               <span style="font-size: 11px; color: #38bdf8; font-weight: 600;">Enterprise SaaS</span>
             </div>
           </div>
-          <div class="user-info">
+          <div class="user-info" onclick="navigate('/app/settings/profile')" style="cursor: pointer; transition: background 0.2s; border-radius: 10px; padding: 6px;" title="إعدادات الحساب وتعديل الاسم">
             <div class="user-avatar" id="sidebar-user-avatar">AT</div>
             <div class="user-meta">
-              <h4 id="user-email-display" class="user-email">user@domain.com</h4>
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <h4 id="user-email-display" class="user-email" style="margin: 0;">user@domain.com</h4>
+                <span style="font-size: 11px; opacity: 0.7;" title="تعديل">✏️</span>
+              </div>
               <div style="display: flex; align-items: center; gap: 8px;">
                 <span id="user-plan-badge" class="badge">جاري التحميل...</span>
-                <span id="btn-logout-mobile" style="color: #f43f5e; font-size: 11px; font-weight: bold; cursor: pointer; text-decoration: underline; -webkit-tap-highlight-color: transparent;">تسجيل خروج</span>
+                <span id="btn-logout-mobile" onclick="event.stopPropagation();" style="color: #f43f5e; font-size: 11px; font-weight: bold; cursor: pointer; text-decoration: underline; -webkit-tap-highlight-color: transparent;">تسجيل خروج</span>
               </div>
             </div>
           </div>
@@ -482,6 +489,10 @@
           <button class="nav-tab" data-tab="tab-plans" data-route="/app/billing">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
             <span>الخطط والترقية والدفع</span>
+          </button>
+          <button class="nav-tab" data-tab="tab-profile" data-route="/app/settings/profile">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span>الملف الشخصي والإعدادات</span>
           </button>
           <button class="nav-tab hidden" id="admin-nav-tab" onclick="window.location.href='/admin'">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
@@ -1561,6 +1572,61 @@
               </div>
             </div>
 
+          </div>
+        </section>
+
+        <!-- Section: User Profile & Settings -->
+        <section id="tab-profile" class="tab-panel hidden">
+          <div class="panel-header">
+            <h1 class="panel-title">الملف الشخصي وإعدادات الحساب</h1>
+            <p class="panel-subtitle">تخصيص الاسم الظاهر ومعلومات حسابك في AutoTele</p>
+          </div>
+
+          <div class="profile-layout" style="max-width: 680px; margin: 0 auto;">
+            <div class="card profile-card" style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
+              
+              <!-- Avatar & Live Name Preview -->
+              <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+                <div class="user-avatar" id="profile-preview-avatar" style="width: 64px; height: 64px; border-radius: 16px; background: linear-gradient(135deg, #3b82f6, #0284c7); display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 800; color: #fff; box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);">AT</div>
+                <div>
+                  <h3 id="profile-preview-name" style="margin: 0 0 4px 0; font-size: 18px; font-weight: 700; color: #fff;">المستخدم</h3>
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span id="profile-preview-plan" class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 11px; padding: 3px 8px; border-radius: 6px;">--</span>
+                    <span style="font-size: 12px; color: #94a3b8;">حساب موثق</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Profile Form -->
+              <form id="profile-form" onsubmit="handleProfileSubmit(event)">
+                <div class="input-group" style="margin-bottom: 20px;">
+                  <label for="profile-email-readonly" style="display: flex; align-items: center; justify-content: space-between; font-weight: 600; font-size: 13px; color: #cbd5e1; margin-bottom: 8px;">
+                    <span>البريد الإلكتروني (معرّف تسجيل الدخول)</span>
+                    <span style="font-size: 11px; color: #64748b; background: rgba(255,255,255,0.04); padding: 2px 8px; border-radius: 4px;">غير قابل للتعديل 🔒</span>
+                  </label>
+                  <input type="email" id="profile-email-readonly" readonly disabled style="width: 100%; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255,255,255,0.06); color: #64748b; border-radius: 10px; padding: 12px 14px; font-size: 14px; cursor: not-allowed; direction: ltr; text-align: right;" value="user@domain.com">
+                  <small style="color: #64748b; font-size: 11px; margin-top: 4px; display: block;">لحماية أمان حسابك واشتراكك، لا يمكن تغيير بريد الدخول المرتبط برخصتك.</small>
+                </div>
+
+                <div class="input-group" style="margin-bottom: 24px;">
+                  <label for="profile-display-name-input" style="display: block; font-weight: 600; font-size: 13px; color: #cbd5e1; margin-bottom: 8px;">
+                    الاسم الظاهر في النظام <span style="color: #38bdf8;">*</span>
+                  </label>
+                  <input type="text" id="profile-display-name-input" required minlength="2" maxlength="60" placeholder="مثال: يوسف بلال" style="width: 100%; background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255,255,255,0.12); color: #fff; border-radius: 10px; padding: 12px 14px; font-size: 14px; outline: none; transition: border-color 0.2s;">
+                  <small style="color: #94a3b8; font-size: 11px; margin-top: 4px; display: block;">هذا الاسم يظهر في الترويسة العليا ولوحة التحكم وفي رسائل التنبيهات.</small>
+                </div>
+
+                <div id="profile-alert-box" class="hidden" style="margin-bottom: 20px; padding: 12px 16px; border-radius: 10px; font-size: 13px; font-weight: 600;"></div>
+
+                <div style="display: flex; align-items: center; justify-content: flex-end; gap: 12px;">
+                  <button type="submit" id="btn-save-profile" class="btn btn-primary" style="padding: 10px 24px; font-weight: 700; border-radius: 10px;">
+                    <span class="btn-text">حفظ التعديلات</span>
+                    <span class="spinner hidden"></span>
+                  </button>
+                </div>
+              </form>
+
+            </div>
           </div>
         </section>
 </main>

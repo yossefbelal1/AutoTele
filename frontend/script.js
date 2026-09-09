@@ -232,14 +232,17 @@ const ROUTE_CONFIG = {
   "/app/engines": { tabId: "tab-connect", title: "معالج ربط المحرك الآمن" },
   "/app/engines/connect": { tabId: "tab-connect", title: "معالج ربط المحرك الآمن" },
   "/app/templates": { tabId: "tab-templates", title: "مكتبة الصيغ" },
-  "/app/billing": { tabId: "tab-plans", title: "الخطة والترقية" }
+  "/app/billing": { tabId: "tab-plans", title: "الخطة والترقية" },
+  "/app/settings/profile": { tabId: "tab-profile", title: "الملف الشخصي والإعدادات" },
+  "/app/profile": { tabId: "tab-profile", title: "الملف الشخصي والإعدادات" }
 };
 
 const TAB_TO_ROUTE_MAP = {
   "tab-subscription": "/app",
   "tab-plans": "/app/billing",
   "tab-connect": "/app/engines/connect",
-  "tab-templates": "/app/templates"
+  "tab-templates": "/app/templates",
+  "tab-profile": "/app/settings/profile"
 };
 
 window.scrollToCampaignForm = function() {
@@ -319,7 +322,8 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
       "tab-subscription": "لوحة التحكم",
       "tab-connect": "ربط المحرك",
       "tab-templates": "مكتبة الصيغ",
-      "tab-plans": "الخطط والترقية"
+      "tab-plans": "الخطط والترقية",
+      "tab-profile": "الملف الشخصي"
     };
     mobileTitle.textContent = compactTitles[tabId] || title;
   }
@@ -352,6 +356,8 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
     }
   } else if (tabId === "tab-templates") {
     loadTemplatesList();
+  } else if (tabId === "tab-profile") {
+    loadUserProfile();
   }
 
   // Close mobile drawer if opened
@@ -575,6 +581,7 @@ async function syncDashboardData() {
     if (!response) return;
     
     // User metadata update
+    window.CURRENT_USER_DATA = response;
     
     // 1. Update user metadata (Null-safe)
     const displayName = response.full_name || response.email || "user@domain.com";
@@ -4121,12 +4128,154 @@ function updateEnginesPageView() {
 }
 
 // ==========================================
-// SETTINGS PAGE CONTROLLER
+// SETTINGS & USER PROFILE CONTROLLER
 // ==========================================
-function updateSettingsPageView() {
-  const emailEl = document.getElementById("settings-user-email");
-  const planEl = document.getElementById("settings-user-plan");
-  const email = localStorage.getItem("user_email") || "user@autotele.com";
-  if (emailEl) emailEl.textContent = email;
-  if (planEl) planEl.textContent = "الخطة الاحترافية (Enterprise)";
-}
+window.loadUserProfile = async function() {
+  const nameInput = document.getElementById("profile-display-name-input");
+  const emailInput = document.getElementById("profile-email-readonly");
+  const previewName = document.getElementById("profile-preview-name");
+  const previewPlan = document.getElementById("profile-preview-plan");
+  const previewAvatar = document.getElementById("profile-preview-avatar");
+  const alertBox = document.getElementById("profile-alert-box");
+  if (alertBox) alertBox.classList.add("hidden");
+
+  // 1. Pre-fill from memory immediately if available
+  if (window.CURRENT_USER_DATA) {
+    if (emailInput && window.CURRENT_USER_DATA.email) {
+      emailInput.value = window.CURRENT_USER_DATA.email;
+    }
+    const currentName = window.CURRENT_USER_DATA.full_name || "";
+    if (nameInput) nameInput.value = currentName;
+    if (previewName) previewName.textContent = currentName || window.CURRENT_USER_DATA.email || "المستخدم";
+    if (previewPlan) {
+      const plan = window.CURRENT_USER_DATA.plan;
+      let planText = "باقة تجريبية";
+      if (plan === "weekly") planText = "باقة أسبوعية";
+      else if (plan === "monthly") planText = "باقة شهرية";
+      else if (plan === "half_year") planText = "باقة 6 شهور";
+      else if (plan === "yearly") planText = "باقة سنوية";
+      previewPlan.textContent = planText;
+    }
+  }
+
+  // 2. Fetch fresh profile data from server
+  try {
+    const profile = await apiRequest("/user/profile");
+    if (profile) {
+      if (emailInput) emailInput.value = profile.email || "";
+      if (nameInput) nameInput.value = profile.full_name || "";
+      if (previewName) previewName.textContent = profile.full_name || profile.email || "المستخدم";
+      if (previewPlan && profile.plan) {
+        let planLabel = profile.plan;
+        if (profile.plan === "weekly") planLabel = "باقة أسبوعية";
+        else if (profile.plan === "monthly") planLabel = "باقة شهرية";
+        else if (profile.plan === "half_year") planLabel = "باقة 6 شهور";
+        else if (profile.plan === "yearly") planLabel = "باقة سنوية";
+        previewPlan.textContent = planLabel;
+      }
+      
+      const disp = profile.full_name || profile.email || "AT";
+      const parts = disp.trim().split(/\s+/);
+      let initials = "AT";
+      if (parts.length >= 2 && parts[0] && parts[1]) {
+        initials = (parts[0][0] + parts[1][0]).toUpperCase();
+      } else if (parts.length === 1 && parts[0].length >= 2) {
+        initials = parts[0].substring(0, 2).toUpperCase();
+      }
+      if (previewAvatar) previewAvatar.textContent = initials;
+    }
+  } catch (err) {
+    console.error("Failed to fetch fresh user profile:", err);
+  }
+};
+
+window.handleProfileSubmit = async function(event) {
+  if (event) event.preventDefault();
+  const nameInput = document.getElementById("profile-display-name-input");
+  const alertBox = document.getElementById("profile-alert-box");
+  const saveBtn = document.getElementById("btn-save-profile");
+  if (!nameInput) return;
+
+  const newName = nameInput.value.trim();
+  if (newName.length < 2 || newName.length > 60) {
+    if (alertBox) {
+      alertBox.className = "alert alert-danger";
+      alertBox.style.background = "rgba(239, 68, 68, 0.15)";
+      alertBox.style.border = "1px solid rgba(239, 68, 68, 0.3)";
+      alertBox.style.color = "#f87171";
+      alertBox.textContent = "الاسم الظاهر يجب أن يكون بين حرفين و 60 حرفاً.";
+      alertBox.classList.remove("hidden");
+    }
+    return;
+  }
+
+  const btnText = saveBtn ? saveBtn.querySelector(".btn-text") : null;
+  const spinner = saveBtn ? saveBtn.querySelector(".spinner") : null;
+  if (btnText) btnText.textContent = "جاري الحفظ...";
+  if (spinner) spinner.classList.remove("hidden");
+  if (saveBtn) saveBtn.disabled = true;
+
+  try {
+    const res = await apiRequest("/user/profile", {
+      method: "PUT",
+      body: JSON.stringify({ full_name: newName })
+    });
+    
+    if (res && res.status === "success") {
+      // 1. Update in-memory state
+      if (window.CURRENT_USER_DATA) {
+        window.CURRENT_USER_DATA.full_name = res.full_name;
+      }
+      
+      // 2. Instant live DOM sync across header, sidebar, drawer, and profile tab
+      const emailDisplayEl = document.getElementById("user-email-display");
+      if (emailDisplayEl) emailDisplayEl.textContent = res.full_name;
+
+      const drawerEmailEl = document.getElementById("drawer-email-display");
+      if (drawerEmailEl) drawerEmailEl.textContent = res.full_name;
+
+      const previewName = document.getElementById("profile-preview-name");
+      if (previewName) previewName.textContent = res.full_name;
+
+      // Initials update
+      const parts = res.full_name.trim().split(/\s+/);
+      let initials = "AT";
+      if (parts.length >= 2 && parts[0] && parts[1]) {
+        initials = (parts[0][0] + parts[1][0]).toUpperCase();
+      } else if (parts.length === 1 && parts[0].length >= 2) {
+        initials = parts[0].substring(0, 2).toUpperCase();
+      }
+      document.querySelectorAll(".user-avatar").forEach(el => el.textContent = initials);
+
+      // 3. Show success alert
+      if (alertBox) {
+        alertBox.className = "alert alert-success";
+        alertBox.style.background = "rgba(16, 185, 129, 0.15)";
+        alertBox.style.border = "1px solid rgba(16, 185, 129, 0.3)";
+        alertBox.style.color = "#34d399";
+        alertBox.textContent = "✓ تم تحديث وحفظ الاسم الظاهر بنجاح في كامل النظام!";
+        alertBox.classList.remove("hidden");
+        setTimeout(() => {
+          if (alertBox) alertBox.classList.add("hidden");
+        }, 4000);
+      }
+      showToast("تم تحديث الاسم بنجاح ✨", "success");
+    } else {
+      throw new Error(res?.detail || "فشل في حفظ التعديلات");
+    }
+  } catch (err) {
+    if (alertBox) {
+      alertBox.className = "alert alert-danger";
+      alertBox.style.background = "rgba(239, 68, 68, 0.15)";
+      alertBox.style.border = "1px solid rgba(239, 68, 68, 0.3)";
+      alertBox.style.color = "#f87171";
+      alertBox.textContent = "تعذر تحديث الاسم: " + (err.message || err);
+      alertBox.classList.remove("hidden");
+    }
+  } finally {
+    if (btnText) btnText.textContent = "حفظ التعديلات";
+    if (spinner) spinner.classList.add("hidden");
+    if (saveBtn) saveBtn.disabled = false;
+  }
+};
+

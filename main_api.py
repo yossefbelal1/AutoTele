@@ -637,6 +637,44 @@ async def get_user_subscription(user_id: int = Depends(get_current_user)):
             "proxy_port": tg_account.proxy_port if tg_account else None
         }
 
+class UserProfileUpdateReq(BaseModel):
+    full_name: str = Field(..., min_length=2, max_length=60)
+
+@app.get("/user/profile")
+async def get_user_profile(user_id: int = Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="المستخدم غير موجود")
+        return {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name or "",
+            "plan": user.subscription_plan,
+            "status": user.subscription_status,
+            "is_admin": user.is_admin
+        }
+
+@app.put("/user/profile")
+async def update_user_profile(req: UserProfileUpdateReq, user_id: int = Depends(get_current_user)):
+    raw_name = req.full_name.strip()
+    cleaned_name = _re.sub(r'<[^>]*>', '', raw_name).strip()
+    if len(cleaned_name) < 2 or len(cleaned_name) > 60:
+        raise HTTPException(status_code=400, detail="الاسم يجب أن يكون بين حرفين و 60 حرفاً")
+    
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="المستخدم غير موجود")
+        user.full_name = cleaned_name
+        await session.commit()
+        return {
+            "status": "success",
+            "message": "تم تحديث الاسم بنجاح",
+            "full_name": user.full_name,
+            "email": user.email
+        }
+
 @app.get("/user/status-bot-link")
 async def get_status_bot_link(user_id: int = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:

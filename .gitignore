@@ -47,3 +47,5 @@ scratch/
 tmp/
 *.session
 *.session-journal
+scripts/*.json
+
