@@ -117,6 +117,13 @@ async function apiRequest(endpoint, options = {}) {
         }
       } catch (e) {}
 
+      // If caller requested silent operation or if 404 (route/resource not found), suppress toast
+      if (options.silent || response.status === 404) {
+        const err = new Error(errorMessage);
+        err.status = response.status;
+        throw err;
+      }
+
       // Capture HTTP 420 (FloodWait) and HTTP 400 (Bad Requests) for localized toasts
       if (response.status === 420) {
         showToast(errorMessage || "تم تقييد الحساب مؤقتاً للفلود من تليجرام، يرجى الانتظار والمحاولة لاحقاً.", "error", 8000);
@@ -5383,7 +5390,7 @@ window.refreshCurrentExchangeSubtab = function() {
 
 window.loadExchangeOverview = async function(renderPending = true) {
   try {
-    const data = await apiRequest("/user/exchange/overview");
+    const data = await apiRequest("/user/exchange/overview", { silent: true });
     if (!data) return;
 
     const inCount = data.incoming_pending ?? data.summary?.pending_incoming ?? 0;
@@ -5421,7 +5428,7 @@ window.loadExchangeOverview = async function(renderPending = true) {
       const container = document.getElementById("exchange-overview-pending-container");
       if (container) {
         // Fetch recent incoming directly to ensure real list
-        const incData = await apiRequest("/user/exchange/requests/incoming?status=pending");
+        const incData = await apiRequest("/user/exchange/requests/incoming?status=pending", { silent: true });
         const list = Array.isArray(incData) ? incData : (incData?.requests || []);
         if (list.length === 0) {
           container.innerHTML = `<div style="text-align: center; color: #64748b; padding: 24px; font-size: 13px;">لا توجد طلبات واردة جديدة حالياً ✨</div>`;
@@ -5431,7 +5438,7 @@ window.loadExchangeOverview = async function(renderPending = true) {
       }
     }
   } catch (err) {
-    console.error("loadExchangeOverview error:", err);
+    // Gracefully ignore in background polling
   }
 };
 
