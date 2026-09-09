@@ -226,8 +226,9 @@ function showDashboardScreen() {
 // ==========================================
 const ROUTE_CONFIG = {
   "/app": { tabId: "tab-subscription", title: "لوحة التحكم والأوامر" },
-  "/app/campaigns": { tabId: "tab-subscription", scrollTo: "active-tasks-card-container", title: "الحملات والمهام" },
+  "/app/campaigns": { tabId: "tab-campaigns", title: "سجل الحملات والتقارير" },
   "/app/campaigns/new": { tabId: "tab-subscription", scrollTo: "campaign-panel-card", title: "إنشاء حملة جديدة" },
+  "/app/analytics": { tabId: "tab-analytics", title: "التحليلات والأداء" },
   "/app/connect": { tabId: "tab-connect", title: "معالج ربط المحرك الآمن" },
   "/app/engines": { tabId: "tab-connect", title: "معالج ربط المحرك الآمن" },
   "/app/engines/connect": { tabId: "tab-connect", title: "معالج ربط المحرك الآمن" },
@@ -235,16 +236,20 @@ const ROUTE_CONFIG = {
   "/app/billing": { tabId: "tab-plans", title: "الخطة والترقية" },
   "/app/settings/profile": { tabId: "tab-profile", title: "الملف الشخصي والإعدادات" },
   "/app/profile": { tabId: "tab-profile", title: "الملف الشخصي والإعدادات" },
-  "/app/notifications": { tabId: "tab-notifications", title: "مركز الإشعارات والتنبيهات" }
+  "/app/notifications": { tabId: "tab-notifications", title: "مركز الإشعارات والتنبيهات" },
+  "/app/health": { tabId: "tab-health", title: "صحة الحساب والمحرك السحابي" }
 };
 
 const TAB_TO_ROUTE_MAP = {
   "tab-subscription": "/app",
+  "tab-campaigns": "/app/campaigns",
+  "tab-analytics": "/app/analytics",
   "tab-plans": "/app/billing",
   "tab-connect": "/app/engines/connect",
   "tab-templates": "/app/templates",
   "tab-profile": "/app/settings/profile",
-  "tab-notifications": "/app/notifications"
+  "tab-notifications": "/app/notifications",
+  "tab-health": "/app/health"
 };
 
 window.scrollToCampaignForm = function() {
@@ -322,11 +327,14 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
   if (mobileTitle) {
     const compactTitles = {
       "tab-subscription": "لوحة التحكم",
+      "tab-campaigns": "سجل الحملات",
+      "tab-analytics": "التحليلات",
       "tab-connect": "ربط المحرك",
       "tab-templates": "مكتبة الصيغ",
       "tab-plans": "الخطط والترقية",
       "tab-profile": "الملف الشخصي",
-      "tab-notifications": "الإشعارات"
+      "tab-notifications": "الإشعارات",
+      "tab-health": "صحة النظام"
     };
     mobileTitle.textContent = compactTitles[tabId] || title;
   }
@@ -363,6 +371,12 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
     loadUserProfile();
   } else if (tabId === "tab-notifications") {
     loadNotificationsPage();
+  } else if (tabId === "tab-health") {
+    loadAccountHealthData();
+  } else if (tabId === "tab-campaigns") {
+    loadCampaignsHistory();
+  } else if (tabId === "tab-analytics") {
+    loadAnalyticsData();
   }
 
   // Close mobile drawer if opened
@@ -708,6 +722,13 @@ async function syncDashboardData() {
         botDisplay.style.color = "#708499";
       }
     }
+
+    // Sync Desktop/Mobile Header Engine Status Pill
+    const engineState = botStatus === "active" ? "connected" : (botStatus === "inactive" ? "recovering" : (botStatus ? "needs_attention" : "idle"));
+    updateHeaderEngineStatusPill({ state_badge: engineState, status: botStatus });
+
+    // Sync Onboarding Checklist (Compact - Auto hides on 5/5 completion)
+    checkAndRenderOnboardingChecklist(response);
     
     // Update proxy/account status indicators in campaign wizard (Null-safe)
     const accountStatusDot = document.getElementById("account-status-dot");
@@ -4102,6 +4123,594 @@ window.loadNotificationsPage = async function(category = null) {
 
 window.filterNotificationsPage = function(category) {
   loadNotificationsPage(category);
+};
+
+
+// ==========================================
+// ACCOUNT HEALTH & SELF-HEALING UX CONTROLLER
+// ==========================================
+async function loadAccountHealthData(isManual = false) {
+  const refreshBtn = document.getElementById("btn-refresh-health");
+  const spinner = refreshBtn ? refreshBtn.querySelector(".spinner") : null;
+  const btnText = refreshBtn ? refreshBtn.querySelector(".btn-text") : null;
+
+  if (isManual && refreshBtn) {
+    refreshBtn.disabled = true;
+    if (spinner) spinner.classList.remove("hidden");
+    if (btnText) btnText.textContent = "جاري الفحص اللحظي...";
+  }
+
+  try {
+    const data = await apiRequest("/user/health");
+    if (!data || data.status !== "success") {
+      throw new Error(data?.detail || "فشل جلب بيانات صحة النظام");
+    }
+
+    // 1. Overall Summary Banner
+    const banner = document.getElementById("health-summary-banner");
+    const bannerIcon = document.getElementById("health-summary-icon");
+    const bannerTitle = document.getElementById("health-summary-title");
+    const bannerDesc = document.getElementById("health-summary-desc");
+    const actionWrap = document.getElementById("health-summary-action-wrap");
+    const actionBtn = document.getElementById("health-summary-action-btn");
+
+    if (banner) {
+      banner.className = `health-summary-banner status-${data.overall_status || "healthy"}`;
+    }
+    if (bannerIcon) {
+      bannerIcon.textContent = data.overall_status === "error" ? "🔴" : data.overall_status === "warning" ? "🟡" : "🟢";
+    }
+    if (bannerTitle) bannerTitle.textContent = data.overall_title || "حالة النظام";
+    if (bannerDesc) bannerDesc.textContent = data.overall_desc || "";
+
+    if (actionWrap && actionBtn) {
+      if (data.primary_action && data.primary_action.action) {
+        actionWrap.classList.remove("hidden");
+        const action = data.primary_action;
+        actionBtn.innerHTML = `<span>${escapeHtml(action.action_label || "معالجة الآن")} ←</span>`;
+        actionBtn.onclick = () => navigate(action.action);
+        if (action.level === "error") {
+          actionBtn.className = "btn btn-danger btn-sm";
+        } else {
+          actionBtn.className = "btn btn-warning btn-sm";
+        }
+      } else {
+        actionWrap.classList.add("hidden");
+      }
+    }
+
+    // 2. Render Component Cards
+    const components = data.components || {};
+
+    const renderCard = (key, comp) => {
+      if (!comp) return;
+      const badge = document.getElementById(`health-badge-${key}`);
+      const title = document.getElementById(`health-title-${key}`);
+      const msg = document.getElementById(`health-msg-${key}`);
+      const footer = document.getElementById(`health-footer-${key}`);
+
+      const status = comp.status || "healthy";
+      const statusLabels = {
+        healthy: "سليم 🟢",
+        warning: "تنبيه 🟡",
+        error: "خطأ 🔴",
+        idle: "غير نشط ⚪",
+        connected: "متصل سحابياً 🟢",
+        recovering: "جاري الاستعادة 🟡",
+        needs_attention: "يحتاج تدخلاً 🔴"
+      };
+
+      const badgeKey = comp.state_badge || status;
+      if (badge) {
+        badge.className = `health-badge ${badgeKey}`;
+        badge.textContent = statusLabels[badgeKey] || status;
+      }
+      if (title) title.textContent = comp.title || comp.label || "";
+      if (msg) msg.textContent = comp.message || "";
+
+      if (footer) {
+        if (comp.action_url && comp.action_label) {
+          footer.innerHTML = `<button type="button" class="btn-health-action" onclick="navigate('${escapeHtml(comp.action_url)}')"><span>${escapeHtml(comp.action_label)}</span><span>←</span></button>`;
+        } else {
+          footer.innerHTML = `<span style="font-size: 11.5px; color: #10b981; display: inline-flex; align-items: center; gap: 4px;"><span>✓</span><span>مستقر ويعمل</span></span>`;
+        }
+      }
+    };
+
+    renderCard("telegram", components.telegram_account);
+    renderCard("engine", components.engine);
+    renderCard("proxy", components.proxy);
+    renderCard("channels", components.channels);
+    renderCard("queue", components.campaign_queue);
+    renderCard("subscription", components.subscription);
+
+    // 3. Update Header Engine Status Pill
+    updateHeaderEngineStatusPill(components.engine);
+
+    // 4. Update Checked Time
+    const timeEl = document.getElementById("health-last-checked-time");
+    if (timeEl) {
+      const now = new Date();
+      timeEl.textContent = now.toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    }
+
+    if (isManual) {
+      showToast("تم تحديث وفحص حالة المحرك والنظام بنجاح ✅", "success", 3000);
+    }
+  } catch (err) {
+    console.error("Health check error:", err);
+    if (isManual) {
+      showToast("تعذر جلب حالة النظام: " + err.message, "error");
+    }
+  } finally {
+    if (isManual && refreshBtn) {
+      refreshBtn.disabled = false;
+      if (spinner) spinner.classList.add("hidden");
+      if (btnText) btnText.textContent = "⚡ فحص وتحديث الحالة اللحظية الآن";
+    }
+  }
+}
+window.loadAccountHealthData = loadAccountHealthData;
+
+function updateHeaderEngineStatusPill(engineComp) {
+  const pill = document.getElementById("topbar-engine-status");
+  const dot = document.getElementById("topbar-engine-dot");
+  const text = document.getElementById("topbar-engine-text");
+  if (!pill || !text) return;
+
+  const state = engineComp ? (engineComp.state_badge || engineComp.status) : "idle";
+  if (state === "connected" || state === "healthy") {
+    pill.style.background = "rgba(16, 185, 129, 0.1)";
+    pill.style.borderColor = "rgba(16, 185, 129, 0.25)";
+    pill.style.color = "#10b981";
+    if (dot) dot.style.background = "#10b981";
+    text.textContent = "المحرك: متصل 🟢";
+  } else if (state === "recovering") {
+    pill.style.background = "rgba(245, 158, 11, 0.15)";
+    pill.style.borderColor = "rgba(245, 158, 11, 0.35)";
+    pill.style.color = "#fbbf24";
+    if (dot) dot.style.background = "#fbbf24";
+    text.textContent = "المحرك: جاري الاستعادة 🟡";
+  } else if (state === "needs_attention" || state === "error") {
+    pill.style.background = "rgba(244, 63, 94, 0.12)";
+    pill.style.borderColor = "rgba(244, 63, 94, 0.3)";
+    pill.style.color = "#f43f5e";
+    if (dot) dot.style.background = "#f43f5e";
+    text.textContent = "المحرك: يحتاج تدخلاً 🔴";
+  } else {
+    pill.style.background = "rgba(100, 116, 139, 0.12)";
+    pill.style.borderColor = "rgba(100, 116, 139, 0.25)";
+    pill.style.color = "#94a3b8";
+    if (dot) dot.style.background = "#94a3b8";
+    text.textContent = "المحرك السحابي";
+  }
+}
+window.updateHeaderEngineStatusPill = updateHeaderEngineStatusPill;
+
+
+// ==========================================
+// PHASE 5: CAMPAIGN HISTORY & REPORTS CONTROLLER
+// ==========================================
+let currentCampaignFilter = "all";
+let campaignSearchDebounceTimer = null;
+let currentModalCampaignId = null;
+
+async function loadCampaignsHistory(filter = null, isManual = false) {
+  if (filter !== null) {
+    currentCampaignFilter = filter;
+  }
+  const statusParam = currentCampaignFilter || "all";
+  const searchInput = document.getElementById("campaign-search-input");
+  const searchQuery = searchInput ? searchInput.value.trim() : "";
+
+  const refreshBtn = document.getElementById("btn-refresh-campaigns");
+  if (isManual && refreshBtn) refreshBtn.disabled = true;
+
+  try {
+    let url = `/user/campaigns?status=${encodeURIComponent(statusParam)}&limit=50`;
+    if (searchQuery) {
+      url += `&search=${encodeURIComponent(searchQuery)}`;
+    }
+
+    const data = await apiRequest(url);
+    if (!data || data.status !== "success") {
+      throw new Error(data?.detail || "فشل جلب سجل الحملات");
+    }
+
+    const campaigns = data.campaigns || [];
+    const total = data.total || campaigns.length;
+
+    // Update filter counts if all was fetched
+    const countAll = document.getElementById("campaigns-count-all");
+    if (statusParam === "all" && countAll) {
+      countAll.textContent = total;
+    }
+
+    // Render Table Body
+    const tbody = document.getElementById("campaigns-table-body");
+    const mobileContainer = document.getElementById("campaigns-mobile-cards-container");
+
+    if (campaigns.length === 0) {
+      if (tbody) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="7" style="text-align: center; padding: 40px; color: #94a3b8;">
+              <div style="font-size: 28px; margin-bottom: 8px;">📢</div>
+              <p style="margin: 0 0 10px 0; font-weight: 600;">لا توجد حملات تطابق المعايير المحددة</p>
+              <button type="button" class="btn btn-primary btn-sm" onclick="scrollToCampaignForm()">🚀 إطلاق أول حملة الآن</button>
+            </td>
+          </tr>
+        `;
+      }
+      if (mobileContainer) {
+        mobileContainer.innerHTML = `
+          <div class="card" style="text-align: center; padding: 30px; color: #94a3b8;">
+            <p style="margin: 0 0 10px 0;">لا توجد حملات مسجلة حالياً</p>
+            <button type="button" class="btn btn-primary btn-sm" onclick="scrollToCampaignForm()">🚀 إطلاق أول حملة</button>
+          </div>
+        `;
+      }
+      return;
+    }
+
+    // Build Table Rows
+    let rowsHtml = "";
+    let mobileCardsHtml = "";
+
+    campaigns.forEach(c => {
+      const isCompleted = c.status === "completed";
+      const isFailed = c.status === "failed";
+      const isPending = c.status === "pending";
+      const isProcessing = c.status === "processing" || c.status === "active";
+
+      const statusBadgeClass = isCompleted ? "healthy" : (isFailed ? "error" : "warning");
+      const progressFillClass = isCompleted ? "" : (isFailed ? "failed" : "pending");
+      const progressPercent = c.target_count > 0 ? Math.min(Math.round((c.completed_count / c.target_count) * 100), 100) : (isCompleted ? 100 : 0);
+
+      const createdDate = c.created_at ? new Date(c.created_at).toLocaleString("ar-SA", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "--";
+
+      rowsHtml += `
+        <tr>
+          <td style="font-weight: 700; color: #64748b;">#${c.id}</td>
+          <td>
+            <span class="campaign-type-badge">${escapeHtml(c.type_label || c.campaign_type)}</span>
+          </td>
+          <td style="max-width: 240px;">
+            <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #fff; font-weight: 500;" title="${escapeHtml(c.text_preview)}">
+              ${escapeHtml(c.text_preview)}
+            </div>
+            ${c.target_link ? `<div style="font-size: 11px; color: #38bdf8; direction: ltr; text-align: right; text-overflow: ellipsis; overflow: hidden;">${escapeHtml(c.target_link)}</div>` : ''}
+          </td>
+          <td>
+            <div class="campaign-progress-wrap">
+              <div style="display: flex; justify-content: space-between; font-size: 11.5px; font-weight: 600;">
+                <span>${c.completed_count} / ${c.target_count || '؟'}</span>
+                <span style="color: ${isCompleted ? '#10b981' : '#38bdf8'};">${progressPercent}%</span>
+              </div>
+              <div class="campaign-progress-bar-bg">
+                <div class="campaign-progress-bar-fill ${progressFillClass}" style="width: ${progressPercent}%;"></div>
+              </div>
+            </div>
+          </td>
+          <td>
+            <span class="health-badge ${statusBadgeClass}" style="font-size: 11px; padding: 2px 8px;">
+              ${escapeHtml(c.status_label || c.status)}
+            </span>
+          </td>
+          <td style="font-size: 12px; color: #94a3b8; white-space: nowrap;">
+            ${createdDate}
+          </td>
+          <td>
+            <button type="button" class="btn-health-action" onclick="openCampaignDetailsModal(${c.id})">
+              <span>تقرير 🔍</span>
+            </button>
+          </td>
+        </tr>
+      `;
+
+      mobileCardsHtml += `
+        <div class="card" style="background: rgba(15,23,42,0.7); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="color: #64748b; font-weight: 700;">#${c.id}</span>
+              <span class="campaign-type-badge">${escapeHtml(c.type_label || c.campaign_type)}</span>
+            </div>
+            <span class="health-badge ${statusBadgeClass}" style="font-size: 11px; padding: 2px 8px;">
+              ${escapeHtml(c.status_label || c.status)}
+            </span>
+          </div>
+          <p style="font-size: 13px; color: #fff; margin: 0 0 10px 0; line-height: 1.4;">${escapeHtml(c.text_preview)}</p>
+          <div style="margin-bottom: 12px;">
+            <div class="campaign-progress-wrap" style="width: 100%;">
+              <div style="display: flex; justify-content: space-between; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">
+                <span>القنوات: ${c.completed_count} من ${c.target_count || '؟'}</span>
+                <span>${progressPercent}%</span>
+              </div>
+              <div class="campaign-progress-bar-bg">
+                <div class="campaign-progress-bar-fill ${progressFillClass}" style="width: ${progressPercent}%;"></div>
+              </div>
+            </div>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px;">
+            <span style="font-size: 11px; color: #64748b;">${createdDate}</span>
+            <button type="button" class="btn-health-action" onclick="openCampaignDetailsModal(${c.id})">
+              <span>عرض التقرير والخط الزمني 🔍</span>
+            </button>
+          </div>
+        </div>
+      `;
+    });
+
+    if (tbody) tbody.innerHTML = rowsHtml;
+    if (mobileContainer) mobileContainer.innerHTML = mobileCardsHtml;
+
+    if (isManual) {
+      showToast("تم تحديث سجل الحملات بنجاح ✅", "success", 2000);
+    }
+  } catch (err) {
+    console.error("Load campaigns history error:", err);
+    if (isManual) showToast("تعذر جلب سجل الحملات: " + err.message, "error");
+  } finally {
+    if (isManual && refreshBtn) refreshBtn.disabled = false;
+  }
+}
+window.loadCampaignsHistory = loadCampaignsHistory;
+
+window.filterCampaignsList = function(filter) {
+  currentCampaignFilter = filter;
+  document.querySelectorAll("[data-filter]").forEach(btn => {
+    if (btn.getAttribute("data-filter") === filter) btn.classList.add("active");
+    else btn.classList.remove("active");
+  });
+  loadCampaignsHistory(filter);
+};
+
+window.debounceCampaignSearch = function() {
+  clearTimeout(campaignSearchDebounceTimer);
+  campaignSearchDebounceTimer = setTimeout(() => {
+    loadCampaignsHistory();
+  }, 350);
+};
+
+window.openCampaignDetailsModal = async function(taskId) {
+  currentModalCampaignId = taskId;
+  const modal = document.getElementById("campaign-details-modal");
+  const titleEl = document.getElementById("modal-campaign-title");
+  const badgeEl = document.getElementById("modal-campaign-badge");
+  const metaEl = document.getElementById("modal-campaign-meta");
+  const timelineEl = document.getElementById("modal-campaign-timeline");
+  const cancelBtn = document.getElementById("modal-campaign-cancel-btn");
+
+  if (!modal) return;
+  modal.classList.remove("hidden");
+
+  if (titleEl) titleEl.textContent = `تقرير الحملة #${taskId}`;
+  if (metaEl) metaEl.innerHTML = `<div class="spinner" style="margin: 20px auto;"></div>`;
+  if (timelineEl) timelineEl.innerHTML = `<div style="padding: 20px; color: #94a3b8; text-align: center;">جاري بناء الخط الزمني...</div>`;
+  if (cancelBtn) cancelBtn.classList.add("hidden");
+
+  try {
+    const data = await apiRequest(`/user/campaigns/${taskId}`);
+    if (!data || data.status !== "success" || !data.campaign) {
+      throw new Error(data?.detail || "فشل جلب تفاصيل الحملة");
+    }
+
+    const c = data.campaign;
+    if (badgeEl) {
+      badgeEl.textContent = c.status_label || c.status;
+      badgeEl.className = `badge ${c.status === 'completed' ? 'badge-success' : (c.status === 'failed' ? 'badge-danger' : 'badge-warning')}`;
+    }
+
+    if (metaEl) {
+      const createdStr = c.created_at ? new Date(c.created_at).toLocaleString("ar-SA") : "--";
+      const completedStr = c.completed_at ? new Date(c.completed_at).toLocaleString("ar-SA") : "قيد المعالجة";
+
+      metaEl.innerHTML = `
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 12px;">
+          <div><span style="color: #94a3b8;">النوع:</span> <strong style="color: #fff;">${escapeHtml(c.type_label || c.campaign_type)}</strong></div>
+          <div><span style="color: #94a3b8;">القنوات المكتملة:</span> <strong style="color: #10b981;">${c.completed_count} من ${c.target_count || '؟'}</strong></div>
+          <div><span style="color: #94a3b8;">الأخطاء:</span> <strong style="color: ${c.failed_count > 0 ? '#f43f5e' : '#94a3b8'};">${c.failed_count}</strong></div>
+          <div><span style="color: #94a3b8;">مدة بقاء الإعلان:</span> <strong style="color: #fff;">${c.ad_lifespan} دقيقة</strong></div>
+          <div><span style="color: #94a3b8;">تاريخ الإطلاق:</span> <span style="direction: ltr; display: inline-block;">${createdStr}</span></div>
+          <div><span style="color: #94a3b8;">تاريخ الانتهاء:</span> <span style="direction: ltr; display: inline-block;">${completedStr}</span></div>
+        </div>
+        ${c.custom_text ? `<div style="background: rgba(15,23,42,0.6); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); color: #cbd5e1; font-size: 12.5px;"><strong style="color: #fff; display: block; margin-bottom: 4px;">نص الإعلان:</strong> ${escapeHtml(c.custom_text)}</div>` : ''}
+      `;
+    }
+
+    // Build Visual Timeline
+    if (timelineEl && c.timeline) {
+      let tlHtml = "";
+      c.timeline.forEach((step, idx) => {
+        const dotStatus = step.status || "pending";
+        const timeStr = step.timestamp ? new Date(step.timestamp).toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
+
+        tlHtml += `
+          <div class="timeline-step-item">
+            <div class="timeline-step-dot ${dotStatus}">
+              ${dotStatus === 'done' ? '✓' : (dotStatus === 'error' ? '✕' : (dotStatus === 'active' ? '●' : '○'))}
+            </div>
+            <div class="timeline-step-title">${escapeHtml(step.title)}</div>
+            <p class="timeline-step-desc">${escapeHtml(step.desc)}</p>
+            ${timeStr ? `<span class="timeline-step-time">${timeStr}</span>` : ''}
+          </div>
+        `;
+      });
+      timelineEl.innerHTML = tlHtml;
+    }
+
+    // Show cancel button if campaign is pending or processing
+    if (cancelBtn && (c.status === "pending" || c.status === "processing")) {
+      cancelBtn.classList.remove("hidden");
+    }
+  } catch (err) {
+    console.error("Open campaign details error:", err);
+    if (metaEl) metaEl.innerHTML = `<p style="color: #f43f5e;">تعذر جلب تفاصيل الحملة: ${escapeHtml(err.message)}</p>`;
+  }
+};
+
+window.closeCampaignDetailsModal = function() {
+  document.getElementById("campaign-details-modal")?.classList.add("hidden");
+  currentModalCampaignId = null;
+};
+
+window.cancelModalCampaign = async function() {
+  if (!currentModalCampaignId) return;
+  if (!confirm(`هل أنت متأكد من إلغاء المهمة المجدولة #${currentModalCampaignId}؟`)) return;
+
+  try {
+    const res = await apiRequest(`/user/campaigns/${currentModalCampaignId}/cancel`, { method: "POST" });
+    if (res && res.status === "success") {
+      showToast(res.message || "تم إلغاء الحملة بنجاح ✅", "success");
+      closeCampaignDetailsModal();
+      loadCampaignsHistory(currentCampaignFilter);
+    } else {
+      throw new Error(res?.detail || "فشل إلغاء المهمة");
+    }
+  } catch (err) {
+    showToast("تعذر إلغاء المهمة: " + err.message, "error");
+  }
+};
+
+
+// ==========================================
+// PHASE 6: ANALYTICS & METRICS CONTROLLER
+// ==========================================
+async function loadAnalyticsData(isManual = false) {
+  const refreshBtn = document.getElementById("btn-refresh-analytics");
+  if (isManual && refreshBtn) refreshBtn.disabled = true;
+
+  try {
+    const data = await apiRequest("/user/analytics");
+    if (!data || data.status !== "success") {
+      throw new Error(data?.detail || "فشل جلب بيانات التحليلات");
+    }
+
+    const m = data.metrics || {};
+    const trends = data.daily_trends || [];
+
+    // 1. Core Metric Cards
+    const totalEl = document.getElementById("metric-total-campaigns");
+    const successEl = document.getElementById("metric-success-rate");
+    const msgsEl = document.getElementById("metric-total-messages");
+    const reachEl = document.getElementById("metric-unique-channels");
+    const subCampEl = document.getElementById("metric-sub-campaigns");
+
+    if (totalEl) totalEl.textContent = m.total_campaigns || 0;
+    if (successEl) {
+      successEl.textContent = `${m.success_rate !== undefined ? m.success_rate : 100}%`;
+      successEl.style.color = m.success_rate >= 80 ? "#10b981" : (m.success_rate >= 50 ? "#f59e0b" : "#f43f5e");
+    }
+    if (msgsEl) msgsEl.textContent = m.total_messages || 0;
+    if (reachEl) reachEl.textContent = m.unique_channels_reached || 0;
+    if (subCampEl) {
+      subCampEl.textContent = `${m.completed_campaigns || 0} مكتملة | ${m.active_campaigns || 0} نشطة | ${m.failed_campaigns || 0} فاشلة`;
+    }
+
+    // 2. 7-Day Bar Chart
+    const chartContainer = document.getElementById("analytics-chart-bars");
+    if (chartContainer) {
+      if (trends.length === 0) {
+        chartContainer.innerHTML = `<div style="width: 100%; text-align: center; color: #94a3b8; padding: 40px 0;">لا توجد بيانات نشاط مسجلة خلال الأسبوع الماضي</div>`;
+      } else {
+        const maxVal = Math.max(...trends.map(t => Math.max(t.messages, t.campaigns, 1)), 5);
+        let barsHtml = "";
+
+        trends.forEach(t => {
+          const msgHeight = Math.max(Math.round((t.messages / maxVal) * 140), 6);
+          barsHtml += `
+            <div class="analytics-bar-col" title="${t.day_name} (${t.date}): ${t.messages} رسالة / ${t.campaigns} حملة">
+              <span style="font-size: 11px; font-weight: 700; color: #fff;">${t.messages > 0 ? t.messages : ''}</span>
+              <div class="analytics-bar-fill" style="height: ${msgHeight}px;"></div>
+              <span class="analytics-bar-label">${t.day_name}</span>
+            </div>
+          `;
+        });
+        chartContainer.innerHTML = barsHtml;
+      }
+    }
+
+    if (isManual) {
+      showToast("تم تحديث مؤشرات الأداء والتحليلات بنجاح ✅", "success", 2000);
+    }
+  } catch (err) {
+    console.error("Analytics load error:", err);
+    if (isManual) showToast("تعذر جلب التحليلات: " + err.message, "error");
+  } finally {
+    if (isManual && refreshBtn) refreshBtn.disabled = false;
+  }
+}
+window.loadAnalyticsData = loadAnalyticsData;
+
+
+// ==========================================
+// PHASE 7: FIRST-TIME SETUP / ONBOARDING CHECKLIST
+// ==========================================
+let onboardingNextRoute = "/app/engines/connect";
+
+function checkAndRenderOnboardingChecklist(dashboardData) {
+  const card = document.getElementById("onboarding-checklist-card");
+  if (!card) return;
+
+  const isRegistered = true; // User is logged in
+  const isSubActive = dashboardData && (dashboardData.subscription_status === "active" || dashboardData.is_trial);
+  const isAccountConnected = !!(dashboardData && dashboardData.telegram_account_id);
+  const hasChannels = !!(dashboardData && dashboardData.total_channels_count > 0);
+  const hasCampaigns = !!(dashboardData && (dashboardData.total_tasks_count > 0 || (dashboardData.active_tasks && dashboardData.active_tasks.length > 0)));
+
+  const steps = [
+    { id: "ob-step-1", completed: isRegistered, label: "1. إنشاء الحساب", route: null },
+    { id: "ob-step-2", completed: isSubActive, label: "2. تفعيل الاشتراك", route: "/app/billing" },
+    { id: "ob-step-3", completed: isAccountConnected, label: "3. ربط تليجرام", route: "/app/engines/connect" },
+    { id: "ob-step-4", completed: hasChannels, label: "4. مزامنة القنوات", route: "/app/engines/connect" },
+    { id: "ob-step-5", completed: hasCampaigns, label: "5. أول حملة", route: "/app" }
+  ];
+
+  let completedCount = 0;
+  let firstIncomplete = null;
+
+  steps.forEach(s => {
+    const el = document.getElementById(s.id);
+    if (s.completed) {
+      completedCount++;
+      if (el) {
+        el.className = "onboarding-step-pill completed";
+        el.innerHTML = `✓ ${s.label}`;
+      }
+    } else {
+      if (!firstIncomplete) firstIncomplete = s;
+      if (el) {
+        el.className = "onboarding-step-pill";
+        el.innerHTML = `<span class="ob-icon">○</span> ${s.label}`;
+      }
+    }
+  });
+
+  // Strict Rule: If 5 of 5 are complete, hide card permanently!
+  if (completedCount === 5) {
+    card.classList.add("hidden");
+    return;
+  }
+
+  // Otherwise, show card and set next action
+  card.classList.remove("hidden");
+  const badge = document.getElementById("onboarding-progress-badge");
+  if (badge) badge.textContent = `${completedCount} / 5 مكتمل`;
+
+  const actionText = document.getElementById("onboarding-action-text");
+  if (firstIncomplete) {
+    onboardingNextRoute = firstIncomplete.route;
+    if (actionText) actionText.textContent = `متابعة: ${firstIncomplete.label} ←`;
+  }
+}
+window.checkAndRenderOnboardingChecklist = checkAndRenderOnboardingChecklist;
+
+window.handleOnboardingNextAction = function() {
+  if (onboardingNextRoute === "/app") {
+    scrollToCampaignForm();
+  } else if (onboardingNextRoute) {
+    navigate(onboardingNextRoute);
+  }
 };
 
 

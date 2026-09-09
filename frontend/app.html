@@ -404,9 +404,21 @@
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
             <span>لوحة التحكم والأوامر</span>
           </button>
+          <button class="drawer-nav-item" data-tab="tab-campaigns" data-route="/app/campaigns" onclick="navigate('/app/campaigns'); closeMobileDrawer();">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <span>سجل الحملات والتقارير</span>
+          </button>
+          <button class="drawer-nav-item" data-tab="tab-analytics" data-route="/app/analytics" onclick="navigate('/app/analytics'); closeMobileDrawer();">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+            <span>التحليلات والأداء</span>
+          </button>
           <button class="drawer-nav-item" data-tab="tab-connect" data-route="/app/engines/connect" onclick="navigate('/app/engines/connect'); closeMobileDrawer();">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
             <span>معالج ربط المحرك ⚡</span>
+          </button>
+          <button class="drawer-nav-item" data-tab="tab-health" data-route="/app/health" onclick="navigate('/app/health'); closeMobileDrawer();">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            <span>صحة النظام والمحرك</span>
           </button>
           <button class="drawer-nav-item" data-tab="tab-templates" data-route="/app/templates" onclick="navigate('/app/templates'); closeMobileDrawer();">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
@@ -488,9 +500,21 @@
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
             <span>لوحة التحكم والأوامر</span>
           </button>
+          <button class="nav-tab" data-tab="tab-campaigns" data-route="/app/campaigns">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <span>سجل الحملات والتقارير</span>
+          </button>
+          <button class="nav-tab" data-tab="tab-analytics" data-route="/app/analytics">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+            <span>التحليلات والأداء</span>
+          </button>
           <button class="nav-tab" data-tab="tab-connect" data-route="/app/engines/connect">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
             <span>معالج ربط المحرك ⚡</span>
+          </button>
+          <button class="nav-tab" data-tab="tab-health" data-route="/app/health">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            <span>صحة النظام والمحرك</span>
           </button>
           <button class="nav-tab" data-tab="tab-templates" data-route="/app/templates">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
@@ -535,8 +559,8 @@
           </div>
           
           <div class="topbar-right" style="display: flex; align-items: center; gap: 14px;">
-            <div id="topbar-engine-status" class="engine-status-pill" style="display: flex; align-items: center; gap: 6px; padding: 5px 12px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 20px; font-size: 12px; color: #10b981; font-weight: 600;">
-              <span style="width: 7px; height: 7px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
+            <div id="topbar-engine-status" class="engine-status-pill" onclick="navigate('/app/health')" title="عرض تقرير صحة الحساب والمحرك السحابي" style="display: flex; align-items: center; gap: 6px; padding: 5px 12px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 20px; font-size: 12px; color: #10b981; font-weight: 600; cursor: pointer; transition: all 0.2s ease;">
+              <span id="topbar-engine-dot" style="width: 7px; height: 7px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
               <span id="topbar-engine-text">المحرك السحابي</span>
             </div>
             
@@ -591,6 +615,27 @@
         <section id="tab-subscription" class="tab-panel">
           <div class="panel-header compact-sub-header">
             <h2 class="panel-title">ملخص الاشتراك وحالة المحرك</h2>
+          </div>
+
+          <!-- Onboarding Checklist (Compact - Auto hides on 5/5 completion) -->
+          <div id="onboarding-checklist-card" class="onboarding-checklist-card hidden">
+            <div class="onboarding-header">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 18px;">🚀</span>
+                <span style="font-weight: 700; font-size: 13.5px; color: #fff;">دليل الإعداد السريع لحسابك</span>
+                <span id="onboarding-progress-badge" class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 11px; padding: 2px 8px; border-radius: 10px;">0 / 5</span>
+              </div>
+              <button type="button" id="onboarding-action-btn" class="btn btn-primary btn-sm" onclick="handleOnboardingNextAction()" style="padding: 4px 12px; font-size: 11.5px; border-radius: 6px; font-weight: 700;">
+                <span id="onboarding-action-text">متابعة الإعداد</span>
+              </button>
+            </div>
+            <div class="onboarding-steps-list">
+              <span class="onboarding-step-pill completed" id="ob-step-1">✓ 1. إنشاء الحساب</span>
+              <span class="onboarding-step-pill" id="ob-step-2"><span class="ob-icon">○</span> 2. تفعيل الاشتراك</span>
+              <span class="onboarding-step-pill" id="ob-step-3"><span class="ob-icon">○</span> 3. ربط تليجرام</span>
+              <span class="onboarding-step-pill" id="ob-step-4"><span class="ob-icon">○</span> 4. مزامنة القنوات</span>
+              <span class="onboarding-step-pill" id="ob-step-5"><span class="ob-icon">○</span> 5. أول حملة</span>
+            </div>
           </div>
           
           <!-- Consolidated Subscription, Plan & Engine Overview Box (Compact 20-30% Size) -->
@@ -1635,6 +1680,308 @@
           </div>
         </section>
 
+        <!-- Section: Account & Engine Health -->
+        <section id="tab-health" class="tab-panel hidden">
+          <div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px;">
+            <div>
+              <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0;">
+                <span>🩺</span>
+                <span>صحة الحساب والمحرك السحابي</span>
+              </h1>
+              <p class="panel-subtitle" style="margin: 0;">فحص لحظي شامل لحالة تليجرام، المحرك السحابي، البروكسي، القنوات، وطابور المهام</p>
+            </div>
+            
+            <div>
+              <button type="button" id="btn-refresh-health" class="btn btn-secondary btn-sm" onclick="loadAccountHealthData(true)" style="padding: 8px 16px; font-size: 13px; border-radius: 8px; font-weight: 600; display: inline-flex; align-items: center; gap: 8px;">
+                <span class="btn-text">⚡ فحص وتحديث الحالة اللحظية الآن</span>
+                <span class="spinner hidden" style="width: 14px; height: 14px;"></span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Top Summary Alert Banner -->
+          <div id="health-summary-banner" class="health-summary-banner status-healthy">
+            <div style="display: flex; align-items: center; gap: 16px;">
+              <div class="health-summary-icon" id="health-summary-icon">🟢</div>
+              <div>
+                <h3 id="health-summary-title" style="margin: 0 0 4px 0; font-size: 16px; font-weight: 800; color: #fff;">جاري فحص حالة النظام والمحرك...</h3>
+                <p id="health-summary-desc" style="margin: 0; font-size: 13px; color: #cbd5e1;">يتم استرداد بيانات التشغيل اللحظية من السيرفر.</p>
+              </div>
+            </div>
+            <div id="health-summary-action-wrap" class="hidden">
+              <button type="button" id="health-summary-action-btn" class="btn btn-primary btn-sm" style="padding: 8px 18px; font-size: 13px; font-weight: 700; border-radius: 8px;">
+                <span>إجراء مقترح</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 6 Components Grid -->
+          <div class="health-grid">
+            <!-- 1. Telegram Account -->
+            <div class="health-card" id="card-health-telegram">
+              <div>
+                <div class="health-card-header">
+                  <div class="health-card-title-wrap">
+                    <span class="health-card-icon">📱</span>
+                    <span style="font-weight: 700; font-size: 14px; color: #fff;">حساب تليجرام</span>
+                  </div>
+                  <span class="health-badge healthy" id="health-badge-telegram">--</span>
+                </div>
+                <div class="health-card-body">
+                  <div class="health-card-headline" id="health-title-telegram">--</div>
+                  <p class="health-card-msg" id="health-msg-telegram">جاري الفحص...</p>
+                </div>
+              </div>
+              <div class="health-card-footer" id="health-footer-telegram">
+                <!-- Action link injected here -->
+              </div>
+            </div>
+
+            <!-- 2. Engine & Self-Healing -->
+            <div class="health-card" id="card-health-engine">
+              <div>
+                <div class="health-card-header">
+                  <div class="health-card-title-wrap">
+                    <span class="health-card-icon">⚡</span>
+                    <span style="font-weight: 700; font-size: 14px; color: #fff;">المحرك السحابي</span>
+                  </div>
+                  <span class="health-badge healthy" id="health-badge-engine">--</span>
+                </div>
+                <div class="health-card-body">
+                  <div class="health-card-headline" id="health-title-engine">--</div>
+                  <p class="health-card-msg" id="health-msg-engine">جاري الفحص...</p>
+                </div>
+              </div>
+              <div class="health-card-footer" id="health-footer-engine">
+                <!-- Action link injected here -->
+              </div>
+            </div>
+
+            <!-- 3. Proxy & Network -->
+            <div class="health-card" id="card-health-proxy">
+              <div>
+                <div class="health-card-header">
+                  <div class="health-card-title-wrap">
+                    <span class="health-card-icon">🛡️</span>
+                    <span style="font-weight: 700; font-size: 14px; color: #fff;">البروكسي والأمان</span>
+                  </div>
+                  <span class="health-badge healthy" id="health-badge-proxy">--</span>
+                </div>
+                <div class="health-card-body">
+                  <div class="health-card-headline" id="health-title-proxy">--</div>
+                  <p class="health-card-msg" id="health-msg-proxy">جاري الفحص...</p>
+                </div>
+              </div>
+              <div class="health-card-footer" id="health-footer-proxy">
+                <!-- Action link injected here -->
+              </div>
+            </div>
+
+            <!-- 4. Channels Sync -->
+            <div class="health-card" id="card-health-channels">
+              <div>
+                <div class="health-card-header">
+                  <div class="health-card-title-wrap">
+                    <span class="health-card-icon">📡</span>
+                    <span style="font-weight: 700; font-size: 14px; color: #fff;">مزامنة القنوات</span>
+                  </div>
+                  <span class="health-badge healthy" id="health-badge-channels">--</span>
+                </div>
+                <div class="health-card-body">
+                  <div class="health-card-headline" id="health-title-channels">--</div>
+                  <p class="health-card-msg" id="health-msg-channels">جاري الفحص...</p>
+                </div>
+              </div>
+              <div class="health-card-footer" id="health-footer-channels">
+                <!-- Action link injected here -->
+              </div>
+            </div>
+
+            <!-- 5. Campaign Queue -->
+            <div class="health-card" id="card-health-queue">
+              <div>
+                <div class="health-card-header">
+                  <div class="health-card-title-wrap">
+                    <span class="health-card-icon">📢</span>
+                    <span style="font-weight: 700; font-size: 14px; color: #fff;">طابور الحملات</span>
+                  </div>
+                  <span class="health-badge healthy" id="health-badge-queue">--</span>
+                </div>
+                <div class="health-card-body">
+                  <div class="health-card-headline" id="health-title-queue">--</div>
+                  <p class="health-card-msg" id="health-msg-queue">جاري الفحص...</p>
+                </div>
+              </div>
+              <div class="health-card-footer" id="health-footer-queue">
+                <!-- Action link injected here -->
+              </div>
+            </div>
+
+            <!-- 6. Subscription & License -->
+            <div class="health-card" id="card-health-subscription">
+              <div>
+                <div class="health-card-header">
+                  <div class="health-card-title-wrap">
+                    <span class="health-card-icon">💳</span>
+                    <span style="font-weight: 700; font-size: 14px; color: #fff;">الاشتراك والرخصة</span>
+                  </div>
+                  <span class="health-badge healthy" id="health-badge-subscription">--</span>
+                </div>
+                <div class="health-card-body">
+                  <div class="health-card-headline" id="health-title-subscription">--</div>
+                  <p class="health-card-msg" id="health-msg-subscription">جاري الفحص...</p>
+                </div>
+              </div>
+              <div class="health-card-footer" id="health-footer-subscription">
+                <!-- Action link injected here -->
+              </div>
+            </div>
+          </div>
+
+          <div style="font-size: 12px; color: #64748b; text-align: center; margin-top: 14px;">
+            <span>آخر فحص وتحديث: </span><span id="health-last-checked-time">--</span>
+          </div>
+        </section>
+
+        <!-- Section: Campaign History & Advanced Reports -->
+        <section id="tab-campaigns" class="tab-panel hidden">
+          <div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px;">
+            <div>
+              <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0;">
+                <span>📢</span>
+                <span>سجل الحملات والتقارير المتقدمة</span>
+              </h1>
+              <p class="panel-subtitle" style="margin: 0;">أرشيف تفصيلي لجميع حملات النشر المنفذة، نسبة الوصول، والجدول الزمني</p>
+            </div>
+            
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <button type="button" class="btn btn-primary btn-sm" onclick="scrollToCampaignForm()" style="padding: 8px 16px; font-size: 13px; border-radius: 8px; font-weight: 700;">
+                <span>🚀 إطلاق حملة جديدة</span>
+              </button>
+              <button type="button" id="btn-refresh-campaigns" class="btn btn-secondary btn-sm" onclick="loadCampaignsHistory(currentCampaignFilter, true)" style="padding: 8px 14px; font-size: 13px; border-radius: 8px; font-weight: 600;">
+                <span>🔄 تحديث</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Campaign Filters Bar -->
+          <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 12px;">
+            <div class="notif-filter-bar" style="display: flex; gap: 8px; overflow-x: auto;">
+              <button type="button" class="btn btn-sm notif-filter-btn active" data-filter="all" onclick="filterCampaignsList('all')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">الكل (<span id="campaigns-count-all">0</span>)</button>
+              <button type="button" class="btn btn-sm notif-filter-btn" data-filter="active" onclick="filterCampaignsList('active')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">النشطة حالياً (<span id="campaigns-count-active">0</span>)</button>
+              <button type="button" class="btn btn-sm notif-filter-btn" data-filter="completed" onclick="filterCampaignsList('completed')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">المكتملة بنجاح (<span id="campaigns-count-completed">0</span>)</button>
+              <button type="button" class="btn btn-sm notif-filter-btn" data-filter="failed" onclick="filterCampaignsList('failed')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">المتعذرة أو الملغاة (<span id="campaigns-count-failed">0</span>)</button>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 8px; min-width: 240px;">
+              <input type="text" id="campaign-search-input" placeholder="بحث في نص أو رابط الحملة..." oninput="debounceCampaignSearch()" style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 6px 12px; border-radius: 8px; font-size: 12.5px; width: 100%;">
+            </div>
+          </div>
+
+          <!-- Campaigns Table Container -->
+          <div class="campaign-table-container">
+            <table class="campaign-history-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>نوع الحملة</th>
+                  <th>نص الإعلان أو الرابط</th>
+                  <th>القنوات والتقدم</th>
+                  <th>الحالة</th>
+                  <th>تاريخ الإطلاق</th>
+                  <th>التقرير</th>
+                </tr>
+              </thead>
+              <tbody id="campaigns-table-body">
+                <tr>
+                  <td colspan="7" style="text-align: center; padding: 40px; color: #94a3b8;">
+                    <div class="spinner" style="margin: 0 auto 10px auto;"></div>
+                    <span>جاري تحميل سجل الحملات...</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Mobile Cards Container (Shown on small screens) -->
+          <div id="campaigns-mobile-cards-container" class="mobile-only" style="display: none; flex-direction: column; gap: 12px; margin-top: 14px;">
+            <!-- Mobile cards rendered via JS -->
+          </div>
+        </section>
+
+        <!-- Section: Analytics & Performance Metrics -->
+        <section id="tab-analytics" class="tab-panel hidden">
+          <div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px;">
+            <div>
+              <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0;">
+                <span>📊</span>
+                <span>مركز التحليلات وإحصائيات الأداء</span>
+              </h1>
+              <p class="panel-subtitle" style="margin: 0;">أرقام حقيقية موثوقة ومباشرة من قاعدة البيانات وسجلات النشر الفعلية</p>
+            </div>
+            
+            <button type="button" id="btn-refresh-analytics" class="btn btn-secondary btn-sm" onclick="loadAnalyticsData(true)" style="padding: 8px 14px; font-size: 13px; border-radius: 8px; font-weight: 600;">
+              <span>🔄 تحديث الأرقام</span>
+            </button>
+          </div>
+
+          <!-- 4 Core Metric Cards -->
+          <div class="analytics-metrics-grid">
+            <div class="metric-box">
+              <div class="metric-box-header">
+                <span class="metric-box-title">إجمالي الحملات</span>
+                <span class="metric-box-icon">📢</span>
+              </div>
+              <div class="metric-box-value" id="metric-total-campaigns">0</div>
+              <p class="metric-box-sub" id="metric-sub-campaigns">جميع مهام النشر المجدولة</p>
+            </div>
+
+            <div class="metric-box">
+              <div class="metric-box-header">
+                <span class="metric-box-title">نسبة النجاح الفعلية</span>
+                <span class="metric-box-icon">🎯</span>
+              </div>
+              <div class="metric-box-value" id="metric-success-rate" style="color: #10b981;">100%</div>
+              <p class="metric-box-sub">معدل الحملات المكتملة بنجاح</p>
+            </div>
+
+            <div class="metric-box">
+              <div class="metric-box-header">
+                <span class="metric-box-title">الرسائل المنشورة</span>
+                <span class="metric-box-icon">✉️</span>
+              </div>
+              <div class="metric-box-value" id="metric-total-messages">0</div>
+              <p class="metric-box-sub">إجمالي الإعلانات بالقنوات</p>
+            </div>
+
+            <div class="metric-box">
+              <div class="metric-box-header">
+                <span class="metric-box-title">وصول القنوات الفريد</span>
+                <span class="metric-box-icon">📡</span>
+              </div>
+              <div class="metric-box-value" id="metric-unique-channels">0</div>
+              <p class="metric-box-sub">قنوات ومجموعات تم الوصول لها</p>
+            </div>
+          </div>
+
+          <!-- 7-Day Activity Chart Card -->
+          <div class="analytics-chart-card">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+              <div>
+                <h3 style="margin: 0 0 4px 0; font-size: 15px; font-weight: 700; color: #fff;">نشاط النشر والحملات خلال آخر 7 أيام</h3>
+                <p style="margin: 0; font-size: 12.5px; color: #94a3b8;">معدل الرسائل والمهام اليومية المنفذة في قنواتك</p>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; font-size: 11.5px; color: #94a3b8;">
+                <span style="display: flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; background: #38bdf8; border-radius: 2px;"></span> الرسائل</span>
+              </div>
+            </div>
+
+            <div class="analytics-bars-wrap" id="analytics-chart-bars">
+              <!-- Rendered via JS -->
+            </div>
+          </div>
+        </section>
+
         <!-- Section: User Profile & Settings -->
         <section id="tab-profile" class="tab-panel hidden">
           <div class="panel-header">
@@ -2096,6 +2443,43 @@
           <button type="submit" id="btn-save-edit-job" style="padding: 10px 22px; background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; border-radius: 8px; color: #fff; font-size: 13.5px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4);">💾 حفظ التعديلات</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Modal: Campaign Details & Visual Timeline -->
+  <div id="campaign-details-modal" class="modal-overlay hidden" style="position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,0.75); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; padding: 16px;">
+    <div class="modal-content" style="background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 18px; width: 100%; max-width: 680px; max-height: 90vh; overflow-y: auto; padding: 24px; box-shadow: 0 20px 50px rgba(0,0,0,0.5);">
+      <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 16px; margin-bottom: 20px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 22px;">📢</span>
+          <div>
+            <h3 id="modal-campaign-title" style="margin: 0 0 2px 0; font-size: 16px; font-weight: 800; color: #fff;">تقرير الحملة #--</h3>
+            <span id="modal-campaign-badge" class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 11px; padding: 2px 8px; border-radius: 6px;">--</span>
+          </div>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeCampaignDetailsModal()" style="background: none; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; padding: 4px 8px;">✕</button>
+      </div>
+
+      <!-- Campaign Summary Box -->
+      <div id="modal-campaign-meta" style="background: rgba(30,41,59,0.5); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 16px; margin-bottom: 20px; font-size: 13px;">
+        <!-- Injected via JS -->
+      </div>
+
+      <!-- Visual Timeline -->
+      <h4 style="margin: 0 0 14px 0; font-size: 14px; font-weight: 700; color: #38bdf8;">الخط الزمني لتنفيذ الحملة (Visual Timeline)</h4>
+      <div class="timeline-container" id="modal-campaign-timeline">
+        <!-- Injected via JS -->
+      </div>
+
+      <!-- Footer Actions -->
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 24px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 16px;">
+        <button type="button" id="modal-campaign-cancel-btn" class="btn btn-danger btn-sm hidden" onclick="cancelModalCampaign()" style="padding: 6px 14px; font-size: 12px; border-radius: 8px;">
+          <span>إلغاء المهمة فوراً ✕</span>
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="closeCampaignDetailsModal()" style="padding: 6px 16px; font-size: 12.5px; border-radius: 8px; margin-right: auto;">
+          <span>إغلاق</span>
+        </button>
+      </div>
     </div>
   </div>
 

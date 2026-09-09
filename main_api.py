@@ -675,6 +675,657 @@ async def update_user_profile(req: UserProfileUpdateReq, user_id: int = Depends(
             "email": user.email
         }
 
+@app.get("/user/health")
+async def get_user_health(user_id: int = Depends(get_current_user)):
+    """
+    Plain-language 6-component health and self-healing diagnostic for user.
+    Returns human-friendly Arabic messages, component health statuses,
+    and single-click corrective actions.
+    """
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="المستخدم غير موجود")
+        
+        now = datetime.now(timezone.utc)
+        sub_end = user.subscription_end
+        if sub_end.tzinfo is None:
+            sub_end = sub_end.replace(tzinfo=timezone.utc)
+        remaining_days = max(0, int((sub_end - now).total_seconds() / 86400))
+        is_sub_active = sub_end > now and user.subscription_status == "active"
+
+        # Fetch primary Telegram account
+        tg_account = (await session.execute(
+            select(TelegramAccount).where(
+                TelegramAccount.user_id == user_id,
+                TelegramAccount.status == "active"
+            )
+        )).scalars().first()
+        if not tg_account:
+            tg_account = (await session.execute(
+                select(TelegramAccount).where(TelegramAccount.user_id == user_id)
+            )).scalars().first()
+
+        components = {}
+        issues = []
+
+        # 1. Telegram Account
+        if not tg_account:
+            components["telegram_account"] = {
+                "status": "error",
+                "label": "حساب التليجرام",
+                "title": "غير مرتبط بعد",
+                "message": "لم يتم ربط أي رقم تليجرام بهذا الحساب حتى الآن.",
+                "action_label": "ربط المحرك الآن",
+                "action_url": "/app/engines/connect"
+            }
+            issues.append({"level": "error", "component": "telegram_account", "action": "/app/engines/connect", "action_label": "ربط المحرك"})
+        elif tg_account.status == "active":
+            components["telegram_account"] = {
+                "status": "healthy",
+                "label": "حساب التليجرام",
+                "title": "متصل ومفعل",
+                "phone": tg_account.phone,
+                "message": f"الحساب السحابي مرتبط بنجاح بالرقم {tg_account.phone} وجلسة العمل آمنة ومستقرة.",
+                "action_label": None,
+                "action_url": None
+            }
+        elif tg_account.status in ["paused", "stopped"]:
+            components["telegram_account"] = {
+                "status": "warning",
+                "label": "حساب التليجرام",
+                "title": "متوقف مؤقتاً",
+                "phone": tg_account.phone,
+                "message": "تم إيقاف النشر والمزامنة مؤقتاً لهذا الحساب. يمكنك استئناف العمل بضغطة زر.",
+                "action_label": "استئناف التشغيل",
+                "action_url": "/app/engines/connect"
+            }
+            issues.append({"level": "warning", "component": "telegram_account", "action": "/app/engines/connect", "action_label": "استئناف التشغيل"})
+        else: # banned, error
+            components["telegram_account"] = {
+                "status": "error",
+                "label": "حساب التليجرام",
+                "title": "يحتاج لإعادة الربط",
+                "phone": tg_account.phone,
+                "message": "انتهت جلسة تليجرام أو تغيرت بيانات الاعتماد، يرجى إعادة الربط السحابي لتشغيل المحرك.",
+                "action_label": "إعادة ربط الحساب",
+                "action_url": "/app/engines/connect"
+            }
+            issues.append({"level": "error", "component": "telegram_account", "action": "/app/engines/connect", "action_label": "إعادة ربط الحساب"})
+
+        # 2. Cloud Engine (Phase 4 Self-Healing Translation)
+        redis_ok = False
+        try:
+            await redis_client.ping()
+            redis_ok = True
+        except Exception:
+            redis_ok = False
+
+        if not tg_account or tg_account.status != "active":
+            components["engine"] = {
+                "status": "idle",
+                "label": "المحرك السحابي",
+                "title": "في وضع الاستعداد",
+                "message": "المحرك السحابي بانتظار تنشيط أو ربط حساب التليجرام للانطلاق.",
+                "action_label": "تنشيط المحرك",
+                "action_url": "/app/engines/connect"
+            }
+        elif redis_ok:
+            components["engine"] = {
+                "status": "healthy",
+                "label": "المحرك السحابي",
+                "title": "متصل وجاهز سحابياً",
+                "message": "المحرك السحابي يعمل بكفاءة عالية وعلى أتم الاستعداد لمعالجة وتنفيذ الحملات.",
+                "action_label": None,
+                "action_url": None
+            }
+        else:
+            components["engine"] = {
+                "status": "recovering",
+                "label": "المحرك السحابي",
+                "title": "جاري استعادة الاتصال تلقائياً...",
+                "message": "يقوم النظام حالياً بإعادة تهيئة قنوات الاتصال السحابية دون فقدان أي مهام مجدولة.",
+                "action_label": "تحديث الفحص",
+                "action_url": "/app/health"
+            }
+            issues.append({"level": "warning", "component": "engine", "action": "/app/health", "action_label": "تحديث الفحص"})
+
+        # 3. Proxy Connection
+        if not tg_account or not tg_account.proxy_host:
+            components["proxy"] = {
+                "status": "healthy",
+                "label": "حماية الاتصال والبروكسي",
+                "title": "اتصال سحابي آمن",
+                "message": "يستخدم النظام الاتصال المباشر عالي السرعة والمشفر عبر شبكة خوادم AutoTele.",
+                "action_label": None,
+                "action_url": None
+            }
+        else:
+            is_proxy_live = await check_proxy_responsive(tg_account.proxy_host, tg_account.proxy_port or 1080, timeout=2.0)
+            if is_proxy_live:
+                components["proxy"] = {
+                    "status": "healthy",
+                    "label": "حماية الاتصال والبروكسي",
+                    "title": "بروكسي مخصص متصل",
+                    "message": f"البروكسي المخصص ({tg_account.proxy_host}:{tg_account.proxy_port}) مستجيب ويعمل بسرعة ممتازة.",
+                    "action_label": None,
+                    "action_url": None
+                }
+            else:
+                components["proxy"] = {
+                    "status": "error",
+                    "label": "حماية الاتصال والبروكسي",
+                    "title": "البروكسي غير مستجيب",
+                    "message": f"تعذر الوصول للبروكسي ({tg_account.proxy_host}:{tg_account.proxy_port}). يوصى بالتحقق من الإعدادات.",
+                    "action_label": "تعديل البروكسي",
+                    "action_url": "/app/engines/connect"
+                }
+                issues.append({"level": "error", "component": "proxy", "action": "/app/engines/connect", "action_label": "تعديل البروكسي"})
+
+        # 4. Channels Sync
+        channel_count = 0
+        cache_age_sec = None
+        if tg_account:
+            try:
+                cached_chans = await get_channels_cache(tg_account.id)
+                channel_count = len(cached_chans)
+                ttl = await redis_client.ttl(f"tenant:{tg_account.id}:channels")
+                if ttl and ttl > 0:
+                    cache_age_sec = 43200 - ttl
+            except Exception:
+                pass
+
+        if not tg_account:
+            components["channels"] = {
+                "status": "idle",
+                "label": "مزامنة القنوات والمجموعات",
+                "title": "في انتظار ربط الحساب",
+                "message": "اربط حساب تليجرام لمزامنة قنواتك التي تملك فيها صلاحيات النشر.",
+                "action_label": None,
+                "action_url": None
+            }
+        elif channel_count > 0:
+            age_desc = "حديثة" if not cache_age_sec or cache_age_sec < 3600 else f"منذ {int(cache_age_sec/3600)} ساعة"
+            components["channels"] = {
+                "status": "healthy",
+                "label": "مزامنة القنوات والمجموعات",
+                "title": f"تمت مزامنة {channel_count} قناة ومجموعة",
+                "channel_count": channel_count,
+                "message": f"قائمتك تضم {channel_count} قناة ومجموعة جاهزة للنشر الفوري (آخر مزامنة: {age_desc}).",
+                "action_label": "تحديث المزامنة",
+                "action_url": "/app/campaigns"
+            }
+        else:
+            components["channels"] = {
+                "status": "warning",
+                "label": "مزامنة القنوات والمجموعات",
+                "title": "لم يتم اكتشاف قنوات بعد",
+                "message": "لم يتم العثور على قنوات متزامنة في حسابك. تأكد من إضافتك مشرفاً في القنوات المستهدفة.",
+                "action_label": "مزامنة القنوات الآن",
+                "action_url": "/app/campaigns"
+            }
+            issues.append({"level": "warning", "component": "channels", "action": "/app/campaigns", "action_label": "مزامنة القنوات"})
+
+        # 5. Campaign Queue
+        active_tasks_count = 0
+        if tg_account:
+            tasks_stmt = select(func.count(WebCampaignTask.id)).where(
+                WebCampaignTask.telegram_account_id == tg_account.id,
+                WebCampaignTask.status.in_(["pending", "processing"])
+            )
+            active_tasks_count = (await session.execute(tasks_stmt)).scalar() or 0
+
+        components["campaign_queue"] = {
+            "status": "healthy",
+            "label": "طابور المهام والحملات",
+            "title": f"{active_tasks_count} مهمة نشطة" if active_tasks_count > 0 else "الطابور مستقر وفارغ",
+            "active_tasks": active_tasks_count,
+            "message": f"يوجد حالياً {active_tasks_count} حملة قيد المعالجة والنشر بالتوالي." if active_tasks_count > 0 else "لا توجد حملات معلقة حالياً، النظام جاهز لتلقي أي إعلان جديد فوراً.",
+            "action_label": "عرض الحملات" if active_tasks_count > 0 else "إنشاء حملة",
+            "action_url": "/app/campaigns"
+        }
+
+        # 6. Subscription
+        plan_label = user.subscription_plan or "تجريبي"
+        if plan_label == "weekly": plan_label = "باقة أسبوعية"
+        elif plan_label == "monthly": plan_label = "باقة شهرية"
+        elif plan_label == "half_year": plan_label = "باقة 6 شهور"
+        elif plan_label == "yearly": plan_label = "باقة سنوية"
+
+        if not is_sub_active:
+            components["subscription"] = {
+                "status": "error",
+                "label": "حالة الاشتراك والرخصة",
+                "title": "الاشتراك منتهي",
+                "plan": plan_label,
+                "remaining_days": 0,
+                "message": f"انتهت فترة اشتراكك في ({plan_label}). يرجى التجديد لاستئناف خدمات النشر والمحرك.",
+                "action_label": "تجديد الاشتراك الآن",
+                "action_url": "/app/billing"
+            }
+            issues.append({"level": "error", "component": "subscription", "action": "/app/billing", "action_label": "تجديد الاشتراك"})
+        elif remaining_days <= 5:
+            components["subscription"] = {
+                "status": "warning",
+                "label": "حالة الاشتراك والرخصة",
+                "title": f"سينتهي خلال {remaining_days} أيام",
+                "plan": plan_label,
+                "remaining_days": remaining_days,
+                "message": f"اشتراكك في ({plan_label}) ينتهي قريباً (متبقي {remaining_days} يوماً). جدّد الآن لضمان عدم توقف الحملات.",
+                "action_label": "تجديد الاشتراك",
+                "action_url": "/app/billing"
+            }
+            issues.append({"level": "warning", "component": "subscription", "action": "/app/billing", "action_label": "تجديد الاشتراك"})
+        else:
+            components["subscription"] = {
+                "status": "healthy",
+                "label": "حالة الاشتراك والرخصة",
+                "title": f"نشط وسارٍ ({plan_label})",
+                "plan": plan_label,
+                "remaining_days": remaining_days,
+                "message": f"اشتراكك نشط بالكامل، ومتبقي {remaining_days} يوماً حتى تاريخ {sub_end.strftime('%Y-%m-%d')}.",
+                "action_label": None,
+                "action_url": None
+            }
+
+        # Overall Status Calculation
+        has_errors = any(c.get("status") == "error" for c in components.values())
+        has_warnings = any(c.get("status") in ["warning", "recovering"] for c in components.values())
+
+        if has_errors:
+            overall = "error"
+            overall_title = "النظام يحتاج إلى إجراء منك"
+            overall_desc = "تم اكتشاف عنصر يتطلب تدخلاً لضمان استمرار عمل النشر التلقائي بكفاءة."
+        elif has_warnings:
+            overall = "warning"
+            overall_title = "النظام يعمل مع بعض التنبيهات"
+            overall_desc = "جميع الخدمات الأساسية متصلة مع وجود بعض التوصيات لتحسين الأداء."
+        else:
+            overall = "healthy"
+            overall_title = "جميع الأنظمة والمحركات تعمل بكفاءة تامة 🟢"
+            overall_desc = "حسابك ومحركك السحابي وقنواتك واشتراكك في أفضل حالة تشغيلية."
+
+        primary_action = issues[0] if issues else None
+
+        return {
+            "status": "success",
+            "overall_status": overall,
+            "overall_title": overall_title,
+            "overall_desc": overall_desc,
+            "primary_action": primary_action,
+            "components": components,
+            "checked_at": now.isoformat()
+        }
+
+# ==========================================
+# PHASE 5: CAMPAIGN HISTORY & DETAILED REPORTS
+# ==========================================
+
+CAMPAIGN_TYPE_ARABIC = {
+    "wave": "حملة تبادل عشوائي (Wave)",
+    "single": "حملة قناة فردية",
+    "bulk": "حملة مجلد مجمع",
+    "timed_post": "نشر مجدول مؤقت",
+    "clear": "مسح سريع للإعلانات",
+    "deep_clear": "مسح عميق وشامل",
+    "update": "تحديث المحرك السحابي",
+    "activate_exchange": "تفعيل التبادل الدوري"
+}
+
+STATUS_LABELS_ARABIC = {
+    "pending": "في الانتظار",
+    "processing": "قيد النشر والمتابعة",
+    "active": "نشطة حالياً",
+    "completed": "مكتملة بنجاح",
+    "failed": "تعذر النشر أو ملغاة"
+}
+
+@app.get("/user/campaigns")
+async def get_user_campaigns_history(
+    status: Optional[str] = "all",
+    search: Optional[str] = None,
+    limit: int = 20,
+    offset: int = 0,
+    user_id: int = Depends(get_current_user)
+):
+    limit = min(max(limit, 1), 50)
+    offset = max(offset, 0)
+    async with AsyncSessionLocal() as session:
+        await verify_active_subscription(user_id, session)
+        tg_account = (await session.execute(
+            select(TelegramAccount).where(TelegramAccount.user_id == user_id)
+        )).scalars().first()
+
+        if not tg_account:
+            return {"status": "success", "total": 0, "limit": limit, "offset": offset, "campaigns": []}
+
+        conditions = [WebCampaignTask.telegram_account_id == tg_account.id]
+
+        if status and status != "all":
+            if status == "active":
+                conditions.append(WebCampaignTask.status.in_(["pending", "processing", "active"]))
+            elif status == "completed":
+                conditions.append(WebCampaignTask.status == "completed")
+            elif status == "failed":
+                conditions.append(WebCampaignTask.status == "failed")
+            elif status in ["pending", "processing"]:
+                conditions.append(WebCampaignTask.status == status)
+
+        if search:
+            search_pattern = f"%{search.strip()}%"
+            conditions.append(
+                (WebCampaignTask.custom_text.ilike(search_pattern)) | 
+                (WebCampaignTask.target_link.ilike(search_pattern))
+            )
+
+        # Count total
+        count_stmt = select(func.count(WebCampaignTask.id)).where(*conditions)
+        total = (await session.execute(count_stmt)).scalar() or 0
+
+        # Query items
+        stmt = (
+            select(WebCampaignTask)
+            .where(*conditions)
+            .order_by(WebCampaignTask.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        tasks = (await session.execute(stmt)).scalars().all()
+
+        results = []
+        for t in tasks:
+            created = t.created_at
+            completed = t.completed_at
+            elapsed_sec = None
+            if created and completed:
+                elapsed_sec = int((completed - created).total_seconds())
+
+            # Text preview
+            preview = (t.custom_text or t.target_link or "بدون نص مخصص").strip()
+            if len(preview) > 90:
+                preview = preview[:90] + "..."
+
+            # Success rate
+            tgt = t.target_count or 0
+            cmp = t.completed_count or 0
+            fld = t.failed_count or 0
+            s_rate = 100.0 if t.status == "completed" and (tgt == 0 or cmp == tgt) else (
+                round((cmp / tgt) * 100, 1) if tgt > 0 else (0.0 if t.status == "failed" else 100.0)
+            )
+
+            results.append({
+                "id": t.id,
+                "campaign_type": t.campaign_type,
+                "type_label": CAMPAIGN_TYPE_ARABIC.get(t.campaign_type, t.campaign_type),
+                "status": t.status,
+                "status_label": STATUS_LABELS_ARABIC.get(t.status, t.status),
+                "text_preview": preview,
+                "target_link": t.target_link,
+                "delay_start": t.delay_start,
+                "delay_between_channels": t.delay_between_channels,
+                "ad_lifespan": t.ad_lifespan,
+                "target_count": tgt,
+                "completed_count": cmp,
+                "failed_count": fld,
+                "success_rate": s_rate,
+                "result_summary": t.result_summary,
+                "created_at": created.isoformat() if created else None,
+                "completed_at": completed.isoformat() if completed else None,
+                "elapsed_seconds": elapsed_sec
+            })
+
+        return {
+            "status": "success",
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "campaigns": results
+        }
+
+@app.get("/user/campaigns/{task_id}")
+async def get_user_campaign_details(task_id: int, user_id: int = Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        await verify_active_subscription(user_id, session)
+        tg_account = (await session.execute(
+            select(TelegramAccount).where(TelegramAccount.user_id == user_id)
+        )).scalars().first()
+        if not tg_account:
+            raise HTTPException(status_code=404, detail="لم يتم العثور على حساب تليجرام.")
+
+        task = (await session.execute(
+            select(WebCampaignTask).where(
+                WebCampaignTask.id == task_id,
+                WebCampaignTask.telegram_account_id == tg_account.id
+            )
+        )).scalars().first()
+        if not task:
+            raise HTTPException(status_code=404, detail="الحملة غير موجودة.")
+
+        # Build Visual Timeline
+        timeline = []
+        created_dt = task.created_at
+        timeline.append({
+            "stage": "created",
+            "title": "تم إنشاء وجدولة الحملة بنجاح",
+            "desc": f"نوع الحملة: {CAMPAIGN_TYPE_ARABIC.get(task.campaign_type, task.campaign_type)} - تأخير البدء: {task.delay_start} دقيقة.",
+            "status": "done",
+            "timestamp": created_dt.isoformat() if created_dt else None
+        })
+
+        if task.delay_start > 0:
+            scheduled_start = created_dt + timedelta(minutes=task.delay_start)
+            timeline.append({
+                "stage": "scheduled_wait",
+                "title": "فترة الانتظار المجدولة",
+                "desc": f"مجدول للانطلاق في {scheduled_start.strftime('%H:%M:%S %Y-%m-%d')}.",
+                "status": "done" if datetime.now(timezone.utc) >= scheduled_start or task.status in ["processing", "completed"] else "pending",
+                "timestamp": scheduled_start.isoformat()
+            })
+
+        # Processing & Worker Dispatched
+        timeline.append({
+            "stage": "dispatched",
+            "title": "استلام المهمة في المحرك السحابي",
+            "desc": "تم إرسال أمر النشر إلى المحرك والبدء في مراسلة القنوات بالتوالي المحدد.",
+            "status": "done" if task.status in ["processing", "completed"] else ("active" if task.status == "pending" else "skipped"),
+            "timestamp": None
+        })
+
+        # Publishing Status
+        tgt = task.target_count or 0
+        cmp = task.completed_count or 0
+        fld = task.failed_count or 0
+        timeline.append({
+            "stage": "publishing",
+            "title": f"نشر الرسالة ({cmp} من {tgt or 'القنوات'})",
+            "desc": f"تم النشر بنجاح في {cmp} قناة. الأخطاء: {fld}.",
+            "status": "done" if task.status == "completed" else ("active" if task.status == "processing" else "pending"),
+            "timestamp": None
+        })
+
+        # Completion / Lifecycle
+        if task.status == "completed":
+            timeline.append({
+                "stage": "completed",
+                "title": "اكتملت الحملة بالكامل بنجاح 🟢",
+                "desc": task.result_summary or f"تم الانتهاء من دورة النشر. ستبقى الإعلانات نشطة لمدة {task.ad_lifespan} دقيقة قبل المسح الذاتي.",
+                "status": "done",
+                "timestamp": task.completed_at.isoformat() if task.completed_at else None
+            })
+        elif task.status == "failed":
+            timeline.append({
+                "stage": "failed",
+                "title": "توقفت أو أُلغيت الحملة 🔴",
+                "desc": task.result_summary or "تم إيقاف المهمة بناءً على طلبك أو لوجود مشكلة في الاتصال.",
+                "status": "error",
+                "timestamp": task.completed_at.isoformat() if task.completed_at else None
+            })
+        else:
+            timeline.append({
+                "stage": "ongoing",
+                "title": "المهمة قيد التنفيذ اللحظي ⏳",
+                "desc": "جاري استكمال النشر وضبط فترات الانتظار الآمنة بين القنوات لتجنب قيود تليجرام.",
+                "status": "active",
+                "timestamp": None
+            })
+
+        # Related publish logs (up to 30)
+        logs_stmt = select(PublishLog).where(
+            PublishLog.telegram_account_id == tg_account.id,
+            PublishLog.created_at >= created_dt - timedelta(minutes=5)
+        ).order_by(PublishLog.created_at.desc()).limit(30)
+        logs = (await session.execute(logs_stmt)).scalars().all()
+
+        channels_published = []
+        for l in logs:
+            channels_published.append({
+                "id": l.id,
+                "chat_id": l.chat_id,
+                "msg_id": l.msg_id,
+                "status": l.status,
+                "created_at": l.created_at.isoformat() if l.created_at else None,
+                "expires_at": l.expires_at.isoformat() if l.expires_at else None
+            })
+
+        return {
+            "status": "success",
+            "campaign": {
+                "id": task.id,
+                "campaign_type": task.campaign_type,
+                "type_label": CAMPAIGN_TYPE_ARABIC.get(task.campaign_type, task.campaign_type),
+                "status": task.status,
+                "status_label": STATUS_LABELS_ARABIC.get(task.status, task.status),
+                "custom_text": task.custom_text,
+                "target_link": task.target_link,
+                "delay_start": task.delay_start,
+                "delay_between_channels": task.delay_between_channels,
+                "ad_lifespan": task.ad_lifespan,
+                "target_count": tgt,
+                "completed_count": cmp,
+                "failed_count": fld,
+                "result_summary": task.result_summary,
+                "created_at": created_dt.isoformat() if created_dt else None,
+                "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+                "timeline": timeline,
+                "published_logs": channels_published
+            }
+        }
+
+@app.post("/user/campaigns/{task_id}/cancel")
+async def cancel_user_campaign_endpoint(task_id: int, user_id: int = Depends(get_current_user)):
+    return await cancel_single_scheduled_job(task_id=task_id, user_id=user_id)
+
+
+# ==========================================
+# PHASE 6: REAL ANALYTICS & METRICS
+# ==========================================
+@app.get("/user/analytics")
+async def get_user_analytics(user_id: int = Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        await verify_active_subscription(user_id, session)
+        tg_account = (await session.execute(
+            select(TelegramAccount).where(TelegramAccount.user_id == user_id)
+        )).scalars().first()
+
+        now_utc = datetime.now(timezone.utc)
+
+        if not tg_account:
+            return {
+                "status": "success",
+                "metrics": {
+                    "total_campaigns": 0,
+                    "completed_campaigns": 0,
+                    "active_campaigns": 0,
+                    "failed_campaigns": 0,
+                    "success_rate": 100.0,
+                    "total_messages": 0,
+                    "active_live_ads": 0,
+                    "unique_channels_reached": 0
+                },
+                "daily_trends": []
+            }
+
+        acc_id = tg_account.id
+
+        # 1. Campaign Counts
+        stmt_total = select(func.count(WebCampaignTask.id)).where(WebCampaignTask.telegram_account_id == acc_id)
+        total_campaigns = (await session.execute(stmt_total)).scalar() or 0
+
+        stmt_completed = select(func.count(WebCampaignTask.id)).where(
+            WebCampaignTask.telegram_account_id == acc_id,
+            WebCampaignTask.status == "completed"
+        )
+        completed_campaigns = (await session.execute(stmt_completed)).scalar() or 0
+
+        stmt_active = select(func.count(WebCampaignTask.id)).where(
+            WebCampaignTask.telegram_account_id == acc_id,
+            WebCampaignTask.status.in_(["pending", "processing", "active"])
+        )
+        active_campaigns = (await session.execute(stmt_active)).scalar() or 0
+
+        stmt_failed = select(func.count(WebCampaignTask.id)).where(
+            WebCampaignTask.telegram_account_id == acc_id,
+            WebCampaignTask.status == "failed"
+        )
+        failed_campaigns = (await session.execute(stmt_failed)).scalar() or 0
+
+        closed = completed_campaigns + failed_campaigns
+        success_rate = round((completed_campaigns / closed) * 100, 1) if closed > 0 else 100.0
+
+        # 2. Messages & Channel Reach
+        from db_manager import PublishLog, ActiveAd
+        stmt_msgs = select(func.count(PublishLog.id)).where(PublishLog.telegram_account_id == acc_id)
+        total_messages = (await session.execute(stmt_msgs)).scalar() or 0
+
+        stmt_active_ads = select(func.count(ActiveAd.id)).where(ActiveAd.telegram_account_id == acc_id)
+        active_live_ads = (await session.execute(stmt_active_ads)).scalar() or 0
+
+        stmt_uniq = select(func.count(func.distinct(PublishLog.chat_id))).where(PublishLog.telegram_account_id == acc_id)
+        unique_channels = (await session.execute(stmt_uniq)).scalar() or 0
+
+        # 3. 7-Day Trends
+        daily_trends = []
+        for d in range(6, -1, -1):
+            day_date = (now_utc - timedelta(days=d)).date()
+            day_start = datetime.combine(day_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+            day_end = datetime.combine(day_date, datetime.max.time()).replace(tzinfo=timezone.utc)
+
+            c_stmt = select(func.count(WebCampaignTask.id)).where(
+                WebCampaignTask.telegram_account_id == acc_id,
+                WebCampaignTask.created_at >= day_start,
+                WebCampaignTask.created_at <= day_end
+            )
+            c_cnt = (await session.execute(c_stmt)).scalar() or 0
+
+            m_stmt = select(func.count(PublishLog.id)).where(
+                PublishLog.telegram_account_id == acc_id,
+                PublishLog.created_at >= day_start,
+                PublishLog.created_at <= day_end
+            )
+            m_cnt = (await session.execute(m_stmt)).scalar() or 0
+
+            daily_trends.append({
+                "date": day_date.strftime("%Y-%m-%d"),
+                "day_name": ["الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت", "الأحد"][day_date.weekday()],
+                "campaigns": c_cnt,
+                "messages": m_cnt
+            })
+
+        return {
+            "status": "success",
+            "metrics": {
+                "total_campaigns": total_campaigns,
+                "completed_campaigns": completed_campaigns,
+                "active_campaigns": active_campaigns,
+                "failed_campaigns": failed_campaigns,
+                "success_rate": success_rate,
+                "total_messages": total_messages,
+                "active_live_ads": active_live_ads,
+                "unique_channels_reached": unique_channels
+            },
+            "daily_trends": daily_trends
+        }
+
 @app.get("/user/status-bot-link")
 async def get_status_bot_link(user_id: int = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
