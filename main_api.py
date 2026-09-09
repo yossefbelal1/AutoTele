@@ -44,7 +44,7 @@ from db_manager import (
     AdTemplate, WebCampaignTask, apply_pyrogram_patches, AccountNotification,
     ActiveAd, PublishLog, ExchangeRequest, ExchangeAgreement, ExchangeExecution
 )
-from cache_manager import is_rate_limited, is_key_rate_limited, redis_client, clear_tenant_cache, get_channels_cache
+from cache_manager import is_rate_limited, is_key_rate_limited, redis_client, clear_tenant_cache, get_channels_cache, get_invite_link
 
 import redis
 import re as _re
@@ -4636,7 +4636,7 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
         notif_type = "exchange_request_received" if req.request_type == "exchange" else "campaign_request_received"
         notif_title = "طلب تبادل إعلاني جديد 🔄" if req.request_type == "exchange" else "طلب تنفيذ حملة ترويجية 📢"
         req_kind = "تبادل إعلاني" if req.request_type == "exchange" else "تنفيذ حملة"
-        snippet = req.message[:70].replace('"', "'")
+        snippet = msg_body[:70].replace('"', "'")
         notif_msg = f"أرسل لك المعلن ({sender_name}) طلب {req_kind}: '{snippet}...'"
         
         notif = AccountNotification(
