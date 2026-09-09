@@ -374,6 +374,11 @@
           <div id="notif-list-container-mobile" class="notif-list">
             <div class="notif-empty">لا توجد تنبيهات جديدة حالياً ✨</div>
           </div>
+          <div class="notif-footer" style="padding: 10px 14px; border-top: 1px solid rgba(255,255,255,0.06); text-align: center; background: rgba(15,23,42,0.4);">
+            <button type="button" onclick="navigate('/app/notifications'); toggleMobileNotifDropdown(false);" style="background: none; border: none; color: #38bdf8; font-size: 12.5px; font-weight: 700; cursor: pointer; text-decoration: underline;">
+              عرض جميع الإشعارات السابقة ←
+            </button>
+          </div>
         </div>
       </div>
     </header>
@@ -410,6 +415,11 @@
           <button class="drawer-nav-item" data-tab="tab-plans" data-route="/app/billing" onclick="navigate('/app/billing'); closeMobileDrawer();">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
             <span>الخطط والترقية والدفع</span>
+          </button>
+          <button class="drawer-nav-item" data-tab="tab-notifications" data-route="/app/notifications" onclick="navigate('/app/notifications'); closeMobileDrawer();">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+            <span>مركز الإشعارات</span>
+            <span class="badge notif-sidebar-badge hidden" id="drawer-notif-badge" style="margin-right: auto; background: #ef4444; color: #fff; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 10px;">0</span>
           </button>
           <button class="drawer-nav-item" data-tab="tab-profile" data-route="/app/settings/profile" onclick="navigate('/app/settings/profile'); closeMobileDrawer();">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -490,6 +500,11 @@
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
             <span>الخطط والترقية والدفع</span>
           </button>
+          <button class="nav-tab" data-tab="tab-notifications" data-route="/app/notifications">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+            <span>مركز الإشعارات</span>
+            <span class="badge notif-sidebar-badge hidden" id="sidebar-notif-badge" style="margin-right: auto; background: #ef4444; color: #fff; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 10px;">0</span>
+          </button>
           <button class="nav-tab" data-tab="tab-profile" data-route="/app/settings/profile">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             <span>الملف الشخصي والإعدادات</span>
@@ -545,6 +560,11 @@
                 </div>
                 <div id="notif-list-container" class="notif-list">
                   <div class="notif-empty">لا توجد تنبيهات جديدة حالياً ✨</div>
+                </div>
+                <div class="notif-footer" style="padding: 10px 14px; border-top: 1px solid rgba(255,255,255,0.06); text-align: center; background: rgba(15,23,42,0.4);">
+                  <button type="button" onclick="navigate('/app/notifications'); toggleNotifDropdown(false);" style="background: none; border: none; color: #38bdf8; font-size: 12.5px; font-weight: 700; cursor: pointer; text-decoration: underline;">
+                    عرض جميع الإشعارات السابقة ←
+                  </button>
                 </div>
               </div>
             </div>
@@ -1572,6 +1592,46 @@
               </div>
             </div>
 
+          </div>
+        </section>
+
+        <!-- Section: Notification Center -->
+        <section id="tab-notifications" class="tab-panel hidden">
+          <div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px;">
+            <div>
+              <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0;">
+                <span>🔔</span>
+                <span>مركز الإشعارات والتنبيهات</span>
+                <span id="notif-page-unread-badge" class="badge" style="background: rgba(37, 99, 235, 0.2); border: 1px solid rgba(59, 130, 246, 0.4); color: #60a5fa; font-size: 11px; padding: 2px 8px; border-radius: 12px;">0 جديد</span>
+              </h1>
+              <p class="panel-subtitle" style="margin: 0;">متابعة فورية لجميع أحداث حملاتك، حالة قنواتك، تنبيهات الأمان، والاشتراك</p>
+            </div>
+            
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="markAllNotificationsRead()" style="padding: 8px 14px; font-size: 12.5px; border-radius: 8px; font-weight: 600;">
+                <span>✓ تحديد الكل كمقروء</span>
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="clearAllNotificationsConfirm()" style="padding: 8px 14px; font-size: 12.5px; border-radius: 8px; font-weight: 600; color: #f43f5e; border-color: rgba(244,63,94,0.3);">
+                <span>🗑️ مسح الكل</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Filter Pills Bar -->
+          <div class="notif-filter-bar" style="display: flex; gap: 8px; overflow-x: auto; padding-bottom: 12px; margin-bottom: 20px; -webkit-overflow-scrolling: touch; border-bottom: 1px solid rgba(255,255,255,0.06);">
+            <button type="button" class="btn btn-sm notif-filter-btn active" data-category="all" onclick="filterNotificationsPage('all')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">الكل (<span id="count-cat-all">0</span>)</button>
+            <button type="button" class="btn btn-sm notif-filter-btn" data-category="unread" onclick="filterNotificationsPage('unread')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">غير المقروء (<span id="count-cat-unread">0</span>)</button>
+            <button type="button" class="btn btn-sm notif-filter-btn" data-category="campaigns" onclick="filterNotificationsPage('campaigns')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">📢 حملات النشر</button>
+            <button type="button" class="btn btn-sm notif-filter-btn" data-category="account" onclick="filterNotificationsPage('account')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">⚡ المحرك والقنوات</button>
+            <button type="button" class="btn btn-sm notif-filter-btn" data-category="system" onclick="filterNotificationsPage('system')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">🛡️ النظام والأمان</button>
+          </div>
+
+          <!-- Notifications Stream Container -->
+          <div id="page-notif-list-container" style="display: flex; flex-direction: column; gap: 10px;">
+            <div class="card" style="text-align: center; padding: 40px; color: #94a3b8; background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.06); border-radius: 14px;">
+              <div class="spinner" style="margin: 0 auto 12px auto;"></div>
+              <p style="margin: 0;">جاري تحميل الإشعارات...</p>
+            </div>
           </div>
         </section>
 

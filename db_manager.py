@@ -229,6 +229,10 @@ class WebCampaignTask(Base):
     custom_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)  # pending, processing, completed, failed
     result_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    target_count: Mapped[Optional[int]] = mapped_column(Integer, default=0, nullable=True)
+    completed_count: Mapped[Optional[int]] = mapped_column(Integer, default=0, nullable=True)
+    failed_count: Mapped[Optional[int]] = mapped_column(Integer, default=0, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     account: Mapped["TelegramAccount"] = relationship("TelegramAccount")
@@ -271,6 +275,16 @@ async def init_db() -> None:
     try:
         async with async_engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            try:
+                from sqlalchemy import text
+                await conn.execute(text("ALTER TABLE account_notifications ADD COLUMN IF NOT EXISTS target_url VARCHAR(255);"))
+                await conn.execute(text("ALTER TABLE account_notifications ALTER COLUMN telegram_account_id DROP NOT NULL;"))
+                await conn.execute(text("ALTER TABLE web_campaign_tasks ADD COLUMN IF NOT EXISTS target_count INTEGER DEFAULT 0;"))
+                await conn.execute(text("ALTER TABLE web_campaign_tasks ADD COLUMN IF NOT EXISTS completed_count INTEGER DEFAULT 0;"))
+                await conn.execute(text("ALTER TABLE web_campaign_tasks ADD COLUMN IF NOT EXISTS failed_count INTEGER DEFAULT 0;"))
+                await conn.execute(text("ALTER TABLE web_campaign_tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP WITH TIME ZONE;"))
+            except Exception as me:
+                logger.warning(f"Schema migration check notice: {me}")
         logger.info("Database initialized successfully.")
     except Exception as e:
         logger.critical(f"Failed to initialize database: {e}"); raise
@@ -456,11 +470,12 @@ class AccountNotification(Base):
     __tablename__ = "account_notifications"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    telegram_account_id: Mapped[int] = mapped_column(ForeignKey("telegram_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
+    telegram_account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("telegram_accounts.id", ondelete="CASCADE"), nullable=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    notification_type: Mapped[str] = mapped_column(String(50), default="channel_demotion", nullable=False)  # channel_demotion, channel_kick, system_alert
+    notification_type: Mapped[str] = mapped_column(String(50), default="channel_demotion", nullable=False)  # channel_demotion, channel_kick, system_alert, campaign_done, billing
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
+    target_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     actor_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     actor_username: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     chat_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)

@@ -3362,23 +3362,60 @@ async def admin_troubleshoot_resync_bots(admin_user: User = Depends(check_admin_
         logger.error(f"Failed to resync bots: {e}")
         raise HTTPException(status_code=500, detail=f"فشل مزامنة المحركات: {str(e)}")
 
-# ========================================# ==========================================
-# NOTIFICATIONS API
+# ==========================================
+# NOTIFICATIONS API (REAL-TIME NOTIFICATION CENTER)
 # ==========================================
 
-@app.get("/user/notifications")
-async def get_user_notifications(current_user_id: int = Depends(get_current_user)):
+@app.get("/user/notifications/unread-count")
+async def get_unread_notifications_count(current_user_id: int = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
-        # Fetch notifications for current user's accounts
-        res = await session.execute(
-            select(AccountNotification)
-            .where(AccountNotification.user_id == current_user_id)
-            .order_by(desc(AccountNotification.created_at))
-            .limit(50)
+        stmt = (
+            select(func.count(AccountNotification.id))
+            .where(
+                AccountNotification.user_id == current_user_id,
+                AccountNotification.is_read == False
+            )
         )
-        notifications = res.scalars().all()
+        count = (await session.execute(stmt)).scalar() or 0
+        return {"status": "success", "unread_count": count}
+
+@app.get("/user/notifications")
+async def get_user_notifications(
+    category: Optional[str] = "all",
+    limit: int = 50,
+    offset: int = 0,
+    current_user_id: int = Depends(get_current_user)
+):
+    limit = min(max(1, limit), 100)
+    offset = max(0, offset)
+    
+    async with AsyncSessionLocal() as session:
+        query = select(AccountNotification).where(AccountNotification.user_id == current_user_id)
         
-        unread_count = sum(1 for n in notifications if not n.is_read)
+        cat = (category or "all").lower()
+        if cat == "unread":
+            query = query.where(AccountNotification.is_read == False)
+        elif cat == "system":
+            query = query.where(AccountNotification.notification_type.in_(["system_alert", "billing", "security"]))
+        elif cat == "campaigns":
+            query = query.where(AccountNotification.notification_type.in_(["campaign_done", "campaign_alert", "publish_error"]))
+        elif cat == "account":
+            query = query.where(AccountNotification.notification_type.in_(["channel_demotion", "channel_kick", "bot_status"]))
+
+        # Count total matching query
+        total_stmt = select(func.count()).select_from(query.subquery())
+        total_count = (await session.execute(total_stmt)).scalar() or 0
+
+        # Unread total
+        unread_stmt = select(func.count(AccountNotification.id)).where(
+            AccountNotification.user_id == current_user_id,
+            AccountNotification.is_read == False
+        )
+        unread_count = (await session.execute(unread_stmt)).scalar() or 0
+
+        # Page query
+        query = query.order_by(desc(AccountNotification.created_at)).offset(offset).limit(limit)
+        notifications = (await session.execute(query)).scalars().all()
         
         items = []
         for n in notifications:
@@ -3387,6 +3424,7 @@ async def get_user_notifications(current_user_id: int = Depends(get_current_user
                 "type": n.notification_type,
                 "title": n.title,
                 "message": n.message,
+                "target_url": getattr(n, "target_url", None),
                 "actor_name": n.actor_name or "مسؤول القناة",
                 "actor_username": n.actor_username,
                 "chat_title": n.chat_title or "قناة غير معروفة",
@@ -3398,8 +3436,32 @@ async def get_user_notifications(current_user_id: int = Depends(get_current_user
         return {
             "status": "success",
             "unread_count": unread_count,
+            "total": total_count,
+            "category": cat,
             "notifications": items
         }
+
+@app.patch("/user/notifications/{notification_id}/read")
+async def mark_single_notification_read(notification_id: int, current_user_id: int = Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            update(AccountNotification)
+            .where(AccountNotification.id == notification_id, AccountNotification.user_id == current_user_id)
+            .values(is_read=True)
+        )
+        await session.commit()
+        return {"status": "success", "message": "تم تحديد الإشعار كمقروء"}
+
+@app.post("/user/notifications/mark-all-read")
+async def mark_all_notifications_read_endpoint(current_user_id: int = Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            update(AccountNotification)
+            .where(AccountNotification.user_id == current_user_id, AccountNotification.is_read == False)
+            .values(is_read=True)
+        )
+        await session.commit()
+        return {"status": "success", "message": "تم تحديد كافة الإشعارات كمقروءة"}
 
 class MarkReadReq(BaseModel):
     notification_id: Optional[int] = None

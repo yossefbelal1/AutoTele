@@ -234,7 +234,8 @@ const ROUTE_CONFIG = {
   "/app/templates": { tabId: "tab-templates", title: "مكتبة الصيغ" },
   "/app/billing": { tabId: "tab-plans", title: "الخطة والترقية" },
   "/app/settings/profile": { tabId: "tab-profile", title: "الملف الشخصي والإعدادات" },
-  "/app/profile": { tabId: "tab-profile", title: "الملف الشخصي والإعدادات" }
+  "/app/profile": { tabId: "tab-profile", title: "الملف الشخصي والإعدادات" },
+  "/app/notifications": { tabId: "tab-notifications", title: "مركز الإشعارات والتنبيهات" }
 };
 
 const TAB_TO_ROUTE_MAP = {
@@ -242,7 +243,8 @@ const TAB_TO_ROUTE_MAP = {
   "tab-plans": "/app/billing",
   "tab-connect": "/app/engines/connect",
   "tab-templates": "/app/templates",
-  "tab-profile": "/app/settings/profile"
+  "tab-profile": "/app/settings/profile",
+  "tab-notifications": "/app/notifications"
 };
 
 window.scrollToCampaignForm = function() {
@@ -323,7 +325,8 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
       "tab-connect": "ربط المحرك",
       "tab-templates": "مكتبة الصيغ",
       "tab-plans": "الخطط والترقية",
-      "tab-profile": "الملف الشخصي"
+      "tab-profile": "الملف الشخصي",
+      "tab-notifications": "الإشعارات"
     };
     mobileTitle.textContent = compactTitles[tabId] || title;
   }
@@ -358,6 +361,8 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
     loadTemplatesList();
   } else if (tabId === "tab-profile") {
     loadUserProfile();
+  } else if (tabId === "tab-notifications") {
+    loadNotificationsPage();
   }
 
   // Close mobile drawer if opened
@@ -3742,11 +3747,28 @@ async function deleteScheduledJob(taskId) {
 
 
 // ==========================================
-// NOTIFICATION CENTER MODULE
+// ==========================================
+// NOTIFICATION CENTER MODULE (v2.1)
 // ==========================================
 
 let notificationsData = [];
 let notifPollInterval = null;
+let currentNotifCategory = "all";
+
+function getNotifIcon(type) {
+  switch(type) {
+    case 'campaign_done': return '📢';
+    case 'campaign_alert':
+    case 'publish_error': return '❌';
+    case 'channel_demotion':
+    case 'channel_kick': return '⚠️';
+    case 'billing': return '💳';
+    case 'system_alert':
+    case 'security': return '🛡️';
+    case 'bot_status': return '⚡';
+    default: return '🔔';
+  }
+}
 
 function initNotificationCenter() {
   const btnBellDesktop = document.getElementById("btn-notif-bell");
@@ -3794,32 +3816,48 @@ function initNotificationCenter() {
   if (btnMarkAllDesktop) {
     btnMarkAllDesktop.addEventListener("click", async (e) => {
       e.stopPropagation();
-      await markNotificationsAsRead(null, true);
+      await markAllNotificationsRead();
     });
   }
   if (btnMarkAllMobile) {
     btnMarkAllMobile.addEventListener("click", async (e) => {
       e.stopPropagation();
-      await markNotificationsAsRead(null, true);
+      await markAllNotificationsRead();
     });
   }
 
+  // Initial fetch and polling
   fetchNotifications();
   if (notifPollInterval) clearInterval(notifPollInterval);
-  notifPollInterval = setInterval(fetchNotifications, 25000);
+  notifPollInterval = setInterval(fetchNotifications, 30000);
 }
+
+window.toggleNotifDropdown = function(force) {
+  const dd = document.getElementById("notif-dropdown");
+  if (dd) {
+    if (force === false) dd.classList.add("hidden");
+    else if (force === true) dd.classList.remove("hidden");
+    else dd.classList.toggle("hidden");
+  }
+};
+
+window.toggleMobileNotifDropdown = function(force) {
+  const dd = document.getElementById("mobile-notif-dropdown");
+  if (dd) {
+    if (force === false) dd.classList.add("hidden");
+    else if (force === true) dd.classList.remove("hidden");
+    else dd.classList.toggle("hidden");
+  }
+};
 
 async function fetchNotifications() {
   const token = localStorage.getItem("access_token");
   if (!token) return;
 
   try {
-    const res = await fetch("/api/user/notifications", {
-      headers: { "Authorization": `Bearer ${token}` }
-    });
-    if (res.ok) {
-      const data = await res.json();
-      renderNotifications(data.notifications || [], data.unread_count || 0);
+    const res = await apiRequest("/user/notifications?limit=20");
+    if (res && res.status === "success") {
+      renderNotifications(res.notifications || [], res.unread_count || 0);
     }
   } catch (e) {
     console.error("Failed to fetch notifications:", e);
@@ -3830,6 +3868,14 @@ function formatNotifTime(isoStr) {
   if (!isoStr) return "";
   try {
     const d = new Date(isoStr);
+    const now = new Date();
+    const diffMs = now - d;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+
+    if (diffMins < 2) return "الآن";
+    if (diffMins < 60) return `منذ ${diffMins} دقيقة`;
+    if (diffHours < 24) return `منذ ${diffHours} ساعة`;
     return d.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) + ' ' + d.toLocaleDateString('ar-EG', { month: 'numeric', day: 'numeric' });
   } catch (e) {
     return isoStr;
@@ -3840,37 +3886,53 @@ function renderNotifications(notifications, unreadCount) {
   notificationsData = notifications;
   const badgeDesktop = document.getElementById("notif-badge-count");
   const badgeMobile = document.getElementById("notif-badge-count-mobile");
+  const sidebarBadge = document.getElementById("sidebar-notif-badge");
+  const drawerBadge = document.getElementById("drawer-notif-badge");
+  const pageBadge = document.getElementById("notif-page-unread-badge");
   const listDesktop = document.getElementById("notif-list-container");
   const listMobile = document.getElementById("notif-list-container-mobile");
 
-  // Sync Badges
-  [badgeDesktop, badgeMobile].forEach(badge => {
+  // 1. Sync Badges across the entire app
+  const badgeText = unreadCount > 99 ? "+99" : `${unreadCount}`;
+  [badgeDesktop, badgeMobile, sidebarBadge, drawerBadge].forEach(badge => {
     if (badge) {
       if (unreadCount > 0) {
-        badge.textContent = unreadCount > 99 ? "+99" : unreadCount;
-        badge.style.display = "flex";
+        badge.textContent = badgeText;
+        badge.classList.remove("hidden");
+        badge.style.display = "inline-flex";
       } else {
+        badge.classList.add("hidden");
         badge.style.display = "none";
       }
     }
   });
 
-  const contentHtml = (!notifications || notifications.length === 0)
+  if (pageBadge) {
+    pageBadge.textContent = `${unreadCount} جديد`;
+  }
+
+  const unreadCountEl = document.getElementById("count-cat-unread");
+  if (unreadCountEl) unreadCountEl.textContent = unreadCount;
+
+  // 2. Dropdown preview: Top 5 notifications only
+  const previewItems = (notifications || []).slice(0, 5);
+  const dropdownHtml = previewItems.length === 0
     ? '<div class="notif-empty">لا توجد تنبيهات جديدة حالياً ✨</div>'
-    : notifications.map(n => {
+    : previewItems.map(n => {
         const isUnread = !n.is_read;
         const timeStr = formatNotifTime(n.created_at);
-        const actorHtml = n.actor_username ? `@${escapeHtml(n.actor_username)}` : escapeHtml(n.actor_name || "مسؤول القناة");
+        const icon = getNotifIcon(n.type);
+        const targetUrl = n.target_url ? `'${escapeHtml(n.target_url)}'` : 'null';
 
         return `
-          <div class="notif-item ${isUnread ? 'unread' : ''}" onclick="handleNotifClick(${n.id}, ${isUnread})">
-            <div class="notif-icon-box">🚨</div>
+          <div class="notif-item ${isUnread ? 'unread' : ''}" onclick="handleNotifClick(${n.id}, ${isUnread}, ${targetUrl})" style="cursor: pointer;">
+            <div class="notif-icon-box" style="font-size: 18px;">${icon}</div>
             <div class="notif-content">
-              <div class="notif-title">${escapeHtml(n.title)}</div>
-              <div class="notif-desc">${escapeHtml(n.message)}</div>
-              <div class="notif-meta">
-                <span>بواسطة: <span class="notif-actor">${actorHtml}</span></span>
+              <div class="notif-title" style="font-size: 13px; font-weight: 700; color: #fff;">${escapeHtml(n.title)}</div>
+              <div class="notif-desc" style="font-size: 12px; color: #94a3b8; line-height: 1.4;">${escapeHtml(n.message)}</div>
+              <div class="notif-meta" style="font-size: 11px; color: #64748b; margin-top: 4px;">
                 <span>${timeStr}</span>
+                ${n.target_url ? '<span style="color: #38bdf8; font-weight: 600;">عرض التفاصيل ↗</span>' : ''}
               </div>
             </div>
             <button type="button" class="btn-notif-delete" onclick="handleDeleteNotif(event, ${n.id})" title="حذف">✕</button>
@@ -3878,53 +3940,168 @@ function renderNotifications(notifications, unreadCount) {
         `;
       }).join('');
 
-  if (listDesktop) listDesktop.innerHTML = contentHtml;
-  if (listMobile) listMobile.innerHTML = contentHtml;
+  if (listDesktop) listDesktop.innerHTML = dropdownHtml;
+  if (listMobile) listMobile.innerHTML = dropdownHtml;
+
+  // If user is currently on the full notification center page, refresh it too
+  const notifPanel = document.getElementById("tab-notifications");
+  if (notifPanel && !notifPanel.classList.contains("hidden")) {
+    loadNotificationsPage(currentNotifCategory);
+  }
 }
 
-window.handleNotifClick = async function(notifId, isUnread) {
+window.handleNotifClick = async function(notifId, isUnread, targetUrl) {
   if (isUnread) {
-    await markNotificationsAsRead(notifId, false);
+    await markSingleNotificationRead(notifId);
+  }
+  // Close dropdowns
+  toggleNotifDropdown(false);
+  toggleMobileNotifDropdown(false);
+
+  if (targetUrl && targetUrl !== 'null') {
+    navigate(targetUrl, true);
   }
 };
 
 window.handleDeleteNotif = async function(e, notifId) {
-  e.stopPropagation();
-  const token = localStorage.getItem("access_token");
-  if (!token) return;
-
+  if (e) e.stopPropagation();
   try {
-    const res = await fetch(`/api/user/notifications/${notifId}`, {
-      method: "DELETE",
-      headers: { "Authorization": `Bearer ${token}` }
-    });
-    if (res.ok) {
+    const res = await apiRequest(`/user/notifications/${notifId}`, { method: "DELETE" });
+    if (res && res.status === "success") {
       fetchNotifications();
+      showToast("تم حذف الإشعار", "info", 3000);
     }
   } catch (err) {
     console.error("Failed to delete notification:", err);
   }
 };
 
-window.markNotificationsAsRead = async function(notifId = null, all = false) {
-  const token = localStorage.getItem("access_token");
-  if (!token) return;
-
+window.markSingleNotificationRead = async function(notifId) {
   try {
-    const res = await fetch("/api/user/notifications/mark-read", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ notification_id: notifId, all: all })
-    });
-    if (res.ok) {
+    await apiRequest(`/user/notifications/${notifId}/read`, { method: "PATCH" });
+    fetchNotifications();
+  } catch (err) {
+    console.error("Failed to mark notification read:", err);
+  }
+};
+
+window.markAllNotificationsRead = async function() {
+  try {
+    const res = await apiRequest("/user/notifications/mark-all-read", { method: "POST" });
+    if (res && res.status === "success") {
+      showToast("✓ تم تحديد جميع الإشعارات كمقروءة", "success", 3000);
       fetchNotifications();
     }
   } catch (err) {
-    console.error("Failed to mark notifications read:", err);
+    console.error("Failed to mark all notifications read:", err);
   }
+};
+
+window.clearAllNotificationsConfirm = async function() {
+  if (!confirm("هل أنت متأكد من رغبتك في مسح كافة الإشعارات نهائياً؟")) return;
+  try {
+    const res = await apiRequest("/user/notifications", { method: "DELETE" });
+    if (res && res.status === "success") {
+      showToast("تم تفريغ كافة الإشعارات بنجاح", "info", 3000);
+      fetchNotifications();
+    }
+  } catch (err) {
+    console.error("Failed to clear notifications:", err);
+  }
+};
+
+// ==========================================
+// FULL NOTIFICATIONS PAGE CONTROLLER
+// ==========================================
+window.loadNotificationsPage = async function(category = null) {
+  if (category) currentNotifCategory = category;
+  const container = document.getElementById("page-notif-list-container");
+  if (!container) return;
+
+  // Highlight active filter pill
+  document.querySelectorAll(".notif-filter-btn").forEach(btn => {
+    if (btn.getAttribute("data-category") === currentNotifCategory) {
+      btn.classList.add("active");
+    } else {
+      btn.classList.remove("active");
+    }
+  });
+
+  try {
+    const res = await apiRequest(`/user/notifications?category=${currentNotifCategory}&limit=50`);
+    if (!res || res.status !== "success") return;
+
+    const items = res.notifications || [];
+    const countAllEl = document.getElementById("count-cat-all");
+    if (countAllEl) countAllEl.textContent = res.total || items.length;
+
+    const countUnreadEl = document.getElementById("count-cat-unread");
+    if (countUnreadEl) countUnreadEl.textContent = res.unread_count || 0;
+
+    if (items.length === 0) {
+      container.innerHTML = `
+        <div class="card" style="text-align: center; padding: 50px 20px; color: #94a3b8; background: rgba(15,23,42,0.5); border: 1px dashed rgba(255,255,255,0.1); border-radius: 14px;">
+          <div style="font-size: 36px; margin-bottom: 12px;">✨</div>
+          <h3 style="color: #fff; font-size: 16px; margin: 0 0 6px 0;">لا توجد إشعارات في هذا التصنيف</h3>
+          <p style="margin: 0; font-size: 13px; color: #64748b;">ستصلك التنبيهات فور حدوث أي نشاط على حملاتك أو محركك.</p>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = items.map(n => {
+      const isUnread = !n.is_read;
+      const timeStr = formatNotifTime(n.created_at);
+      const icon = getNotifIcon(n.type);
+      const targetUrl = n.target_url ? `'${escapeHtml(n.target_url)}'` : 'null';
+
+      return `
+        <div class="notif-card-page ${isUnread ? 'unread' : ''}">
+          <div class="notif-page-icon">${icon}</div>
+          <div class="notif-page-body">
+            <div class="notif-page-title">
+              <span>${escapeHtml(n.title)}</span>
+              ${isUnread ? '<span style="width: 8px; height: 8px; border-radius: 50%; background: #3b82f6; display: inline-block;"></span>' : ''}
+            </div>
+            <div class="notif-page-msg">${escapeHtml(n.message)}</div>
+            <div class="notif-page-meta">
+              <span>⏰ ${timeStr}</span>
+              ${n.chat_title ? `<span>📢 ${escapeHtml(n.chat_title)}</span>` : ''}
+              ${n.actor_name ? `<span>👤 ${escapeHtml(n.actor_name)}</span>` : ''}
+              ${n.target_url ? `
+                <button type="button" class="notif-deep-link-btn" onclick="handleNotifClick(${n.id}, ${isUnread}, ${targetUrl})">
+                  <span>الانتقال للإجراء</span>
+                  <span>↗</span>
+                </button>
+              ` : ''}
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            ${isUnread ? `
+              <button type="button" class="btn btn-secondary btn-sm" onclick="markSingleNotificationRead(${n.id})" title="تحديد كمقروء" style="padding: 4px 8px; border-radius: 6px; font-size: 12px;">
+                ✓
+              </button>
+            ` : ''}
+            <button type="button" class="btn btn-secondary btn-sm" onclick="handleDeleteNotif(event, ${n.id})" title="حذف" style="padding: 4px 8px; border-radius: 6px; font-size: 12px; color: #f43f5e;">
+              ✕
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+  } catch (err) {
+    console.error("Failed to load notifications page:", err);
+    container.innerHTML = `
+      <div class="card" style="text-align: center; padding: 30px; color: #f87171;">
+        <p>تعذر تحميل الإشعارات حالياً. يرجى إعادة المحاولة.</p>
+      </div>
+    `;
+  }
+};
+
+window.filterNotificationsPage = function(category) {
+  loadNotificationsPage(category);
 };
 
 
