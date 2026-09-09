@@ -135,9 +135,12 @@ app = FastAPI(title="Telegram Ad Exchange SaaS API", version="3.0")
 async def on_startup():
     from db_manager import init_db
     try:
-        asyncio.create_task(init_db())
+        logger.info("Initializing database schema and checking migrations...")
+        await init_db()
+        logger.info("Database schema initialized and verified successfully.")
     except Exception as e:
-        logger.error(f"Non-blocking init_db error: {e}")
+        logger.critical(f"Critical error during database initialization on startup: {e}")
+        raise
     if JWT_SECRET == "SUPER_SECRET_SaaS_KEY_2026_DONOT_SHARE":
         logger.critical("SECURITY WARNING: Running with default hardcoded JWT_SECRET. Please set a custom JWT_SECRET in production environment variables immediately!")
 
@@ -315,7 +318,7 @@ async def get_current_user(
     token: Optional[str] = None
 ) -> int:
     resolved_token = None
-    if credentials:
+    if isinstance(credentials, HTTPAuthorizationCredentials):
         resolved_token = credentials.credentials
     elif token:
         resolved_token = token
@@ -476,8 +479,9 @@ async def forgot_password(req: ForgotPasswordReq, request: Request):
         if not user.status_bot_chat_id:
             raise HTTPException(status_code=400, detail="حسابك غير مرتبط بالبوت الفني لتليجرام. يرجى التواصل مع الدعم لتغيير كلمة المرور.")
         
-        # Generate temporary password (6 random digits with prefix P-)
-        new_password = f"P-{random.randint(100000, 999999)}"
+        # Generate temporary password using cryptographically secure random generator
+        import secrets
+        new_password = f"P-{secrets.randbelow(900000) + 100000}"
         password_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         
         user.password_hash = password_hash
@@ -2821,7 +2825,7 @@ async def admin_login(req: AdminLoginReq):
         # If otp_code was provided directly in login request
         if req.otp_code:
             saved_otp = await redis_client.get(f"admin_otp:{user.id}")
-            if req.otp_code == "BYPASS_TEST_2026" or (saved_otp and saved_otp == req.otp_code.strip()):
+            if saved_otp and saved_otp == req.otp_code.strip():
                 await redis_client.delete(f"admin_otp:{user.id}")
                 access_token = jwt.encode(
                     {
@@ -2843,7 +2847,8 @@ async def admin_login(req: AdminLoginReq):
 
         if force_2fa:
             # Issue Challenge Token (valid for 5 mins, NO admin permissions)
-            otp_code = f"{random.randint(100000, 999999)}"
+            import secrets
+            otp_code = f"{secrets.randbelow(900000) + 100000}"
             await redis_client.set(f"admin_otp:{user.id}", otp_code, ex=300)
             asyncio.create_task(send_telegram_otp(otp_code))
             
@@ -2890,7 +2895,7 @@ async def admin_verify_otp(req: AdminVerifyOtpReq):
         raise HTTPException(status_code=401, detail="انتهت صلاحية رمز التحدي، يرجى إعادة تسجيل الدخول")
         
     saved_otp = await redis_client.get(f"admin_otp:{user_id}")
-    if not (req.otp_code == "BYPASS_TEST_2026" or (saved_otp and saved_otp == req.otp_code.strip())):
+    if not (saved_otp and saved_otp == req.otp_code.strip()):
         raise HTTPException(status_code=400, detail="كود التحقق الثنائي (OTP) غير صحيح أو منتهي الصلاحية")
         
     await redis_client.delete(f"admin_otp:{user_id}")
@@ -2921,7 +2926,7 @@ async def check_admin_user(
     token: Optional[str] = None
 ) -> User:
     resolved_token = None
-    if credentials:
+    if isinstance(credentials, HTTPAuthorizationCredentials):
         resolved_token = credentials.credentials
     elif token:
         resolved_token = token

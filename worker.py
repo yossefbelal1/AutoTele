@@ -4301,6 +4301,7 @@ async def supervisor_loop():
 
                 # Self-healing: if client is missing or disconnected, restart client
                 if not is_connected and acc_id not in starting_tenants:
+                    starting_tenants.add(acc_id)
                     logger.info(f"Self-Healing: Triggering worker start for tenant {acc_id} (status was {acc['status']})...")
                     # Construct clean temporary account object for worker
                     class TempAcc:
@@ -4391,6 +4392,7 @@ async def create_system_failure_notification(
 
 async def start_tenant_worker(account: TelegramAccount):
     tenant_id = account.id
+    starting_tenants.add(tenant_id)
     try:
         # Stagger client startup to prevent concurrent SSL handshake CPU spikes on cheap VPS
         import random
@@ -6517,6 +6519,7 @@ async def poll_web_campaign_tasks():
                     .join(TelegramAccount, WebCampaignTask.telegram_account_id == TelegramAccount.id)
                     .join(User, TelegramAccount.user_id == User.id)
                     .where(WebCampaignTask.status == "pending")
+                    .with_for_update(of=WebCampaignTask, skip_locked=True)
                 )
                 pending_results = (await session.execute(stmt)).all()
                 

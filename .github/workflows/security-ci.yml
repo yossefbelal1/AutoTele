@@ -2,14 +2,38 @@ name: AutoTele Security & CI Pipeline
 
 on:
   push:
-    branches: [ main, dev ]
+    branches: [ main, develop ]
   pull_request:
-    branches: [ main, dev ]
+    branches: [ main, develop ]
 
 jobs:
   code-security-and-lint:
     name: Code Quality, Syntax & Security Scan
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test_ad_exchange
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
 
     steps:
     - name: Checkout Code
@@ -25,7 +49,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install bandit flake8 pytest
+        pip install bandit flake8 pytest pytest-asyncio
 
     - name: Validate Python Syntax & Bytecode Compilation
       run: |
@@ -33,8 +57,8 @@ jobs:
 
     - name: Security Static Analysis (Bandit)
       run: |
-        # Scan for high/medium severity vulnerabilities (excluding non-crypto backoff jitter B311)
-        bandit -r main_api.py worker.py db_manager.py cache_manager.py -ll -s B311,B113,B310 || true
+        # Scan for high/medium severity vulnerabilities (excluding non-crypto backoff jitter B311, urllib B310)
+        bandit -r main_api.py worker.py db_manager.py cache_manager.py -ll -s B311,B113,B310
 
     - name: Verify No Secrets in Version Control
       run: |
@@ -50,9 +74,9 @@ jobs:
         DATABASE_URL: "postgresql+asyncpg://postgres:test@localhost:5432/test_ad_exchange"
         REDIS_URL: "redis://localhost:6379/0"
         JWT_SECRET: "ci_testing_secret_key_must_be_over_32_characters_long_abcdef"
-        SESSION_ENCRYPTION_KEY: "dGVzdF9rZXlfdGVzdF9rZXlfdGVzdF9rZXlfdGVzdF9rZXk="
+        SESSION_ENCRYPTION_KEY: "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE="
       run: |
-        python -m pytest tests/ --ignore=tests/test_campaign_dynamic_links_remote.py --ignore=tests/test_reply_long_message_remote.py || true
+        python -m pytest tests/ --ignore=tests/test_campaign_dynamic_links_remote.py --ignore=tests/test_reply_long_message_remote.py
 
   docker-build-validate:
     name: Dockerfile Build Validation

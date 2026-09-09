@@ -2,8 +2,9 @@
 # سكربت الإصلاح الذاتي والتنظيف الدوري لسيرفر TelegAuto SaaS
 echo "=== بدء عملية التنظيف الدوري للقرص وقاعدة البيانات ($(date)) ==="
 
-# 1. تنظيف كاش دوكر والنسخ التالفة أو غير المستخدمة
-docker system prune -a -f --volumes
+# 1. تنظيف كاش دوكر والنسخ التالفة أو غير المستخدمة بأمان (دون مسح volumes البيانات!)
+docker container prune -f
+docker image prune -f
 
 # 2. تنظيف وتطهير قاعدة البيانات من سجلات النشر والإشعارات القديمة (أكبر من 30 يوماً)
 docker exec -i saas_postgres psql -U postgres -d ad_exchange -c "

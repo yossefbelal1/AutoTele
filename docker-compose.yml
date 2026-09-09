@@ -17,12 +17,12 @@ services:
       -c effective_cache_size=64MB
       -c work_mem=2MB
       -c maintenance_work_mem=16MB
-      -c max_connections=200
+      -c max_connections=80
       -c wal_buffers=2MB
       -c checkpoint_completion_target=0.9
       -c random_page_cost=1.1
       -c effective_io_concurrency=200
-      -c synchronous_commit=off
+      -c synchronous_commit=on
     volumes:
       - postgres_data:/var/lib/postgresql/data
     # Bind to localhost only for admin management; not exposed to public internet
@@ -31,8 +31,8 @@ services:
     networks:
       - teleauto_internal_network
     restart: always
-    mem_limit: 256m
-    mem_reservation: 96m
+    mem_limit: 384m
+    mem_reservation: 128m
     logging:
       driver: "json-file"
       options:
@@ -70,6 +70,11 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   # 3. FastAPI Application Backend
   fastapi_api:
@@ -100,7 +105,7 @@ services:
       postgres_db:
         condition: service_healthy
       redis_cache:
-        condition: service_started
+        condition: service_healthy
     networks:
       - teleauto_internal_network
     restart: always
@@ -108,6 +113,11 @@ services:
     mem_reservation: 96m
     tmpfs:
       - /tmp
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8000/health\")'"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     logging:
       driver: "json-file"
       options:
@@ -130,11 +140,12 @@ services:
       postgres_db:
         condition: service_healthy
       redis_cache:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./worker.py:/app/worker.py:ro
       - ./db_manager.py:/app/db_manager.py:ro
       - ./cache_manager.py:/app/cache_manager.py:ro
+      - ./status_bot.py:/app/status_bot.py:ro
     networks:
       - teleauto_internal_network
     restart: always
