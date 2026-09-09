@@ -33,6 +33,12 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     DATABASE_URL = "postgresql+asyncpg://postgres@localhost:5432/ad_exchange"
 
+connect_args = {}
+if "postgresql" in DATABASE_URL or "asyncpg" in DATABASE_URL:
+    connect_args["server_settings"] = {
+        "idle_in_transaction_session_timeout": "60000"
+    }
+
 async_engine = create_async_engine(
     DATABASE_URL,
     echo=False,
@@ -40,7 +46,8 @@ async_engine = create_async_engine(
     max_overflow=15,
     pool_timeout=10,
     pool_recycle=300,
-    pool_pre_ping=True
+    pool_pre_ping=True,
+    connect_args=connect_args
 )
 
 AsyncSessionLocal = async_sessionmaker(
