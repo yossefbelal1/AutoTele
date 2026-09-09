@@ -2680,19 +2680,19 @@
         <!-- Request Type Selector -->
         <div>
           <label style="display: block; font-size: 13px; font-weight: 700; color: #cbd5e1; margin-bottom: 8px;">نوع الطلب المطلوب:</label>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-            <label class="exchange-type-card active" id="type-card-exchange" style="cursor: pointer; border: 1.5px solid #38bdf8; background: rgba(56, 189, 248, 0.1); border-radius: 10px; padding: 12px; text-align: center; transition: all 0.2s;">
-              <input type="radio" name="exchange_request_type" value="exchange" checked onchange="toggleExchangeFormType('exchange')" style="display: none;">
-              <div style="font-size: 20px; margin-bottom: 4px;">🔄</div>
-              <strong style="display: block; font-size: 13px; color: #fff;">تبادل إعلاني متبادل</strong>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="exchange-type-card active" id="type-card-exchange" onclick="toggleExchangeFormType('exchange')">
+              <input type="radio" name="exchange_request_type" value="exchange" checked style="display: none;">
+              <div style="font-size: 22px; margin-bottom: 4px;">🔄</div>
+              <strong style="display: block; font-size: 13.5px; color: #fff; margin-bottom: 2px;">تبادل إعلاني متبادل</strong>
               <span style="font-size: 11px; color: #94a3b8;">أعرض قناتي مقابل قناته</span>
-            </label>
-            <label class="exchange-type-card" id="type-card-campaign" style="cursor: pointer; border: 1.5px solid rgba(255, 255, 255, 0.1); background: rgba(15, 23, 42, 0.6); border-radius: 10px; padding: 12px; text-align: center; transition: all 0.2s;">
-              <input type="radio" name="exchange_request_type" value="campaign" onchange="toggleExchangeFormType('campaign')" style="display: none;">
-              <div style="font-size: 20px; margin-bottom: 4px;">📢</div>
-              <strong style="display: block; font-size: 13px; color: #fff;">طلب نشر حملة</strong>
+            </div>
+            <div class="exchange-type-card" id="type-card-campaign" onclick="toggleExchangeFormType('campaign')">
+              <input type="radio" name="exchange_request_type" value="campaign" style="display: none;">
+              <div style="font-size: 22px; margin-bottom: 4px;">📢</div>
+              <strong style="display: block; font-size: 13.5px; color: #fff; margin-bottom: 2px;">طلب نشر حملة</strong>
               <span style="font-size: 11px; color: #94a3b8;">ينشر حملتي على قنواته</span>
-            </label>
+            </div>
           </div>
         </div>
 
@@ -2714,11 +2714,42 @@
           <span style="font-size: 11px; color: #64748b; margin-top: 4px; display: block;">لا يمكنك اختيار قنوات الطرف الآخر؛ ستختار قناتك الخاصة فقط، والطرف الآخر سيختار قناته عند الموافقة.</span>
         </div>
 
-        <!-- Dynamic Field 2: Campaign -> Input Campaign URL -->
-        <div id="box-field-campaign-url" class="hidden">
-          <label for="input-exchange-campaign-url" style="display: block; font-size: 13px; font-weight: 700; color: #cbd5e1; margin-bottom: 6px;">🔗 رابط منشور الحملة المطلوب نشرها:</label>
-          <input type="url" id="input-exchange-campaign-url" placeholder="https://t.me/channel_username/123 أو https://t.me/c/..." dir="ltr" style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; color: #fff; font-size: 13.5px; box-sizing: border-box;">
-          <span style="font-size: 11px; color: #64748b; margin-top: 4px; display: block;">رابط تيليجرام مباشر (t.me). سيتم التقاط نسخة ثابتة للحملة وتشغيلها على قنوات المعلن الآخر فور قبوله.</span>
+        <!-- Dynamic Field 2: Campaign -> Choose Channel with Tracking link OR Manual URL -->
+        <div id="box-field-campaign-selection" class="hidden">
+          <label style="display: block; font-size: 13px; font-weight: 700; color: #cbd5e1; margin-bottom: 8px;">🎯 محتوى ورابط الحملة المطلوب نشرها:</label>
+          
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+            <button type="button" class="btn btn-sm exchange-sub-btn active" id="btn-mode-campaign-channel" onclick="toggleCampaignTargetMode('channel')">
+              <span>📢</span>
+              <span>قناتي (رابط التتبع)</span>
+            </button>
+            <button type="button" class="btn btn-sm exchange-sub-btn" id="btn-mode-campaign-manual" onclick="toggleCampaignTargetMode('manual')">
+              <span>🔗</span>
+              <span>رابط منشور يدوياً</span>
+            </button>
+          </div>
+
+          <!-- Mode 1: Select Owned Channel -> Uses Tracking Link -->
+          <div id="campaign-mode-channel-box">
+            <label for="select-campaign-channel" style="display: block; font-size: 12.5px; font-weight: 600; color: #94a3b8; margin-bottom: 6px;">اختر قناتك لاستخدام رابط تتبعها التلقائي:</label>
+            <select id="select-campaign-channel" onchange="onCampaignChannelChanged()" style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; color: #fff; font-size: 13.5px; box-sizing: border-box;">
+              <option value="" disabled selected>-- اختر إحدى قنواتك لاستخدام رابط تتبعها --</option>
+            </select>
+            <div id="campaign-tracking-preview-box" class="hidden" style="margin-top: 10px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; padding: 10px 14px; font-size: 12.5px; color: #a7f3d0; line-height: 1.5;">
+              <div style="font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                <span>✓</span> <span>رابط التتبع المعتمد الخاص بالقناة:</span>
+              </div>
+              <div id="campaign-tracking-link-display" style="color: #38bdf8; font-family: monospace; word-break: break-all; font-size: 13px; font-weight: 700; background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 6px;">-</div>
+              <div style="font-size: 11px; color: #6ee7b7; margin-top: 4px;">سيتم اعتماد هذا الرابط التتبعي كنقطة انطلاق لنشر الحملة لدى المعلن الآخر.</div>
+            </div>
+          </div>
+
+          <!-- Mode 2: Manual Link -->
+          <div id="campaign-mode-manual-box" class="hidden">
+            <label for="input-exchange-campaign-url" style="display: block; font-size: 12.5px; font-weight: 600; color: #94a3b8; margin-bottom: 6px;">🔗 رابط منشور الحملة المباشر (t.me):</label>
+            <input type="url" id="input-exchange-campaign-url" placeholder="https://t.me/channel_username/123 أو https://t.me/c/..." dir="ltr" style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; color: #fff; font-size: 13.5px; box-sizing: border-box;">
+            <span style="font-size: 11px; color: #64748b; margin-top: 4px; display: block;">رابط تيليجرام مباشر للمنشور. سيتم إطلاق الحملة به لدى المعلن فور قبوله.</span>
+          </div>
         </div>
 
         <!-- Proposal Message Textarea -->

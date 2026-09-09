@@ -485,7 +485,7 @@ async def forgot_password(req: ForgotPasswordReq, request: Request):
         
         # Notify user via status bot through Redis user notifications channel
         try:
-            from cache_manager import redis_client
+            from cache_manager import redis_client, get_invite_link
             import json as _json
             payload = {
                 "user_id": user.id,
@@ -1457,7 +1457,7 @@ async def get_status_bot_link(user_id: int = Depends(get_current_user)):
         await verify_active_subscription(user_id, session)
     import secrets
     link_token = secrets.token_hex(16)
-    from cache_manager import redis_client
+    from cache_manager import redis_client, get_invite_link
     await redis_client.set(f"status_bot_link_token:{link_token}", str(user_id), ex=900)
     bot_username = os.getenv("STATUS_BOT_USERNAME", "AutoTeleStatusBot")
     link = f"https://t.me/{bot_username}?start={link_token}"
@@ -1644,7 +1644,7 @@ async def campaign_submit(req: CampaignSubmitReq, user_id: int = Depends(get_cur
 
 async def log_tenant_event_api(tenant_id: int, text: str):
     try:
-        from cache_manager import redis_client
+        from cache_manager import redis_client, get_invite_link
         import datetime
         import json
         key = f"tenant:{tenant_id}:live_logs"
@@ -1704,7 +1704,7 @@ async def stop_everything(user_id: int = Depends(get_current_user)):
         await session.commit()
         
         # 3. Publish cancel_jobs to worker via Redis Pub/Sub
-        from cache_manager import redis_client
+        from cache_manager import redis_client, get_invite_link
         import json
         await redis_client.publish(
             "saas_tenant_commands",
@@ -1733,7 +1733,7 @@ async def get_user_logs(user_id: int = Depends(get_current_user)):
         if not tg_account:
             return {"status": "success", "logs": []}
         
-        from cache_manager import redis_client
+        from cache_manager import redis_client, get_invite_link
         import json
         raw_logs = await redis_client.lrange(f"tenant:{tg_account.id}:live_logs", 0, -1)
         logs = []
@@ -1767,7 +1767,7 @@ async def clear_user_logs(user_id: int = Depends(get_current_user)):
             raise HTTPException(status_code=400, detail="يرجى ربط حسابك على تليجرام وتفعيل المحرك أولاً.")
         
         # Clear live logs from Redis
-        from cache_manager import redis_client
+        from cache_manager import redis_client, get_invite_link
         await redis_client.delete(f"tenant:{tg_account.id}:live_logs")
         
         # Clear DB SavedMessageLog just in case
@@ -1791,7 +1791,7 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
         all_jobs = []
         
         # 1. Telegram-scheduled jobs from Redis
-        from cache_manager import redis_client
+        from cache_manager import redis_client, get_invite_link
         import json
         raw_jobs = await redis_client.get(f"tenant:{tg_account.id}:scheduled_jobs")
         if raw_jobs:
@@ -1990,7 +1990,7 @@ async def delete_single_scheduled_job(task_id: int, user_id: int = Depends(get_c
         await session.commit()
         
         try:
-            from cache_manager import redis_client
+            from cache_manager import redis_client, get_invite_link
             import json as _json
             await redis_client.publish(
                 "saas_tenant_commands",
@@ -2041,7 +2041,7 @@ async def update_single_scheduled_job(task_id: int, req: UpdateScheduledJobReq, 
         await session.commit()
         
         try:
-            from cache_manager import redis_client
+            from cache_manager import redis_client, get_invite_link
             import json as _json
             await redis_client.publish(
                 "saas_tenant_commands",
@@ -2076,7 +2076,7 @@ async def clear_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
             return {"status": "success", "message": "لا يوجد حساب مرتبط."}
         
         # 1. Clear Telegram-scheduled jobs from Redis
-        from cache_manager import redis_client
+        from cache_manager import redis_client, get_invite_link
         await redis_client.delete(f"tenant:{tg_account.id}:scheduled_jobs")
         
         # 2. Publish cancel command to worker if any pending/processing jobs exist
@@ -2496,7 +2496,7 @@ async def telegram_verify_code(req: TelegramVerifyCodeReq, user_id: int = Depend
         await db_session.commit()
         
         # Delete first crawl flag to trigger automatic onboarding crawl in core_worker
-        from cache_manager import redis_client
+        from cache_manager import redis_client, get_invite_link
         account_id = existing_account.id if existing_account else new_account.id
         
         # Auto-enqueue update (.تحديث) command so channels and folders are immediately scanned and ready
@@ -2664,7 +2664,7 @@ async def send_user_alert_telegram(user_id: int, message_text: str, session: Asy
 
 async def send_renewal_alert_task(user_id: int, plan_label: str, new_end_str: str):
     import json
-    from cache_manager import redis_client
+    from cache_manager import redis_client, get_invite_link
     from datetime import datetime as dt, timezone
 
     # Calculate days left
@@ -2998,7 +2998,7 @@ async def get_admin_system_stats(admin_user: User = Depends(check_admin_user)):
     
     import psutil
     import os
-    from cache_manager import redis_client
+    from cache_manager import redis_client, get_invite_link
     
     # CPU
     cpu_percent = psutil.cpu_percent(interval=None)
@@ -4133,7 +4133,7 @@ async def live_logs_stream(tenant_id: Optional[int] = None, admin_user: User = D
 @app.post("/admin/troubleshoot/ping")
 async def admin_troubleshoot_ping(admin_user: User = Depends(check_admin_user)):
     import time
-    from cache_manager import redis_client
+    from cache_manager import redis_client, get_invite_link
     
     db_ok = False
     db_ms = 0.0
@@ -4179,7 +4179,7 @@ async def admin_troubleshoot_ping(admin_user: User = Depends(check_admin_user)):
 
 @app.post("/admin/troubleshoot/clear-cache")
 async def admin_troubleshoot_clear_cache(admin_user: User = Depends(check_admin_user)):
-    from cache_manager import redis_client
+    from cache_manager import redis_client, get_invite_link
     cleared_count = 0
     try:
         patterns = ["tenant:*:admin_chats", "tenant:*:dialogs*", "cache:temp:*"]
@@ -4373,14 +4373,23 @@ async def clear_all_notifications(current_user_id: int = Depends(get_current_use
 # ==============================================================================
 
 class CreateExchangeReq(BaseModel):
-    recipient_user_id: int
+    recipient_user_id: Optional[int] = None
+    target_user_id: Optional[int] = None
     request_type: str = Field(..., pattern="^(exchange|campaign)$")
     requester_channel_id: Optional[int] = None
+    proposed_channel_id: Optional[int] = None
+    proposed_channel_url: Optional[str] = None
+    proposed_channel_name: Optional[str] = None
     campaign_url: Optional[str] = None
-    message: str = Field(..., min_length=5, max_length=1000)
+    campaign_target_link: Optional[str] = None
+    message: Optional[str] = Field(None, min_length=5)
+    proposal_message: Optional[str] = Field(None, min_length=5)
 
 class AcceptExchangeReq(BaseModel):
     recipient_channel_id: Optional[int] = None
+    accepted_channel_id: Optional[int] = None
+    accepted_channel_url: Optional[str] = None
+    accepted_channel_name: Optional[str] = None
 
 class RejectExchangeReq(BaseModel):
     reason: Optional[str] = None
@@ -4447,7 +4456,7 @@ async def get_my_exchange_channels(current_user_id: int = Depends(get_current_us
         if not channels:
             return {"status": "success", "channels": []}
             
-        from cache_manager import redis_client
+        from cache_manager import redis_client, get_invite_link
         raw_banned = await redis_client.get(f"tenant:{tg_acc.id}:banned")
         raw_no_post = await redis_client.get(f"tenant:{tg_acc.id}:no_post")
         banned_ids = set(json.loads(raw_banned)) if raw_banned else set()
@@ -4461,11 +4470,14 @@ async def get_my_exchange_channels(current_user_id: int = Depends(get_current_us
             cid = ch.get("id")
             if not cid or cid in exclude or not ch.get("can_send", True):
                 continue
+            tracking_link = await get_invite_link(tg_acc.id, cid)
+            best_link = tracking_link or ch.get("invite_link") or (f"https://t.me/{ch.get('username')}" if ch.get("username") else None)
             valid_channels.append({
                 "id": cid,
                 "title": ch.get("title") or f"قناة {cid}",
                 "username": ch.get("username"),
-                "invite_link": ch.get("invite_link") or (f"https://t.me/{ch.get('username')}" if ch.get("username") else None),
+                "invite_link": best_link,
+                "tracking_link": tracking_link or best_link,
                 "members_count": ch.get("members_count", 0)
             })
             
@@ -4475,7 +4487,10 @@ async def get_my_exchange_channels(current_user_id: int = Depends(get_current_us
 async def create_exchange_request(req: CreateExchangeReq, current_user_id: int = Depends(get_current_user)):
     """Create a new Exchange or Campaign Request with strict server-side validation."""
     now = datetime.now(timezone.utc)
-    if req.recipient_user_id == current_user_id:
+    target_id = req.recipient_user_id or req.target_user_id
+    if not target_id:
+        raise HTTPException(status_code=400, detail="يجب تحديد المعلن المستهدف.")
+    if target_id == current_user_id:
         raise HTTPException(status_code=400, detail="لا يمكنك إرسال طلب تبادل أو حملة إلى نفسك.")
         
     async with AsyncSessionLocal() as session:
@@ -4494,7 +4509,7 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
         # Verify recipient
         recipient = (await session.execute(
             select(User).where(
-                User.id == req.recipient_user_id,
+                User.id == target_id,
                 User.is_active == True,
                 User.subscription_status == "active",
                 User.subscription_end > now
@@ -4527,7 +4542,7 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
         dup = (await session.execute(
             select(ExchangeRequest).where(
                 ExchangeRequest.requester_user_id == current_user_id,
-                ExchangeRequest.recipient_user_id == req.recipient_user_id,
+                ExchangeRequest.recipient_user_id == target_id,
                 ExchangeRequest.request_type == req.request_type,
                 ExchangeRequest.status == "pending",
                 ExchangeRequest.expires_at > now
@@ -4540,51 +4555,76 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
         requester_channel_username = None
         requester_channel_link = None
         campaign_url = None
+        saved_channel_id = req.requester_channel_id or req.proposed_channel_id
+        camp_url = req.campaign_url or req.campaign_target_link
+        
+        sender_channels = await get_channels_cache(sender_acc.id)
         
         if req.request_type == "exchange":
-            if not req.requester_channel_id:
-                raise HTTPException(status_code=400, detail="يجب اختيار إحدى قنواتك لطلب التبادل.")
-            # Verify channel ownership
-            sender_channels = await get_channels_cache(sender_acc.id)
             matched_ch = None
-            for ch in sender_channels:
-                if isinstance(ch, dict) and ch.get("id") == req.requester_channel_id:
-                    matched_ch = ch
-                    break
+            if saved_channel_id:
+                for ch in (sender_channels or []):
+                    if isinstance(ch, dict) and ch.get("id") == saved_channel_id:
+                        matched_ch = ch
+                        break
+            elif req.proposed_channel_url:
+                for ch in (sender_channels or []):
+                    if isinstance(ch, dict) and (req.proposed_channel_url in str(ch.get("invite_link") or "") or (ch.get("username") and ch.get("username") in req.proposed_channel_url)):
+                        matched_ch = ch
+                        saved_channel_id = ch.get("id")
+                        break
+                        
             if not matched_ch or not matched_ch.get("can_send", True):
-                raise HTTPException(status_code=400, detail="القناة المختارة غير مسجلة بحسابك أو لا تملك صلاحية النشر فيها.")
+                raise HTTPException(status_code=400, detail="يجب اختيار إحدى قنواتك الخاصة التابعة للمحرك لعرضها للتبادل.")
                 
-            requester_channel_title = matched_ch.get("title") or f"قناة {req.requester_channel_id}"
+            requester_channel_title = matched_ch.get("title") or req.proposed_channel_name or f"قناة {saved_channel_id}"
             requester_channel_username = matched_ch.get("username")
-            requester_channel_link = matched_ch.get("invite_link") or (f"https://t.me/{requester_channel_username}" if requester_channel_username else None)
-            if not requester_channel_link:
-                requester_channel_link = f"https://t.me/c/{abs(req.requester_channel_id)}"
-                
-        elif req.request_type == "campaign":
-            if not req.campaign_url or not req.campaign_url.strip():
-                raise HTTPException(status_code=400, detail="يرجى إدخال رابط الحملة المطلوب تنفيذها.")
-            url_clean = req.campaign_url.strip()
-            # Strict safe Telegram URL pattern
-            url_pattern = _re.compile(r'^(https?:\/\/)?(t\.me|telegram\.me)\/[a-zA-Z0-9_\+\/\?=\-]+$|^@[a-zA-Z0-9_]{3,}$')
-            if not url_pattern.match(url_clean):
-                raise HTTPException(status_code=400, detail="رابط الحملة غير صالح. يرجى إدخال رابط تليجرام صحيح (مثال: https://t.me/example أو @example).")
-            if url_clean.startswith("@"):
-                url_clean = f"https://t.me/{url_clean[1:]}"
-            elif not url_clean.startswith("http"):
-                url_clean = f"https://{url_clean}"
-            campaign_url = url_clean
+            t_link = await get_invite_link(sender_acc.id, saved_channel_id)
+            requester_channel_link = t_link or matched_ch.get("invite_link") or (f"https://t.me/{requester_channel_username}" if requester_channel_username else f"https://t.me/c/{abs(saved_channel_id)}")
             
+        elif req.request_type == "campaign":
+            # Either Option 1: Selected owned channel (use its tracking link)
+            if saved_channel_id:
+                matched_ch = None
+                for ch in (sender_channels or []):
+                    if isinstance(ch, dict) and ch.get("id") == saved_channel_id:
+                        matched_ch = ch
+                        break
+                if not matched_ch or not matched_ch.get("can_send", True):
+                    raise HTTPException(status_code=400, detail="القناة المختارة غير مسجلة بحسابك أو لا تملك صلاحية النشر فيها.")
+                    
+                requester_channel_title = matched_ch.get("title") or f"قناة {saved_channel_id}"
+                requester_channel_username = matched_ch.get("username")
+                t_link = await get_invite_link(sender_acc.id, saved_channel_id)
+                requester_channel_link = t_link or matched_ch.get("invite_link") or (f"https://t.me/{requester_channel_username}" if requester_channel_username else f"https://t.me/c/{abs(saved_channel_id)}")
+                campaign_url = requester_channel_link
+            # Or Option 2: Custom URL
+            elif camp_url and camp_url.strip():
+                url_clean = camp_url.strip()
+                url_pattern = _re.compile(r'^(https?:\/\/)?(t\.me|telegram\.me)\/[a-zA-Z0-9_\+\/\?=\-]+$|^@[a-zA-Z0-9_]{3,}$')
+                if not url_pattern.match(url_clean):
+                    raise HTTPException(status_code=400, detail="رابط الحملة غير صالح. يرجى إدخال رابط تليجرام صحيح (مثال: https://t.me/example أو @example).")
+                if url_clean.startswith("@"):
+                    url_clean = f"https://t.me/{url_clean[1:]}"
+                elif not url_clean.startswith("http"):
+                    url_clean = f"https://{url_clean}"
+                campaign_url = url_clean
+            else:
+                raise HTTPException(status_code=400, detail="يرجى اختيار إحدى قنواتك لاستخدام رابط تتبعها التلقائي أو إدخال رابط الحملة يدوياً.")
+
+        msg_body = (req.message or req.proposal_message or ("طلب تبادل إعلاني" if req.request_type == "exchange" else "طلب نشر حملة إعلانية")).strip()
+
         # Create ExchangeRequest
         new_req = ExchangeRequest(
             requester_user_id=current_user_id,
-            recipient_user_id=req.recipient_user_id,
+            recipient_user_id=target_id,
             request_type=req.request_type,
-            requester_channel_id=req.requester_channel_id if req.request_type == "exchange" else None,
+            requester_channel_id=saved_channel_id,
             requester_channel_title=requester_channel_title,
             requester_channel_username=requester_channel_username,
             requester_channel_link=requester_channel_link,
             campaign_url=campaign_url,
-            message=req.message.strip(),
+            message=msg_body,
             status="pending",
             expires_at=now + timedelta(hours=48)
         )
@@ -5078,5 +5118,11 @@ async def get_exchange_overview(current_user_id: int = Depends(get_current_user)
             "incoming_pending": incoming_pending,
             "sent_pending": sent_pending,
             "active_agreements": active_agreements,
-            "completed_total": completed_total
+            "completed_total": completed_total,
+            "summary": {
+                "pending_incoming": incoming_pending,
+                "pending_sent": sent_pending,
+                "active_agreements": active_agreements,
+                "completed_agreements": completed_total
+            }
         }
