@@ -358,7 +358,21 @@ async def set_setting(session: AsyncSession, telegram_account_id: int, key: str,
 
 async def get_active_templates_for_tenant(session: AsyncSession, telegram_account_id: int) -> List[str]:
     stmt = select(AdTemplate.template_text).where(AdTemplate.telegram_account_id == telegram_account_id, AdTemplate.is_active == True)
-    return list((await session.execute(stmt)).scalars().all())
+    results = list((await session.execute(stmt)).scalars().all())
+    if not results:
+        # User-level fallback: check if any account of the same user has active templates
+        user_id = (await session.execute(
+            select(TelegramAccount.user_id).where(TelegramAccount.id == telegram_account_id)
+        )).scalar_one_or_none()
+        if user_id:
+            user_stmt = select(AdTemplate.template_text).join(
+                TelegramAccount, AdTemplate.telegram_account_id == TelegramAccount.id
+            ).where(
+                TelegramAccount.user_id == user_id,
+                AdTemplate.is_active == True
+            )
+            results = list((await session.execute(user_stmt)).scalars().all())
+    return results
 
 async def get_blacklist_for_tenant(session: AsyncSession, telegram_account_id: int) -> List[int]:
     stmt = select(Blacklist.chat_id).where(Blacklist.telegram_account_id == telegram_account_id)

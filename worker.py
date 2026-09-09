@@ -825,8 +825,11 @@ async def reply_long_message(message: Message, text_lines: List[str]):
 async def get_formatted_ad_message(session, tenant_id: int, target_title: str, target_link: str, extra_link: Optional[str] = None) -> str:
     try:
         db_templates = await get_active_templates_for_tenant(session, telegram_account_id=tenant_id)
-        templates = (db_templates or []) + DEFAULT_TEMPLATES
-        chosen_template = random.choice(templates)
+        # Give customer templates 100% top priority if defined
+        if db_templates and len(db_templates) > 0:
+            chosen_template = random.choice(db_templates)
+        else:
+            chosen_template = random.choice(DEFAULT_TEMPLATES)
         return format_user_template(chosen_template, target_title, target_link, extra_link=extra_link)
     except Exception as e:
         logger.error(f"Error in templates engine: {e}")

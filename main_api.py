@@ -297,7 +297,7 @@ class CryptoPaymentReq(BaseModel):
     txid: str
 
 class TemplateCreateReq(BaseModel):
-    telegram_account_id: int
+    telegram_account_id: Optional[int] = None
     template_text: str
 
 class CampaignSubmitReq(BaseModel):
@@ -1493,55 +1493,55 @@ async def crypto_submit(req: CryptoPaymentReq, user_id: int = Depends(get_curren
 
 @app.post("/templates/add")
 async def add_template(req: TemplateCreateReq, user_id: int = Depends(get_current_user)):
-
     async with AsyncSessionLocal() as session:
         await verify_active_subscription(user_id, session)
-        # Verify that the telegram_account_id belongs to the authenticated user (Tenant Isolation)
-        acc = (await session.execute(
-            select(TelegramAccount).where(
-                TelegramAccount.id == req.telegram_account_id,
-                TelegramAccount.user_id == user_id
-            )
-        )).scalars().first()
+        # Verify that the telegram_account belongs to the authenticated user (Tenant Isolation)
+        if req.telegram_account_id:
+            acc = (await session.execute(
+                select(TelegramAccount).where(
+                    TelegramAccount.id == req.telegram_account_id,
+                    TelegramAccount.user_id == user_id
+                )
+            )).scalars().first()
+        else:
+            acc = (await session.execute(
+                select(TelegramAccount).where(
+                    TelegramAccount.user_id == user_id
+                ).order_by(TelegramAccount.status == "active", TelegramAccount.id.desc())
+            )).scalars().first()
+            
         if not acc:
-            raise HTTPException(status_code=403, detail="غير مصرح لك بإضافة صيغة لهذا الحساب")
+            raise HTTPException(status_code=400, detail="يرجى ربط حساب تليجرام أولاً لحفظ الصيغة باسم حسابك")
 
-        new_tmpl = AdTemplate(telegram_account_id=req.telegram_account_id, template_text=req.template_text)
+        new_tmpl = AdTemplate(telegram_account_id=acc.id, template_text=req.template_text.strip())
         session.add(new_tmpl)
         await session.commit()
-        return {"status": "success", "message": "تم إضافة الصيغة بنجاح لمكتبتك الخارجية"}
+        return {"status": "success", "message": "تم إضافة الصيغة وتثبيتها بنجاح في مكتبتك الدائمة"}
 
 @app.get("/templates")
 async def get_templates(telegram_account_id: Optional[int] = None, user_id: int = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
         await verify_active_subscription(user_id, session)
-        if telegram_account_id:
-            tg_account = (await session.execute(
-                select(TelegramAccount).where(
-                    TelegramAccount.id == telegram_account_id,
-                    TelegramAccount.user_id == user_id
-                )
-            )).scalars().first()
-            if not tg_account:
-                return []
-            target_account_id = tg_account.id
-        else:
-            tg_account = (await session.execute(
-                select(TelegramAccount).where(
-                    TelegramAccount.user_id == user_id,
-                    TelegramAccount.status == "active"
-                )
-            )).scalars().first()
-            if not tg_account:
-                tg_account = (await session.execute(
-                    select(TelegramAccount).where(TelegramAccount.user_id == user_id)
-                )).scalars().first()
-            
-            if not tg_account:
-                return []
-            target_account_id = tg_account.id
+        # Fetch all accounts belonging to this authenticated user
+        user_acc_ids = (await session.execute(
+            select(TelegramAccount.id).where(TelegramAccount.user_id == user_id)
+        )).scalars().all()
         
-        stmt = select(AdTemplate).where(AdTemplate.telegram_account_id == target_account_id).order_by(AdTemplate.created_at.desc())
+        if not user_acc_ids:
+            return []
+            
+        if telegram_account_id and telegram_account_id in user_acc_ids:
+            stmt = select(AdTemplate).where(
+                AdTemplate.telegram_account_id == telegram_account_id,
+                AdTemplate.is_active == True
+            ).order_by(AdTemplate.created_at.desc())
+        else:
+            # Return all customer templates across all user accounts to ensure permanent persistence
+            stmt = select(AdTemplate).where(
+                AdTemplate.telegram_account_id.in_(user_acc_ids),
+                AdTemplate.is_active == True
+            ).order_by(AdTemplate.created_at.desc())
+        
         results = (await session.execute(stmt)).scalars().all()
         return [
             {

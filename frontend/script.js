@@ -774,13 +774,17 @@ async function syncDashboardData() {
     // 5. Core Bot Worker State
     const botStatus = response.bot_status;
     const botDisplay = document.getElementById("bot-status-display");
-    const botCard = document.querySelector(".engine-card");
+    const botCard = document.querySelector(".subscription-summary-card");
     
     // Save account ID for templates view
     currentTelegramAccountId = response.telegram_account_id;
 
     if (botCard) {
       botCard.className = "card engine-card subscription-summary-card"; // reset
+    }
+    // Also populate campaign template picker if needed
+    if (typeof populateCampaignTemplatePicker === "function") {
+      populateCampaignTemplatePicker();
     }
 
     if (botDisplay) {
@@ -2277,6 +2281,24 @@ async function handleWebCampaignSubmit(e) {
 
     if (data.status === "success") {
       showToast(data.message || "تم تقديم طلب الحملة بنجاح!", "success");
+      
+      // Auto-save template to permanent library if user checked the box
+      if (customText && document.getElementById("campaign-save-template-check")?.checked) {
+        try {
+          await apiRequest("/templates/add", {
+            method: "POST",
+            body: JSON.stringify({
+              telegram_account_id: currentTelegramAccountId || null,
+              template_text: customText
+            })
+          });
+          showToast("تم حفظ الصيغة بنجاح وتثبيتها في مكتبتك الدائمة! 💾", "info");
+          if (typeof populateCampaignTemplatePicker === "function") populateCampaignTemplatePicker();
+        } catch (tmplErr) {
+          console.warn("Auto save template error:", tmplErr);
+        }
+      }
+
       document.getElementById("web-campaign-form").reset();
       resetTargetLinkInputs();
       resetChannelPicker();
@@ -2326,6 +2348,7 @@ async function handleTemplateAdd(e) {
       showToast(data.message || "تم إضافة صيغة إعلانك بنجاح لمكتبتك الخارجية!", "success");
       document.getElementById("template-add-form").reset();
       loadTemplatesList();
+      populateCampaignTemplatePicker();
     }
   } catch (error) {
     console.error("Add Template Error:", error);
@@ -2333,6 +2356,43 @@ async function handleTemplateAdd(e) {
     setButtonLoading("btn-add-template", false);
   }
 }
+
+async function populateCampaignTemplatePicker() {
+  const select = document.getElementById("campaign-template-select");
+  if (!select) return;
+  try {
+    const url = currentTelegramAccountId ? `/templates?telegram_account_id=${currentTelegramAccountId}` : "/templates";
+    const templates = await apiRequest(url);
+    select.innerHTML = '<option value="">-- اختر من صيغك المحفوظة (أولوية لك) --</option>';
+    if (templates && Array.isArray(templates) && templates.length > 0) {
+      templates.forEach((t, idx) => {
+        const opt = document.createElement("option");
+        opt.value = t.template_text;
+        const preview = t.template_text.length > 35 ? t.template_text.substring(0, 35) + "..." : t.template_text;
+        opt.textContent = `⭐ صيغة ${idx + 1}: ${preview}`;
+        select.appendChild(opt);
+      });
+    } else {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.disabled = true;
+      opt.textContent = "لا توجد صيغ محفوظة (أضف من إدارة المحرك)";
+      select.appendChild(opt);
+    }
+  } catch (err) {
+    console.debug("Could not populate campaign templates picker:", err);
+  }
+}
+window.populateCampaignTemplatePicker = populateCampaignTemplatePicker;
+
+window.applySelectedTemplateToCampaign = function(text) {
+  if (!text) return;
+  const textarea = document.getElementById("web-custom-text");
+  if (textarea) {
+    textarea.value = text;
+    textarea.dispatchEvent(new Event("input"));
+  }
+};
 
 async function loadTemplatesList() {
   const container = document.getElementById("templates-list-container");
@@ -4500,7 +4560,7 @@ async function loadCampaignsHistory(filter = null, isManual = false) {
       `;
 
       mobileCardsHtml += `
-        <div class="card" style="background: rgba(15,23,42,0.7); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 16px;">
+        <div class="campaign-mobile-card card" style="background: rgba(15,23,42,0.85); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; padding: 16px; margin-bottom: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
             <div style="display: flex; align-items: center; gap: 8px;">
               <span style="color: #64748b; font-weight: 700;">#${c.id}</span>

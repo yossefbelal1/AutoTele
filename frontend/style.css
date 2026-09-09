@@ -3897,22 +3897,26 @@ body.drawer-open {
 }
 
 /* ==========================================
-   UNIFIED HUBS & SUB-TABS STYLES
+   UNIFIED HUBS & SUB-TABS STYLES (STICKY & RESPONSIVE)
    ========================================== */
 .subtabs-nav-bar {
+  position: sticky;
+  top: 0px;
+  z-index: 35;
   display: flex;
   align-items: center;
-  gap: 6px;
-  background: rgba(15, 23, 42, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 14px;
-  padding: 5px;
+  padding: 6px 8px;
   margin-bottom: 22px;
   overflow-x: auto;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.4);
 }
 
 .subtabs-nav-bar::-webkit-scrollbar {
@@ -3973,18 +3977,105 @@ body.drawer-open {
   }
 }
 
+/* ==========================================
+   MOBILE RESPONSIVENESS (REPORTS, ANALYTICS, NOTIFICATIONS)
+   ========================================== */
 @media (max-width: 768px) {
+  /* 1. Sticky Sub-tabs bar directly below mobile app header */
   .subtabs-nav-bar {
-    padding: 4px;
-    gap: 4px;
+    position: sticky;
+    top: calc(56px + var(--sat, 0px));
+    z-index: 35;
+    padding: 5px 6px;
+    gap: 6px;
     margin-bottom: 16px;
     border-radius: 12px;
+    background: rgba(15, 23, 42, 0.96);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
   }
   .subtab-btn {
-    padding: 7px 13px;
-    font-size: 12px;
-    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 12.5px;
+    min-height: 38px;
+    border-radius: 9px;
     gap: 6px;
+  }
+
+  /* 2. Campaigns History: Hide wide table, show touch-friendly mobile cards */
+  .campaign-table-container {
+    display: none !important;
+  }
+  #campaigns-mobile-cards-container.mobile-only {
+    display: flex !important;
+  }
+  .campaign-mobile-card {
+    background: rgba(15, 23, 42, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: border-color 0.2s;
+  }
+  .campaign-mobile-card:hover {
+    border-color: rgba(255, 255, 255, 0.16);
+  }
+
+  /* 3. Analytics: 2-column balanced metrics grid & clean mobile padding */
+  .analytics-metrics-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+    margin-bottom: 16px !important;
+  }
+  .analytics-metrics-grid .metric-box {
+    padding: 14px 12px !important;
+    border-radius: 12px !important;
+  }
+  .analytics-metrics-grid .metric-box-title {
+    font-size: 11.5px !important;
+  }
+  .analytics-metrics-grid .metric-box-value {
+    font-size: 20px !important;
+  }
+  .analytics-metrics-grid .metric-box-sub {
+    font-size: 11px !important;
+  }
+  .analytics-chart-card {
+    padding: 16px !important;
+    border-radius: 14px !important;
+  }
+  .campaign-channels-analytics-card {
+    padding: 16px !important;
+    border-radius: 14px !important;
+  }
+
+  /* 4. Notifications & Event Log: Touch friendly cards & spacing */
+  .notif-card-page {
+    padding: 12px 14px !important;
+    gap: 10px !important;
+    border-radius: 12px !important;
+  }
+  .notif-card-page .notif-page-icon {
+    width: 34px !important;
+    height: 34px !important;
+    font-size: 17px !important;
+  }
+  .notif-card-page .notif-page-title {
+    font-size: 13px !important;
+  }
+  .notif-card-page .notif-page-msg {
+    font-size: 12px !important;
+  }
+  .notif-card-page .notif-page-meta {
+    font-size: 11px !important;
+    gap: 8px !important;
+  }
+  .event-log-card {
+    padding: 16px !important;
+    border-radius: 14px !important;
   }
 }
 
