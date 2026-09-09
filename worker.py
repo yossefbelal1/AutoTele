@@ -4262,11 +4262,11 @@ async def supervisor_loop():
 
             active_db_ids = {acc["id"] for acc in accounts_data}
             
-            logger.info(f"[Supervisor Status Check] Active DB IDs: {active_db_ids} | Running Clients: {list(running_clients.keys())} | Starting Tenants: {list(starting_tenants)}")
+            logger.debug(f"[Supervisor Status Check] Active DB IDs: {active_db_ids} | Running Clients: {list(running_clients.keys())} | Starting Tenants: {list(starting_tenants)}")
             for acc in accounts_data:
                 client = running_clients.get(acc["id"])
                 is_conn = client.is_connected if client else None
-                logger.info(f"  Tenant {acc['id']} (status={acc['status']}): client exists={client is not None}, connected={is_conn}")
+                logger.debug(f"  Tenant {acc['id']} (status={acc['status']}): client exists={client is not None}, connected={is_conn}")
             
             # Stop any tenants no longer active in DB
             for tenant_id in list(running_clients.keys()):
@@ -4463,6 +4463,9 @@ async def start_tenant_worker(account: TelegramAccount):
         
         asyncio.create_task(run_first_crawl_onboarding(tenant_id, client))
         
+        existing_wave_task = running_tasks.get(tenant_id)
+        if existing_wave_task and not existing_wave_task.done():
+            existing_wave_task.cancel()
         running_tasks[tenant_id] = asyncio.create_task(wave_publisher_worker(tenant_id))
         logger.info(f"Launched Stateful Worker for tenant {tenant_id}.")
 
@@ -5091,7 +5094,7 @@ async def wave_publisher_worker(tenant_id: int):
                 state_val = state_val if state_val else "stopped"
                 
                 if state_val in ("stopped", "paused"):
-                    logger.info(f"[Debug Loop] Tenant {tenant_id} is stopped/paused (state={state_val}). Sleeping.")
+                    logger.debug(f"[Debug Loop] Tenant {tenant_id} is stopped/paused (state={state_val}). Sleeping.")
                     await asyncio.sleep(15)
                     continue
                 
@@ -5108,7 +5111,7 @@ async def wave_publisher_worker(tenant_id: int):
                         logger.debug(f"Could not hydrate last_wave_time from Redis for tenant {tenant_id}: {he}")
 
                 last_time = last_wave_time.get(tenant_id)
-                logger.info(f"[Debug Loop] Tenant {tenant_id} is active. last_wave_time={last_time.isoformat() if last_time else 'None'}")
+                logger.debug(f"[Debug Loop] Tenant {tenant_id} is active. last_wave_time={last_time.isoformat() if last_time else 'None'}")
                     
                 db_wave = await get_setting(session, tenant_id, "wave_interval")
                 wave_interval = int(db_wave) if db_wave else 420
