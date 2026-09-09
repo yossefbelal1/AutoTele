@@ -665,15 +665,16 @@
                   <p class="card-subtitle" style="color: #94a3b8; font-size: 12px; margin: 0; margin-top: 2px;">جدول وأطلق حملاتك بتأخيرات آمنة ونظام حذف آلي ذكي.</p>
                 </div>
               </div>
-              <!-- Account info bar -->
-              <div class="account-status-bar" style="background: rgba(15, 23, 42, 0.6); padding: 8px 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); display: flex; align-items: center; gap: 12px; font-size: 13px;">
-                <div style="display: flex; align-items: center; gap: 6px;">
-                  <span id="account-status-dot" class="status-dot-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #64748b; display: inline-block;"></span>
-                  <span id="campaign-account-name" style="color: #fff; font-weight: 600;">جاري التحميل...</span>
+              <!-- Engine & Proxy Status Bar -->
+              <div class="account-status-bar" style="background: rgba(15, 23, 42, 0.7); padding: 8px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; gap: 14px; font-size: 13px;">
+                <div style="display: flex; align-items: center; gap: 8px; cursor: pointer;" onclick="navigateToRoute('/app/health')" title="عرض تفاصيل صحة المحرك">
+                  <span style="color: #94a3b8; font-size: 12px; font-weight: 600;">حالة المحرك:</span>
+                  <span id="account-status-dot" class="status-dot-indicator" style="width: 9px; height: 9px; border-radius: 50%; background: #64748b; display: inline-block;"></span>
+                  <span id="campaign-account-name" style="color: #fff; font-weight: 700; font-size: 12.5px;">جاري الفحص...</span>
                 </div>
-                <div id="proxy-status-container" style="border-right: 1px solid rgba(255,255,255,0.1); padding-right: 12px; display: flex; align-items: center; gap: 6px;">
+                <div id="proxy-status-container" style="border-right: 1px solid rgba(255,255,255,0.12); padding-right: 14px; display: flex; align-items: center; gap: 6px;">
                   <span id="proxy-status-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #64748b; display: inline-block;"></span>
-                  <span id="campaign-proxy-name" style="color: #94a3b8;">الوكيل (Proxy)</span>
+                  <span id="campaign-proxy-name" style="color: #94a3b8; font-size: 12px;">الوكيل (Proxy)</span>
                 </div>
               </div>
             </div>
@@ -973,81 +974,88 @@
               </form>
             </div>
 
-            <!-- Maintenance & Maintenance Controls panel -->
-            <div style="margin-top: 24px; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 20px;">
-              <h4 style="margin: 0 0 16px 0; font-size: 14px; color: #fff; font-weight: 600;">إجراءات الصيانة والتحكم الإضافية</h4>
-              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+            <!-- Maintenance & Controls panel (Compact & Elegant) -->
+            <div class="maintenance-controls-panel" style="margin-top: 20px; border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 16px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+                <h4 style="margin: 0; font-size: 13.5px; color: #cbd5e1; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                  <span>⚙️</span>
+                  <span>إجراءات الصيانة والتحكم الإضافية</span>
+                </h4>
+                <span style="font-size: 11.5px; color: #64748b;">تحكم فوري بحساب وقنوات النشر</span>
+              </div>
+              
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px;">
                 
-                <!-- Clear Action -->
-                <div class="maintenance-action-card" style="display: flex; align-items: center; justify-content: space-between; gap: 16px; background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.1); padding: 14px; border-radius: 12px;">
-                  <div style="flex-grow: 1;">
-                    <div style="font-weight: 600; color: #f87171; font-size: 13px; display: flex; align-items: center; gap: 6px;">
-                      <span>🧹</span>
-                      <span>مسح سريع</span>
+                <!-- Quick Clear -->
+                <div style="background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 10px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                  <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                    <span style="font-size: 16px;">🧹</span>
+                    <div>
+                      <div style="font-weight: 600; color: #f87171; font-size: 12.5px;">مسح سريع</div>
+                      <div style="color: #64748b; font-size: 11px;">حذف الإعلانات المنشورة</div>
                     </div>
-                    <div style="color: #94a3b8; font-size: 11px; margin-top: 4px; line-height: 1.4;">حذف سريع للإعلانات المنشورة تلقائياً.</div>
                   </div>
-                  <button type="button" id="btn-clear-web" class="btn" style="flex-shrink: 0; font-weight: 600; padding: 8px 16px; border-radius: 8px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); cursor: pointer; color: #f87171; font-size: 12px;">
+                  <button type="button" id="btn-clear-web" class="btn" style="flex-shrink: 0; padding: 6px 12px; border-radius: 6px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.35); cursor: pointer; color: #f87171; font-size: 12px; font-weight: 600;">
                     <span class="btn-text">مسح</span>
                     <span class="spinner hidden"></span>
                   </button>
                 </div>
-                
-                <!-- Deep Clear Action -->
-                <div class="maintenance-action-card" style="display: flex; align-items: center; justify-content: space-between; gap: 16px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); padding: 14px; border-radius: 12px;">
-                  <div style="flex-grow: 1;">
-                    <div style="font-weight: 600; color: #fff; font-size: 13px; display: flex; align-items: center; gap: 6px;">
-                      <span>🚨</span>
-                      <span>مسح عميق</span>
+
+                <!-- Deep Clear -->
+                <div style="background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 10px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                  <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                    <span style="font-size: 16px;">🚨</span>
+                    <div>
+                      <div style="font-weight: 600; color: #fca5a5; font-size: 12.5px;">مسح عميق</div>
+                      <div style="color: #64748b; font-size: 11px;">تطهير شامل وإيقاف</div>
                     </div>
-                    <div style="color: #cbd5e1; font-size: 11px; margin-top: 4px; line-height: 1.4;">مسح شامل لآخر رسائل القنوات وإيقاف التبادل.</div>
                   </div>
-                  <button type="button" id="btn-deep-clear-web" class="btn" style="flex-shrink: 0; font-weight: 600; padding: 8px 16px; border-radius: 8px; background: rgba(239, 68, 68, 0.8); border: none; cursor: pointer; color: #fff; font-size: 12px;">
+                  <button type="button" id="btn-deep-clear-web" class="btn" style="flex-shrink: 0; padding: 6px 12px; border-radius: 6px; background: rgba(239, 68, 68, 0.35); border: 1px solid rgba(239, 68, 68, 0.5); cursor: pointer; color: #fff; font-size: 12px; font-weight: 600;">
                     <span class="btn-text">تطهير</span>
                     <span class="spinner hidden"></span>
                   </button>
                 </div>
-                
-                <!-- Update Engine Action -->
-                <div class="maintenance-action-card" style="display: flex; align-items: center; justify-content: space-between; gap: 16px; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.1); padding: 14px; border-radius: 12px;">
-                  <div style="flex-grow: 1;">
-                    <div style="font-weight: 600; color: #60a5fa; font-size: 13px; display: flex; align-items: center; gap: 6px;">
-                      <span>🔄</span>
-                      <span>تحديث المحرك</span>
+
+                <!-- Resync Engine -->
+                <div style="background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 10px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                  <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                    <span style="font-size: 16px;">🔄</span>
+                    <div>
+                      <div style="font-weight: 600; color: #60a5fa; font-size: 12.5px;">تحديث المحرك</div>
+                      <div style="color: #64748b; font-size: 11px;">مزامنة القنوات والمجلدات</div>
                     </div>
-                    <div style="color: #94a3b8; font-size: 11px; margin-top: 4px; line-height: 1.4;">تحديث المجلدات والقنوات فورياً.</div>
                   </div>
-                  <button type="button" id="btn-update-web" class="btn" style="flex-shrink: 0; font-weight: 600; padding: 8px 16px; border-radius: 8px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); cursor: pointer; color: #60a5fa; font-size: 12px;">
+                  <button type="button" id="btn-update-web" class="btn" style="flex-shrink: 0; padding: 6px 12px; border-radius: 6px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); cursor: pointer; color: #60a5fa; font-size: 12px; font-weight: 600;">
                     <span class="btn-text">مزامنة</span>
                     <span class="spinner hidden"></span>
                   </button>
                 </div>
 
-                <!-- Stop Everything Action -->
-                <div class="maintenance-action-card stop-everything-card" style="display: flex; align-items: center; justify-content: space-between; gap: 16px; background: rgba(239, 68, 68, 0.12); border: 2px solid rgba(239, 68, 68, 0.4); padding: 16px; border-radius: 12px; grid-column: 1 / -1; box-shadow: 0 4px 14px rgba(239, 68, 68, 0.15);">
-                  <div style="flex-grow: 1;">
-                    <div style="font-weight: 700; color: #ef4444; font-size: 14px; display: flex; align-items: center; gap: 8px;">
-                      <span>🛑</span>
-                      <span>إيقاف كل شيء فورا</span>
+                <!-- Stop Everything Emergency -->
+                <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 10px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                  <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                    <span style="font-size: 16px;">🛑</span>
+                    <div>
+                      <div style="font-weight: 700; color: #ef4444; font-size: 12.5px;">إيقاف كل شيء</div>
+                      <div style="color: #94a3b8; font-size: 11px;">طوارئ: إيقاف فوري للكل</div>
                     </div>
-                    <div style="color: #cbd5e1; font-size: 12px; margin-top: 4px; line-height: 1.4; font-weight: 500;">إيقاف فوري لجميع العمليات الجارية: موجات النشر التبادلي، الحملات الفردية أو المجمعة، المزامنة، أو أي أوامر جارية.</div>
                   </div>
-                  <button type="button" id="btn-stop-everything-web" class="btn" style="flex-shrink: 0; font-weight: 700; padding: 10px 22px; border-radius: 8px; background: #ef4444; border: none; cursor: pointer; color: #fff; font-size: 13px; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3); transition: all 0.2s;">
-                    <span class="btn-text">إيقاف كل شيء</span>
+                  <button type="button" id="btn-stop-everything-web" class="btn" style="flex-shrink: 0; padding: 6px 14px; border-radius: 6px; background: #ef4444; border: none; cursor: pointer; color: #fff; font-size: 12px; font-weight: 700;">
+                    <span class="btn-text">إيقاف فوري</span>
                     <span class="spinner hidden"></span>
                   </button>
                 </div>
-                
+
               </div>
             </div>
           </div>
 
-          <!-- Active Ads Stream Card -->
+          <!-- Active Ads Stream & Live Tasks Card (Merged & Sleek) -->
           <div id="active-ads-stream-card" class="card active-ads-stream-card" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;" class="card-header-flex">
               <div style="display: flex; align-items: center; gap: 12px;">
                 <span style="font-size: 20px;">🔥</span>
-                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">خريطة التدفق الحي للإعلانات النشطة</h3>
+                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">خريطة التدفق الحي للإعلانات والعمليات النشطة</h3>
               </div>
             </div>
             
@@ -1075,6 +1083,18 @@
               <span id="active-ads-total-count" style="font-weight: 700; color: #10b981; font-size: 16px; font-family: monospace;">0 إعلان</span>
             </div>
 
+            <!-- Integrated Active Tasks (Merged Sleekly Inside Live Card) -->
+            <div class="active-tasks-card" id="active-tasks-card-container" style="margin-top: 16px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 12px; padding: 16px; display: none; box-shadow: 0 4px 16px rgba(59,130,246,0.07);">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span class="pulse-text-animation" style="font-size: 16px;">🔄</span>
+                  <h4 style="margin: 0; font-size: 13.5px; color: #60a5fa; font-weight: 600;">العمليات والمهام النشطة حالياً</h4>
+                </div>
+              </div>
+              <div id="active-jobs-list" style="display: grid; grid-template-columns: 1fr; gap: 10px;">
+              </div>
+            </div>
+
             <!-- Cloud Continuous 24/7 Engine Notice Banner -->
             <div style="margin-top: 14px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 12px; padding: 12px 18px; display: flex; align-items: center; gap: 12px; direction: rtl;">
               <span style="font-size: 24px; flex-shrink: 0;">☁️</span>
@@ -1082,18 +1102,6 @@
                 <strong style="color: #60a5fa; font-size: 13px;">نظام النشر والتبادل السحابي يعمل 24/7:</strong>
                 المحرك يعمل في السيرفرات السحابية بشكل مستقل ومستمر. حملاتك وموجات التبادل وجدولة الحذف مستمرة بدقة بالغة حتى لو أغلقت جهازك أو سجلت الخروج.
               </div>
-            </div>
-          </div>
-
-          <!-- Active Tasks Box -->
-          <div class="card active-tasks-card" id="active-tasks-card-container" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(59, 130, 246, 0.15); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px); display: none; box-shadow: 0 4px 20px rgba(59,130,246,0.05);">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
-              <div style="display: flex; align-items: center; gap: 12px;">
-                <span class="pulse-text-animation" style="font-size: 20px;">🔄</span>
-                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">العمليات والمهام النشطة حالياً</h3>
-              </div>
-            </div>
-            <div id="active-jobs-list" style="display: grid; grid-template-columns: 1fr; gap: 12px;">
             </div>
           </div>
 
@@ -1131,25 +1139,7 @@
             </div>
           </div>
 
-          <!-- live event log center -->
-          <div class="card event-log-card" style="margin-top: 24px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
-              <div style="display: flex; align-items: center; gap: 12px;">
-                <span style="font-size: 20px;">💬</span>
-                <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 600;">
-                  <span class="hidden-mobile">مركز الإشعارات وسجل الأحداث (Saved Messages Log)</span>
-                  <span class="show-mobile">سجل الأحداث</span>
-                </h3>
-              </div>
-              <div style="display: flex; align-items: center; gap: 12px;">
-                <button type="button" id="btn-refresh-logs" style="background: none; border: none; color: #60a5fa; cursor: pointer; font-size: 13px; font-weight: 500; margin-left: 8px;">🔄 تحديث</button>
-                <button type="button" id="btn-clear-logs-web" style="background: none; border: none; color: #f87171; cursor: pointer; font-size: 13px; font-weight: 500;">🧹 مسح السجل</button>
-              </div>
-            </div>
-            <div id="logs-container" style="background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; padding: 16px; max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 13px; line-height: 1.6; display: flex; flex-direction: column; gap: 10px;">
-              <p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; font-family: sans-serif;">سجل الأحداث فارغ حالياً.</p>
-            </div>
-          </div>
+
         </section>
 
         <!-- ==========================================
@@ -1826,6 +1816,61 @@
               <!-- Rendered via JS -->
             </div>
           </div>
+
+          <!-- Campaign Folder Channels Growth & Performance Card -->
+          <div class="card campaign-channels-analytics-card" style="margin-top: 24px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 24px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+              <div>
+                <h3 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px;">
+                  <span>📁</span>
+                  <span>أداء قنوات مجلد "حملات" ومعدل النمو</span>
+                  <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 11px; padding: 2px 8px; border-radius: 10px;">مجلد حملات فقط</span>
+                </h3>
+                <p style="margin: 0; font-size: 12.5px; color: #94a3b8;">متابعة فورية لعدد المشتركين الفعلي ومعدل نمو الأعضاء الجدد المنضمين اليوم لكل قناة داخل مجلد حملات</p>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="loadCampaignChannelsAnalytics(true)" id="btn-refresh-campaign-channels" style="padding: 6px 12px; font-size: 12px; border-radius: 8px;">
+                <span>🔄 تحديث القنوات</span>
+              </button>
+            </div>
+
+            <!-- Summary metrics for folder 'حملات' -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px;">
+              <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 14px;">
+                <div style="font-size: 12px; color: #94a3b8; margin-bottom: 4px;">قنوات مجلد حملات</div>
+                <div style="font-size: 22px; font-weight: 800; color: #38bdf8;" id="folder-channels-count">0</div>
+              </div>
+              <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 14px;">
+                <div style="font-size: 12px; color: #94a3b8; margin-bottom: 4px;">إجمالي الأعضاء بالمجلد</div>
+                <div style="font-size: 22px; font-weight: 800; color: #fff;" id="folder-total-members">0</div>
+              </div>
+              <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 12px; padding: 14px;">
+                <div style="font-size: 12px; color: #34d399; margin-bottom: 4px; font-weight: 600;">المنضمين الجدد اليوم 🟢</div>
+                <div style="font-size: 22px; font-weight: 800; color: #10b981;" id="folder-joined-today">+0</div>
+              </div>
+            </div>
+
+            <!-- Channels Growth Table Container -->
+            <div id="campaign-channels-list-container" style="overflow-x: auto;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: right;">
+                <thead>
+                  <tr style="border-bottom: 1px solid rgba(255,255,255,0.08); color: #94a3b8; font-size: 12px;">
+                    <th style="padding: 10px 14px;">القناة</th>
+                    <th style="padding: 10px 14px;">النوع / المعرف</th>
+                    <th style="padding: 10px 14px;">إجمالي الأعضاء</th>
+                    <th style="padding: 10px 14px;">انضم اليوم</th>
+                    <th style="padding: 10px 14px;">حالة النشر</th>
+                  </tr>
+                </thead>
+                <tbody id="campaign-channels-table-body">
+                  <tr>
+                    <td colspan="5" style="text-align: center; padding: 30px; color: #64748b;">
+                      جاري تحميل بيانات قنوات مجلد حملات...
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
             </div>
           </div>
 
@@ -1866,6 +1911,28 @@
             <div class="card" style="text-align: center; padding: 40px; color: #94a3b8; background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.06); border-radius: 14px;">
               <div class="spinner" style="margin: 0 auto 12px auto;"></div>
               <p style="margin: 0;">جاري تحميل الإشعارات...</p>
+            </div>
+          </div>
+
+          <!-- Saved Messages Log Section in Reports & Notifications Hub -->
+          <div class="card event-log-card" style="margin-top: 24px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-size: 20px;">💬</span>
+                <div>
+                  <h3 style="margin: 0; font-size: 15px; color: #fff; font-weight: 600;">
+                    سجل الأحداث والرسائل المحفوظة (Saved Messages Log)
+                  </h3>
+                  <p style="margin: 0; font-size: 12px; color: #94a3b8; margin-top: 2px;">السجل اللحظي للأوامر والعمليات المرسلة مباشرة في تيليجرام</p>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <button type="button" id="btn-refresh-logs" style="background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.3); color: #60a5fa; cursor: pointer; font-size: 12.5px; font-weight: 600; padding: 6px 12px; border-radius: 8px;">🔄 تحديث</button>
+                <button type="button" id="btn-clear-logs-web" style="background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171; cursor: pointer; font-size: 12.5px; font-weight: 600; padding: 6px 12px; border-radius: 8px;">🧹 مسح السجل</button>
+              </div>
+            </div>
+            <div id="logs-container" style="background: #090d16; border: 1px solid #1e293b; border-radius: 12px; padding: 16px; max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 13px; line-height: 1.6; display: flex; flex-direction: column; gap: 10px;">
+              <p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; font-family: sans-serif;">سجل الأحداث فارغ حالياً.</p>
             </div>
           </div>
             </div>

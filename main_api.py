@@ -48,6 +48,7 @@ from cache_manager import is_rate_limited, is_key_rate_limited, redis_client, cl
 
 import redis
 import re as _re
+import json
 import json as _json
 
 _TENANT_RE = _re.compile(r'(?:tenant|Tenant|TENANT)[\s_]*(\d+)')
@@ -1325,6 +1326,129 @@ async def get_user_analytics(user_id: int = Depends(get_current_user)):
             },
             "daily_trends": daily_trends
         }
+
+@app.get("/user/analytics/campaign-channels")
+async def get_campaign_channels_analytics(user_id: int = Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        await verify_active_subscription(user_id, session)
+        tg_account = (await session.execute(
+            select(TelegramAccount).where(TelegramAccount.user_id == user_id)
+        )).scalars().first()
+
+        if not tg_account:
+            return {
+                "status": "success",
+                "summary": {
+                    "folder_channels_count": 0,
+                    "folder_total_members": 0,
+                    "folder_joined_today": 0
+                },
+                "channels": []
+            }
+
+        acc_id = tg_account.id
+
+        # 1. Fetch channel IDs belonging specifically to the "حملات" folder
+        raw_campaign = await redis_client.get(f"tenant:{acc_id}:campaign")
+        campaign_ids = []
+        if raw_campaign:
+            try:
+                campaign_ids = json.loads(raw_campaign)
+            except Exception:
+                campaign_ids = []
+
+        if not campaign_ids:
+            return {
+                "status": "success",
+                "summary": {
+                    "folder_channels_count": 0,
+                    "folder_total_members": 0,
+                    "folder_joined_today": 0
+                },
+                "channels": []
+            }
+
+        # Normalize campaign_ids set for fast lookup (handles -100 prefix vs raw ID)
+        campaign_ids_set = set()
+        for cid in campaign_ids:
+            try:
+                cid_int = int(cid)
+                campaign_ids_set.add(cid_int)
+                campaign_ids_set.add(abs(cid_int))
+                if str(cid_int).startswith("-100"):
+                    campaign_ids_set.add(int(str(cid_int)[4:]))
+            except Exception:
+                pass
+
+        # 2. Get all cached channels for this tenant
+        cached_channels = await get_channels_cache(acc_id)
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        matched_channels = []
+        total_folder_members = 0
+        total_folder_joined_today = 0
+
+        for ch in cached_channels:
+            ch_id = ch.get("id")
+            if ch_id is None:
+                continue
+
+            is_in_campaign = False
+            try:
+                ch_id_int = int(ch_id)
+                if (ch_id_int in campaign_ids_set or 
+                    abs(ch_id_int) in campaign_ids_set or 
+                    (str(ch_id_int).startswith("-100") and int(str(ch_id_int)[4:]) in campaign_ids_set)):
+                    is_in_campaign = True
+            except Exception:
+                pass
+
+            if not is_in_campaign:
+                continue
+
+            current_members = int(ch.get("members_count") or 0)
+
+            # 3. Calculate joined_today from daily baseline in Redis
+            baseline_key = f"tenant:{acc_id}:chan_baseline:{ch_id}:{today_str}"
+            joined_today = 0
+            try:
+                raw_baseline = await redis_client.get(baseline_key)
+                if raw_baseline is None:
+                    await redis_client.set(baseline_key, str(current_members), ex=86400 * 7)
+                    joined_today = 0
+                else:
+                    baseline = int(raw_baseline)
+                    joined_today = max(0, current_members - baseline)
+            except Exception as be:
+                logger.error(f"Error calculating joined_today baseline for channel {ch_id}: {be}")
+                joined_today = 0
+
+            total_folder_members += current_members
+            total_folder_joined_today += joined_today
+
+            matched_channels.append({
+                "channel_id": ch_id,
+                "title": ch.get("title") or f"قناة {ch_id}",
+                "username": ch.get("username"),
+                "invite_link": ch.get("invite_link"),
+                "total_members": current_members,
+                "joined_today": joined_today,
+                "can_send": ch.get("can_send", True),
+                "is_broadcast": ch.get("is_broadcast", True)
+            })
+
+        matched_channels.sort(key=lambda x: (x["joined_today"], x["total_members"]), reverse=True)
+
+        return {
+            "status": "success",
+            "summary": {
+                "folder_channels_count": len(matched_channels),
+                "folder_total_members": total_folder_members,
+                "folder_joined_today": total_folder_joined_today
+            },
+            "channels": matched_channels
+        }
+
 
 @app.get("/user/status-bot-link")
 async def get_status_bot_link(user_id: int = Depends(get_current_user)):

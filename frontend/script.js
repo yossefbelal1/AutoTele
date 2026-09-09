@@ -323,6 +323,9 @@ window.switchSubTab = function(parentTabId, subtabId, pushState = true) {
     loadAnalyticsData();
   } else if (subtabId === "subtab-notifications") {
     loadNotificationsPage();
+    if (typeof loadEventLogs === "function") {
+      loadEventLogs();
+    }
   } else if (subtabId === "subtab-engine-health") {
     loadAccountHealthData();
   } else if (subtabId === "subtab-engine-templates") {
@@ -814,22 +817,23 @@ async function syncDashboardData() {
     const submitBtn = document.getElementById("btn-submit-web-campaign");
 
     if (currentTelegramAccountId) {
-      if (campaignAccountName) campaignAccountName.textContent = `الحساب: متصل`;
       if (response.needs_reboot) {
         if (accountStatusDot) accountStatusDot.style.backgroundColor = "#eab308"; // yellow
-        if (campaignAccountName) campaignAccountName.innerHTML = `الحساب: يحتاج إعادة تشغيل ⚠️`;
+        if (campaignAccountName) campaignAccountName.innerHTML = `يحتاج إعادة تشغيل ⚠️`;
         if (submitBtn) {
           submitBtn.disabled = true;
-          submitBtn.textContent = "⚠️ عطل: الحساب يحتاج لإعادة تشغيل";
+          submitBtn.textContent = "⚠️ عطل: المحرك يحتاج لإعادة تشغيل";
         }
       } else if (botStatus === "active") {
         if (accountStatusDot) accountStatusDot.style.backgroundColor = "#10b981"; // green
+        if (campaignAccountName) campaignAccountName.textContent = `متصل وجاهز`;
         if (submitBtn) {
           submitBtn.disabled = false;
           submitBtn.innerHTML = `<span>🚀 إطلاق الحملة السحابية</span><span class="spinner hidden"></span>`;
         }
       } else {
         if (accountStatusDot) accountStatusDot.style.backgroundColor = "#ef4444"; // red
+        if (campaignAccountName) campaignAccountName.textContent = `متوقف أو يحتاج تدخلاً`;
         if (submitBtn) {
           submitBtn.disabled = true;
           submitBtn.textContent = "⚠️ عطل: المحرك غير نشط";
@@ -840,11 +844,11 @@ async function syncDashboardData() {
         if (campaignProxyName) campaignProxyName.textContent = `الوكيل: ${response.proxy_host}`;
         if (proxyStatusDot) proxyStatusDot.style.backgroundColor = "#10b981"; // green
       } else {
-        if (campaignProxyName) campaignProxyName.textContent = "لا يوجد بروكسي مخصص";
+        if (campaignProxyName) campaignProxyName.textContent = "لا يوجد وكيل مخصص";
         if (proxyStatusDot) proxyStatusDot.style.backgroundColor = "#ef4444"; // red
       }
     } else {
-      if (campaignAccountName) campaignAccountName.textContent = "الحساب: غير مربوط";
+      if (campaignAccountName) campaignAccountName.textContent = "غير مربوط";
       if (accountStatusDot) accountStatusDot.style.backgroundColor = "#ef4444";
       if (campaignProxyName) campaignProxyName.textContent = "لا يوجد وكيل";
       if (proxyStatusDot) proxyStatusDot.style.backgroundColor = "#ef4444";
@@ -4716,6 +4720,9 @@ async function loadAnalyticsData(isManual = false) {
         chartContainer.innerHTML = barsHtml;
       }
     }
+
+    // Also load campaign folder channels performance
+    loadCampaignChannelsAnalytics(false);
 
     if (isManual) {
       showToast("تم تحديث مؤشرات الأداء والتحليلات بنجاح ✅", "success", 2000);

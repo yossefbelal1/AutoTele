@@ -4259,6 +4259,68 @@ async def supervisor_loop():
         
         await asyncio.sleep(15)
 
+
+async def create_system_failure_notification(
+    tenant_id: int,
+    notif_type: str,
+    title: str,
+    message: str,
+    target_url: str = "/app/health"
+) -> bool:
+    """
+    Creates an in-app AccountNotification for a tenant's owner upon error/breakdown
+    with a 15-minute cooldown deduplication to prevent notification spam.
+    """
+    try:
+        from cache_manager import redis_client
+        import hashlib
+
+        # 1. Deduplication Cooldown via Redis
+        sig = f"{tenant_id}:{notif_type}:{title}"
+        sig_hash = hashlib.md5(sig.encode()).hexdigest()
+        cooldown_key = f"notif_cooldown:{tenant_id}:{sig_hash}"
+        
+        is_cooldown = await redis_client.get(cooldown_key)
+        if is_cooldown:
+            return False
+            
+        await redis_client.set(cooldown_key, "1", ex=900)
+
+        # 2. Lookup owner user_id from TelegramAccount
+        from db_manager import AsyncSessionLocal, TelegramAccount, AccountNotification, select
+        async with AsyncSessionLocal() as session:
+            acc = (await session.execute(
+                select(TelegramAccount).where(TelegramAccount.id == tenant_id)
+            )).scalar_one_or_none()
+            
+            if not acc:
+                return False
+
+            notif = AccountNotification(
+                telegram_account_id=tenant_id,
+                user_id=acc.user_id,
+                notification_type=notif_type,
+                title=title,
+                message=message,
+                target_url=target_url,
+                actor_name="مراقب المحرك الذكي 🛡️"
+            )
+            session.add(notif)
+            await session.commit()
+
+        # 3. Dispatch live broadcast event if available
+        try:
+            from main_api import dispatch_admin_broadcast
+            asyncio.create_task(dispatch_admin_broadcast(f"⚠️ {title}: {message}", acc.user_id))
+        except Exception:
+            pass
+
+        logger.info(f"System notification dispatched for tenant {tenant_id} (user {acc.user_id}): {title}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to create system failure notification for tenant {tenant_id}: {e}")
+        return False
+
 async def start_tenant_worker(account: TelegramAccount):
     tenant_id = account.id
     try:
@@ -4401,6 +4463,26 @@ async def start_tenant_worker(account: TelegramAccount):
                     logger.info(f"Updated tenant {tenant_id} status to '{db_acc.status}' in DB.")
         except Exception as dbe:
             logger.error(f"Could not update status in DB for tenant {tenant_id}: {dbe}")
+
+        try:
+            if is_perm_ban:
+                await create_system_failure_notification(
+                    tenant_id,
+                    notif_type="system_alert",
+                    title="انفصال أو حظر حساب تيليجرام 🚨",
+                    message="تعذر بدء تشغيل المحرك بسبب إلغاء جلسة تيليجرام أو حظر الحساب. يرجى إعادة ربط الحساب عبر معالج الربط.",
+                    target_url="/app/engines/connect"
+                )
+            else:
+                await create_system_failure_notification(
+                    tenant_id,
+                    notif_type="system_alert",
+                    title="تعثر تشغيل محرك النشر ⚠️",
+                    message=f"تعذر تشغيل المحرك: {str(e)[:100]}. يرجى مراجعة لوحة صحة المحرك لإعادة الفحص والتشخيص.",
+                    target_url="/app/health"
+                )
+        except Exception as n_err:
+            logger.error(f"Failed to emit alert on start_tenant_worker error: {n_err}")
     finally:
         starting_tenants.discard(tenant_id)
 
@@ -4443,7 +4525,26 @@ async def stop_tenant_worker(tenant_id: int, reason: str = 'Worker Stopped'):
 async def handle_client_error(tenant_id: int, new_status: str, session: AsyncSession):
     await session.execute(update(TelegramAccount).where(TelegramAccount.id == tenant_id).values(status=new_status))
     await session.commit()
-    await stop_tenant_worker(tenant_id, session, reason=f"System Error: Moved to {new_status}")
+    await stop_tenant_worker(tenant_id, reason=f"System Error: Moved to {new_status}")
+    try:
+        if new_status == "banned":
+            await create_system_failure_notification(
+                tenant_id,
+                notif_type="system_alert",
+                title="انفصال أو حظر حساب تيليجرام 🚨",
+                message="تعذر استمرار المحرك بسبب انتهاء صلاحية الجلسة أو حظر الحساب. يرجى التوجه لإدارة المحرك وإعادة الربط.",
+                target_url="/app/engines/connect"
+            )
+        else:
+            await create_system_failure_notification(
+                tenant_id,
+                notif_type="system_alert",
+                title="توقف محرك النشر عن العمل ⚠️",
+                message=f"واجه المحرك عطلاً مفاجئاً وتم تحويل حالته إلى ({new_status}). يرجى فحص تقرير صحة النظام.",
+                target_url="/app/health"
+            )
+    except Exception as ne:
+        logger.error(f"Failed to emit alert in handle_client_error: {ne}")
 
 # ==========================================
 # ==========================================
