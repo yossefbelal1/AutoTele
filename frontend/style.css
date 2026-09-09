@@ -3896,6 +3896,99 @@ body.drawer-open {
   color: #34d399;
 }
 
+/* ==========================================
+   UNIFIED HUBS & SUB-TABS STYLES
+   ========================================== */
+.subtabs-nav-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 5px;
+  margin-bottom: 22px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.subtabs-nav-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.subtab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #94a3b8;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.subtab-btn:hover {
+  color: #f1f5f9;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.subtab-btn.active {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+}
+
+.subtab-btn svg {
+  flex-shrink: 0;
+}
+
+.subtab-pane {
+  display: block;
+  animation: subtabFadeIn 0.22s ease-out forwards;
+}
+
+.subtab-pane.hidden {
+  display: none !important;
+}
+
+@keyframes subtabFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 768px) {
+  .subtabs-nav-bar {
+    padding: 4px;
+    gap: 4px;
+    margin-bottom: 16px;
+    border-radius: 12px;
+  }
+  .subtab-btn {
+    padding: 7px 13px;
+    font-size: 12px;
+    border-radius: 8px;
+    gap: 6px;
+  }
+}
+
+
 
 
 

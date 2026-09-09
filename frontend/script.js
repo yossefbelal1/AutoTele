@@ -222,26 +222,43 @@ function showDashboardScreen() {
 }
 
 // ==========================================
-// CLIENT-SIDE ROUTER & SPA NAVIGATION
+// ==========================================
+// CLIENT-SIDE ROUTER & SPA NAVIGATION (UNIFIED HUBS)
 // ==========================================
 const ROUTE_CONFIG = {
   "/app": { tabId: "tab-subscription", title: "لوحة التحكم والأوامر" },
-  "/app/campaigns": { tabId: "tab-campaigns", title: "سجل الحملات والتقارير" },
   "/app/campaigns/new": { tabId: "tab-subscription", scrollTo: "campaign-panel-card", title: "إنشاء حملة جديدة" },
-  "/app/analytics": { tabId: "tab-analytics", title: "التحليلات والأداء" },
-  "/app/connect": { tabId: "tab-connect", title: "معالج ربط المحرك الآمن" },
-  "/app/engines": { tabId: "tab-connect", title: "معالج ربط المحرك الآمن" },
-  "/app/engines/connect": { tabId: "tab-connect", title: "معالج ربط المحرك الآمن" },
-  "/app/templates": { tabId: "tab-templates", title: "مكتبة الصيغ" },
-  "/app/billing": { tabId: "tab-plans", title: "الخطة والترقية" },
-  "/app/settings/profile": { tabId: "tab-profile", title: "الملف الشخصي والإعدادات" },
-  "/app/profile": { tabId: "tab-profile", title: "الملف الشخصي والإعدادات" },
-  "/app/notifications": { tabId: "tab-notifications", title: "مركز الإشعارات والتنبيهات" },
-  "/app/health": { tabId: "tab-health", title: "صحة الحساب والمحرك السحابي" }
+
+  // HUB 1: إدارة المحرك السحابي
+  "/app/engines": { tabId: "tab-engine-hub", subtabId: "subtab-engine-health", title: "إدارة المحرك السحابي" },
+  "/app/engine": { tabId: "tab-engine-hub", subtabId: "subtab-engine-health", title: "إدارة المحرك السحابي" },
+  "/app/health": { tabId: "tab-engine-hub", subtabId: "subtab-engine-health", title: "صحة النظام والمحرك" },
+  "/app/connect": { tabId: "tab-engine-hub", subtabId: "subtab-engine-connect", title: "معالج ربط المحرك" },
+  "/app/engines/connect": { tabId: "tab-engine-hub", subtabId: "subtab-engine-connect", title: "معالج ربط المحرك" },
+  "/app/templates": { tabId: "tab-engine-hub", subtabId: "subtab-engine-templates", title: "مكتبة الصيغ والتسويق" },
+
+  // HUB 2: مركز التقارير والنشاط
+  "/app/reports": { tabId: "tab-reports", subtabId: "subtab-campaigns", title: "مركز التقارير والنشاط" },
+  "/app/campaigns": { tabId: "tab-reports", subtabId: "subtab-campaigns", title: "سجل الحملات والتقارير" },
+  "/app/analytics": { tabId: "tab-reports", subtabId: "subtab-analytics", title: "التحليلات ومؤشرات الأداء" },
+  "/app/notifications": { tabId: "tab-reports", subtabId: "subtab-notifications", title: "مركز الإشعارات والتنبيهات" },
+
+  // HUB 3: الحساب والاشتراك
+  "/app/settings": { tabId: "tab-account-hub", subtabId: "subtab-account-profile", title: "الحساب والاشتراك" },
+  "/app/account": { tabId: "tab-account-hub", subtabId: "subtab-account-profile", title: "الحساب والاشتراك" },
+  "/app/settings/profile": { tabId: "tab-account-hub", subtabId: "subtab-account-profile", title: "الملف الشخصي والإعدادات" },
+  "/app/profile": { tabId: "tab-account-hub", subtabId: "subtab-account-profile", title: "الملف الشخصي والإعدادات" },
+  "/app/billing": { tabId: "tab-account-hub", subtabId: "subtab-account-billing", title: "الخطط والترقية والدفع" },
+  "/app/plans": { tabId: "tab-account-hub", subtabId: "subtab-account-billing", title: "الخطط والترقية والدفع" }
 };
 
 const TAB_TO_ROUTE_MAP = {
   "tab-subscription": "/app",
+  "tab-engine-hub": "/app/engines",
+  "tab-reports": "/app/reports",
+  "tab-account-hub": "/app/settings",
+  
+  // Backward compatibility mappings
   "tab-campaigns": "/app/campaigns",
   "tab-analytics": "/app/analytics",
   "tab-plans": "/app/billing",
@@ -250,6 +267,71 @@ const TAB_TO_ROUTE_MAP = {
   "tab-profile": "/app/settings/profile",
   "tab-notifications": "/app/notifications",
   "tab-health": "/app/health"
+};
+
+const SUBTAB_TO_ROUTE_MAP = {
+  "subtab-engine-health": "/app/health",
+  "subtab-engine-connect": "/app/engines/connect",
+  "subtab-engine-templates": "/app/templates",
+  "subtab-campaigns": "/app/campaigns",
+  "subtab-analytics": "/app/analytics",
+  "subtab-notifications": "/app/notifications",
+  "subtab-account-profile": "/app/settings/profile",
+  "subtab-account-billing": "/app/billing"
+};
+
+window.switchSubTab = function(parentTabId, subtabId, pushState = true) {
+  const parent = document.getElementById(parentTabId);
+  if (!parent) return;
+
+  // Toggle subtab button active states
+  parent.querySelectorAll(".subtab-btn").forEach(btn => {
+    if (btn.getAttribute("data-subtab") === subtabId) {
+      btn.classList.add("active");
+    } else {
+      btn.classList.remove("active");
+    }
+  });
+
+  // Toggle subtab pane visibility
+  parent.querySelectorAll(".subtab-pane").forEach(pane => {
+    if (pane.id === subtabId) {
+      pane.classList.remove("hidden");
+    } else {
+      pane.classList.add("hidden");
+    }
+  });
+
+  const subRoute = SUBTAB_TO_ROUTE_MAP[subtabId];
+  if (subRoute) {
+    const routeInfo = ROUTE_CONFIG[subRoute];
+    const title = routeInfo ? routeInfo.title : document.title;
+    if (pushState && window.location.pathname !== subRoute) {
+      window.history.pushState({ route: subRoute }, title, subRoute);
+    }
+    const desktopTitle = document.getElementById("desktop-page-title");
+    if (desktopTitle) desktopTitle.textContent = title;
+    const mobileTitle = document.getElementById("mobile-page-title");
+    if (mobileTitle) mobileTitle.textContent = title;
+    document.title = `${title} | AutoTele Enterprise`;
+  }
+
+  // Trigger relevant loader based on subtabId
+  if (subtabId === "subtab-campaigns") {
+    loadCampaignsHistory();
+  } else if (subtabId === "subtab-analytics") {
+    loadAnalyticsData();
+  } else if (subtabId === "subtab-notifications") {
+    loadNotificationsPage();
+  } else if (subtabId === "subtab-engine-health") {
+    loadAccountHealthData();
+  } else if (subtabId === "subtab-engine-templates") {
+    loadTemplatesList();
+  } else if (subtabId === "subtab-account-profile") {
+    loadUserProfile();
+  } else if (subtabId === "subtab-account-billing") {
+    loadReceiveWalletAddress();
+  }
 };
 
 window.scrollToCampaignForm = function() {
@@ -282,11 +364,17 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
     return;
   }
 
+  let campaignModalId = null;
+  if (normalizedRoute.startsWith("/app/campaigns/") && normalizedRoute !== "/app/campaigns/new") {
+    campaignModalId = normalizedRoute.split("/")[3];
+    normalizedRoute = "/app/campaigns";
+  }
+
   if (!ROUTE_CONFIG[normalizedRoute]) {
     normalizedRoute = "/app";
   }
 
-  const { tabId, title, scrollTo } = ROUTE_CONFIG[normalizedRoute];
+  const { tabId, subtabId, title, scrollTo } = ROUTE_CONFIG[normalizedRoute];
 
   // Hide all tab panels
   const panels = document.querySelectorAll(".tab-panel");
@@ -298,27 +386,32 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
     activePanel.classList.remove("hidden");
   }
 
+  // If this route specifies a subtab, activate it!
+  if (subtabId && activePanel) {
+    switchSubTab(tabId, subtabId, false);
+  }
+
+  if (campaignModalId && window.openCampaignDetailsModal) {
+    setTimeout(() => window.openCampaignDetailsModal(campaignModalId), 250);
+  }
+
   // Sync active states across Desktop Sidebar, Mobile Bottom Nav, and Drawer
-  document.querySelectorAll(".nav-tab").forEach(t => {
-    const r = t.getAttribute("data-route");
-    const d = t.getAttribute("data-tab");
-    if (r === normalizedRoute || d === tabId) t.classList.add("active");
-    else t.classList.remove("active");
-  });
-
-  document.querySelectorAll(".bottom-nav-item").forEach(t => {
-    const r = t.getAttribute("data-route");
-    const d = t.getAttribute("data-tab");
-    if (r === normalizedRoute || d === tabId) t.classList.add("active");
-    else t.classList.remove("active");
-  });
-
-  document.querySelectorAll(".drawer-nav-item").forEach(t => {
-    const r = t.getAttribute("data-route");
-    const d = t.getAttribute("data-tab");
-    if (r === normalizedRoute || d === tabId) t.classList.add("active");
-    else t.classList.remove("active");
-  });
+  const syncNavActive = (selector) => {
+    document.querySelectorAll(selector).forEach(t => {
+      const r = t.getAttribute("data-route");
+      const d = t.getAttribute("data-tab");
+      const isParentMatch = d === tabId;
+      const isRouteMatch = r === normalizedRoute || 
+        (r === "/app/engines" && tabId === "tab-engine-hub") || 
+        (r === "/app/reports" && tabId === "tab-reports") || 
+        (r === "/app/settings" && tabId === "tab-account-hub");
+      if (isParentMatch || isRouteMatch) t.classList.add("active");
+      else t.classList.remove("active");
+    });
+  };
+  syncNavActive(".nav-tab");
+  syncNavActive(".bottom-nav-item");
+  syncNavActive(".drawer-nav-item");
 
   // Update Topbar & Mobile Titles
   const desktopTitle = document.getElementById("desktop-page-title");
@@ -327,14 +420,9 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
   if (mobileTitle) {
     const compactTitles = {
       "tab-subscription": "لوحة التحكم",
-      "tab-campaigns": "سجل الحملات",
-      "tab-analytics": "التحليلات",
-      "tab-connect": "ربط المحرك",
-      "tab-templates": "مكتبة الصيغ",
-      "tab-plans": "الخطط والترقية",
-      "tab-profile": "الملف الشخصي",
-      "tab-notifications": "الإشعارات",
-      "tab-health": "صحة النظام"
+      "tab-engine-hub": "إدارة المحرك",
+      "tab-reports": "التقارير والنشاط",
+      "tab-account-hub": "الحساب والاشتراك"
     };
     mobileTitle.textContent = compactTitles[tabId] || title;
   }
@@ -355,8 +443,8 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
     }, 150);
   }
 
-  // Route-specific triggers
-  if (tabId === "tab-plans") {
+  // Route-specific triggers for billing plan selection
+  if (subtabId === "subtab-account-billing" || tabId === "tab-plans") {
     loadReceiveWalletAddress();
     if (selectedPlan) {
       const planSelect = document.getElementById("payment-plan-select");
@@ -365,18 +453,6 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
         document.getElementById("crypto-payment-section")?.scrollIntoView({ behavior: "smooth" });
       }, 100);
     }
-  } else if (tabId === "tab-templates") {
-    loadTemplatesList();
-  } else if (tabId === "tab-profile") {
-    loadUserProfile();
-  } else if (tabId === "tab-notifications") {
-    loadNotificationsPage();
-  } else if (tabId === "tab-health") {
-    loadAccountHealthData();
-  } else if (tabId === "tab-campaigns") {
-    loadCampaignsHistory();
-  } else if (tabId === "tab-analytics") {
-    loadAnalyticsData();
   }
 
   // Close mobile drawer if opened
@@ -3915,7 +3991,16 @@ function renderNotifications(notifications, unreadCount) {
 
   // 1. Sync Badges across the entire app
   const badgeText = unreadCount > 99 ? "+99" : `${unreadCount}`;
-  [badgeDesktop, badgeMobile, sidebarBadge, drawerBadge].forEach(badge => {
+  const allBadges = [
+    badgeDesktop, 
+    badgeMobile, 
+    sidebarBadge, 
+    drawerBadge,
+    document.getElementById("sidebar-reports-badge"),
+    document.getElementById("drawer-reports-badge"),
+    document.getElementById("subtab-notif-badge")
+  ];
+  allBadges.forEach(badge => {
     if (badge) {
       if (unreadCount > 0) {
         badge.textContent = badgeText;
@@ -3965,8 +4050,10 @@ function renderNotifications(notifications, unreadCount) {
   if (listMobile) listMobile.innerHTML = dropdownHtml;
 
   // If user is currently on the full notification center page, refresh it too
-  const notifPanel = document.getElementById("tab-notifications");
-  if (notifPanel && !notifPanel.classList.contains("hidden")) {
+  const notifPane = document.getElementById("subtab-notifications") || document.getElementById("tab-notifications");
+  const reportsTab = document.getElementById("tab-reports");
+  const isReportsVisible = reportsTab && !reportsTab.classList.contains("hidden");
+  if (notifPane && !notifPane.classList.contains("hidden") && isReportsVisible) {
     loadNotificationsPage(currentNotifCategory);
   }
 }

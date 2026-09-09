@@ -404,38 +404,18 @@
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
             <span>لوحة التحكم والأوامر</span>
           </button>
-          <button class="drawer-nav-item" data-tab="tab-campaigns" data-route="/app/campaigns" onclick="navigate('/app/campaigns'); closeMobileDrawer();">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-            <span>سجل الحملات والتقارير</span>
-          </button>
-          <button class="drawer-nav-item" data-tab="tab-analytics" data-route="/app/analytics" onclick="navigate('/app/analytics'); closeMobileDrawer();">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
-            <span>التحليلات والأداء</span>
-          </button>
-          <button class="drawer-nav-item" data-tab="tab-connect" data-route="/app/engines/connect" onclick="navigate('/app/engines/connect'); closeMobileDrawer();">
+          <button class="drawer-nav-item" data-tab="tab-engine-hub" data-route="/app/engines" onclick="navigate('/app/engines'); closeMobileDrawer();">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
-            <span>معالج ربط المحرك ⚡</span>
+            <span>إدارة المحرك السحابي</span>
           </button>
-          <button class="drawer-nav-item" data-tab="tab-health" data-route="/app/health" onclick="navigate('/app/health'); closeMobileDrawer();">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-            <span>صحة النظام والمحرك</span>
+          <button class="drawer-nav-item" data-tab="tab-reports" data-route="/app/reports" onclick="navigate('/app/reports'); closeMobileDrawer();">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+            <span>التقارير والنشاط</span>
+            <span class="badge notif-sidebar-badge hidden" id="drawer-reports-badge" style="margin-right: auto; background: #ef4444; color: #fff; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 10px;">0</span>
           </button>
-          <button class="drawer-nav-item" data-tab="tab-templates" data-route="/app/templates" onclick="navigate('/app/templates'); closeMobileDrawer();">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-            <span>مكتبة الصيغ والتسويق</span>
-          </button>
-          <button class="drawer-nav-item" data-tab="tab-plans" data-route="/app/billing" onclick="navigate('/app/billing'); closeMobileDrawer();">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-            <span>الخطط والترقية والدفع</span>
-          </button>
-          <button class="drawer-nav-item" data-tab="tab-notifications" data-route="/app/notifications" onclick="navigate('/app/notifications'); closeMobileDrawer();">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-            <span>مركز الإشعارات</span>
-            <span class="badge notif-sidebar-badge hidden" id="drawer-notif-badge" style="margin-right: auto; background: #ef4444; color: #fff; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 10px;">0</span>
-          </button>
-          <button class="drawer-nav-item" data-tab="tab-profile" data-route="/app/settings/profile" onclick="navigate('/app/settings/profile'); closeMobileDrawer();">
+          <button class="drawer-nav-item" data-tab="tab-account-hub" data-route="/app/settings" onclick="navigate('/app/settings'); closeMobileDrawer();">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            <span>الملف الشخصي والإعدادات</span>
+            <span>الحساب والاشتراك</span>
           </button>
         </div>
 
@@ -500,38 +480,18 @@
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
             <span>لوحة التحكم والأوامر</span>
           </button>
-          <button class="nav-tab" data-tab="tab-campaigns" data-route="/app/campaigns">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-            <span>سجل الحملات والتقارير</span>
-          </button>
-          <button class="nav-tab" data-tab="tab-analytics" data-route="/app/analytics">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
-            <span>التحليلات والأداء</span>
-          </button>
-          <button class="nav-tab" data-tab="tab-connect" data-route="/app/engines/connect">
+          <button class="nav-tab" data-tab="tab-engine-hub" data-route="/app/engines">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
-            <span>معالج ربط المحرك ⚡</span>
+            <span>إدارة المحرك السحابي</span>
           </button>
-          <button class="nav-tab" data-tab="tab-health" data-route="/app/health">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-            <span>صحة النظام والمحرك</span>
+          <button class="nav-tab" data-tab="tab-reports" data-route="/app/reports">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+            <span>التقارير والنشاط</span>
+            <span class="badge notif-sidebar-badge hidden" id="sidebar-reports-badge" style="margin-right: auto; background: #ef4444; color: #fff; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 10px;">0</span>
           </button>
-          <button class="nav-tab" data-tab="tab-templates" data-route="/app/templates">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-            <span>مكتبة الصيغ والتسويق</span>
-          </button>
-          <button class="nav-tab" data-tab="tab-plans" data-route="/app/billing">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-            <span>الخطط والترقية والدفع</span>
-          </button>
-          <button class="nav-tab" data-tab="tab-notifications" data-route="/app/notifications">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-            <span>مركز الإشعارات</span>
-            <span class="badge notif-sidebar-badge hidden" id="sidebar-notif-badge" style="margin-right: auto; background: #ef4444; color: #fff; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 10px;">0</span>
-          </button>
-          <button class="nav-tab" data-tab="tab-profile" data-route="/app/settings/profile">
+          <button class="nav-tab" data-tab="tab-account-hub" data-route="/app/settings">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            <span>الملف الشخصي والإعدادات</span>
+            <span>الحساب والاشتراك</span>
           </button>
           <button class="nav-tab hidden" id="admin-nav-tab" onclick="window.location.href='/admin'">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
@@ -1192,155 +1152,205 @@
           </div>
         </section>
 
-        <!-- Tab 2: الخطة والترقية -->
-
-        <section id="tab-plans" class="tab-panel hidden">
-          <div class="panel-header">
-            <h1 class="panel-title">خطط تفعيل المحرك السحابي المتاحة</h1>
-            <p class="panel-subtitle">اختر الخطة المناسبة لحجم نشاطك وقم بالترقية فوراً</p>
-          </div>
-
-          <div class="pricing-grid">
-            <!-- Plan 0: Free Trial -->
-            <div class="price-card" data-plan="trial">
-              <div class="plan-header">
-                <span class="plan-badge green">مجاني</span>
-                <h3 class="plan-name">تجربة مجانية</h3>
-                <div class="plan-price">0$ <span class="period">/ يومين</span></div>
-              </div>
-              <ul class="plan-features">
-                <li>ربط حساب تليجرام واحد</li>
-                <li>توزيع ونشر تلقائي بالكامل</li>
-                <li>معدل تحديث 30 دقيقة</li>
-                <li>دعم فني محدود</li>
-              </ul>
-              <button class="btn btn-secondary btn-select-plan" onclick="switchTab('tab-connect')">ابدأ الفترة التجريبية مجاناً</button>
-            </div>
-
-
-
-            <!-- Plan 3: Monthly -->
-            <div class="price-card popular" data-plan="monthly">
-              <div class="plan-header">
-                <span class="plan-badge blue">⭐ الأكثر طلباً</span>
-                <h3 class="plan-name">اشتراك شهري</h3>
-                <div class="plan-price">
-                  50$ <span class="period">/ شهر</span>
-                </div>
-              </div>
-              <ul class="plan-features">
-                <li>نشر في أكثر من 100 قناة بضغطة زر</li>
-                <li>مزامنة المجلدات وحظر القنوات تلقائياً</li>
-                <li>حذف الإعلانات أوتوماتيكياً بدقة ثانية</li>
-                <li>تفعيل استيكر مخصص مانع للحظر</li>
-              </ul>
-              <button class="btn btn-primary btn-select-plan" onclick="switchTab('tab-plans', 'monthly')">اختر هذه الباقة للترقية</button>
-            </div>
-
-            <!-- Plan 4: 6-Months -->
-            <div class="price-card" data-plan="half_year">
-              <div class="plan-header">
-                <span class="plan-badge discount">وفر $60 (خصم 20%)</span>
-                <h3 class="plan-name">اشتراك 6 شهور</h3>
-                <div class="plan-price">
-                  <span style="text-decoration: line-through; color: #708499; font-size: 16px; margin-left: 8px;">$300</span>240$ <span class="period">/ 6 شهور</span>
-                </div>
-              </div>
-              <ul class="plan-features">
-                <li>توفير $60 بمعدل ($40/شهر فقط)</li>
-                <li>خوادم خاصة فائقة السرعة للعميل</li>
-                <li>دعم كامل لوكيل (Proxy SOCKS5) خاص</li>
-                <li>دعم فني مخصص ومباشر 24/7</li>
-              </ul>
-              <button class="btn btn-primary btn-select-plan" onclick="switchTab('tab-plans', 'half_year')">اختر هذه الباقة للترقية</button>
-            </div>
-
-            <!-- Plan 5: Yearly -->
-            <div class="price-card gold" data-plan="yearly">
-              <div class="plan-header">
-                <span class="plan-badge discount-gold">وفر $200 (4 شهور مجاناً 👑)</span>
-                <h3 class="plan-name">اشتراك سنوي</h3>
-                <div class="plan-price">
-                  <span style="text-decoration: line-through; color: #708499; font-size: 16px; margin-left: 8px;">$600</span>400$ <span class="period">/ سنة</span>
-                </div>
-              </div>
-              <ul class="plan-features">
-                <li>توفير قيمة 4 شهور مجاناً 🎁 ($33/شهر فقط)</li>
-                <li>نشر وإدارة قنوات غير محدودة</li>
-                <li>بروكسي SOCKS5 مخصص مجاني مدمج</li>
-                <li>مستشار ومدير حساب مخصص بالكامل</li>
-              </ul>
-              <button class="btn btn-primary btn-select-plan" onclick="switchTab('tab-plans', 'yearly')">اختر هذه الباقة للترقية</button>
+        <!-- ==========================================
+             HUB 1: إدارة المحرك السحابي (Engine Hub)
+             ========================================== -->
+        <section id="tab-engine-hub" class="tab-panel hidden">
+          <div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px;">
+            <div>
+              <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0;">
+                <span>⚡</span>
+                <span>إدارة المحرك السحابي</span>
+              </h1>
+              <p class="panel-subtitle" style="margin: 0;">صحة النظام والتشغيل، معالج ربط حساب تليجرام، ومكتبة الصيغ التسويقية</p>
             </div>
           </div>
 
-          <!-- بوابة الدفع الآمنة (USDT) -->
-          <div id="crypto-payment-section" style="margin-top: 32px; border-top: 1px dashed rgba(255, 255, 255, 0.08); padding-top: 24px;">
-            <div class="panel-header" style="text-align: center; margin-bottom: 20px;">
-              <h2 class="panel-title" style="font-size: 18px; color: #fff; margin-bottom: 4px;">بوابة الدفع الآمنة بالعملات الرقمية (USDT)</h2>
-              <p class="panel-subtitle">قم بالتحويل على محفظتنا الآمنة ثم الصق رمز المعاملة للتفعيل التلقائي</p>
+          <!-- Engine Sub-Tabs Bar -->
+          <div class="subtabs-nav-bar" id="subtabs-engine-hub">
+            <button type="button" class="subtab-btn active" data-subtab="subtab-engine-health" onclick="switchSubTab('tab-engine-hub', 'subtab-engine-health')">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+              <span>صحة النظام والمحرك</span>
+            </button>
+            <button type="button" class="subtab-btn" data-subtab="subtab-engine-connect" onclick="switchSubTab('tab-engine-hub', 'subtab-engine-connect')">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+              <span>معالج ربط المحرك</span>
+            </button>
+            <button type="button" class="subtab-btn" data-subtab="subtab-engine-templates" onclick="switchSubTab('tab-engine-hub', 'subtab-engine-templates')">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              <span>مكتبة الصيغ والتسويق</span>
+            </button>
+          </div>
+
+          <!-- Subtab 1: Health & Self-Healing -->
+          <div id="subtab-engine-health" class="subtab-pane">
+            <div id="tab-health">
+<div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px;">
+            <div>
+              <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0;">
+                <span>🩺</span>
+                <span>صحة الحساب والمحرك السحابي</span>
+              </h1>
+              <p class="panel-subtitle" style="margin: 0;">فحص لحظي شامل لحالة تليجرام، المحرك السحابي، البروكسي، القنوات، وطابور المهام</p>
             </div>
+            
+            <div>
+              <button type="button" id="btn-refresh-health" class="btn btn-secondary btn-sm" onclick="loadAccountHealthData(true)" style="padding: 8px 16px; font-size: 13px; border-radius: 8px; font-weight: 600; display: inline-flex; align-items: center; gap: 8px;">
+                <span class="btn-text">⚡ فحص وتحديث الحالة اللحظية الآن</span>
+                <span class="spinner hidden" style="width: 14px; height: 14px;"></span>
+              </button>
+            </div>
+          </div>
 
-            <div class="crypto-billing-layout">
-              <div class="crypto-payment-info card">
-                <h3 class="card-title">تفاصيل المحفظة الرقمية</h3>
-                
-                <div class="crypto-network-badge">
-                  <span>الشبكة المطلوبة:</span>
-                  <strong>USDT (Network: TRC20)</strong>
-                </div>
+          <!-- Top Summary Alert Banner -->
+          <div id="health-summary-banner" class="health-summary-banner status-healthy">
+            <div style="display: flex; align-items: center; gap: 16px;">
+              <div class="health-summary-icon" id="health-summary-icon">🟢</div>
+              <div>
+                <h3 id="health-summary-title" style="margin: 0 0 4px 0; font-size: 16px; font-weight: 800; color: #fff;">جاري فحص حالة النظام والمحرك...</h3>
+                <p id="health-summary-desc" style="margin: 0; font-size: 13px; color: #cbd5e1;">يتم استرداد بيانات التشغيل اللحظية من السيرفر.</p>
+              </div>
+            </div>
+            <div id="health-summary-action-wrap" class="hidden">
+              <button type="button" id="health-summary-action-btn" class="btn btn-primary btn-sm" style="padding: 8px 18px; font-size: 13px; font-weight: 700; border-radius: 8px;">
+                <span>إجراء مقترح</span>
+              </button>
+            </div>
+          </div>
 
-                <!-- Static QR Code Placeholder -->
-                <div class="qr-code-wrapper">
-                  <div class="qr-code-placeholder">
-                    <img src="images/QRCode.png" alt="QR Code" style="width: 120px; height: 120px; display: block; object-fit: contain;">
+          <!-- 6 Components Grid -->
+          <div class="health-grid">
+            <!-- 1. Telegram Account -->
+            <div class="health-card" id="card-health-telegram">
+              <div>
+                <div class="health-card-header">
+                  <div class="health-card-title-wrap">
+                    <span class="health-card-icon">📱</span>
+                    <span style="font-weight: 700; font-size: 14px; color: #fff;">حساب تليجرام</span>
                   </div>
-                  <p class="qr-hint">[امسح الـ QR للتحويل المقبل من هاتفك]</p>
+                  <span class="health-badge healthy" id="health-badge-telegram">--</span>
                 </div>
-
-                <div class="wallet-copy-box">
-                  <span class="label">عنوان محفظة الاستلام:</span>
-                  <div class="copy-input-row">
-                    <input type="text" id="wallet-address" readonly value="" placeholder="جاري تحميل عنوان المحفظة الآمنة...">
-                    <button id="btn-copy-address" class="btn btn-secondary">نسخ العنوان</button>
-                  </div>
+                <div class="health-card-body">
+                  <div class="health-card-headline" id="health-title-telegram">--</div>
+                  <p class="health-card-msg" id="health-msg-telegram">جاري الفحص...</p>
                 </div>
               </div>
+              <div class="health-card-footer" id="health-footer-telegram">
+                <!-- Action link injected here -->
+              </div>
+            </div>
 
-              <div class="crypto-submission-form card">
-                <h3 class="card-title">تأكيد معاملة التحويل</h3>
-                <form id="crypto-payment-form">
-                  <div class="input-group">
-                    <label for="payment-plan-select">الباقة المراد تفعيلها</label>
-                    <select id="payment-plan-select" required>
-                      <option value="" disabled selected>-- اختر الباقة التي قمت بتحويل قيمتها --</option>
-                      <option value="monthly">اشتراك شهري ($50)</option>
-                      <option value="half_year">اشتراك 6 شهور ($240 - وفر $60)</option>
-                      <option value="yearly">اشتراك سنوي ($400 - 4 شهور مجاناً 🎁)</option>
-                    </select>
+            <!-- 2. Engine & Self-Healing -->
+            <div class="health-card" id="card-health-engine">
+              <div>
+                <div class="health-card-header">
+                  <div class="health-card-title-wrap">
+                    <span class="health-card-icon">⚡</span>
+                    <span style="font-weight: 700; font-size: 14px; color: #fff;">المحرك السحابي</span>
                   </div>
+                  <span class="health-badge healthy" id="health-badge-engine">--</span>
+                </div>
+                <div class="health-card-body">
+                  <div class="health-card-headline" id="health-title-engine">--</div>
+                  <p class="health-card-msg" id="health-msg-engine">جاري الفحص...</p>
+                </div>
+              </div>
+              <div class="health-card-footer" id="health-footer-engine">
+                <!-- Action link injected here -->
+              </div>
+            </div>
 
-                  <div class="input-group">
-                    <label for="payment-txid">رقم عملية التحويل (Transaction ID / TxID)</label>
-                    <input type="text" id="payment-txid" required placeholder="أدخل الـ Hash الخاص بالتحويل للتأكيد..." autocomplete="off">
-                    <p class="input-hint">تنبيه: يتم مطابقة الـ TxID وتفعيل الاشتراك آلياً بعد فحص البلوك تشين.</p>
+            <!-- 3. Proxy & Network -->
+            <div class="health-card" id="card-health-proxy">
+              <div>
+                <div class="health-card-header">
+                  <div class="health-card-title-wrap">
+                    <span class="health-card-icon">🛡️</span>
+                    <span style="font-weight: 700; font-size: 14px; color: #fff;">البروكسي والأمان</span>
                   </div>
+                  <span class="health-badge healthy" id="health-badge-proxy">--</span>
+                </div>
+                <div class="health-card-body">
+                  <div class="health-card-headline" id="health-title-proxy">--</div>
+                  <p class="health-card-msg" id="health-msg-proxy">جاري الفحص...</p>
+                </div>
+              </div>
+              <div class="health-card-footer" id="health-footer-proxy">
+                <!-- Action link injected here -->
+              </div>
+            </div>
 
-                  <button type="submit" id="btn-submit-payment" class="btn btn-primary">
-                    <span class="btn-text">تأكيد وإرسال للمراجعة والتفعيل</span>
-                    <span class="spinner hidden"></span>
-                  </button>
-                </form>
+            <!-- 4. Channels Sync -->
+            <div class="health-card" id="card-health-channels">
+              <div>
+                <div class="health-card-header">
+                  <div class="health-card-title-wrap">
+                    <span class="health-card-icon">📡</span>
+                    <span style="font-weight: 700; font-size: 14px; color: #fff;">مزامنة القنوات</span>
+                  </div>
+                  <span class="health-badge healthy" id="health-badge-channels">--</span>
+                </div>
+                <div class="health-card-body">
+                  <div class="health-card-headline" id="health-title-channels">--</div>
+                  <p class="health-card-msg" id="health-msg-channels">جاري الفحص...</p>
+                </div>
+              </div>
+              <div class="health-card-footer" id="health-footer-channels">
+                <!-- Action link injected here -->
+              </div>
+            </div>
+
+            <!-- 5. Campaign Queue -->
+            <div class="health-card" id="card-health-queue">
+              <div>
+                <div class="health-card-header">
+                  <div class="health-card-title-wrap">
+                    <span class="health-card-icon">📢</span>
+                    <span style="font-weight: 700; font-size: 14px; color: #fff;">طابور الحملات</span>
+                  </div>
+                  <span class="health-badge healthy" id="health-badge-queue">--</span>
+                </div>
+                <div class="health-card-body">
+                  <div class="health-card-headline" id="health-title-queue">--</div>
+                  <p class="health-card-msg" id="health-msg-queue">جاري الفحص...</p>
+                </div>
+              </div>
+              <div class="health-card-footer" id="health-footer-queue">
+                <!-- Action link injected here -->
+              </div>
+            </div>
+
+            <!-- 6. Subscription & License -->
+            <div class="health-card" id="card-health-subscription">
+              <div>
+                <div class="health-card-header">
+                  <div class="health-card-title-wrap">
+                    <span class="health-card-icon">💳</span>
+                    <span style="font-weight: 700; font-size: 14px; color: #fff;">الاشتراك والرخصة</span>
+                  </div>
+                  <span class="health-badge healthy" id="health-badge-subscription">--</span>
+                </div>
+                <div class="health-card-body">
+                  <div class="health-card-headline" id="health-title-subscription">--</div>
+                  <p class="health-card-msg" id="health-msg-subscription">جاري الفحص...</p>
+                </div>
+              </div>
+              <div class="health-card-footer" id="health-footer-subscription">
+                <!-- Action link injected here -->
               </div>
             </div>
           </div>
-        </section>
 
-        <!-- Tab 4: ربط المحرك (Telegram 2-Step Handshake) -->
+          <div style="font-size: 12px; color: #64748b; text-align: center; margin-top: 14px;">
+            <span>آخر فحص وتحديث: </span><span id="health-last-checked-time">--</span>
+          </div>
+            </div>
+          </div>
 
-        <!-- Tab 3: معالج ربط المحرك الآمن (4-Step Connection Wizard) -->
-        <section id="tab-connect" class="tab-panel hidden">
-          <div class="panel-header">
+          <!-- Subtab 2: Connection Wizard -->
+          <div id="subtab-engine-connect" class="subtab-pane hidden">
+            <div id="tab-connect">
+<div class="panel-header">
             <div>
               <h1 class="panel-title">معالج ربط المحرك السحابي الآمن لتليجرام</h1>
               <p class="panel-subtitle">نربط حسابك عبر بروتوكول تليجرام الرسمي مباشرة لجدولة وإرسال الرسائل بدقة</p>
@@ -1601,10 +1611,13 @@
             </div>
 
           </div>
-        </section>
+            </div>
+          </div>
 
-        <section id="tab-templates" class="tab-panel hidden">
-          <div class="panel-header">
+          <!-- Subtab 3: Ad Templates -->
+          <div id="subtab-engine-templates" class="subtab-pane hidden">
+            <div id="tab-templates">
+<div class="panel-header">
             <h1 class="panel-title">مكتبة صيغ الإعلانات المتكاملة</h1>
             <p class="panel-subtitle">أضف الصيغ والرسائل التسويقية وسيتم تعويض الحقول والروابط ديناميكياً لكل إعلان</p>
           </div>
@@ -1638,214 +1651,45 @@
             </div>
 
           </div>
+            </div>
+          </div>
         </section>
 
-        <!-- Section: Notification Center -->
-        <section id="tab-notifications" class="tab-panel hidden">
-          <div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px;">
+        <!-- ==========================================
+             HUB 2: مركز التقارير والنشاط (Reports Hub)
+             ========================================== -->
+        <section id="tab-reports" class="tab-panel hidden">
+          <div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px;">
             <div>
               <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0;">
-                <span>🔔</span>
-                <span>مركز الإشعارات والتنبيهات</span>
-                <span id="notif-page-unread-badge" class="badge" style="background: rgba(37, 99, 235, 0.2); border: 1px solid rgba(59, 130, 246, 0.4); color: #60a5fa; font-size: 11px; padding: 2px 8px; border-radius: 12px;">0 جديد</span>
+                <span>📊</span>
+                <span>مركز التقارير والنشاط</span>
               </h1>
-              <p class="panel-subtitle" style="margin: 0;">متابعة فورية لجميع أحداث حملاتك، حالة قنواتك، تنبيهات الأمان، والاشتراك</p>
-            </div>
-            
-            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-              <button type="button" class="btn btn-secondary btn-sm" onclick="markAllNotificationsRead()" style="padding: 8px 14px; font-size: 12.5px; border-radius: 8px; font-weight: 600;">
-                <span>✓ تحديد الكل كمقروء</span>
-              </button>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="clearAllNotificationsConfirm()" style="padding: 8px 14px; font-size: 12.5px; border-radius: 8px; font-weight: 600; color: #f43f5e; border-color: rgba(244,63,94,0.3);">
-                <span>🗑️ مسح الكل</span>
-              </button>
+              <p class="panel-subtitle" style="margin: 0;">أرشيف الحملات المكتملة، التحليلات ومعدلات الوصول، وسجل الإشعارات والتنبيهات</p>
             </div>
           </div>
 
-          <!-- Filter Pills Bar -->
-          <div class="notif-filter-bar" style="display: flex; gap: 8px; overflow-x: auto; padding-bottom: 12px; margin-bottom: 20px; -webkit-overflow-scrolling: touch; border-bottom: 1px solid rgba(255,255,255,0.06);">
-            <button type="button" class="btn btn-sm notif-filter-btn active" data-category="all" onclick="filterNotificationsPage('all')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">الكل (<span id="count-cat-all">0</span>)</button>
-            <button type="button" class="btn btn-sm notif-filter-btn" data-category="unread" onclick="filterNotificationsPage('unread')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">غير المقروء (<span id="count-cat-unread">0</span>)</button>
-            <button type="button" class="btn btn-sm notif-filter-btn" data-category="campaigns" onclick="filterNotificationsPage('campaigns')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">📢 حملات النشر</button>
-            <button type="button" class="btn btn-sm notif-filter-btn" data-category="account" onclick="filterNotificationsPage('account')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">⚡ المحرك والقنوات</button>
-            <button type="button" class="btn btn-sm notif-filter-btn" data-category="system" onclick="filterNotificationsPage('system')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">🛡️ النظام والأمان</button>
+          <!-- Reports Sub-Tabs Bar -->
+          <div class="subtabs-nav-bar" id="subtabs-reports">
+            <button type="button" class="subtab-btn active" data-subtab="subtab-campaigns" onclick="switchSubTab('tab-reports', 'subtab-campaigns')">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <span>سجل الحملات والتقارير</span>
+            </button>
+            <button type="button" class="subtab-btn" data-subtab="subtab-analytics" onclick="switchSubTab('tab-reports', 'subtab-analytics')">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+              <span>التحليلات ومؤشرات الأداء</span>
+            </button>
+            <button type="button" class="subtab-btn" data-subtab="subtab-notifications" onclick="switchSubTab('tab-reports', 'subtab-notifications')">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+              <span>مركز الإشعارات</span>
+              <span class="badge notif-subtab-badge hidden" id="subtab-notif-badge" style="background: #ef4444; color: #fff; font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 10px; margin-right: 4px;">0</span>
+            </button>
           </div>
 
-          <!-- Notifications Stream Container -->
-          <div id="page-notif-list-container" style="display: flex; flex-direction: column; gap: 10px;">
-            <div class="card" style="text-align: center; padding: 40px; color: #94a3b8; background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.06); border-radius: 14px;">
-              <div class="spinner" style="margin: 0 auto 12px auto;"></div>
-              <p style="margin: 0;">جاري تحميل الإشعارات...</p>
-            </div>
-          </div>
-        </section>
-
-        <!-- Section: Account & Engine Health -->
-        <section id="tab-health" class="tab-panel hidden">
-          <div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px;">
-            <div>
-              <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0;">
-                <span>🩺</span>
-                <span>صحة الحساب والمحرك السحابي</span>
-              </h1>
-              <p class="panel-subtitle" style="margin: 0;">فحص لحظي شامل لحالة تليجرام، المحرك السحابي، البروكسي، القنوات، وطابور المهام</p>
-            </div>
-            
-            <div>
-              <button type="button" id="btn-refresh-health" class="btn btn-secondary btn-sm" onclick="loadAccountHealthData(true)" style="padding: 8px 16px; font-size: 13px; border-radius: 8px; font-weight: 600; display: inline-flex; align-items: center; gap: 8px;">
-                <span class="btn-text">⚡ فحص وتحديث الحالة اللحظية الآن</span>
-                <span class="spinner hidden" style="width: 14px; height: 14px;"></span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Top Summary Alert Banner -->
-          <div id="health-summary-banner" class="health-summary-banner status-healthy">
-            <div style="display: flex; align-items: center; gap: 16px;">
-              <div class="health-summary-icon" id="health-summary-icon">🟢</div>
-              <div>
-                <h3 id="health-summary-title" style="margin: 0 0 4px 0; font-size: 16px; font-weight: 800; color: #fff;">جاري فحص حالة النظام والمحرك...</h3>
-                <p id="health-summary-desc" style="margin: 0; font-size: 13px; color: #cbd5e1;">يتم استرداد بيانات التشغيل اللحظية من السيرفر.</p>
-              </div>
-            </div>
-            <div id="health-summary-action-wrap" class="hidden">
-              <button type="button" id="health-summary-action-btn" class="btn btn-primary btn-sm" style="padding: 8px 18px; font-size: 13px; font-weight: 700; border-radius: 8px;">
-                <span>إجراء مقترح</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- 6 Components Grid -->
-          <div class="health-grid">
-            <!-- 1. Telegram Account -->
-            <div class="health-card" id="card-health-telegram">
-              <div>
-                <div class="health-card-header">
-                  <div class="health-card-title-wrap">
-                    <span class="health-card-icon">📱</span>
-                    <span style="font-weight: 700; font-size: 14px; color: #fff;">حساب تليجرام</span>
-                  </div>
-                  <span class="health-badge healthy" id="health-badge-telegram">--</span>
-                </div>
-                <div class="health-card-body">
-                  <div class="health-card-headline" id="health-title-telegram">--</div>
-                  <p class="health-card-msg" id="health-msg-telegram">جاري الفحص...</p>
-                </div>
-              </div>
-              <div class="health-card-footer" id="health-footer-telegram">
-                <!-- Action link injected here -->
-              </div>
-            </div>
-
-            <!-- 2. Engine & Self-Healing -->
-            <div class="health-card" id="card-health-engine">
-              <div>
-                <div class="health-card-header">
-                  <div class="health-card-title-wrap">
-                    <span class="health-card-icon">⚡</span>
-                    <span style="font-weight: 700; font-size: 14px; color: #fff;">المحرك السحابي</span>
-                  </div>
-                  <span class="health-badge healthy" id="health-badge-engine">--</span>
-                </div>
-                <div class="health-card-body">
-                  <div class="health-card-headline" id="health-title-engine">--</div>
-                  <p class="health-card-msg" id="health-msg-engine">جاري الفحص...</p>
-                </div>
-              </div>
-              <div class="health-card-footer" id="health-footer-engine">
-                <!-- Action link injected here -->
-              </div>
-            </div>
-
-            <!-- 3. Proxy & Network -->
-            <div class="health-card" id="card-health-proxy">
-              <div>
-                <div class="health-card-header">
-                  <div class="health-card-title-wrap">
-                    <span class="health-card-icon">🛡️</span>
-                    <span style="font-weight: 700; font-size: 14px; color: #fff;">البروكسي والأمان</span>
-                  </div>
-                  <span class="health-badge healthy" id="health-badge-proxy">--</span>
-                </div>
-                <div class="health-card-body">
-                  <div class="health-card-headline" id="health-title-proxy">--</div>
-                  <p class="health-card-msg" id="health-msg-proxy">جاري الفحص...</p>
-                </div>
-              </div>
-              <div class="health-card-footer" id="health-footer-proxy">
-                <!-- Action link injected here -->
-              </div>
-            </div>
-
-            <!-- 4. Channels Sync -->
-            <div class="health-card" id="card-health-channels">
-              <div>
-                <div class="health-card-header">
-                  <div class="health-card-title-wrap">
-                    <span class="health-card-icon">📡</span>
-                    <span style="font-weight: 700; font-size: 14px; color: #fff;">مزامنة القنوات</span>
-                  </div>
-                  <span class="health-badge healthy" id="health-badge-channels">--</span>
-                </div>
-                <div class="health-card-body">
-                  <div class="health-card-headline" id="health-title-channels">--</div>
-                  <p class="health-card-msg" id="health-msg-channels">جاري الفحص...</p>
-                </div>
-              </div>
-              <div class="health-card-footer" id="health-footer-channels">
-                <!-- Action link injected here -->
-              </div>
-            </div>
-
-            <!-- 5. Campaign Queue -->
-            <div class="health-card" id="card-health-queue">
-              <div>
-                <div class="health-card-header">
-                  <div class="health-card-title-wrap">
-                    <span class="health-card-icon">📢</span>
-                    <span style="font-weight: 700; font-size: 14px; color: #fff;">طابور الحملات</span>
-                  </div>
-                  <span class="health-badge healthy" id="health-badge-queue">--</span>
-                </div>
-                <div class="health-card-body">
-                  <div class="health-card-headline" id="health-title-queue">--</div>
-                  <p class="health-card-msg" id="health-msg-queue">جاري الفحص...</p>
-                </div>
-              </div>
-              <div class="health-card-footer" id="health-footer-queue">
-                <!-- Action link injected here -->
-              </div>
-            </div>
-
-            <!-- 6. Subscription & License -->
-            <div class="health-card" id="card-health-subscription">
-              <div>
-                <div class="health-card-header">
-                  <div class="health-card-title-wrap">
-                    <span class="health-card-icon">💳</span>
-                    <span style="font-weight: 700; font-size: 14px; color: #fff;">الاشتراك والرخصة</span>
-                  </div>
-                  <span class="health-badge healthy" id="health-badge-subscription">--</span>
-                </div>
-                <div class="health-card-body">
-                  <div class="health-card-headline" id="health-title-subscription">--</div>
-                  <p class="health-card-msg" id="health-msg-subscription">جاري الفحص...</p>
-                </div>
-              </div>
-              <div class="health-card-footer" id="health-footer-subscription">
-                <!-- Action link injected here -->
-              </div>
-            </div>
-          </div>
-
-          <div style="font-size: 12px; color: #64748b; text-align: center; margin-top: 14px;">
-            <span>آخر فحص وتحديث: </span><span id="health-last-checked-time">--</span>
-          </div>
-        </section>
-
-        <!-- Section: Campaign History & Advanced Reports -->
-        <section id="tab-campaigns" class="tab-panel hidden">
-          <div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px;">
+          <!-- Subtab 1: Campaign History -->
+          <div id="subtab-campaigns" class="subtab-pane">
+            <div id="tab-campaigns">
+<div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px;">
             <div>
               <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0;">
                 <span>📢</span>
@@ -1907,11 +1751,13 @@
           <div id="campaigns-mobile-cards-container" class="mobile-only" style="display: none; flex-direction: column; gap: 12px; margin-top: 14px;">
             <!-- Mobile cards rendered via JS -->
           </div>
-        </section>
+            </div>
+          </div>
 
-        <!-- Section: Analytics & Performance Metrics -->
-        <section id="tab-analytics" class="tab-panel hidden">
-          <div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px;">
+          <!-- Subtab 2: Analytics -->
+          <div id="subtab-analytics" class="subtab-pane hidden">
+            <div id="tab-analytics">
+<div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px;">
             <div>
               <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0;">
                 <span>📊</span>
@@ -1980,11 +1826,82 @@
               <!-- Rendered via JS -->
             </div>
           </div>
+            </div>
+          </div>
+
+          <!-- Subtab 3: Notifications -->
+          <div id="subtab-notifications" class="subtab-pane hidden">
+            <div id="tab-notifications">
+<div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px;">
+            <div>
+              <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0;">
+                <span>🔔</span>
+                <span>مركز الإشعارات والتنبيهات</span>
+                <span id="notif-page-unread-badge" class="badge" style="background: rgba(37, 99, 235, 0.2); border: 1px solid rgba(59, 130, 246, 0.4); color: #60a5fa; font-size: 11px; padding: 2px 8px; border-radius: 12px;">0 جديد</span>
+              </h1>
+              <p class="panel-subtitle" style="margin: 0;">متابعة فورية لجميع أحداث حملاتك، حالة قنواتك، تنبيهات الأمان، والاشتراك</p>
+            </div>
+            
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="markAllNotificationsRead()" style="padding: 8px 14px; font-size: 12.5px; border-radius: 8px; font-weight: 600;">
+                <span>✓ تحديد الكل كمقروء</span>
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="clearAllNotificationsConfirm()" style="padding: 8px 14px; font-size: 12.5px; border-radius: 8px; font-weight: 600; color: #f43f5e; border-color: rgba(244,63,94,0.3);">
+                <span>🗑️ مسح الكل</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Filter Pills Bar -->
+          <div class="notif-filter-bar" style="display: flex; gap: 8px; overflow-x: auto; padding-bottom: 12px; margin-bottom: 20px; -webkit-overflow-scrolling: touch; border-bottom: 1px solid rgba(255,255,255,0.06);">
+            <button type="button" class="btn btn-sm notif-filter-btn active" data-category="all" onclick="filterNotificationsPage('all')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">الكل (<span id="count-cat-all">0</span>)</button>
+            <button type="button" class="btn btn-sm notif-filter-btn" data-category="unread" onclick="filterNotificationsPage('unread')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">غير المقروء (<span id="count-cat-unread">0</span>)</button>
+            <button type="button" class="btn btn-sm notif-filter-btn" data-category="campaigns" onclick="filterNotificationsPage('campaigns')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">📢 حملات النشر</button>
+            <button type="button" class="btn btn-sm notif-filter-btn" data-category="account" onclick="filterNotificationsPage('account')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">⚡ المحرك والقنوات</button>
+            <button type="button" class="btn btn-sm notif-filter-btn" data-category="system" onclick="filterNotificationsPage('system')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">🛡️ النظام والأمان</button>
+          </div>
+
+          <!-- Notifications Stream Container -->
+          <div id="page-notif-list-container" style="display: flex; flex-direction: column; gap: 10px;">
+            <div class="card" style="text-align: center; padding: 40px; color: #94a3b8; background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.06); border-radius: 14px;">
+              <div class="spinner" style="margin: 0 auto 12px auto;"></div>
+              <p style="margin: 0;">جاري تحميل الإشعارات...</p>
+            </div>
+          </div>
+            </div>
+          </div>
         </section>
 
-        <!-- Section: User Profile & Settings -->
-        <section id="tab-profile" class="tab-panel hidden">
-          <div class="panel-header">
+        <!-- ==========================================
+             HUB 3: الحساب والاشتراك (Account Hub)
+             ========================================== -->
+        <section id="tab-account-hub" class="tab-panel hidden">
+          <div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px;">
+            <div>
+              <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0;">
+                <span>⚙️</span>
+                <span>الحساب والاشتراك</span>
+              </h1>
+              <p class="panel-subtitle" style="margin: 0;">الملف الشخصي والاسم الظاهر، الخطط والترقية، وطرق الدفع وتأكيد التحويلات</p>
+            </div>
+          </div>
+
+          <!-- Account Sub-Tabs Bar -->
+          <div class="subtabs-nav-bar" id="subtabs-account-hub">
+            <button type="button" class="subtab-btn active" data-subtab="subtab-account-profile" onclick="switchSubTab('tab-account-hub', 'subtab-account-profile')">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              <span>الملف الشخصي والإعدادات</span>
+            </button>
+            <button type="button" class="subtab-btn" data-subtab="subtab-account-billing" onclick="switchSubTab('tab-account-hub', 'subtab-account-billing')">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+              <span>الخطط والترقية والدفع</span>
+            </button>
+          </div>
+
+          <!-- Subtab 1: Profile -->
+          <div id="subtab-account-profile" class="subtab-pane">
+            <div id="tab-profile">
+<div class="panel-header">
             <h1 class="panel-title">الملف الشخصي وإعدادات الحساب</h1>
             <p class="panel-subtitle">تخصيص الاسم الظاهر ومعلومات حسابك في AutoTele</p>
           </div>
@@ -2035,6 +1952,153 @@
 
             </div>
           </div>
+            </div>
+          </div>
+
+          <!-- Subtab 2: Billing & Plans -->
+          <div id="subtab-account-billing" class="subtab-pane hidden">
+            <div id="tab-plans">
+<div class="panel-header">
+            <h1 class="panel-title">خطط تفعيل المحرك السحابي المتاحة</h1>
+            <p class="panel-subtitle">اختر الخطة المناسبة لحجم نشاطك وقم بالترقية فوراً</p>
+          </div>
+
+          <div class="pricing-grid">
+            <!-- Plan 0: Free Trial -->
+            <div class="price-card" data-plan="trial">
+              <div class="plan-header">
+                <span class="plan-badge green">مجاني</span>
+                <h3 class="plan-name">تجربة مجانية</h3>
+                <div class="plan-price">0$ <span class="period">/ يومين</span></div>
+              </div>
+              <ul class="plan-features">
+                <li>ربط حساب تليجرام واحد</li>
+                <li>توزيع ونشر تلقائي بالكامل</li>
+                <li>معدل تحديث 30 دقيقة</li>
+                <li>دعم فني محدود</li>
+              </ul>
+              <button class="btn btn-secondary btn-select-plan" onclick="switchTab('tab-connect')">ابدأ الفترة التجريبية مجاناً</button>
+            </div>
+
+
+
+            <!-- Plan 3: Monthly -->
+            <div class="price-card popular" data-plan="monthly">
+              <div class="plan-header">
+                <span class="plan-badge blue">⭐ الأكثر طلباً</span>
+                <h3 class="plan-name">اشتراك شهري</h3>
+                <div class="plan-price">
+                  50$ <span class="period">/ شهر</span>
+                </div>
+              </div>
+              <ul class="plan-features">
+                <li>نشر في أكثر من 100 قناة بضغطة زر</li>
+                <li>مزامنة المجلدات وحظر القنوات تلقائياً</li>
+                <li>حذف الإعلانات أوتوماتيكياً بدقة ثانية</li>
+                <li>تفعيل استيكر مخصص مانع للحظر</li>
+              </ul>
+              <button class="btn btn-primary btn-select-plan" onclick="switchTab('tab-plans', 'monthly')">اختر هذه الباقة للترقية</button>
+            </div>
+
+            <!-- Plan 4: 6-Months -->
+            <div class="price-card" data-plan="half_year">
+              <div class="plan-header">
+                <span class="plan-badge discount">وفر $60 (خصم 20%)</span>
+                <h3 class="plan-name">اشتراك 6 شهور</h3>
+                <div class="plan-price">
+                  <span style="text-decoration: line-through; color: #708499; font-size: 16px; margin-left: 8px;">$300</span>240$ <span class="period">/ 6 شهور</span>
+                </div>
+              </div>
+              <ul class="plan-features">
+                <li>توفير $60 بمعدل ($40/شهر فقط)</li>
+                <li>خوادم خاصة فائقة السرعة للعميل</li>
+                <li>دعم كامل لوكيل (Proxy SOCKS5) خاص</li>
+                <li>دعم فني مخصص ومباشر 24/7</li>
+              </ul>
+              <button class="btn btn-primary btn-select-plan" onclick="switchTab('tab-plans', 'half_year')">اختر هذه الباقة للترقية</button>
+            </div>
+
+            <!-- Plan 5: Yearly -->
+            <div class="price-card gold" data-plan="yearly">
+              <div class="plan-header">
+                <span class="plan-badge discount-gold">وفر $200 (4 شهور مجاناً 👑)</span>
+                <h3 class="plan-name">اشتراك سنوي</h3>
+                <div class="plan-price">
+                  <span style="text-decoration: line-through; color: #708499; font-size: 16px; margin-left: 8px;">$600</span>400$ <span class="period">/ سنة</span>
+                </div>
+              </div>
+              <ul class="plan-features">
+                <li>توفير قيمة 4 شهور مجاناً 🎁 ($33/شهر فقط)</li>
+                <li>نشر وإدارة قنوات غير محدودة</li>
+                <li>بروكسي SOCKS5 مخصص مجاني مدمج</li>
+                <li>مستشار ومدير حساب مخصص بالكامل</li>
+              </ul>
+              <button class="btn btn-primary btn-select-plan" onclick="switchTab('tab-plans', 'yearly')">اختر هذه الباقة للترقية</button>
+            </div>
+          </div>
+
+          <!-- بوابة الدفع الآمنة (USDT) -->
+          <div id="crypto-payment-section" style="margin-top: 32px; border-top: 1px dashed rgba(255, 255, 255, 0.08); padding-top: 24px;">
+            <div class="panel-header" style="text-align: center; margin-bottom: 20px;">
+              <h2 class="panel-title" style="font-size: 18px; color: #fff; margin-bottom: 4px;">بوابة الدفع الآمنة بالعملات الرقمية (USDT)</h2>
+              <p class="panel-subtitle">قم بالتحويل على محفظتنا الآمنة ثم الصق رمز المعاملة للتفعيل التلقائي</p>
+            </div>
+
+            <div class="crypto-billing-layout">
+              <div class="crypto-payment-info card">
+                <h3 class="card-title">تفاصيل المحفظة الرقمية</h3>
+                
+                <div class="crypto-network-badge">
+                  <span>الشبكة المطلوبة:</span>
+                  <strong>USDT (Network: TRC20)</strong>
+                </div>
+
+                <!-- Static QR Code Placeholder -->
+                <div class="qr-code-wrapper">
+                  <div class="qr-code-placeholder">
+                    <img src="images/QRCode.png" alt="QR Code" style="width: 120px; height: 120px; display: block; object-fit: contain;">
+                  </div>
+                  <p class="qr-hint">[امسح الـ QR للتحويل المقبل من هاتفك]</p>
+                </div>
+
+                <div class="wallet-copy-box">
+                  <span class="label">عنوان محفظة الاستلام:</span>
+                  <div class="copy-input-row">
+                    <input type="text" id="wallet-address" readonly value="" placeholder="جاري تحميل عنوان المحفظة الآمنة...">
+                    <button id="btn-copy-address" class="btn btn-secondary">نسخ العنوان</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="crypto-submission-form card">
+                <h3 class="card-title">تأكيد معاملة التحويل</h3>
+                <form id="crypto-payment-form">
+                  <div class="input-group">
+                    <label for="payment-plan-select">الباقة المراد تفعيلها</label>
+                    <select id="payment-plan-select" required>
+                      <option value="" disabled selected>-- اختر الباقة التي قمت بتحويل قيمتها --</option>
+                      <option value="monthly">اشتراك شهري ($50)</option>
+                      <option value="half_year">اشتراك 6 شهور ($240 - وفر $60)</option>
+                      <option value="yearly">اشتراك سنوي ($400 - 4 شهور مجاناً 🎁)</option>
+                    </select>
+                  </div>
+
+                  <div class="input-group">
+                    <label for="payment-txid">رقم عملية التحويل (Transaction ID / TxID)</label>
+                    <input type="text" id="payment-txid" required placeholder="أدخل الـ Hash الخاص بالتحويل للتأكيد..." autocomplete="off">
+                    <p class="input-hint">تنبيه: يتم مطابقة الـ TxID وتفعيل الاشتراك آلياً بعد فحص البلوك تشين.</p>
+                  </div>
+
+                  <button type="submit" id="btn-submit-payment" class="btn btn-primary">
+                    <span class="btn-text">تأكيد وإرسال للمراجعة والتفعيل</span>
+                    <span class="spinner hidden"></span>
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+            </div>
+          </div>
         </section>
 </main>
     </div>
@@ -2046,19 +2110,19 @@
     <nav class="mobile-bottom-nav" aria-label="التنقل السفلي">
       <button class="bottom-nav-item active" data-tab="tab-subscription" data-route="/app" onclick="navigate('/app')">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-        <span>الرئيسية (الأوامر)</span>
+        <span>الرئيسية</span>
       </button>
-      <button class="bottom-nav-item" data-tab="tab-connect" data-route="/app/engines/connect" onclick="navigate('/app/engines/connect')">
+      <button class="bottom-nav-item" data-tab="tab-engine-hub" data-route="/app/engines" onclick="navigate('/app/engines')">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
-        <span>ربط المحرك</span>
+        <span>المحرك</span>
       </button>
-      <button class="bottom-nav-item" data-tab="tab-templates" data-route="/app/templates" onclick="navigate('/app/templates')">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-        <span>الصيغ</span>
+      <button class="bottom-nav-item" data-tab="tab-reports" data-route="/app/reports" onclick="navigate('/app/reports')">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+        <span>التقارير</span>
       </button>
-      <button class="bottom-nav-item" data-tab="tab-plans" data-route="/app/billing" onclick="navigate('/app/billing')">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-        <span>الخطط</span>
+      <button class="bottom-nav-item" data-tab="tab-account-hub" data-route="/app/settings" onclick="navigate('/app/settings')">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span>الحساب</span>
       </button>
     </nav>
 
