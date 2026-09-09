@@ -2504,7 +2504,7 @@ async function loadScheduledJobs() {
           dateStr = job.start_time;
         }
 
-        const isWave = job.campaign_type === "wave" || job.campaign_type === "activate_exchange" || (job.type && (job.type.includes("التبادل") || job.type === "wave" || job.type === "activate_exchange"));
+        const isWave = job.campaign_type === "wave" || job.campaign_type === "wave_folder" || job.campaign_type === "activate_exchange" || (job.type && (job.type.includes("التبادل") || job.type === "wave" || job.type === "wave_folder" || job.type === "activate_exchange"));
 
         let statusBadge = "";
         let cardStyle = "";
@@ -3605,6 +3605,7 @@ function renderActiveAds() {
     let typeLabel = "تلقائي";
     let badgeColor = "#94a3b8";
     if (ad.campaign_type === "wave") { typeLabel = "تبادل"; badgeColor = "#3b82f6"; }
+    else if (ad.campaign_type === "wave_folder") { typeLabel = "تبادل (حملات)"; badgeColor = "#06b6d4"; }
     else if (ad.campaign_type === "single") { typeLabel = "حملة"; badgeColor = "#10b981"; }
     else if (ad.campaign_type === "bulk") { typeLabel = "مجلد"; badgeColor = "#a855f7"; }
     

@@ -964,6 +964,7 @@ async def get_user_health(user_id: int = Depends(get_current_user)):
 
 CAMPAIGN_TYPE_ARABIC = {
     "wave": "حملة تبادل عشوائي (Wave)",
+    "wave_folder": "التبادل العشوائي (مجلد حملات)",
     "single": "حملة قناة فردية",
     "bulk": "حملة مجلد مجمع",
     "timed_post": "نشر مجدول مؤقت",
@@ -1838,13 +1839,13 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
             state_val = (await session.execute(state_stmt)).scalar() or "stopped"
 
             # Auto-complete wave task if bot is stopped
-            if task.campaign_type in ["wave", "activate_exchange"] and state_val in ["stopped", "paused"] and task.status == "active":
+            if task.campaign_type in ["wave", "wave_folder", "activate_exchange"] and state_val in ["stopped", "paused"] and task.status == "active":
                 task.status = "completed"
                 session.add(task)
                 await session.commit()
 
             details = f"الحالة: {task.status}"
-            if task.campaign_type in ["wave", "activate_exchange"] and state_val == "active" and task.status == "active":
+            if task.campaign_type in ["wave", "wave_folder", "activate_exchange"] and state_val == "active" and task.status == "active":
                 # Try to get last wave time from Redis
                 last_wave_raw = await redis_client.get(f"tenant:{tg_account.id}:last_wave_time")
                 interval_stmt = select(Setting.value).where(Setting.telegram_account_id == tg_account.id, Setting.key == "wave_interval")
@@ -2497,6 +2498,29 @@ async def telegram_verify_code(req: TelegramVerifyCodeReq, user_id: int = Depend
         # Delete first crawl flag to trigger automatic onboarding crawl in core_worker
         from cache_manager import redis_client
         account_id = existing_account.id if existing_account else new_account.id
+        
+        # Auto-enqueue update (.تحديث) command so channels and folders are immediately scanned and ready
+        try:
+            from db_manager import WebCampaignTask
+            pending_up = await db_session.execute(
+                select(WebCampaignTask.id).where(
+                    WebCampaignTask.telegram_account_id == account_id,
+                    WebCampaignTask.campaign_type == "update",
+                    WebCampaignTask.status.in_(["pending", "processing"])
+                )
+            )
+            if not pending_up.scalar_one_or_none():
+                db_session.add(WebCampaignTask(
+                    telegram_account_id=account_id,
+                    campaign_type="update",
+                    delay_start=0,
+                    status="pending"
+                ))
+                await db_session.commit()
+                logger.info(f"Auto-enqueued 'update' task for connected account {account_id}")
+        except Exception as ue:
+            logger.error(f"Failed to auto-enqueue update task for account {account_id}: {ue}")
+
         try:
             await redis_client.delete(f"tenant:{account_id}:first_crawl_done")
         except Exception as re:
@@ -3220,6 +3244,30 @@ async def verify_payment(req: VerifyPaymentReq, background_tasks: BackgroundTask
             user.sub_alert_expired_sent = False
             user.sub_shutdown_executed = False
             
+            # Auto-enqueue update (.تحديث) command for any associated telegram accounts
+            try:
+                from db_manager import WebCampaignTask
+                stmt_acc = select(TelegramAccount).where(TelegramAccount.user_id == user.id)
+                accounts_for_up = (await session.execute(stmt_acc)).scalars().all()
+                for acc_item in accounts_for_up:
+                    pending_up = await session.execute(
+                        select(WebCampaignTask.id).where(
+                            WebCampaignTask.telegram_account_id == acc_item.id,
+                            WebCampaignTask.campaign_type == "update",
+                            WebCampaignTask.status.in_(["pending", "processing"])
+                        )
+                    )
+                    if not pending_up.scalar_one_or_none():
+                        session.add(WebCampaignTask(
+                            telegram_account_id=acc_item.id,
+                            campaign_type="update",
+                            delay_start=0,
+                            status="pending"
+                        ))
+                        logger.info(f"Auto-enqueued 'update' task for account {acc_item.id} upon verify_payment.")
+            except Exception as vpe:
+                logger.error(f"Failed to auto-enqueue update task in verify_payment: {vpe}")
+            
             await session.commit()
             
             background_tasks.add_task(send_renewal_alert_task, user.id, OFFICIAL_PLANS[payment.plan_selected]['label'], new_end.strftime("%Y-%m-%d %H:%M:%S"))
@@ -3316,6 +3364,26 @@ async def approve_payment(payment_id: int, background_tasks: BackgroundTasks, ad
             acc.proxy_password = user.proxy_password
             acc.needs_reboot = True
             session.add(acc)
+            # Auto-enqueue update (.تحديث) command upon subscription approval
+            try:
+                from db_manager import WebCampaignTask
+                pending_up = await session.execute(
+                    select(WebCampaignTask.id).where(
+                        WebCampaignTask.telegram_account_id == acc.id,
+                        WebCampaignTask.campaign_type == "update",
+                        WebCampaignTask.status.in_(["pending", "processing"])
+                    )
+                )
+                if not pending_up.scalar_one_or_none():
+                    session.add(WebCampaignTask(
+                        telegram_account_id=acc.id,
+                        campaign_type="update",
+                        delay_start=0,
+                        status="pending"
+                    ))
+                    logger.info(f"Auto-enqueued 'update' task for account {acc.id} upon subscription approval.")
+            except Exception as ape:
+                logger.error(f"Failed to auto-enqueue update task in approve_payment for account {acc.id}: {ape}")
         
         await session.commit()
         plan_label = OFFICIAL_PLANS[payment.plan_selected]["label"]
@@ -3493,6 +3561,26 @@ async def modify_subscription(target_user_id: int, req: ModifySubscriptionReq, b
             acc.proxy_password = user.proxy_password
             acc.needs_reboot = True
             session.add(acc)
+            if req.subscription_status == "active":
+                try:
+                    from db_manager import WebCampaignTask
+                    pending_up = await session.execute(
+                        select(WebCampaignTask.id).where(
+                            WebCampaignTask.telegram_account_id == acc.id,
+                            WebCampaignTask.campaign_type == "update",
+                            WebCampaignTask.status.in_(["pending", "processing"])
+                        )
+                    )
+                    if not pending_up.scalar_one_or_none():
+                        session.add(WebCampaignTask(
+                            telegram_account_id=acc.id,
+                            campaign_type="update",
+                            delay_start=0,
+                            status="pending"
+                        ))
+                        logger.info(f"Auto-enqueued 'update' task for account {acc.id} upon subscription active modification.")
+                except Exception as mse:
+                    logger.error(f"Failed to auto-enqueue update task in modify_subscription for account {acc.id}: {mse}")
             
         await session.commit()
         

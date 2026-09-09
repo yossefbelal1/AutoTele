@@ -3065,6 +3065,8 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 await handle_تفعيل_استيكر(message, True)
             elif is_disable_sticker:
                 await handle_تفعيل_استيكر(message, False)
+            elif cmd_clean in ["تبادل_حملات", "يلا_حملات", "تبادل_مجلد", "حملات_تبادل"]:
+                await handle_يلا_حملات(message, normalized_text, parts)
             elif cmd_clean in ["يلا", "ابدء", "ابدا", "ابدأ", "تشغيل", "شغل", "yalla", "start", "run", "تبادل", "بدء", "بداء", "ابدا_النشر", "ابداء_النشر", "تشغيل_البوت", "شغل_البوت", "نشر", "يلاا", "يللا", "يلاه", "يلااا"]:
                 await handle_يلا(message, normalized_text, parts)
             elif cmd_clean in ["بريك", "وقف", "اقف", "وقفني", "استوب", "إيقاف", "ايقاف", "stop", "pause", "break", "إيقاف_مؤقت", "ايقاف_مؤقت", "توقف", "ستوب", "فرمل", "بريكك", "برييك", "اوقف"]:
@@ -3127,6 +3129,63 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 pass
 
     
+    async def handle_يلا_حملات(message: Message, text: str, parts: List[str]):
+        numbers = [int(x) for x in parts if x.isdigit()]
+        delay_start = 0
+        wave_interval = 420
+        ad_lifespan = 1500
+        
+        if len(numbers) >= 3:
+            delay_start = numbers[0]
+            wave_interval = numbers[1] * 60
+            ad_lifespan = numbers[2] * 60
+        elif len(numbers) == 2:
+            delay_start = numbers[0]
+            wave_interval = numbers[1] * 60
+        elif len(numbers) == 1:
+            wave_interval = numbers[0] * 60
+            
+        async with AsyncSessionLocal() as session:
+            await set_setting(session, tenant_id, "wave_interval", str(wave_interval))
+            await set_setting(session, tenant_id, "ad_lifespan", str(ad_lifespan))
+            await set_setting(session, tenant_id, "wave_folder_mode", "campaign")
+            
+            if delay_start == 0:
+                await set_setting(session, tenant_id, "bot_system_state", "active")
+                await session.commit()
+                
+                status_msg = await message.reply_text("⏳ **جاري بدء النشر التبادلي التلقائي (داخل مجلد حملات فقط 📁)...**")
+                last_wave_time[tenant_id] = datetime.now(timezone.utc)
+                try:
+                    from cache_manager import redis_client
+                    await redis_client.set(f"tenant:{tenant_id}:last_wave_time", last_wave_time[tenant_id].isoformat())
+                except Exception as re:
+                    logger.error(f"Failed to save last_wave_time to Redis: {re}")
+                asyncio.create_task(trigger_manual_wave(tenant_id, status_msg, folder_only="campaign"))
+            else:
+                await set_setting(session, tenant_id, "bot_system_state", "stopped")
+                await session.commit()
+                
+                async with AsyncSessionLocal() as db_session:
+                    new_task = WebCampaignTask(
+                        telegram_account_id=tenant_id,
+                        campaign_type="wave_folder",
+                        delay_start=delay_start,
+                        delay_between_channels=wave_interval // 60,
+                        ad_lifespan=ad_lifespan // 60,
+                        status="pending"
+                    )
+                    db_session.add(new_task)
+                    await db_session.commit()
+                    task_id = new_task.id
+                
+                await message.reply_text(
+                    f"⏳ **تم جدولة تشغيل التبادل العشوائي لمجلد حملات (معرف: db-{task_id}):**\n"
+                    f"• البدء بعد: `{delay_start}` دقيقة\n"
+                    f"• الفاصل الزمني بين الأمواج: `{wave_interval // 60}` دقيقة\n"
+                    f"• عمر الإعلان: `{ad_lifespan // 60}` دقيقة"
+                )
+
     async def handle_يلا(message: Message, text: str, parts: List[str]):
         numbers = [int(x) for x in parts if x.isdigit()]
         delay_start = 0
@@ -3146,6 +3205,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         async with AsyncSessionLocal() as session:
             await set_setting(session, tenant_id, "wave_interval", str(wave_interval))
             await set_setting(session, tenant_id, "ad_lifespan", str(ad_lifespan))
+            await set_setting(session, tenant_id, "wave_folder_mode", "all")
             
             if delay_start == 0:
                 await set_setting(session, tenant_id, "bot_system_state", "active")
@@ -3192,7 +3252,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 update(WebCampaignTask)
                 .where(
                     WebCampaignTask.telegram_account_id == tenant_id,
-                    WebCampaignTask.campaign_type.in_(["wave", "activate_exchange"]),
+                    WebCampaignTask.campaign_type.in_(["wave", "wave_folder", "activate_exchange"]),
                     WebCampaignTask.status == "active"
                 )
                 .values(status="completed")
@@ -3746,6 +3806,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 
             type_names = {
                 "wave": "حملة التبادل عشوائي",
+                "wave_folder": "التبادل العشوائي (مجلد حملات)",
                 "single": "حملة فردية",
                 "bulk": "حملة مجلد مجمع",
                 "custom_folder": "حملة مجلد مخصص",
@@ -3909,6 +3970,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         text = (
             "📖 **قائمة أوامر البوت المتاحة** (مرتبة من الأكثر إلى الأقل استخداماً):\n\n"
             "• `.يلا` : لبدء تشغيل النشر التلقائي (التبادل) للأمواج.\n\n"
+            "• `.تبادل_حملات` : لبدء التبادل العشوائي للقنوات داخل مجلد 'حملات' فقط.\n\n"
             "• `.بريك` : لإيقاف النشر التلقائي مؤقتاً.\n\n"
             "• `.حملة` : لإطلاق حملة إعلانية مخصصة لقناة معينة.\n\n"
             "• `.حملات` : لإطلاق حملات مجمعة للمجلدات.\n\n"
@@ -4914,9 +4976,9 @@ async def run_wave_execution(
     logger.info(f"run_wave_execution complete for tenant {tenant_id}. Published {published_count} posts.")
     await log_tenant_event(tenant_id, f"اكتمل النشر التبادلي التلقائي ({wave_name}) بنجاح! تم النشر في {published_count} قناة.")
 
-async def trigger_manual_wave(tenant_id: int, status_msg: Optional[Message] = None):
+async def trigger_manual_wave(tenant_id: int, status_msg: Optional[Message] = None, folder_only: Optional[str] = None):
 
-    logger.info(f"trigger_manual_wave called for tenant {tenant_id}")
+    logger.info(f"trigger_manual_wave called for tenant {tenant_id} (folder_only={folder_only})")
     client = running_clients.get(tenant_id)
     if not client: 
         logger.error(f"Client for tenant {tenant_id} is not running!")
@@ -4969,8 +5031,20 @@ async def trigger_manual_wave(tenant_id: int, status_msg: Optional[Message] = No
                     if status_msg:
                         await edit_or_reply(status_msg, "⚠️ **فشل النشر التبادلي: لا يوجد قنوات كافية بالكاش حتى بعد التحديث التلقائي. يرجى التأكد من وجود قناتين على الأقل تملك صلاحية النشر فيهما.**")
                     return
-            available_channels = [ch for ch in channels if ch["id"] not in exclude_ids]
-            logger.info(f"Available channels after filtering exclusions: {len(available_channels)}")
+            if folder_only == "campaign":
+                raw_campaign = await redis_client.get(f"tenant:{tenant_id}:campaign")
+                campaign_ids = set(json.loads(raw_campaign)) if raw_campaign else set()
+                available_channels = [ch for ch in channels if ch["id"] in campaign_ids and ch["id"] not in exclude_ids]
+                logger.info(f"Available channels inside folder 'حملات' after filtering: {len(available_channels)}")
+                if len(available_channels) < 2:
+                    logger.warning("Folder 'حملات' has fewer than 2 channels for cross post.")
+                    if status_msg:
+                        await edit_or_reply(status_msg, "⚠️ **فشل التبادل العشوائي لمجلد حملات: يجب توفر قناتين على الأقل داخل مجلد 'حملات' صالحتين للنشر.**")
+                    return
+            else:
+                available_channels = [ch for ch in channels if ch["id"] not in exclude_ids]
+                logger.info(f"Available channels after filtering exclusions: {len(available_channels)}")
+
             random.shuffle(available_channels)
             batch_size = len(available_channels) if len(available_channels) % 2 == 0 else len(available_channels) - 1
             if batch_size < 2: 
@@ -5087,7 +5161,14 @@ async def wave_publisher_worker(tenant_id: int):
                 if not channels or len(channels) < 2:
                     await asyncio.sleep(60); continue
                 
-            available_channels = [ch for ch in channels if ch["id"] not in exclude_ids]
+            db_folder_mode = await get_setting(session, tenant_id, "wave_folder_mode")
+            if db_folder_mode == "campaign":
+                raw_campaign = await redis_client.get(f"tenant:{tenant_id}:campaign")
+                campaign_ids = set(json.loads(raw_campaign)) if raw_campaign else set()
+                available_channels = [ch for ch in channels if ch["id"] in campaign_ids and ch["id"] not in exclude_ids]
+            else:
+                available_channels = [ch for ch in channels if ch["id"] not in exclude_ids]
+
             random.shuffle(available_channels)
             batch_size = len(available_channels) if len(available_channels) % 2 == 0 else len(available_channels) - 1
             if batch_size < 2: await asyncio.sleep(60); continue
@@ -6137,6 +6218,7 @@ async def run_web_campaign_task(task_id: int):
 
         campaign_type_names = {
             "wave": "حملة التبادل عشوائي",
+            "wave_folder": "التبادل العشوائي (مجلد حملات)",
             "single": "حملة فردية",
             "bulk": "حملة مجلد مجمع",
             "timed_post": "حملة نشر مؤقتة",
@@ -6155,7 +6237,7 @@ async def run_web_campaign_task(task_id: int):
             
             # Create a start status message in Saved Messages to keep the user in the loop
             status_msg = None
-            if task.campaign_type in ["wave", "single", "timed_post", "bulk", "activate_exchange"]:
+            if task.campaign_type in ["wave", "wave_folder", "single", "timed_post", "bulk", "activate_exchange"]:
                 try:
                     status_msg = await client.send_message("me", f"🌐 **تم استلام طلب [{type_ar}]...**")
                     if status_msg:
@@ -6164,9 +6246,11 @@ async def run_web_campaign_task(task_id: int):
                 except Exception as se:
                     logger.debug(f"Could not send start status message to Saved Messages: {se}")
             
-            if task.campaign_type in ["wave", "activate_exchange"]:
+            if task.campaign_type in ["wave", "wave_folder", "activate_exchange"]:
+                is_folder_wave = (task.campaign_type == "wave_folder")
                 async with AsyncSessionLocal() as db_session:
                     await set_setting(db_session, tenant_id, "bot_system_state", "active")
+                    await set_setting(db_session, tenant_id, "wave_folder_mode", "campaign" if is_folder_wave else "all")
                     if task.ad_lifespan > 0:
                         await set_setting(db_session, tenant_id, "ad_lifespan", str(task.ad_lifespan * 60))
                     if task.delay_between_channels > 0:
@@ -6179,7 +6263,7 @@ async def run_web_campaign_task(task_id: int):
                     logger.info(f"Reviving wave_publisher_worker for tenant {tenant_id} on campaign task {task_id} dispatch.")
                     running_tasks[tenant_id] = asyncio.create_task(wave_publisher_worker(tenant_id))
 
-                await trigger_manual_wave(tenant_id=tenant_id, status_msg=status_msg)
+                await trigger_manual_wave(tenant_id=tenant_id, status_msg=status_msg, folder_only="campaign" if is_folder_wave else None)
             elif task.campaign_type == "single":
                 await run_single_campaign_logic(
                     tenant_id=tenant_id,
@@ -6238,7 +6322,7 @@ async def run_web_campaign_task(task_id: int):
             # Refresh session to write back status
             async with AsyncSessionLocal() as write_session:
                 # For wave/activate_exchange: stay "active" in database
-                if task.campaign_type in ["wave", "activate_exchange"]:
+                if task.campaign_type in ["wave", "wave_folder", "activate_exchange"]:
                     final_status = "active"
                 # For timed_post, single, and bulk: stay "active" until the cleaner actually deletes the ad
                 elif task.campaign_type in ["timed_post", "single", "bulk"] and task.ad_lifespan > 0:
