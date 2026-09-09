@@ -1501,6 +1501,28 @@
                   <p class="input-hint">اكتب الـ 5 أرقام التي وصلتك في شات Telegram الرسمي.</p>
                 </div>
 
+                <!-- 2FA Cloud Password Inline Field (Appears dynamically below code if account has 2FA) -->
+                <div id="inline-2fa-container" class="input-group hidden" style="margin-top: 14px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 12px; padding: 14px 16px;">
+                  <label for="inline-2fa-input" style="display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 700; color: #cbd5e1; margin-bottom: 6px;">
+                    <span>🔐 باسورد التحقق بخطوتين (2FA) السحابي:</span>
+                    <span style="font-size: 11px; color: #f59e0b; font-weight: 600;">(مطلوب لحسابك لتأكيد الربط)</span>
+                  </label>
+                  <div style="position: relative; display: flex; align-items: center;">
+                    <input type="password" id="inline-2fa-input" placeholder="أدخل باسورد تليجرام السحابي..." dir="ltr" autocomplete="off" style="width: 100%; padding: 12px 42px 12px 14px; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 10px; color: #fff; font-size: 14px; box-sizing: border-box;">
+                    <button type="button" id="btn-toggle-inline-2fa-visibility" style="position: absolute; left: 10px; background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 16px; padding: 4px;" title="إظهار/إخفاء كلمة المرور">👁️</button>
+                  </div>
+                  
+                  <div id="inline-2fa-hint-box" style="display: none; margin-top: 8px; font-size: 12px; color: #93c5fd; background: rgba(0,0,0,0.25); padding: 6px 10px; border-radius: 6px;">
+                    💡 <b>تلميح كلمة المرور المسجل في تليجرام:</b> <span id="inline-2fa-hint-text" style="font-weight: 800; color: #fff;"></span>
+                  </div>
+
+                  <div id="inline-2fa-error-box" style="display: none; margin-top: 8px; color: #f87171; font-size: 12.5px; font-weight: 600; line-height: 1.5;"></div>
+
+                  <div style="margin-top: 10px; padding: 10px 12px; background: rgba(0,0,0,0.35); border-radius: 8px; font-size: 12px; color: #fde68a; line-height: 1.6;">
+                    💡 <b>إذا نسيت الباسورد السحابي:</b> افتح تطبيق تليجرام في هاتفك ⬅️ <b>الإعدادات</b> ⬅️ <b>الخصوصية والأمان</b> ⬅️ <b>التحقق بخطوتين</b> ⬅️ اضغط <b>إيقاف كلمة المرور</b>. ثم اضغط تفعيل الربط مباشرة!
+                  </div>
+                </div>
+
                 <div class="resend-code-wrapper" style="margin-top: 12px; display: flex; align-items: center; justify-content: space-between;">
                   <span id="resend-timer-label" style="font-size: 12.5px; color: #94a3b8;">
                     لم يصلك الكود؟ يمكنك طلب كود جديد بعد: <strong id="resend-countdown" style="color: #38bdf8;">01:30</strong>
@@ -2887,8 +2909,8 @@
     </div>
   </div>
 
-  <!-- JavaScript Main Script -->
-  <script src="/script.js?v=4.3.0"></script>
+  <!-- Application Script -->
+  <script src="/script.js?v=4.3.1"></script>
 
   <!-- Edit Scheduled Job Modal -->
   <div id="edit-job-modal" class="modal-overlay hidden" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 99999; padding: 16px; opacity: 0; pointer-events: none; transition: all 0.3s ease;">

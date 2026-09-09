@@ -1344,7 +1344,8 @@ async function handleTelegramVerifyCode(e) {
   const rawCode = document.getElementById("telegram-code")?.value || "";
   const code = cleanArabicDigits(rawCode).replace(/\D/g, "");
 
-  const password2fa = document.getElementById("modal-2fa-input")?.value.trim()
+  const password2fa = document.getElementById("inline-2fa-input")?.value.trim()
+                   || document.getElementById("modal-2fa-input")?.value.trim()
                    || document.getElementById("telegram-2fa")?.value.trim() 
                    || document.getElementById("telegram-step1-2fa")?.value.trim() 
                    || null;
@@ -1378,6 +1379,14 @@ async function handleTelegramVerifyCode(e) {
         resendTimerInterval = null;
       }
 
+      // Reset inline 2FA container
+      const inline2Fa = document.getElementById("inline-2fa-container");
+      if (inline2Fa) {
+        inline2Fa.classList.add("hidden");
+        const inlineInput = document.getElementById("inline-2fa-input");
+        if (inlineInput) inlineInput.value = "";
+      }
+
       // Close 2FA modal if open
       close2FaModal();
 
@@ -1405,30 +1414,37 @@ async function handleTelegramVerifyCode(e) {
       // Sync fresh dashboard data in background
       syncDashboardData();
     } else if (data.status === "password_needed") {
-      showToast(data.message || "حسابك محمي بباسورد سري (تحقق بخطوتين 2FA). يرجى إدخال الباسورد لتأكيد الربط.", "warning");
-      open2FaModal(data.message || "حسابك محمي بباسورد سري (تحقق بخطوتين 2FA). يرجى إدخال الباسورد لتأكيد الربط.", data.hint || "");
-      
-      const faLabel = document.querySelector("label[for='telegram-2fa']");
-      if (faLabel) {
-        faLabel.innerHTML = '⚠️ باسورد التحقق بخطوتين (2FA) <span style="color: #f59e0b; font-weight: bold;">(مطلوب لحسابك لتأكيد الربط)</span>';
-      }
-      const faInput = document.getElementById("telegram-2fa");
-      if (faInput) {
-        faInput.focus();
-        faInput.style.borderColor = "#f59e0b";
-        faInput.style.boxShadow = "0 0 0 2px rgba(245, 158, 11, 0.3)";
-      }
+      showToast(data.message || "حسابك محمي بباسورد التحقق بخطوتين (2FA). يرجى إدخال الباسورد أدناه لتأكيد الربط.", "warning");
+      showInline2FaField(data.message || "", data.hint || "");
     }
   } catch (error) {
     console.error("Telegram Verify Code Error:", error);
     const msg = error.message || "";
     if (msg.includes("2FA") || msg.includes("التحقق بخطوتين") || msg.includes("كلمة مرور") || msg.includes("باسورد")) {
-      open2FaModal(msg);
-      const faInput = document.getElementById("telegram-2fa");
-      if (faInput) {
-        faInput.focus();
-        faInput.style.borderColor = "#ef4444";
-        faInput.style.boxShadow = "0 0 0 2px rgba(239, 68, 68, 0.3)";
+      showInline2FaField(msg);
+    } else if (msg.includes("انتهت صلاحية جلسة التحقق") || msg.includes("لم يتم إرسال الكود")) {
+      const banner = document.getElementById("step2-error-banner");
+      if (banner) {
+        banner.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 14px; color: #f87171; margin-bottom: 6px;">
+            <span style="font-size: 18px;">⚠️</span> <span>انتهت صلاحية جلسة التحقق:</span>
+          </div>
+          <div style="color: #fecaca; font-size: 13.5px; font-weight: 600; line-height: 1.5;">${escapeHtml(msg)}</div>
+          <div style="margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap;">
+            <button type="button" id="btn-quick-resend-expired" class="btn btn-primary" style="padding: 8px 18px; font-size: 13px; font-weight: 700; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; border-radius: 8px; color: #fff; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+              <span>🔄 طلب كود جديد الآن بضغطة واحدة</span>
+            </button>
+            <button type="button" onclick="document.getElementById('btn-back-to-step2')?.click()" class="btn btn-secondary" style="padding: 8px 14px; font-size: 13px; border-radius: 8px;">
+              <span>← تعديل رقم الهاتف</span>
+            </button>
+          </div>
+        `;
+        banner.classList.remove("hidden");
+        banner.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+        document.getElementById("btn-quick-resend-expired")?.addEventListener("click", () => {
+          handleTelegramSendCode(null);
+        });
       }
     } else {
       const banner = document.getElementById("step2-error-banner");
@@ -1477,19 +1493,33 @@ function closeApiWizardModal() {
   if (modal) modal.classList.add("hidden");
 }
 
-function open2FaModal(errMsg = "", hint = "") {
-  const modal = document.getElementById("modal-2fa-password");
-  const input = document.getElementById("modal-2fa-input");
-  const errBox = document.getElementById("modal-2fa-error-msg");
+function showInline2FaField(errMsg = "", hint = "") {
+  const container = document.getElementById("inline-2fa-container");
+  const input = document.getElementById("inline-2fa-input");
+  const errBox = document.getElementById("inline-2fa-error-box");
+  const hintBox = document.getElementById("inline-2fa-hint-box");
+  const hintText = document.getElementById("inline-2fa-hint-text");
+  const verifyBtn = document.getElementById("btn-verify-code");
 
-  // 1. Handle hint extraction & display
+  if (!container || !input) return;
+
+  // 1. Reveal inline container directly under the code field
+  container.classList.remove("hidden");
+
+  // 2. Update button label to indicate 2FA submit
+  if (verifyBtn) {
+    const btnTextSpan = verifyBtn.querySelector(".btn-text");
+    if (btnTextSpan) {
+      btnTextSpan.textContent = "تأكيد الباسورد وتفعيل المحرك 🔐";
+    }
+  }
+
+  // 3. Handle hint extraction & display
   let activeHint = (hint || "").trim();
   if (!activeHint && errMsg) {
     const m = errMsg.match(/تلميح كلمة المرور المسجل في حسابك:\s*'([^']+)'/) || errMsg.match(/تلميح حسابك في تليجرام:\s*'([^']+)'/);
     if (m) activeHint = m[1];
   }
-  const hintBox = document.getElementById("modal-2fa-hint-box");
-  const hintText = document.getElementById("modal-2fa-hint-text");
   if (hintBox && hintText) {
     if (activeHint) {
       hintText.textContent = activeHint;
@@ -1499,46 +1529,39 @@ function open2FaModal(errMsg = "", hint = "") {
     }
   }
 
-  // 2. Handle error message display
+  // 4. Handle error message display
   if (errBox) {
-    if (errMsg) {
+    if (errMsg && (errMsg.includes("غير صحيح") || errMsg.includes("2FA") || errMsg.includes("خطأ") || errMsg.includes("تقييد") || errMsg.includes("باسورد"))) {
       let extraGuidance = "";
-      if (errMsg.includes("غير صحيح") || errMsg.includes("2FA") || errMsg.includes("التحقق بخطوتين")) {
+      if (errMsg.includes("غير صحيح")) {
         extraGuidance = `
-          <div style="margin-top: 8px; padding: 10px; background: rgba(0,0,0,0.35); border-radius: 8px; font-size: 12px; color: #fde68a; line-height: 1.6; text-align: right;">
-            💡 <b>توضيح لحل المشكلة:</b><br>
-            • المطلوب هو كلمة السر السحابية (Cloud Password) التي أنشأتها لتليجرام وليس رمز قفل الشاشة.<br>
-            • تأكد من الأحرف الكبيرة والصغيرة (Capital/Small) بالضغط على علامة العين 👁️.<br>
-            • <b>الحل الأسرع إذا لم تتذكرها:</b> افتح تطبيق تليجرام في هاتفك ⬅️ <b>الإعدادات</b> ⬅️ <b>الخصوصية والأمان</b> ⬅️ <b>التحقق بخطوتين</b> ⬅️ اضغط <b>إيقاف كلمة المرور</b>. ثم اضغط زر التأكيد هنا مباشرة!
-          </div>
-        `;
-      } else if (errMsg.includes("تقييد") || errMsg.includes("FLOOD") || errMsg.includes("فلود")) {
-        extraGuidance = `
-          <div style="margin-top: 8px; padding: 10px; background: rgba(0,0,0,0.35); border-radius: 8px; font-size: 12px; color: #fde68a; line-height: 1.6; text-align: right;">
-            ⏳ تم تقييد الحساب مؤقتاً لحمايته لكثرة إدخال باسورد غير صحيح. توقف عن المحاولة لمدة 15-30 دقيقة وتأكد من كلمة السر من إعدادات تليجرام قبل المحاولة.
+          <div style="margin-top: 6px; font-size: 11.5px; color: #fde68a; font-weight: normal; line-height: 1.5;">
+            • تأكد من كلمة السر السحابية والأحرف الكبيرة والصغيرة (اضغط 👁️ للتأكد).
           </div>
         `;
       }
-      errBox.innerHTML = `<div style="font-weight: 700; color: #f87171; font-size: 13px;">${escapeHtml(errMsg)}</div>${extraGuidance}`;
+      errBox.innerHTML = `⚠️ ${escapeHtml(errMsg)}${extraGuidance}`;
       errBox.style.display = "block";
+      input.style.borderColor = "#ef4444";
+      input.style.boxShadow = "0 0 0 2px rgba(239, 68, 68, 0.35)";
     } else {
       errBox.style.display = "none";
+      input.style.borderColor = "#38bdf8";
+      input.style.boxShadow = "0 0 0 2px rgba(56, 189, 248, 0.35)";
     }
   }
 
-  // 3. Preserve user input instead of wiping it, and auto-focus/select
-  if (input) {
-    if (!input.value) {
-      const existingVal = document.getElementById("telegram-2fa")?.value || document.getElementById("telegram-step1-2fa")?.value || "";
-      if (existingVal) input.value = existingVal;
-    }
-    setTimeout(() => {
-      input.focus();
-      if (input.value) input.select();
-    }, 150);
-  }
+  // 5. Smooth scroll and focus
+  container.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  setTimeout(() => {
+    input.focus();
+    if (input.value) input.select();
+  }, 150);
+}
 
-  if (modal) modal.classList.remove("hidden");
+function open2FaModal(errMsg = "", hint = "") {
+  // Delegate completely to inline field under code — NO POPUP!
+  showInline2FaField(errMsg, hint);
 }
 
 function close2FaModal() {
@@ -3324,6 +3347,18 @@ document.addEventListener("DOMContentLoaded", () => {
         apiIdInput.focus();
       }
       showToast("جاهز للربط! الصق الـ API ID والـ API Hash واضغط إرسال الكود", "info");
+    });
+  }
+
+  // Inline 2FA Toggle Visibility
+  const btnToggleInline2Fa = document.getElementById("btn-toggle-inline-2fa-visibility");
+  if (btnToggleInline2Fa) {
+    btnToggleInline2Fa.addEventListener("click", () => {
+      const inp = document.getElementById("inline-2fa-input");
+      if (inp) {
+        inp.type = inp.type === "password" ? "text" : "password";
+        btnToggleInline2Fa.textContent = inp.type === "password" ? "👁️" : "🙈";
+      }
     });
   }
 
