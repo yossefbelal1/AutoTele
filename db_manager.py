@@ -368,6 +368,7 @@ async def init_db() -> None:
             await conn.run_sync(Base.metadata.create_all)
             try:
                 from sqlalchemy import text
+                await conn.execute(text("SET lock_timeout = '2s';"))
                 await conn.execute(text("ALTER TABLE account_notifications ADD COLUMN IF NOT EXISTS target_url VARCHAR(255);"))
                 await conn.execute(text("ALTER TABLE account_notifications ALTER COLUMN telegram_account_id DROP NOT NULL;"))
                 await conn.execute(text("ALTER TABLE web_campaign_tasks ADD COLUMN IF NOT EXISTS target_count INTEGER DEFAULT 0;"))
