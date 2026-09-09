@@ -5739,7 +5739,7 @@ window.openNewExchangeModal = async function() {
         advSelect.innerHTML = `<option value="" disabled selected>لا يوجد معلنون آخرون متاحون حالياً</option>`;
       } else {
         advSelect.innerHTML = `<option value="" disabled selected>-- اختر معلناً من القائمة (${cachedAdvertisers.length} معلن متاح) --</option>` +
-          cachedAdvertisers.map(a => `<option value="${a.id}">${escapeHtml(a.name || a.full_name || a.email_masked)} (${a.channel_count || 0} قناة)</option>`).join("");
+          cachedAdvertisers.map(a => `<option value="${a.id}">${escapeHtml(a.name || a.full_name || a.email_masked)}</option>`).join("");
       }
     }
 

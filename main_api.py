@@ -4424,15 +4424,11 @@ async def get_eligible_advertisers(current_user_id: int = Depends(get_current_us
             if not tg_acc:
                 continue
                 
-            channels = await get_channels_cache(tg_acc.id)
-            channel_count = len([c for c in channels if isinstance(c, dict) and c.get("can_send", True)]) if channels else 0
-            
             advertisers.append({
                 "id": u.id,
                 "name": u.full_name or u.email.split("@")[0],
                 "full_name": u.full_name or "",
                 "email_masked": u.email[:3] + "***@" + u.email.split("@")[-1],
-                "channel_count": channel_count,
                 "active_since": u.created_at.strftime("%Y-%m-%d") if u.created_at else "2026-01-01"
             })
             
