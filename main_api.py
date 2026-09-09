@@ -3529,8 +3529,9 @@ async def modify_subscription(target_user_id: int, req: ModifySubscriptionReq, b
         except Exception:
             raise HTTPException(status_code=400, detail="تنسيق التاريخ غير صحيح. استخدم YYYY-MM-DD")
         
-        if req.full_name is not None and req.full_name.strip():
-            user.full_name = req.full_name.strip()
+        if req.full_name is not None:
+            clean_name = req.full_name.strip()
+            user.full_name = clean_name if clean_name else (user.email.split("@")[0] if user.email else "")
         user.subscription_plan = req.subscription_plan
         user.subscription_status = req.subscription_status
         user.subscription_end = end_dt

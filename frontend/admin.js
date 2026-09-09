@@ -1007,6 +1007,8 @@ async function handleAdminEditSave(e) {
   e.preventDefault();
 
   const userId = document.getElementById("edit-user-id").value;
+  const nameInput = document.getElementById("edit-user-fullname");
+  const fullName = nameInput ? nameInput.value.trim() : null;
   const plan = document.getElementById("edit-user-plan").value;
   const status = document.getElementById("edit-user-status").value;
   const endDate = document.getElementById("edit-user-end-date").value;
@@ -1023,6 +1025,7 @@ async function handleAdminEditSave(e) {
     const res = await adminApiRequest(`/admin/users/${userId}/modify-subscription`, {
       method: "POST",
       body: JSON.stringify({
+        full_name: fullName,
         subscription_plan: plan,
         subscription_status: status,
         subscription_end: endDate,

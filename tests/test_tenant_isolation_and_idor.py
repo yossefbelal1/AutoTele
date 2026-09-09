@@ -13,9 +13,11 @@ from main_api import (
     get_user_campaign_details,
     admin_verify_otp,
     check_admin_user,
+    modify_subscription,
     AcceptExchangeReq,
     RejectExchangeReq,
-    AdminVerifyOtpReq
+    AdminVerifyOtpReq,
+    ModifySubscriptionReq
 )
 from db_manager import User, TelegramAccount, ExchangeRequest, AdTemplate, WebCampaignTask
 
@@ -142,3 +144,43 @@ class TestTenantIsolationAndIDOR:
                 await check_admin_user(token="valid_user_jwt_token")
             
             assert exc_info.value.status_code == 403
+
+    async def test_admin_modify_subscription_updates_full_name(self):
+        """Verify that admin modify_subscription correctly updates the user's full_name."""
+        target_user = User(
+            id=77,
+            email="target@client.com",
+            full_name="Old Name",
+            subscription_plan="monthly",
+            subscription_status="active",
+            subscription_end=datetime.now(timezone.utc) + timedelta(days=30)
+        )
+        admin_user = User(id=1, email="admin@domain.com", is_admin=True)
+
+        req = ModifySubscriptionReq(
+            full_name="New Client Name",
+            subscription_plan="yearly",
+            subscription_status="active",
+            subscription_end="2026-12-31"
+        )
+
+        mock_session = AsyncMock()
+        mock_session.__aenter__.return_value = mock_session
+        mock_user_res = MagicMock(scalar_one_or_none=MagicMock(return_value=target_user))
+        mock_accs_res = MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[]))))
+        mock_session.execute = AsyncMock(side_effect=[mock_user_res, mock_accs_res])
+
+        mock_bg = MagicMock()
+
+        with patch("main_api.AsyncSessionLocal", return_value=mock_session):
+            res = await modify_subscription(
+                target_user_id=77,
+                req=req,
+                background_tasks=mock_bg,
+                admin_user=admin_user
+            )
+
+        assert res["status"] == "success"
+        assert target_user.full_name == "New Client Name"
+        assert target_user.subscription_plan == "yearly"
+
