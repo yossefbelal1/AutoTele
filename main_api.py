@@ -42,7 +42,7 @@ from pyrogram.errors import (
 from db_manager import (
     get_db, User, TelegramAccount, AsyncSessionLocal, CryptoPayment,
     AdTemplate, WebCampaignTask, apply_pyrogram_patches, AccountNotification,
-    ActiveAd, PublishLog
+    ActiveAd, PublishLog, ExchangeRequest, ExchangeAgreement, ExchangeExecution
 )
 from cache_manager import is_rate_limited, is_key_rate_limited, redis_client, clear_tenant_cache, get_channels_cache
 
@@ -4367,3 +4367,716 @@ async def clear_all_notifications(current_user_id: int = Depends(get_current_use
         )
         await session.commit()
         return {"status": "success", "message": "تم تفريغ كافة الإشعارات"}
+
+# ==============================================================================
+# ADVERTISER EXCHANGE & CAMPAIGN REQUESTS API
+# ==============================================================================
+
+class CreateExchangeReq(BaseModel):
+    recipient_user_id: int
+    request_type: str = Field(..., pattern="^(exchange|campaign)$")
+    requester_channel_id: Optional[int] = None
+    campaign_url: Optional[str] = None
+    message: str = Field(..., min_length=5, max_length=1000)
+
+class AcceptExchangeReq(BaseModel):
+    recipient_channel_id: Optional[int] = None
+
+class RejectExchangeReq(BaseModel):
+    reason: Optional[str] = None
+
+@app.get("/user/exchange/advertisers")
+async def get_eligible_advertisers(current_user_id: int = Depends(get_current_user)):
+    """Fetch eligible advertisers for exchange or campaign requests."""
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as session:
+        await verify_active_subscription(current_user_id, session)
+        
+        stmt = (
+            select(User)
+            .where(
+                User.id != current_user_id,
+                User.is_active == True,
+                User.subscription_status == "active",
+                User.subscription_end > now
+            )
+            .order_by(User.created_at.desc())
+        )
+        users = (await session.execute(stmt)).scalars().all()
+        
+        advertisers = []
+        for u in users:
+            tg_acc = (await session.execute(
+                select(TelegramAccount).where(
+                    TelegramAccount.user_id == u.id,
+                    TelegramAccount.status == "active"
+                )
+            )).scalars().first()
+            if not tg_acc:
+                continue
+                
+            channels = await get_channels_cache(tg_acc.id)
+            channel_count = len([c for c in channels if isinstance(c, dict) and c.get("can_send", True)]) if channels else 0
+            
+            advertisers.append({
+                "id": u.id,
+                "name": u.full_name or u.email.split("@")[0],
+                "full_name": u.full_name or "",
+                "email_masked": u.email[:3] + "***@" + u.email.split("@")[-1],
+                "channel_count": channel_count,
+                "active_since": u.created_at.strftime("%Y-%m-%d") if u.created_at else "2026-01-01"
+            })
+            
+        return {"status": "success", "advertisers": advertisers}
+
+@app.get("/user/exchange/my-channels")
+async def get_my_exchange_channels(current_user_id: int = Depends(get_current_user)):
+    """Fetch caller's owned channels eligible for exchange."""
+    async with AsyncSessionLocal() as session:
+        await verify_active_subscription(current_user_id, session)
+        tg_acc = (await session.execute(
+            select(TelegramAccount).where(
+                TelegramAccount.user_id == current_user_id,
+                TelegramAccount.status == "active"
+            )
+        )).scalars().first()
+        if not tg_acc:
+            return {"status": "success", "channels": []}
+            
+        channels = await get_channels_cache(tg_acc.id)
+        if not channels:
+            return {"status": "success", "channels": []}
+            
+        from cache_manager import redis_client
+        raw_banned = await redis_client.get(f"tenant:{tg_acc.id}:banned")
+        raw_no_post = await redis_client.get(f"tenant:{tg_acc.id}:no_post")
+        banned_ids = set(json.loads(raw_banned)) if raw_banned else set()
+        no_post_ids = set(json.loads(raw_no_post)) if raw_no_post else set()
+        exclude = banned_ids | no_post_ids
+        
+        valid_channels = []
+        for ch in channels:
+            if not isinstance(ch, dict):
+                continue
+            cid = ch.get("id")
+            if not cid or cid in exclude or not ch.get("can_send", True):
+                continue
+            valid_channels.append({
+                "id": cid,
+                "title": ch.get("title") or f"قناة {cid}",
+                "username": ch.get("username"),
+                "invite_link": ch.get("invite_link") or (f"https://t.me/{ch.get('username')}" if ch.get("username") else None),
+                "members_count": ch.get("members_count", 0)
+            })
+            
+        return {"status": "success", "channels": valid_channels}
+
+@app.post("/user/exchange/requests")
+async def create_exchange_request(req: CreateExchangeReq, current_user_id: int = Depends(get_current_user)):
+    """Create a new Exchange or Campaign Request with strict server-side validation."""
+    now = datetime.now(timezone.utc)
+    if req.recipient_user_id == current_user_id:
+        raise HTTPException(status_code=400, detail="لا يمكنك إرسال طلب تبادل أو حملة إلى نفسك.")
+        
+    async with AsyncSessionLocal() as session:
+        sender = await verify_active_subscription(current_user_id, session)
+        
+        # Verify sender telegram account
+        sender_acc = (await session.execute(
+            select(TelegramAccount).where(
+                TelegramAccount.user_id == current_user_id,
+                TelegramAccount.status == "active"
+            )
+        )).scalars().first()
+        if not sender_acc:
+            raise HTTPException(status_code=400, detail="يجب ربط وتفعيل حسابك على تليجرام أولاً قبل إرسال الطلبات.")
+            
+        # Verify recipient
+        recipient = (await session.execute(
+            select(User).where(
+                User.id == req.recipient_user_id,
+                User.is_active == True,
+                User.subscription_status == "active",
+                User.subscription_end > now
+            )
+        )).scalars().first()
+        if not recipient:
+            raise HTTPException(status_code=400, detail="المعلن المختار غير متاح حالياً أو اشتراكه غير سارٍ.")
+            
+        recipient_acc = (await session.execute(
+            select(TelegramAccount).where(
+                TelegramAccount.user_id == recipient.id,
+                TelegramAccount.status == "active"
+            )
+        )).scalars().first()
+        if not recipient_acc:
+            raise HTTPException(status_code=400, detail="المعلن المختار لم يقم بتفعيل محرك تليجرام بعد.")
+            
+        # Check spam limit (max 10 active pending requests sent by caller)
+        pending_count = (await session.execute(
+            select(func.count(ExchangeRequest.id)).where(
+                ExchangeRequest.requester_user_id == current_user_id,
+                ExchangeRequest.status == "pending",
+                ExchangeRequest.expires_at > now
+            )
+        )).scalar() or 0
+        if pending_count >= 10:
+            raise HTTPException(status_code=429, detail="وصلت للحد الأقصى من الطلبات المعلقة (10 طلبات). يرجى انتظار رد المعلنين أو إلغاء الطلبات السابقة.")
+            
+        # Check duplicate pending request of same type
+        dup = (await session.execute(
+            select(ExchangeRequest).where(
+                ExchangeRequest.requester_user_id == current_user_id,
+                ExchangeRequest.recipient_user_id == req.recipient_user_id,
+                ExchangeRequest.request_type == req.request_type,
+                ExchangeRequest.status == "pending",
+                ExchangeRequest.expires_at > now
+            )
+        )).scalars().first()
+        if dup:
+            raise HTTPException(status_code=400, detail="يوجد لديك طلب معلق بالفعل لنفس المعلن ونفس النوع. يرجى انتظار الرد أو إلغاء الطلب السابق.")
+            
+        requester_channel_title = None
+        requester_channel_username = None
+        requester_channel_link = None
+        campaign_url = None
+        
+        if req.request_type == "exchange":
+            if not req.requester_channel_id:
+                raise HTTPException(status_code=400, detail="يجب اختيار إحدى قنواتك لطلب التبادل.")
+            # Verify channel ownership
+            sender_channels = await get_channels_cache(sender_acc.id)
+            matched_ch = None
+            for ch in sender_channels:
+                if isinstance(ch, dict) and ch.get("id") == req.requester_channel_id:
+                    matched_ch = ch
+                    break
+            if not matched_ch or not matched_ch.get("can_send", True):
+                raise HTTPException(status_code=400, detail="القناة المختارة غير مسجلة بحسابك أو لا تملك صلاحية النشر فيها.")
+                
+            requester_channel_title = matched_ch.get("title") or f"قناة {req.requester_channel_id}"
+            requester_channel_username = matched_ch.get("username")
+            requester_channel_link = matched_ch.get("invite_link") or (f"https://t.me/{requester_channel_username}" if requester_channel_username else None)
+            if not requester_channel_link:
+                requester_channel_link = f"https://t.me/c/{abs(req.requester_channel_id)}"
+                
+        elif req.request_type == "campaign":
+            if not req.campaign_url or not req.campaign_url.strip():
+                raise HTTPException(status_code=400, detail="يرجى إدخال رابط الحملة المطلوب تنفيذها.")
+            url_clean = req.campaign_url.strip()
+            # Strict safe Telegram URL pattern
+            url_pattern = _re.compile(r'^(https?:\/\/)?(t\.me|telegram\.me)\/[a-zA-Z0-9_\+\/\?=\-]+$|^@[a-zA-Z0-9_]{3,}$')
+            if not url_pattern.match(url_clean):
+                raise HTTPException(status_code=400, detail="رابط الحملة غير صالح. يرجى إدخال رابط تليجرام صحيح (مثال: https://t.me/example أو @example).")
+            if url_clean.startswith("@"):
+                url_clean = f"https://t.me/{url_clean[1:]}"
+            elif not url_clean.startswith("http"):
+                url_clean = f"https://{url_clean}"
+            campaign_url = url_clean
+            
+        # Create ExchangeRequest
+        new_req = ExchangeRequest(
+            requester_user_id=current_user_id,
+            recipient_user_id=req.recipient_user_id,
+            request_type=req.request_type,
+            requester_channel_id=req.requester_channel_id if req.request_type == "exchange" else None,
+            requester_channel_title=requester_channel_title,
+            requester_channel_username=requester_channel_username,
+            requester_channel_link=requester_channel_link,
+            campaign_url=campaign_url,
+            message=req.message.strip(),
+            status="pending",
+            expires_at=now + timedelta(hours=48)
+        )
+        session.add(new_req)
+        await session.flush()
+        
+        # Send Notification to Recipient
+        sender_name = sender.full_name or sender.email.split("@")[0]
+        notif_type = "exchange_request_received" if req.request_type == "exchange" else "campaign_request_received"
+        notif_title = "طلب تبادل إعلاني جديد 🔄" if req.request_type == "exchange" else "طلب تنفيذ حملة ترويجية 📢"
+        req_kind = "تبادل إعلاني" if req.request_type == "exchange" else "تنفيذ حملة"
+        snippet = req.message[:70].replace('"', "'")
+        notif_msg = f"أرسل لك المعلن ({sender_name}) طلب {req_kind}: '{snippet}...'"
+        
+        notif = AccountNotification(
+            user_id=recipient.id,
+            notification_type=notif_type,
+            title=notif_title,
+            message=notif_msg,
+            target_url="/app/exchange/incoming"
+        )
+        session.add(notif)
+        await session.commit()
+        
+        return {
+            "status": "success",
+            "message": "تم إرسال الطلب إلى المعلن بنجاح، ومدة الصلاحية 48 ساعة.",
+            "request_id": new_req.id
+        }
+
+@app.get("/user/exchange/requests/incoming")
+async def get_incoming_exchange_requests(status: Optional[str] = None, current_user_id: int = Depends(get_current_user)):
+    """Fetch incoming exchange and campaign requests for the caller."""
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as session:
+        # Auto-expire pending requests past expiry
+        await session.execute(
+            update(ExchangeRequest)
+            .where(
+                ExchangeRequest.recipient_user_id == current_user_id,
+                ExchangeRequest.status == "pending",
+                ExchangeRequest.expires_at <= now
+            )
+            .values(status="expired")
+        )
+        await session.commit()
+        
+        stmt = (
+            select(ExchangeRequest, User)
+            .join(User, ExchangeRequest.requester_user_id == User.id)
+            .where(ExchangeRequest.recipient_user_id == current_user_id)
+        )
+        if status and status != "all":
+            stmt = stmt.where(ExchangeRequest.status == status)
+        stmt = stmt.order_by(ExchangeRequest.created_at.desc())
+        
+        results = (await session.execute(stmt)).all()
+        requests_data = []
+        for req_obj, sender in results:
+            rem_sec = max(0, int((req_obj.expires_at - now).total_seconds())) if req_obj.expires_at else 0
+            hours_left = round(rem_sec / 3600, 1)
+            requests_data.append({
+                "id": req_obj.id,
+                "request_type": req_obj.request_type,
+                "requester_id": req_obj.requester_user_id,
+                "requester_name": sender.full_name or sender.email.split("@")[0],
+                "requester_channel_id": req_obj.requester_channel_id,
+                "requester_channel_title": req_obj.requester_channel_title,
+                "requester_channel_username": req_obj.requester_channel_username,
+                "requester_channel_link": req_obj.requester_channel_link,
+                "campaign_url": req_obj.campaign_url,
+                "message": req_obj.message,
+                "status": req_obj.status,
+                "hours_remaining": hours_left,
+                "expires_at": req_obj.expires_at.strftime("%Y-%m-%d %H:%M UTC") if req_obj.expires_at else None,
+                "created_at": req_obj.created_at.strftime("%Y-%m-%d %H:%M") if req_obj.created_at else None,
+                "responded_at": req_obj.responded_at.strftime("%Y-%m-%d %H:%M") if req_obj.responded_at else None
+            })
+            
+        return {"status": "success", "requests": requests_data}
+
+@app.get("/user/exchange/requests/sent")
+async def get_sent_exchange_requests(status: Optional[str] = None, current_user_id: int = Depends(get_current_user)):
+    """Fetch sent exchange and campaign requests by caller."""
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as session:
+        # Auto-expire pending requests past expiry
+        await session.execute(
+            update(ExchangeRequest)
+            .where(
+                ExchangeRequest.requester_user_id == current_user_id,
+                ExchangeRequest.status == "pending",
+                ExchangeRequest.expires_at <= now
+            )
+            .values(status="expired")
+        )
+        await session.commit()
+        
+        stmt = (
+            select(ExchangeRequest, User)
+            .join(User, ExchangeRequest.recipient_user_id == User.id)
+            .where(ExchangeRequest.requester_user_id == current_user_id)
+        )
+        if status and status != "all":
+            stmt = stmt.where(ExchangeRequest.status == status)
+        stmt = stmt.order_by(ExchangeRequest.created_at.desc())
+        
+        results = (await session.execute(stmt)).all()
+        requests_data = []
+        for req_obj, recipient in results:
+            rem_sec = max(0, int((req_obj.expires_at - now).total_seconds())) if req_obj.expires_at else 0
+            hours_left = round(rem_sec / 3600, 1)
+            requests_data.append({
+                "id": req_obj.id,
+                "request_type": req_obj.request_type,
+                "recipient_id": req_obj.recipient_user_id,
+                "recipient_name": recipient.full_name or recipient.email.split("@")[0],
+                "requester_channel_id": req_obj.requester_channel_id,
+                "requester_channel_title": req_obj.requester_channel_title,
+                "requester_channel_link": req_obj.requester_channel_link,
+                "campaign_url": req_obj.campaign_url,
+                "message": req_obj.message,
+                "status": req_obj.status,
+                "hours_remaining": hours_left,
+                "expires_at": req_obj.expires_at.strftime("%Y-%m-%d %H:%M UTC") if req_obj.expires_at else None,
+                "created_at": req_obj.created_at.strftime("%Y-%m-%d %H:%M") if req_obj.created_at else None,
+                "responded_at": req_obj.responded_at.strftime("%Y-%m-%d %H:%M") if req_obj.responded_at else None
+            })
+            
+        return {"status": "success", "requests": requests_data}
+
+@app.post("/user/exchange/requests/{request_id}/accept")
+async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, current_user_id: int = Depends(get_current_user)):
+    """Atomic acceptance of an Exchange or Campaign request."""
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as session:
+        recipient_user = await verify_active_subscription(current_user_id, session)
+        recipient_acc = (await session.execute(
+            select(TelegramAccount).where(
+                TelegramAccount.user_id == current_user_id,
+                TelegramAccount.status == "active"
+            )
+        )).scalars().first()
+        if not recipient_acc:
+            raise HTTPException(status_code=400, detail="يرجى ربط حساب تليجرام نشط في حسابك أولاً.")
+            
+        # Atomic lock on the request
+        stmt = (
+            select(ExchangeRequest)
+            .where(
+                ExchangeRequest.id == request_id,
+                ExchangeRequest.recipient_user_id == current_user_id
+            )
+            .with_for_update()
+        )
+        req_obj = (await session.execute(stmt)).scalars().first()
+        if not req_obj:
+            raise HTTPException(status_code=404, detail="الطلب غير موجود أو لا تملك صلاحية قبوله.")
+            
+        if req_obj.status != "pending":
+            raise HTTPException(status_code=400, detail=f"لا يمكن قبول هذا الطلب لأنه بحالة ({req_obj.status}) مسبقاً.")
+            
+        if req_obj.expires_at <= now:
+            req_obj.status = "expired"
+            await session.commit()
+            raise HTTPException(status_code=400, detail="عذراً، انتهت صلاحية هذا الطلب ولا يمكن قبوله.")
+            
+        requester_user = (await session.execute(select(User).where(User.id == req_obj.requester_user_id))).scalar_one_or_none()
+        requester_acc = (await session.execute(
+            select(TelegramAccount).where(
+                TelegramAccount.user_id == req_obj.requester_user_id,
+                TelegramAccount.status == "active"
+            )
+        )).scalars().first()
+        if not requester_acc:
+            raise HTTPException(status_code=400, detail="تعذر المتابعة: حساب تليجرام الخاص بالمرسل غير متصل حالياً.")
+            
+        if req_obj.request_type == "exchange":
+            if not req.recipient_channel_id:
+                raise HTTPException(status_code=400, detail="يجب اختيار القناة التي ستدخل بها في التبادل.")
+                
+            # Verify recipient channel ownership
+            recipient_channels = await get_channels_cache(recipient_acc.id)
+            matched_b = None
+            for ch in recipient_channels:
+                if isinstance(ch, dict) and ch.get("id") == req.recipient_channel_id:
+                    matched_b = ch
+                    break
+            if not matched_b or not matched_b.get("can_send", True):
+                raise HTTPException(status_code=400, detail="القناة المختارة غير صالحة أو لا تملك صلاحية النشر بها.")
+                
+            b_title = matched_b.get("title") or f"قناة {req.recipient_channel_id}"
+            b_username = matched_b.get("username")
+            b_link = matched_b.get("invite_link") or (f"https://t.me/{b_username}" if b_username else f"https://t.me/c/{abs(req.recipient_channel_id)}")
+            
+            # Transition Request Status Atomically
+            req_obj.status = "accepted"
+            req_obj.responded_at = now
+            
+            # Create Agreement
+            agreement = ExchangeAgreement(
+                request_id=req_obj.id,
+                requester_user_id=req_obj.requester_user_id,
+                recipient_user_id=current_user_id,
+                requester_channel_id=req_obj.requester_channel_id,
+                requester_channel_title=req_obj.requester_channel_title or "قناة المعلن A",
+                requester_channel_link=req_obj.requester_channel_link,
+                recipient_channel_id=req.recipient_channel_id,
+                recipient_channel_title=b_title,
+                recipient_channel_link=b_link,
+                status="scheduled"
+            )
+            session.add(agreement)
+            await session.flush()
+            
+            # Create Execution Tasks on existing campaign infrastructure (.حملة)
+            # 1. A's account posts ad for B's channel
+            task_a = WebCampaignTask(
+                telegram_account_id=requester_acc.id,
+                campaign_type="single",
+                delay_start=0,
+                delay_between_channels=0,
+                ad_lifespan=60,
+                target_link=b_link,
+                status="pending"
+            )
+            session.add(task_a)
+            await session.flush()
+            
+            exec_a = ExchangeExecution(
+                request_id=req_obj.id,
+                agreement_id=agreement.id,
+                execution_type="exchange_requester_side",
+                executor_user_id=req_obj.requester_user_id,
+                telegram_account_id=requester_acc.id,
+                target_link=b_link,
+                web_task_id=task_a.id,
+                status="pending"
+            )
+            session.add(exec_a)
+            
+            # 2. B's account posts ad for A's channel
+            task_b = WebCampaignTask(
+                telegram_account_id=recipient_acc.id,
+                campaign_type="single",
+                delay_start=0,
+                delay_between_channels=0,
+                ad_lifespan=60,
+                target_link=req_obj.requester_channel_link,
+                status="pending"
+            )
+            session.add(task_b)
+            await session.flush()
+            
+            exec_b = ExchangeExecution(
+                request_id=req_obj.id,
+                agreement_id=agreement.id,
+                execution_type="exchange_recipient_side",
+                executor_user_id=current_user_id,
+                telegram_account_id=recipient_acc.id,
+                target_link=req_obj.requester_channel_link,
+                web_task_id=task_b.id,
+                status="pending"
+            )
+            session.add(exec_b)
+            
+            # Notifications
+            recipient_name = recipient_user.full_name or recipient_user.email.split("@")[0]
+            notif_a = AccountNotification(
+                user_id=req_obj.requester_user_id,
+                notification_type="exchange_request_accepted",
+                title="تم قبول طلب التبادل بنجاح! 🔄",
+                message=f"وافق المعلن ({recipient_name}) على طلب التبادل بقناته ({b_title}). جاري النشر المتبادل فوراً.",
+                target_url="/app/exchange/active"
+            )
+            session.add(notif_a)
+            
+            notif_b = AccountNotification(
+                user_id=current_user_id,
+                notification_type="exchange_started",
+                title="بدء تنفيذ اتفاق التبادل 🚀",
+                message=f"تم اعتماد التبادل مع ({req_obj.requester_channel_title}). جاري نشر الرابط المتبادل عبر المحرك.",
+                target_url="/app/exchange/active"
+            )
+            session.add(notif_b)
+            await session.commit()
+            
+            return {
+                "status": "success",
+                "message": "تم قبول طلب التبادل واعتماد الاتفاقية، وبدأ التنفيذ المتبادل سحابياً.",
+                "agreement_id": agreement.id
+            }
+            
+        elif req_obj.request_type == "campaign":
+            # Campaign Request: B only accepts, system runs existing .حملة with A's URL on B's channels
+            req_obj.status = "accepted"
+            req_obj.responded_at = now
+            
+            task_camp = WebCampaignTask(
+                telegram_account_id=recipient_acc.id,
+                campaign_type="single",
+                delay_start=0,
+                delay_between_channels=0,
+                ad_lifespan=60,
+                target_link=req_obj.campaign_url,
+                status="pending"
+            )
+            session.add(task_camp)
+            await session.flush()
+            
+            exec_camp = ExchangeExecution(
+                request_id=req_obj.id,
+                agreement_id=None,
+                execution_type="campaign_request",
+                executor_user_id=current_user_id,
+                telegram_account_id=recipient_acc.id,
+                target_link=req_obj.campaign_url,
+                web_task_id=task_camp.id,
+                status="pending"
+            )
+            session.add(exec_camp)
+            
+            recipient_name = recipient_user.full_name or recipient_user.email.split("@")[0]
+            notif_a = AccountNotification(
+                user_id=req_obj.requester_user_id,
+                notification_type="campaign_request_accepted",
+                title="تمت الموافقة على طلب الحملة! 📢",
+                message=f"وافق المعلن ({recipient_name}) على تنفيذ حملتك. جاري إطلاق الحملة على قنواته.",
+                target_url="/app/exchange/sent"
+            )
+            session.add(notif_a)
+            
+            notif_b = AccountNotification(
+                user_id=current_user_id,
+                notification_type="campaign_request_started",
+                title="بدء تنفيذ حملة المعلن 🚀",
+                message=f"جاري إطلاق الحملة على قنواتك بالرابط: {req_obj.campaign_url}",
+                target_url="/app/exchange/incoming"
+            )
+            session.add(notif_b)
+            await session.commit()
+            
+            return {
+                "status": "success",
+                "message": "تم قبول طلب الحملة، وجاري إطلاقها على قنواتك وفق نظام .حملة المعتمد.",
+                "execution_id": exec_camp.id
+            }
+
+@app.post("/user/exchange/requests/{request_id}/reject")
+async def reject_exchange_request(request_id: int, req: Optional[RejectExchangeReq] = None, current_user_id: int = Depends(get_current_user)):
+    """Atomic rejection of an Exchange or Campaign request."""
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as session:
+        recipient_user = await verify_active_subscription(current_user_id, session)
+        
+        stmt = (
+            update(ExchangeRequest)
+            .where(
+                ExchangeRequest.id == request_id,
+                ExchangeRequest.recipient_user_id == current_user_id,
+                ExchangeRequest.status == "pending"
+            )
+            .values(status="rejected", responded_at=now)
+        )
+        res = await session.execute(stmt)
+        if res.rowcount == 0:
+            raise HTTPException(status_code=400, detail="تعذر رفض الطلب: قد يكون الطلب غير موجود أو تم البت فيه مسبقاً.")
+            
+        req_obj = (await session.execute(select(ExchangeRequest).where(ExchangeRequest.id == request_id))).scalar_one_or_none()
+        if req_obj:
+            recipient_name = recipient_user.full_name or recipient_user.email.split("@")[0]
+            req_label = "التبادل" if req_obj.request_type == "exchange" else "الحملة"
+            notif_type = f"{req_obj.request_type}_request_rejected"
+            notif = AccountNotification(
+                user_id=req_obj.requester_user_id,
+                notification_type=notif_type,
+                title=f"تم رفض طلب {req_label} ❌",
+                message=f"اعتذر المعلن ({recipient_name}) عن قبول طلب {req_label}." + (f" السبب: {req.reason}" if req and req.reason else ""),
+                target_url="/app/exchange/sent"
+            )
+            session.add(notif)
+            await session.commit()
+            
+        return {"status": "success", "message": "تم رفض الطلب بنجاح."}
+
+@app.post("/user/exchange/requests/{request_id}/cancel")
+async def cancel_exchange_request(request_id: int, current_user_id: int = Depends(get_current_user)):
+    """Atomic cancellation of a pending request by the requester."""
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as session:
+        await verify_active_subscription(current_user_id, session)
+        
+        stmt = (
+            update(ExchangeRequest)
+            .where(
+                ExchangeRequest.id == request_id,
+                ExchangeRequest.requester_user_id == current_user_id,
+                ExchangeRequest.status == "pending"
+            )
+            .values(status="cancelled", responded_at=now)
+        )
+        res = await session.execute(stmt)
+        if res.rowcount == 0:
+            raise HTTPException(status_code=400, detail="تعذر إلغاء الطلب: قد يكون الطلب قد تم قبوله أو رفضه بالفعل.")
+        await session.commit()
+        return {"status": "success", "message": "تم إلغاء الطلب بنجاح."}
+
+@app.get("/user/exchange/agreements")
+async def get_exchange_agreements(current_user_id: int = Depends(get_current_user)):
+    """Fetch all exchange agreements for the caller."""
+    async with AsyncSessionLocal() as session:
+        await verify_active_subscription(current_user_id, session)
+        
+        stmt = (
+            select(ExchangeAgreement)
+            .where(
+                (ExchangeAgreement.requester_user_id == current_user_id) |
+                (ExchangeAgreement.recipient_user_id == current_user_id)
+            )
+            .order_by(ExchangeAgreement.created_at.desc())
+        )
+        agreements = (await session.execute(stmt)).scalars().all()
+        
+        out = []
+        for ag in agreements:
+            peer_id = ag.recipient_user_id if ag.requester_user_id == current_user_id else ag.requester_user_id
+            peer = (await session.execute(select(User).where(User.id == peer_id))).scalar_one_or_none()
+            peer_name = (peer.full_name or peer.email.split("@")[0]) if peer else "معلن"
+            
+            is_requester = (ag.requester_user_id == current_user_id)
+            my_channel = ag.requester_channel_title if is_requester else ag.recipient_channel_title
+            peer_channel = ag.recipient_channel_title if is_requester else ag.requester_channel_title
+            peer_link = ag.recipient_channel_link if is_requester else ag.requester_channel_link
+            
+            out.append({
+                "id": ag.id,
+                "request_id": ag.request_id,
+                "peer_name": peer_name,
+                "my_channel": my_channel,
+                "peer_channel": peer_channel,
+                "peer_link": peer_link,
+                "status": ag.status,
+                "created_at": ag.created_at.strftime("%Y-%m-%d %H:%M") if ag.created_at else None,
+                "completed_at": ag.completed_at.strftime("%Y-%m-%d %H:%M") if ag.completed_at else None
+            })
+        return {"status": "success", "agreements": out}
+
+@app.get("/user/exchange/overview")
+async def get_exchange_overview(current_user_id: int = Depends(get_current_user)):
+    """Fetch summary statistics for the exchange hub."""
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as session:
+        await verify_active_subscription(current_user_id, session)
+        
+        # 1. Incoming pending
+        incoming_pending = (await session.execute(
+            select(func.count(ExchangeRequest.id)).where(
+                ExchangeRequest.recipient_user_id == current_user_id,
+                ExchangeRequest.status == "pending",
+                ExchangeRequest.expires_at > now
+            )
+        )).scalar() or 0
+        
+        # 2. Sent pending
+        sent_pending = (await session.execute(
+            select(func.count(ExchangeRequest.id)).where(
+                ExchangeRequest.requester_user_id == current_user_id,
+                ExchangeRequest.status == "pending",
+                ExchangeRequest.expires_at > now
+            )
+        )).scalar() or 0
+        
+        # 3. Active agreements
+        active_agreements = (await session.execute(
+            select(func.count(ExchangeAgreement.id)).where(
+                ((ExchangeAgreement.requester_user_id == current_user_id) | (ExchangeAgreement.recipient_user_id == current_user_id)),
+                ExchangeAgreement.status.in_(["accepted", "scheduled", "executing"])
+            )
+        )).scalar() or 0
+        
+        # 4. Completed total
+        completed_total = (await session.execute(
+            select(func.count(ExchangeAgreement.id)).where(
+                ((ExchangeAgreement.requester_user_id == current_user_id) | (ExchangeAgreement.recipient_user_id == current_user_id)),
+                ExchangeAgreement.status == "completed"
+            )
+        )).scalar() or 0
+        
+        return {
+            "status": "success",
+            "incoming_pending": incoming_pending,
+            "sent_pending": sent_pending,
+            "active_agreements": active_agreements,
+            "completed_total": completed_total
+        }

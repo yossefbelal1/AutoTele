@@ -229,6 +229,14 @@ const ROUTE_CONFIG = {
   "/app": { tabId: "tab-subscription", title: "لوحة التحكم والأوامر" },
   "/app/campaigns/new": { tabId: "tab-subscription", scrollTo: "campaign-panel-card", title: "إنشاء حملة جديدة" },
 
+  // HUB 4: التبادل بين المعلنين
+  "/app/exchange": { tabId: "tab-exchange-hub", subtabId: "subtab-exchange-overview", title: "التبادل بين المعلنين" },
+  "/app/exchange/overview": { tabId: "tab-exchange-hub", subtabId: "subtab-exchange-overview", title: "نظرة عامة على التبادل" },
+  "/app/exchange/incoming": { tabId: "tab-exchange-hub", subtabId: "subtab-exchange-incoming", title: "الطلبات الواردة" },
+  "/app/exchange/sent": { tabId: "tab-exchange-hub", subtabId: "subtab-exchange-sent", title: "الطلبات المرسلة" },
+  "/app/exchange/active": { tabId: "tab-exchange-hub", subtabId: "subtab-exchange-active", title: "الاتفاقيات النشطة" },
+  "/app/exchange/history": { tabId: "tab-exchange-hub", subtabId: "subtab-exchange-history", title: "سجل التبادل والأرشيف" },
+
   // HUB 1: إدارة المحرك السحابي
   "/app/engines": { tabId: "tab-engine-hub", subtabId: "subtab-engine-health", title: "إدارة المحرك السحابي" },
   "/app/engine": { tabId: "tab-engine-hub", subtabId: "subtab-engine-health", title: "إدارة المحرك السحابي" },
@@ -257,6 +265,7 @@ const TAB_TO_ROUTE_MAP = {
   "tab-engine-hub": "/app/engines",
   "tab-reports": "/app/reports",
   "tab-account-hub": "/app/settings",
+  "tab-exchange-hub": "/app/exchange",
   
   // Backward compatibility mappings
   "tab-campaigns": "/app/campaigns",
@@ -277,7 +286,12 @@ const SUBTAB_TO_ROUTE_MAP = {
   "subtab-analytics": "/app/analytics",
   "subtab-notifications": "/app/notifications",
   "subtab-account-profile": "/app/settings/profile",
-  "subtab-account-billing": "/app/billing"
+  "subtab-account-billing": "/app/billing",
+  "subtab-exchange-overview": "/app/exchange/overview",
+  "subtab-exchange-incoming": "/app/exchange/incoming",
+  "subtab-exchange-sent": "/app/exchange/sent",
+  "subtab-exchange-active": "/app/exchange/active",
+  "subtab-exchange-history": "/app/exchange/history"
 };
 
 window.switchSubTab = function(parentTabId, subtabId, pushState = true) {
@@ -334,6 +348,16 @@ window.switchSubTab = function(parentTabId, subtabId, pushState = true) {
     loadUserProfile();
   } else if (subtabId === "subtab-account-billing") {
     loadReceiveWalletAddress();
+  } else if (subtabId === "subtab-exchange-overview") {
+    loadExchangeOverview();
+  } else if (subtabId === "subtab-exchange-incoming") {
+    loadExchangeIncoming();
+  } else if (subtabId === "subtab-exchange-sent") {
+    loadExchangeSent();
+  } else if (subtabId === "subtab-exchange-active") {
+    loadExchangeActive();
+  } else if (subtabId === "subtab-exchange-history") {
+    loadExchangeHistory();
   }
 };
 
@@ -407,7 +431,8 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
       const isRouteMatch = r === normalizedRoute || 
         (r === "/app/engines" && tabId === "tab-engine-hub") || 
         (r === "/app/reports" && tabId === "tab-reports") || 
-        (r === "/app/settings" && tabId === "tab-account-hub");
+        (r === "/app/settings" && tabId === "tab-account-hub") ||
+        (r === "/app/exchange" && tabId === "tab-exchange-hub");
       if (isParentMatch || isRouteMatch) t.classList.add("active");
       else t.classList.remove("active");
     });
@@ -425,7 +450,8 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
       "tab-subscription": "لوحة التحكم",
       "tab-engine-hub": "إدارة المحرك",
       "tab-reports": "التقارير والنشاط",
-      "tab-account-hub": "الحساب والاشتراك"
+      "tab-account-hub": "الحساب والاشتراك",
+      "tab-exchange-hub": "تبادل الإعلانات"
     };
     mobileTitle.textContent = compactTitles[tabId] || title;
   }
@@ -862,6 +888,9 @@ async function syncDashboardData() {
       }
     }
 
+    if (typeof loadExchangeOverview === "function") {
+      loadExchangeOverview(false);
+    }
   } catch (error) {
     console.error("Dashboard Sync Error:", error);
     if (error.message && (error.message.includes("Unauthorized") || error.message.includes("401"))) {
@@ -5220,3 +5249,690 @@ window.handleProfileSubmit = async function(event) {
   }
 };
 
+
+
+// ==========================================
+// ADVERTISER EXCHANGE & CAMPAIGN REQUESTS MODULE
+// ==========================================
+
+let cachedIncomingRequests = [];
+let cachedSentRequests = [];
+let cachedActiveAgreements = [];
+let cachedExchangeHistory = [];
+let cachedMyExchangeChannels = [];
+let cachedAdvertisers = [];
+let currentIncomingFilter = "all";
+let currentSentFilter = "all";
+
+window.refreshCurrentExchangeSubtab = function() {
+  const container = document.getElementById("subtabs-exchange-hub");
+  if (!container) return;
+  const activeBtn = container.querySelector(".subtab-btn.active");
+  const subtabId = activeBtn ? activeBtn.getAttribute("data-subtab") : "subtab-exchange-overview";
+  
+  if (subtabId === "subtab-exchange-overview") loadExchangeOverview();
+  else if (subtabId === "subtab-exchange-incoming") loadExchangeIncoming(currentIncomingFilter);
+  else if (subtabId === "subtab-exchange-sent") loadExchangeSent(currentSentFilter);
+  else if (subtabId === "subtab-exchange-active") loadExchangeActive();
+  else if (subtabId === "subtab-exchange-history") loadExchangeHistory();
+};
+
+window.loadExchangeOverview = async function(renderPending = true) {
+  try {
+    const data = await apiRequest("/user/exchange/overview");
+    if (!data) return;
+
+    const summary = data.summary || {};
+    const inEl = document.getElementById("exchange-overview-incoming");
+    const sentEl = document.getElementById("exchange-overview-sent");
+    const actEl = document.getElementById("exchange-overview-active");
+    const compEl = document.getElementById("exchange-overview-completed");
+
+    if (inEl) inEl.textContent = summary.pending_incoming || 0;
+    if (sentEl) sentEl.textContent = summary.pending_sent || 0;
+    if (actEl) actEl.textContent = summary.active_agreements || 0;
+    if (compEl) compEl.textContent = summary.completed_agreements || 0;
+
+    // Badges update
+    const count = summary.pending_incoming || 0;
+    const badges = [
+      document.getElementById("subtab-exchange-incoming-badge"),
+      document.getElementById("sidebar-exchange-badge"),
+      document.getElementById("drawer-exchange-badge")
+    ];
+    badges.forEach(b => {
+      if (!b) return;
+      if (count > 0) {
+        b.textContent = count;
+        b.classList.remove("hidden");
+      } else {
+        b.classList.add("hidden");
+      }
+    });
+
+    if (renderPending) {
+      const container = document.getElementById("exchange-overview-pending-container");
+      if (container) {
+        const recent = data.recent_incoming || [];
+        if (recent.length === 0) {
+          container.innerHTML = `<div style="text-align: center; color: #64748b; padding: 24px; font-size: 13px;">لا توجد طلبات واردة جديدة حالياً ✨</div>`;
+        } else {
+          container.innerHTML = recent.map(req => renderExchangeRequestCard(req, true)).join("");
+        }
+      }
+    }
+  } catch (err) {
+    console.error("loadExchangeOverview error:", err);
+  }
+};
+
+function formatExchangeTime(isoStr) {
+  if (!isoStr) return "--";
+  try {
+    const d = new Date(isoStr);
+    return d.toLocaleString("ar-EG", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  } catch (e) {
+    return isoStr;
+  }
+}
+
+function getExchangeStatusBadge(status) {
+  const map = {
+    "pending": { text: "قيد الانتظار", cls: "exchange-badge-pending" },
+    "accepted": { text: "تم القبول", cls: "exchange-badge-accepted" },
+    "rejected": { text: "مرفوض", cls: "exchange-badge-rejected" },
+    "cancelled": { text: "ملغي", cls: "exchange-badge-cancelled" },
+    "expired": { text: "منتهي الصلاحية", cls: "exchange-badge-expired" },
+    "active": { text: "نشط قيد النشر", cls: "exchange-badge-active" },
+    "completed": { text: "مكتمل بنجاح", cls: "exchange-badge-completed" },
+    "failed": { text: "تعذر أو خطأ", cls: "exchange-badge-rejected" }
+  };
+  const item = map[status] || { text: status, cls: "exchange-badge-pending" };
+  return `<span class="badge ${item.cls}" style="font-size: 11px; padding: 3px 8px; border-radius: 6px;">${item.text}</span>`;
+}
+
+function renderExchangeRequestCard(req, isCompact = false) {
+  const isExchange = req.request_type === "exchange";
+  const typeBadge = isExchange 
+    ? `<span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); font-size: 11px;">🔄 تبادل إعلاني</span>`
+    : `<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 11px;">📢 طلب نشر حملة</span>`;
+
+  const senderName = escapeHtml(req.sender_name || req.sender_email || `معلن #${req.sender_user_id}`);
+  const statusBadge = getExchangeStatusBadge(req.status);
+  const timeStr = formatExchangeTime(req.created_at);
+
+  let targetDisplay = "";
+  if (isExchange) {
+    const chName = escapeHtml(req.proposed_channel_name || req.proposed_channel_url || "قناة غير محددة");
+    const chUrl = req.proposed_channel_url ? `<a href="${escapeHtml(req.proposed_channel_url)}" target="_blank" style="color: #38bdf8; text-decoration: underline; margin-right: 6px;">[فتح الرابط]</a>` : "";
+    targetDisplay = `<div style="font-size: 12.5px; color: #cbd5e1; margin-top: 6px;">📢 <b>القناة المعروضة للنشر:</b> <span style="color: #fff;">${chName}</span> ${chUrl}</div>`;
+  } else {
+    const cUrl = escapeHtml(req.campaign_target_link || "--");
+    targetDisplay = `<div style="font-size: 12.5px; color: #cbd5e1; margin-top: 6px;">🔗 <b>رابط منشور الحملة:</b> <a href="${cUrl}" target="_blank" style="color: #f59e0b; text-decoration: underline; word-break: break-all;">${cUrl}</a></div>`;
+  }
+
+  const messageDisplay = req.proposal_message 
+    ? `<div style="font-size: 12px; color: #94a3b8; background: rgba(0,0,0,0.25); padding: 8px 12px; border-radius: 8px; margin-top: 8px; border-right: 2px solid #38bdf8;">💬 <i>"${escapeHtml(req.proposal_message)}"</i></div>`
+    : "";
+
+  let actionButtons = "";
+  if (req.status === "pending") {
+    if (isExchange) {
+      actionButtons = `
+        <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;">
+          <button type="button" class="btn btn-primary btn-sm" onclick="openAcceptExchangeModal(${req.id}, 'exchange')" style="padding: 7px 14px; font-size: 12.5px; font-weight: 700;">
+            قبول واختيار قناتي ✓
+          </button>
+          <button type="button" class="btn btn-danger btn-sm" onclick="rejectExchangeRequest(${req.id})" style="padding: 7px 14px; font-size: 12.5px;">
+            رفض ✕
+          </button>
+        </div>`;
+    } else {
+      actionButtons = `
+        <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;">
+          <button type="button" class="btn btn-primary btn-sm" onclick="openAcceptExchangeModal(${req.id}, 'campaign')" style="padding: 7px 14px; font-size: 12.5px; font-weight: 700; background: linear-gradient(135deg, #10b981, #059669);">
+            قبول ونشر الحملة فوراً ✓
+          </button>
+          <button type="button" class="btn btn-danger btn-sm" onclick="rejectExchangeRequest(${req.id})" style="padding: 7px 14px; font-size: 12.5px;">
+            رفض ✕
+          </button>
+        </div>`;
+    }
+  }
+
+  return `
+    <div class="exchange-card" id="exchange-req-card-${req.id}">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          ${typeBadge}
+          <strong style="color: #fff; font-size: 13.5px;">من: ${senderName}</strong>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 11.5px; color: #64748b;">${timeStr}</span>
+          ${statusBadge}
+        </div>
+      </div>
+      ${targetDisplay}
+      ${messageDisplay}
+      ${actionButtons}
+    </div>
+  `;
+}
+
+window.filterExchangeIncoming = function(filter) {
+  currentIncomingFilter = filter;
+  document.querySelectorAll("[data-incoming-filter]").forEach(btn => {
+    if (btn.getAttribute("data-incoming-filter") === filter) btn.classList.add("active");
+    else btn.classList.remove("active");
+  });
+  renderIncomingList();
+};
+
+function renderIncomingList() {
+  const container = document.getElementById("exchange-incoming-container");
+  if (!container) return;
+
+  let list = cachedIncomingRequests;
+  if (currentIncomingFilter === "exchange") list = list.filter(r => r.request_type === "exchange");
+  else if (currentIncomingFilter === "campaign") list = list.filter(r => r.request_type === "campaign");
+
+  if (list.length === 0) {
+    container.innerHTML = `<div style="text-align: center; color: #64748b; padding: 36px; font-size: 13px;">لا توجد طلبات واردة مطابقة لهذا الفلتر ✨</div>`;
+    return;
+  }
+  container.innerHTML = list.map(req => renderExchangeRequestCard(req, false)).join("");
+}
+
+window.loadExchangeIncoming = async function() {
+  const container = document.getElementById("exchange-incoming-container");
+  if (container) container.innerHTML = `<div style="text-align: center; color: #64748b; padding: 36px; font-size: 13px;">جاري تحميل الطلبات الواردة...</div>`;
+
+  try {
+    const data = await apiRequest("/user/exchange/requests/incoming");
+    cachedIncomingRequests = data || [];
+    renderIncomingList();
+  } catch (err) {
+    if (container) container.innerHTML = `<div style="text-align: center; color: #f87171; padding: 24px;">تعذر تحميل الطلبات الواردة: ${escapeHtml(err.message)}</div>`;
+  }
+};
+
+window.filterExchangeSent = function(filter) {
+  currentSentFilter = filter;
+  document.querySelectorAll("[data-sent-filter]").forEach(btn => {
+    if (btn.getAttribute("data-sent-filter") === filter) btn.classList.add("active");
+    else btn.classList.remove("active");
+  });
+  renderSentList();
+};
+
+function renderSentList() {
+  const container = document.getElementById("exchange-sent-container");
+  if (!container) return;
+
+  let list = cachedSentRequests;
+  if (currentSentFilter === "pending") list = list.filter(r => r.status === "pending");
+  else if (currentSentFilter === "accepted") list = list.filter(r => r.status === "accepted");
+  else if (currentSentFilter === "rejected") list = list.filter(r => ["rejected", "cancelled", "expired"].includes(r.status));
+
+  if (list.length === 0) {
+    container.innerHTML = `<div style="text-align: center; color: #64748b; padding: 36px; font-size: 13px;">لا توجد طلبات مرسلة مطابقة ✨</div>`;
+    return;
+  }
+
+  container.innerHTML = list.map(req => {
+    const isExchange = req.request_type === "exchange";
+    const typeBadge = isExchange 
+      ? `<span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); font-size: 11px;">🔄 تبادل إعلاني</span>`
+      : `<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 11px;">📢 طلب نشر حملة</span>`;
+
+    const targetName = escapeHtml(req.target_name || req.target_email || `معلن #${req.target_user_id}`);
+    const statusBadge = getExchangeStatusBadge(req.status);
+    const timeStr = formatExchangeTime(req.created_at);
+
+    let targetDisplay = "";
+    if (isExchange) {
+      const chName = escapeHtml(req.proposed_channel_name || req.proposed_channel_url || "قناتك");
+      targetDisplay = `<div style="font-size: 12.5px; color: #cbd5e1; margin-top: 6px;">📢 <b>قناتك المعروضة:</b> <span style="color: #fff;">${chName}</span></div>`;
+    } else {
+      const cUrl = escapeHtml(req.campaign_target_link || "--");
+      targetDisplay = `<div style="font-size: 12.5px; color: #cbd5e1; margin-top: 6px;">🔗 <b>رابط حملتك المطلوب نشرها:</b> <a href="${cUrl}" target="_blank" style="color: #f59e0b; text-decoration: underline; word-break: break-all;">${cUrl}</a></div>`;
+    }
+
+    let cancelBtn = "";
+    if (req.status === "pending") {
+      cancelBtn = `
+        <div style="margin-top: 12px;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="cancelSentExchangeRequest(${req.id})" style="padding: 6px 12px; font-size: 12px; color: #f43f5e; border-color: rgba(244, 63, 94, 0.3);">
+            إلغاء الطلب ✕
+          </button>
+        </div>`;
+    }
+
+    return `
+      <div class="exchange-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            ${typeBadge}
+            <strong style="color: #fff; font-size: 13.5px;">إلى: ${targetName}</strong>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 11.5px; color: #64748b;">${timeStr}</span>
+            ${statusBadge}
+          </div>
+        </div>
+        ${targetDisplay}
+        ${req.proposal_message ? `<div style="font-size: 12px; color: #94a3b8; margin-top: 6px;">💬 <i>"${escapeHtml(req.proposal_message)}"</i></div>` : ""}
+        ${cancelBtn}
+      </div>
+    `;
+  }).join("");
+}
+
+window.loadExchangeSent = async function() {
+  const container = document.getElementById("exchange-sent-container");
+  if (container) container.innerHTML = `<div style="text-align: center; color: #64748b; padding: 36px; font-size: 13px;">جاري تحميل الطلبات المرسلة...</div>`;
+
+  try {
+    const data = await apiRequest("/user/exchange/requests/sent");
+    cachedSentRequests = data || [];
+    renderSentList();
+  } catch (err) {
+    if (container) container.innerHTML = `<div style="text-align: center; color: #f87171; padding: 24px;">تعذر تحميل الطلبات المرسلة: ${escapeHtml(err.message)}</div>`;
+  }
+};
+
+window.loadExchangeActive = async function() {
+  const container = document.getElementById("exchange-active-container");
+  if (container) container.innerHTML = `<div style="text-align: center; color: #64748b; padding: 36px; font-size: 13px;">جاري تحميل الاتفاقيات النشطة...</div>`;
+
+  try {
+    const data = await apiRequest("/user/exchange/agreements?status=active");
+    cachedActiveAgreements = data || [];
+
+    if (cachedActiveAgreements.length === 0) {
+      container.innerHTML = `<div style="text-align: center; color: #64748b; padding: 36px; font-size: 13px;">لا توجد اتفاقيات نشطة قيد التنفيذ حالياً ✨</div>`;
+      return;
+    }
+
+    container.innerHTML = cachedActiveAgreements.map(ag => renderAgreementCard(ag)).join("");
+  } catch (err) {
+    if (container) container.innerHTML = `<div style="text-align: center; color: #f87171; padding: 24px;">تعذر تحميل الاتفاقيات النشطة: ${escapeHtml(err.message)}</div>`;
+  }
+};
+
+window.loadExchangeHistory = async function() {
+  const container = document.getElementById("exchange-history-container");
+  if (container) container.innerHTML = `<div style="text-align: center; color: #64748b; padding: 36px; font-size: 13px;">جاري تحميل السجل...</div>`;
+
+  try {
+    const data = await apiRequest("/user/exchange/agreements");
+    cachedExchangeHistory = data || [];
+
+    if (cachedExchangeHistory.length === 0) {
+      container.innerHTML = `<div style="text-align: center; color: #64748b; padding: 36px; font-size: 13px;">سجل التبادل فارغ حالياً ✨</div>`;
+      return;
+    }
+
+    container.innerHTML = cachedExchangeHistory.map(ag => renderAgreementCard(ag)).join("");
+  } catch (err) {
+    if (container) container.innerHTML = `<div style="text-align: center; color: #f87171; padding: 24px;">تعذر تحميل السجل: ${escapeHtml(err.message)}</div>`;
+  }
+};
+
+function renderAgreementCard(ag) {
+  const isExchange = ag.agreement_type === "exchange";
+  const typeBadge = isExchange 
+    ? `<span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 11px;">🔄 تبادل متبادل</span>`
+    : `<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-size: 11px;">📢 نشر حملة</span>`;
+
+  const statusBadge = getExchangeStatusBadge(ag.status);
+  const timeStr = formatExchangeTime(ag.created_at);
+
+  const executions = ag.executions || [];
+  const execListHtml = executions.map(ex => {
+    const exStatusBadge = getExchangeStatusBadge(ex.status);
+    const channelDisplay = escapeHtml(ex.target_channel_name || ex.target_channel_url || "قنوات المستهدف");
+    const progress = ex.total_channels > 0 ? Math.round((ex.completed_channels / ex.total_channels) * 100) : (ex.status === "completed" ? 100 : 0);
+
+    return `
+      <div style="background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 10px 12px; margin-top: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <span style="font-size: 12.5px; color: #cbd5e1;">🎯 النشر في: <strong style="color: #fff;">${channelDisplay}</strong></span>
+          ${exStatusBadge}
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 11px; color: #64748b; margin-bottom: 4px;">
+          <span>التقدم: ${ex.completed_channels} / ${ex.total_channels || 1} قناة</span>
+          <span>${progress}%</span>
+        </div>
+        <div style="width: 100%; height: 5px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
+          <div style="width: ${progress}%; height: 100%; background: #10b981; transition: width 0.3s;"></div>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  return `
+    <div class="exchange-card">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          ${typeBadge}
+          <strong style="color: #fff; font-size: 14px;">اتفاقية #${ag.id}</strong>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 11.5px; color: #64748b;">${timeStr}</span>
+          ${statusBadge}
+        </div>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; font-size: 12.5px; color: #cbd5e1; margin-bottom: 8px;">
+        <div><b>الطرف الأول (A):</b> ${escapeHtml(ag.party_a_email || `مستخدم #${ag.party_a_id}`)}</div>
+        <div><b>الطرف الثاني (B):</b> ${escapeHtml(ag.party_b_email || `مستخدم #${ag.party_b_id}`)}</div>
+      </div>
+      ${executions.length > 0 ? `<div style="margin-top: 10px;"><b style="font-size: 12px; color: #94a3b8;">مهام التنفيذ الميداني:</b>${execListHtml}</div>` : ""}
+    </div>
+  `;
+}
+
+// Modal Handlers
+window.openNewExchangeModal = async function() {
+  const modal = document.getElementById("modal-new-exchange-request");
+  if (!modal) return;
+
+  // Reset form
+  const form = document.getElementById("form-new-exchange-request");
+  if (form) form.reset();
+  toggleExchangeFormType("exchange");
+
+  const errEl = document.getElementById("exchange-form-error");
+  if (errEl) { errEl.style.display = "none"; errEl.textContent = ""; }
+
+  const charEl = document.getElementById("char-count-proposal");
+  if (charEl) charEl.textContent = "0 / 500";
+
+  const msgInput = document.getElementById("textarea-exchange-proposal-msg");
+  if (msgInput) {
+    msgInput.oninput = () => {
+      if (charEl) charEl.textContent = `${msgInput.value.length} / 500`;
+    };
+  }
+
+  // Load Advertisers & Channels in parallel
+  const advSelect = document.getElementById("select-target-advertiser");
+  const myChSelect = document.getElementById("select-my-exchange-channel");
+
+  if (advSelect) advSelect.innerHTML = `<option value="" disabled selected>جاري تحميل قائمة المعلنين...</option>`;
+  if (myChSelect) myChSelect.innerHTML = `<option value="" disabled selected>جاري تحميل قنواتك...</option>`;
+
+  modal.classList.remove("hidden");
+  modal.style.opacity = "1";
+  modal.style.pointerEvents = "auto";
+
+  try {
+    const [advRes, chRes] = await Promise.all([
+      apiRequest("/user/exchange/advertisers"),
+      apiRequest("/user/exchange/my-channels")
+    ]);
+
+    cachedAdvertisers = advRes || [];
+    cachedMyExchangeChannels = chRes || [];
+
+    if (advSelect) {
+      if (cachedAdvertisers.length === 0) {
+        advSelect.innerHTML = `<option value="" disabled selected>لا يوجد معلنون آخرون متاحون حالياً</option>`;
+      } else {
+        advSelect.innerHTML = `<option value="" disabled selected>-- اختر معلناً من القائمة (${cachedAdvertisers.length} متاح) --</option>` +
+          cachedAdvertisers.map(a => `<option value="${a.id}">${escapeHtml(a.name || a.email)} (${a.email})</option>`).join("");
+      }
+    }
+
+    if (myChSelect) {
+      if (cachedMyExchangeChannels.length === 0) {
+        myChSelect.innerHTML = `<option value="" disabled selected>لم يتم العثور على قنوات مسجلة في حسابك</option>`;
+      } else {
+        myChSelect.innerHTML = `<option value="" disabled selected>-- اختر إحدى قنواتك (${cachedMyExchangeChannels.length} قناة) --</option>` +
+          cachedMyExchangeChannels.map(c => `<option value="${escapeHtml(c.url)}" data-title="${escapeHtml(c.title)}">${escapeHtml(c.title)} (${escapeHtml(c.url)})</option>`).join("");
+      }
+    }
+  } catch (err) {
+    console.error("Failed to load modal dependencies:", err);
+  }
+};
+
+window.closeNewExchangeModal = function() {
+  const modal = document.getElementById("modal-new-exchange-request");
+  if (!modal) return;
+  modal.style.opacity = "0";
+  modal.style.pointerEvents = "none";
+  setTimeout(() => modal.classList.add("hidden"), 300);
+};
+
+window.toggleExchangeFormType = function(type) {
+  const cardEx = document.getElementById("type-card-exchange");
+  const cardCp = document.getElementById("type-card-campaign");
+  const boxMyCh = document.getElementById("box-field-my-channel");
+  const boxCpUrl = document.getElementById("box-field-campaign-url");
+
+  if (type === "exchange") {
+    if (cardEx) cardEx.classList.add("active");
+    if (cardCp) cardCp.classList.remove("active");
+    if (boxMyCh) boxMyCh.classList.remove("hidden");
+    if (boxCpUrl) boxCpUrl.classList.add("hidden");
+  } else {
+    if (cardEx) cardEx.classList.remove("active");
+    if (cardCp) cardCp.classList.add("active");
+    if (boxMyCh) boxMyCh.classList.add("hidden");
+    if (boxCpUrl) boxCpUrl.classList.remove("hidden");
+  }
+};
+
+window.submitNewExchangeRequest = async function(e) {
+  e.preventDefault();
+  const errEl = document.getElementById("exchange-form-error");
+  if (errEl) { errEl.style.display = "none"; errEl.textContent = ""; }
+
+  const targetUserId = parseInt(document.getElementById("select-target-advertiser").value, 10);
+  const typeRadio = document.querySelector("input[name='exchange_request_type']:checked");
+  const requestType = typeRadio ? typeRadio.value : "exchange";
+  const proposalMsg = document.getElementById("textarea-exchange-proposal-msg").value.trim();
+
+  if (!targetUserId) {
+    if (errEl) { errEl.textContent = "يرجى اختيار المعلن المستهدف أولاً."; errEl.style.display = "block"; }
+    return;
+  }
+
+  const payload = {
+    target_user_id: targetUserId,
+    request_type: requestType,
+    proposal_message: proposalMsg || null
+  };
+
+  if (requestType === "exchange") {
+    const chSelect = document.getElementById("select-my-exchange-channel");
+    const selectedOpt = chSelect.selectedOptions[0];
+    if (!chSelect.value || !selectedOpt) {
+      if (errEl) { errEl.textContent = "يرجى اختيار إحدى قنواتك الخاصة لعرضها للتبادل."; errEl.style.display = "block"; }
+      return;
+    }
+    payload.proposed_channel_url = selectedOpt.value;
+    payload.proposed_channel_name = selectedOpt.getAttribute("data-title") || selectedOpt.text;
+  } else {
+    const cpUrl = document.getElementById("input-exchange-campaign-url").value.trim();
+    if (!cpUrl || !cpUrl.startsWith("http") || !cpUrl.includes("t.me")) {
+      if (errEl) { errEl.textContent = "يرجى إدخال رابط منشور حملة تليجرام صحيح (يبدأ بـ https://t.me/)."; errEl.style.display = "block"; }
+      return;
+    }
+    payload.campaign_target_link = cpUrl;
+  }
+
+  setButtonLoading("btn-submit-exchange-req", true);
+
+  try {
+    await apiRequest("/user/exchange/requests", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+
+    showToast("تم إرسال طلب الشراكة بنجاح! 🚀", "success");
+    closeNewExchangeModal();
+    loadExchangeOverview();
+    switchSubTab("tab-exchange-hub", "subtab-exchange-sent");
+  } catch (err) {
+    if (errEl) { errEl.textContent = err.message || "تعذر إرسال الطلب"; errEl.style.display = "block"; }
+    showToast(err.message, "error");
+  } finally {
+    setButtonLoading("btn-submit-exchange-req", false);
+  }
+};
+
+window.openAcceptExchangeModal = async function(requestId, type) {
+  const modal = document.getElementById("modal-accept-exchange");
+  if (!modal) return;
+
+  const req = cachedIncomingRequests.find(r => r.id === requestId);
+  if (!req) {
+    showToast("تعذر العثور على بيانات الطلب", "error");
+    return;
+  }
+
+  document.getElementById("accept-target-request-id").value = requestId;
+  document.getElementById("accept-target-request-type").value = type;
+
+  const errEl = document.getElementById("accept-modal-error");
+  if (errEl) { errEl.style.display = "none"; errEl.textContent = ""; }
+
+  // Fill summary
+  const senderEl = document.getElementById("accept-summary-sender");
+  const typeEl = document.getElementById("accept-summary-type");
+  const targetValEl = document.getElementById("accept-summary-target-val");
+  const msgValEl = document.getElementById("accept-summary-message-val");
+
+  if (senderEl) senderEl.textContent = req.sender_name || req.sender_email || `معلن #${req.sender_user_id}`;
+  if (typeEl) {
+    typeEl.textContent = type === "exchange" ? "تبادل إعلاني 🔄" : "طلب نشر حملة 📢";
+  }
+
+  if (targetValEl) {
+    if (type === "exchange") {
+      targetValEl.textContent = `${req.proposed_channel_name || "قناة"} (${req.proposed_channel_url || "-"})`;
+    } else {
+      targetValEl.textContent = req.campaign_target_link || "-";
+    }
+  }
+
+  if (msgValEl) {
+    msgValEl.textContent = req.proposal_message || "لا توجد ملاحظات إضافية";
+  }
+
+  const chBox = document.getElementById("accept-exchange-channel-selection-box");
+  const noChBox = document.getElementById("accept-campaign-no-channel-box");
+  const chSelect = document.getElementById("select-accept-my-channel");
+
+  if (type === "exchange") {
+    if (chBox) chBox.classList.remove("hidden");
+    if (noChBox) noChBox.classList.add("hidden");
+    if (chSelect) chSelect.innerHTML = `<option value="" disabled selected>جاري تحميل قنواتك...</option>`;
+
+    modal.classList.remove("hidden");
+    modal.style.opacity = "1";
+    modal.style.pointerEvents = "auto";
+
+    try {
+      const channels = await apiRequest("/user/exchange/my-channels");
+      if (chSelect) {
+        if (!channels || channels.length === 0) {
+          chSelect.innerHTML = `<option value="" disabled selected>لم يتم العثور على قنوات مسجلة لديك</option>`;
+        } else {
+          chSelect.innerHTML = `<option value="" disabled selected>-- اختر إحدى قنواتك للتبادل (${channels.length} قناة) --</option>` +
+            channels.map(c => `<option value="${escapeHtml(c.url)}" data-title="${escapeHtml(c.title)}">${escapeHtml(c.title)} (${escapeHtml(c.url)})</option>`).join("");
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  } else {
+    // Campaign Request: No channel picker needed!
+    if (chBox) chBox.classList.add("hidden");
+    if (noChBox) noChBox.classList.remove("hidden");
+
+    modal.classList.remove("hidden");
+    modal.style.opacity = "1";
+    modal.style.pointerEvents = "auto";
+  }
+};
+
+window.closeAcceptExchangeModal = function() {
+  const modal = document.getElementById("modal-accept-exchange");
+  if (!modal) return;
+  modal.style.opacity = "0";
+  modal.style.pointerEvents = "none";
+  setTimeout(() => modal.classList.add("hidden"), 300);
+};
+
+window.executeConfirmAcceptExchange = async function() {
+  const requestId = document.getElementById("accept-target-request-id").value;
+  const type = document.getElementById("accept-target-request-type").value;
+  const errEl = document.getElementById("accept-modal-error");
+  if (errEl) { errEl.style.display = "none"; errEl.textContent = ""; }
+
+  const payload = {};
+  if (type === "exchange") {
+    const chSelect = document.getElementById("select-accept-my-channel");
+    const opt = chSelect.selectedOptions[0];
+    if (!chSelect.value || !opt) {
+      if (errEl) { errEl.textContent = "يرجى اختيار إحدى قنواتك للنشر المتبادل أولاً."; errEl.style.display = "block"; }
+      return;
+    }
+    payload.accepted_channel_url = opt.value;
+    payload.accepted_channel_name = opt.getAttribute("data-title") || opt.text;
+  }
+
+  const btn = document.getElementById("btn-confirm-accept-exchange");
+  if (btn) btn.disabled = true;
+
+  try {
+    await apiRequest(`/user/exchange/requests/${requestId}/accept`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+
+    showToast("تم قبول الطلب بنجاح وبدء التنفيذ! 🎉", "success");
+    closeAcceptExchangeModal();
+    loadExchangeOverview();
+    loadExchangeIncoming();
+    switchSubTab("tab-exchange-hub", "subtab-exchange-active");
+  } catch (err) {
+    if (errEl) { errEl.textContent = err.message || "تعذر قبول الطلب"; errEl.style.display = "block"; }
+    showToast(err.message, "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+};
+
+window.rejectExchangeRequest = async function(requestId) {
+  if (!confirm("هل أنت متأكد من رغبتك في رفض هذا الطلب؟")) return;
+
+  try {
+    await apiRequest(`/user/exchange/requests/${requestId}/reject`, {
+      method: "POST"
+    });
+    showToast("تم رفض الطلب.", "info");
+    loadExchangeOverview();
+    loadExchangeIncoming();
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+};
+
+window.cancelSentExchangeRequest = async function(requestId) {
+  if (!confirm("هل أنت متأكد من إلغاء هذا الطلب المرسل؟")) return;
+
+  try {
+    await apiRequest(`/user/exchange/requests/${requestId}/cancel`, {
+      method: "POST"
+    });
+    showToast("تم إلغاء الطلب بنجاح.", "info");
+    loadExchangeOverview();
+    loadExchangeSent();
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+};

@@ -37,6 +37,9 @@ from db_manager import (
     Blacklist,
     WebCampaignTask,
     AccountNotification,
+    ExchangeExecution,
+    ExchangeAgreement,
+    ExchangeRequest,
     add_ad_record,
     remove_ad_record,
     get_expired_ads,
@@ -6335,6 +6338,7 @@ async def run_web_campaign_task(task_id: int):
                 await write_session.commit()
             logger.info(f"Web Campaign Task {task_id} marked as {final_status}.")
             await log_tenant_event(tenant_id, f"اكتملت المهمة: {type_ar} (ويب) بنجاح.")
+            await handle_exchange_execution_callback(task_id, success=True)
         except asyncio.CancelledError:
             logger.info(f"Web Campaign Task {task_id} was cancelled.")
             await log_tenant_event(tenant_id, f"تم إلغاء المهمة المجدولة: {type_ar} (ويب).")
@@ -6346,6 +6350,7 @@ async def run_web_campaign_task(task_id: int):
                     await write_session.commit()
             except Exception as se:
                 logger.error(f"Could not mark task {task_id} as failed (after cancellation): {se}")
+            await handle_exchange_execution_callback(task_id, success=False, error_msg="Cancelled")
             raise
         except Exception as e:
             logger.error(f"Failed to execute web campaign task {task_id}: {e}")
@@ -6358,6 +6363,130 @@ async def run_web_campaign_task(task_id: int):
                     await write_session.commit()
             except Exception as se:
                 logger.error(f"Could not mark task {task_id} as failed: {se}")
+            await handle_exchange_execution_callback(task_id, success=False, error_msg=str(e))
+
+
+async def handle_exchange_execution_callback(task_id: int, success: bool, error_msg: Optional[str] = None):
+    try:
+        from db_manager import AsyncSessionLocal, ExchangeExecution, ExchangeAgreement, ExchangeRequest, AccountNotification, select
+        now = datetime.now(timezone.utc)
+        async with AsyncSessionLocal() as session:
+            exec_row = (await session.execute(
+                select(ExchangeExecution).where(ExchangeExecution.web_task_id == task_id)
+            )).scalars().first()
+            if not exec_row:
+                return
+                
+            exec_row.status = "completed" if success else "failed"
+            exec_row.completed_at = now
+            if error_msg:
+                exec_row.error_message = error_msg[:500]
+            await session.commit()
+            
+            # If part of an Exchange Agreement:
+            if exec_row.agreement_id:
+                all_execs = (await session.execute(
+                    select(ExchangeExecution).where(ExchangeExecution.agreement_id == exec_row.agreement_id)
+                )).scalars().all()
+                
+                agreement = (await session.execute(
+                    select(ExchangeAgreement).where(ExchangeAgreement.id == exec_row.agreement_id)
+                )).scalars().first()
+                
+                if agreement:
+                    if all(e.status == "completed" for e in all_execs):
+                        agreement.status = "completed"
+                        agreement.completed_at = now
+                        await session.commit()
+                        
+                        notif_req = AccountNotification(
+                            user_id=agreement.requester_user_id,
+                            notification_type="exchange_completed",
+                            title="اكتمل التبادل الإعلاني بنجاح! 🎉",
+                            message=f"تم اكتمال النشر المتبادل بين قناتك ({agreement.requester_channel_title}) وقناة ({agreement.recipient_channel_title}) بنجاح.",
+                            target_url="/app/exchange/history"
+                        )
+                        notif_rec = AccountNotification(
+                            user_id=agreement.recipient_user_id,
+                            notification_type="exchange_completed",
+                            title="اكتمل التبادل الإعلاني بنجاح! 🎉",
+                            message=f"تم اكتمال النشر المتبادل بين قناتك ({agreement.recipient_channel_title}) وقناة ({agreement.requester_channel_title}) بنجاح.",
+                            target_url="/app/exchange/history"
+                        )
+                        session.add_all([notif_req, notif_rec])
+                        await session.commit()
+                        
+                    elif any(e.status == "failed" for e in all_execs):
+                        if any(e.status == "completed" for e in all_execs):
+                            agreement.status = "partial_failed"
+                        else:
+                            agreement.status = "failed"
+                        agreement.completed_at = now
+                        await session.commit()
+                        
+                        notif_fail = AccountNotification(
+                            user_id=agreement.requester_user_id,
+                            notification_type="exchange_failed",
+                            title="تعثر في تنفيذ التبادل الإعلاني ⚠️",
+                            message=f"واجه النظام خطأ أثناء تنفيذ النشر المتبادل مع ({agreement.recipient_channel_title}).",
+                            target_url="/app/exchange/history"
+                        )
+                        session.add(notif_fail)
+                        await session.commit()
+
+            elif exec_row.execution_type == "campaign_request":
+                req_obj = (await session.execute(
+                    select(ExchangeRequest).where(ExchangeRequest.id == exec_row.request_id)
+                )).scalars().first()
+                if req_obj:
+                    if success:
+                        notif = AccountNotification(
+                            user_id=req_obj.requester_user_id,
+                            notification_type="campaign_request_completed",
+                            title="اكتمل تنفيذ حملتك الترويجية! 🎯",
+                            message=f"تم إكمال نشر حملتك بنجاح على قنوات المعلن ({exec_row.target_link}).",
+                            target_url="/app/exchange/sent"
+                        )
+                        session.add(notif)
+                    else:
+                        notif = AccountNotification(
+                            user_id=req_obj.requester_user_id,
+                            notification_type="campaign_request_failed",
+                            title="تعذر اكتمال تنفيذ حملتك الترويجية ⚠️",
+                            message=f"واجه المحرك خطأ أثناء نشر الحملة: {error_msg or 'خطأ غير معروف'}",
+                            target_url="/app/exchange/sent"
+                        )
+                        session.add(notif)
+                    await session.commit()
+    except Exception as e:
+        logger.error(f"Error in handle_exchange_execution_callback for task {task_id}: {e}")
+
+async def check_expired_exchange_requests():
+    try:
+        from db_manager import AsyncSessionLocal, ExchangeRequest, AccountNotification, select
+        now = datetime.now(timezone.utc)
+        async with AsyncSessionLocal() as session:
+            stmt = select(ExchangeRequest).where(
+                ExchangeRequest.status == "pending",
+                ExchangeRequest.expires_at <= now
+            )
+            expired_reqs = (await session.execute(stmt)).scalars().all()
+            for r in expired_reqs:
+                r.status = "expired"
+                req_ar = "التبادل" if r.request_type == "exchange" else "الحملة"
+                notif_a = AccountNotification(
+                    user_id=r.requester_user_id,
+                    notification_type=f"{r.request_type}_request_expired",
+                    title=f"انتهت صلاحية طلب {req_ar} ⏱️",
+                    message="انتهت مهلة الـ 48 ساعة دون رد من الطرف الآخر على طلبك.",
+                    target_url="/app/exchange/sent"
+                )
+                session.add(notif_a)
+            if expired_reqs:
+                await session.commit()
+                logger.info(f"Auto-expired {len(expired_reqs)} pending exchange/campaign requests.")
+    except Exception as e:
+        logger.error(f"Error checking expired exchange requests: {e}")
 
 async def poll_web_campaign_tasks():
     logger.info("Web campaign tasks polling engine started.")
@@ -6455,6 +6584,9 @@ async def poll_web_campaign_tasks():
                     t.add_done_callback(make_cleanup(tenant_id, task.id))
         except Exception as e:
             logger.error(f"Error in poll_web_campaign_tasks: {e}")
+        if not hasattr(poll_web_campaign_tasks, "_last_expiry_check") or (datetime.now(timezone.utc) - poll_web_campaign_tasks._last_expiry_check).total_seconds() > 300:
+            poll_web_campaign_tasks._last_expiry_check = datetime.now(timezone.utc)
+            asyncio.create_task(check_expired_exchange_requests())
         await asyncio.sleep(1.0)
 
 async def global_cleaner_worker():

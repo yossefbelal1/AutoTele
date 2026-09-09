@@ -271,6 +271,97 @@ class SavedMessageLog(Base):
     )
 
 
+class ExchangeRequest(Base):
+    __tablename__ = "exchange_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    requester_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    recipient_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    request_type: Mapped[str] = mapped_column(String(50), nullable=False)  # "exchange" or "campaign"
+    
+    # For Exchange requests:
+    requester_channel_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    requester_channel_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    requester_channel_username: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    requester_channel_link: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    
+    # For Campaign requests (immutable snapshot of A's campaign URL):
+    campaign_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    
+    # Request explanatory message
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    
+    # Lifecycle: pending, accepted, rejected, expired, cancelled
+    status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    responded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    requester: Mapped["User"] = relationship("User", foreign_keys=[requester_user_id])
+    recipient: Mapped["User"] = relationship("User", foreign_keys=[recipient_user_id])
+    agreement: Mapped[Optional["ExchangeAgreement"]] = relationship("ExchangeAgreement", back_populates="request", uselist=False, cascade="all, delete-orphan")
+    executions: Mapped[List["ExchangeExecution"]] = relationship("ExchangeExecution", back_populates="request", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("idx_exchange_req_recipient_status", "recipient_user_id", "status"),
+        Index("idx_exchange_req_requester_status", "requester_user_id", "status"),
+        Index("idx_exchange_req_expires", "expires_at", "status"),
+    )
+
+
+class ExchangeAgreement(Base):
+    __tablename__ = "exchange_agreements"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    request_id: Mapped[int] = mapped_column(ForeignKey("exchange_requests.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
+    requester_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    recipient_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Channel A details:
+    requester_channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    requester_channel_title: Mapped[str] = mapped_column(String(255), nullable=False)
+    requester_channel_link: Mapped[str] = mapped_column(String(500), nullable=False)
+    
+    # Channel B details (selected by recipient B upon Accept):
+    recipient_channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    recipient_channel_title: Mapped[str] = mapped_column(String(255), nullable=False)
+    recipient_channel_link: Mapped[str] = mapped_column(String(500), nullable=False)
+    
+    # Status: accepted, scheduled, executing, completed, partial_failed, failed
+    status: Mapped[str] = mapped_column(String(50), default="accepted", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    request: Mapped["ExchangeRequest"] = relationship("ExchangeRequest", back_populates="agreement")
+    executions: Mapped[List["ExchangeExecution"]] = relationship("ExchangeExecution", back_populates="agreement", cascade="all, delete-orphan")
+
+
+class ExchangeExecution(Base):
+    __tablename__ = "exchange_executions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    request_id: Mapped[int] = mapped_column(ForeignKey("exchange_requests.id", ondelete="CASCADE"), nullable=False, index=True)
+    agreement_id: Mapped[Optional[int]] = mapped_column(ForeignKey("exchange_agreements.id", ondelete="CASCADE"), nullable=True, index=True)
+    
+    # Type: exchange_requester_side, exchange_recipient_side, campaign_request
+    execution_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    executor_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    telegram_account_id: Mapped[int] = mapped_column(ForeignKey("telegram_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
+    target_link: Mapped[str] = mapped_column(String(500), nullable=False)
+    
+    web_task_id: Mapped[Optional[int]] = mapped_column(ForeignKey("web_campaign_tasks.id", ondelete="SET NULL"), nullable=True, index=True)
+    
+    # Status: pending, executing, completed, failed
+    status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    request: Mapped["ExchangeRequest"] = relationship("ExchangeRequest", back_populates="executions")
+    agreement: Mapped[Optional["ExchangeAgreement"]] = relationship("ExchangeAgreement", back_populates="executions")
+    web_task: Mapped[Optional["WebCampaignTask"]] = relationship("WebCampaignTask")
+
+
 async def init_db() -> None:
     try:
         async with async_engine.begin() as conn:

@@ -409,6 +409,12 @@
             <span>إدارة المحرك السحابي</span>
           </button>
           <button class="drawer-nav-item" data-tab="tab-reports" data-route="/app/reports" onclick="navigate('/app/reports'); closeMobileDrawer();">
+          <button class="drawer-nav-item" data-tab="tab-exchange-hub" data-route="/app/exchange" onclick="navigate('/app/exchange'); closeMobileDrawer();">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/></svg>
+            <span>التبادل بين المعلنين</span>
+            <span class="badge notif-sidebar-badge hidden" id="drawer-exchange-badge" style="margin-right: auto; background: #38bdf8; color: #0f172a; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 10px;">0</span>
+          </button>
+
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
             <span>التقارير والنشاط</span>
             <span class="badge notif-sidebar-badge hidden" id="drawer-reports-badge" style="margin-right: auto; background: #ef4444; color: #fff; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 10px;">0</span>
@@ -485,6 +491,12 @@
             <span>إدارة المحرك السحابي</span>
           </button>
           <button class="nav-tab" data-tab="tab-reports" data-route="/app/reports">
+          <button class="nav-tab" data-tab="tab-exchange-hub" data-route="/app/exchange">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/></svg>
+            <span>التبادل بين المعلنين</span>
+            <span class="badge notif-sidebar-badge hidden" id="sidebar-exchange-badge" style="margin-right: auto; background: #38bdf8; color: #0f172a; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 10px;">0</span>
+          </button>
+
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
             <span>التقارير والنشاط</span>
             <span class="badge notif-sidebar-badge hidden" id="sidebar-reports-badge" style="margin-right: auto; background: #ef4444; color: #fff; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 10px;">0</span>
@@ -1927,6 +1939,190 @@
         </section>
 
         <!-- ==========================================
+             HUB 4: التبادل بين المعلنين (Advertiser Exchange Hub)
+             ========================================== -->
+        <section id="tab-exchange-hub" class="tab-panel hidden">
+          <div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px;">
+            <div>
+              <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0;">
+                <span>🔄</span>
+                <span>التبادل بين المعلنين (Exchange & Requests)</span>
+              </h1>
+              <p class="panel-subtitle" style="margin: 0;">تبادل إعلانات موثوق، طلبات نشر الحملات المباشرة، وتتبع التنفيذ المتبادل التلقائي</p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <button type="button" class="btn btn-primary btn-sm" onclick="openNewExchangeModal()" style="padding: 9px 18px; font-size: 13.5px; border-radius: 8px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+                <span>➕</span>
+                <span>طلب جديد</span>
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="refreshCurrentExchangeSubtab()" style="padding: 9px 14px; font-size: 13px; border-radius: 8px; font-weight: 600;">
+                <span>🔄 تحديث</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Exchange Sub-Tabs Bar (Sticky) -->
+          <div class="subtabs-nav-bar" id="subtabs-exchange-hub">
+            <button type="button" class="subtab-btn active" data-subtab="subtab-exchange-overview" onclick="switchSubTab('tab-exchange-hub', 'subtab-exchange-overview')">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+              <span>نظرة عامة</span>
+            </button>
+            <button type="button" class="subtab-btn" data-subtab="subtab-exchange-incoming" onclick="switchSubTab('tab-exchange-hub', 'subtab-exchange-incoming')">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>
+              <span>الطلبات الواردة</span>
+              <span class="badge notif-subtab-badge hidden" id="subtab-exchange-incoming-badge" style="background: #ef4444; color: #fff; font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 10px; margin-right: 4px;">0</span>
+            </button>
+            <button type="button" class="subtab-btn" data-subtab="subtab-exchange-sent" onclick="switchSubTab('tab-exchange-hub', 'subtab-exchange-sent')">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+              <span>الطلبات المرسلة</span>
+            </button>
+            <button type="button" class="subtab-btn" data-subtab="subtab-exchange-active" onclick="switchSubTab('tab-exchange-hub', 'subtab-exchange-active')">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+              <span>الاتفاقيات النشطة</span>
+            </button>
+            <button type="button" class="subtab-btn" data-subtab="subtab-exchange-history" onclick="switchSubTab('tab-exchange-hub', 'subtab-exchange-history')">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+              <span>السجل والأرشيف</span>
+            </button>
+          </div>
+
+          <!-- Subtab 1: Overview -->
+          <div id="subtab-exchange-overview" class="subtab-pane">
+            <div class="exchange-stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-bottom: 20px;">
+              <div class="card stat-card" style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 16px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                  <span style="font-size: 12.5px; color: #94a3b8; font-weight: 600;">طلبات واردة تنتظر ردك</span>
+                  <span style="font-size: 20px;">📥</span>
+                </div>
+                <div id="exchange-overview-incoming" style="font-size: 26px; font-weight: 800; color: #f59e0b;">0</div>
+                <div style="font-size: 11.5px; color: #64748b; margin-top: 4px;">مهلة الرد 48 ساعة قبل الانتهاء</div>
+              </div>
+              <div class="card stat-card" style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 16px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                  <span style="font-size: 12.5px; color: #94a3b8; font-weight: 600;">طلباتك المرسلة المعلقة</span>
+                  <span style="font-size: 20px;">📤</span>
+                </div>
+                <div id="exchange-overview-sent" style="font-size: 26px; font-weight: 800; color: #38bdf8;">0</div>
+                <div style="font-size: 11.5px; color: #64748b; margin-top: 4px;">بانتظار قبول الطرف الآخر</div>
+              </div>
+              <div class="card stat-card" style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 16px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                  <span style="font-size: 12.5px; color: #94a3b8; font-weight: 600;">اتفاقيات نشطة قيد النشر</span>
+                  <span style="font-size: 20px;">⚡</span>
+                </div>
+                <div id="exchange-overview-active" style="font-size: 26px; font-weight: 800; color: #10b981;">0</div>
+                <div style="font-size: 11.5px; color: #64748b; margin-top: 4px;">التنفيذ يعمل آلياً بالمحرك</div>
+              </div>
+              <div class="card stat-card" style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 16px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                  <span style="font-size: 12.5px; color: #94a3b8; font-weight: 600;">إجمالي التبادلات المكتملة</span>
+                  <span style="font-size: 20px;">🎯</span>
+                </div>
+                <div id="exchange-overview-completed" style="font-size: 26px; font-weight: 800; color: #a78bfa;">0</div>
+                <div style="font-size: 11.5px; color: #64748b; margin-top: 4px;">شراكات إعلانية ناجحة</div>
+              </div>
+            </div>
+
+            <!-- How It Works Educational Banner -->
+            <div class="card" style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.9)); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 14px; padding: 20px; margin-bottom: 24px;">
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+                <span style="font-size: 22px;">💡</span>
+                <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: #fff;">كيف يعمل نظام التبادل والطلبات بين المعلنين؟</h3>
+              </div>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; font-size: 13px; color: #cbd5e1; line-height: 1.6;">
+                <div style="background: rgba(15, 23, 42, 0.6); padding: 14px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.05);">
+                  <div style="font-weight: 700; color: #38bdf8; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+                    <span>🔄</span> <span>طلب تبادل إعلاني (Exchange)</span>
+                  </div>
+                  أنت تختار قناة واحدة من قنواتك الخاصة، وترسل الطلب للمعلن المستهدف. عند موافقة المعلن، يختار قناة واحدة من قنواته في المقابل. يقوم النظام فوراً بجدولة ونشر الحملتين في القناتين بالتوازي وبأمان تام.
+                </div>
+                <div style="background: rgba(15, 23, 42, 0.6); padding: 14px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.05);">
+                  <div style="font-weight: 700; color: #f59e0b; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+                    <span>📢</span> <span>طلب نشر حملة (Campaign Request)</span>
+                  </div>
+                  أنت ترسل رابط منشور حملتك التسويقية لمعلن آخر ليقوم بنشرها على قنواته. المعلن الآخر يملك خيارين فقط: <b>قبول</b> أو <b>رفض</b>، وبمجرد القبول يقوم المحرك بنشر حملتك تلقائياً على قنواته دون أن يختار قنوات يدوياً.
+                </div>
+              </div>
+            </div>
+
+            <!-- Urgent Action Center: Pending Incoming Preview -->
+            <div class="card" style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 14px; padding: 20px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px;">
+                  <span>🔔</span>
+                  <span>طلبات حديثة تنتظر اتخاذ إجراء</span>
+                </h3>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="switchSubTab('tab-exchange-hub', 'subtab-exchange-incoming')" style="font-size: 12px; padding: 6px 12px;">
+                  عرض كافة الطلبات الواردة ←
+                </button>
+              </div>
+              <div id="exchange-overview-pending-container">
+                <div style="text-align: center; color: #64748b; padding: 24px; font-size: 13px;">جاري تحميل أحدث الطلبات...</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Subtab 2: Incoming Requests -->
+          <div id="subtab-exchange-incoming" class="subtab-pane hidden">
+            <div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px;">
+              <div>
+                <h2 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 700; color: #fff;">الطلبات الواردة إليك من معلنين آخرين</h2>
+                <p style="margin: 0; font-size: 12.5px; color: #94a3b8;">يمكنك قبول طلبات التبادل (مع اختيار قناتك) أو قبول طلبات الحملات مباشرة</p>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button type="button" class="btn btn-sm notif-filter-btn active" data-incoming-filter="all" onclick="filterExchangeIncoming('all')" style="padding: 5px 12px; font-size: 12px; border-radius: 16px;">الكل</button>
+                <button type="button" class="btn btn-sm notif-filter-btn" data-incoming-filter="exchange" onclick="filterExchangeIncoming('exchange')" style="padding: 5px 12px; font-size: 12px; border-radius: 16px;">تبادل فقط 🔄</button>
+                <button type="button" class="btn btn-sm notif-filter-btn" data-incoming-filter="campaign" onclick="filterExchangeIncoming('campaign')" style="padding: 5px 12px; font-size: 12px; border-radius: 16px;">حملات فقط 📢</button>
+              </div>
+            </div>
+            <div id="exchange-incoming-container">
+              <div style="text-align: center; color: #64748b; padding: 36px; font-size: 13px;">جاري تحميل الطلبات الواردة...</div>
+            </div>
+          </div>
+
+          <!-- Subtab 3: Sent Requests -->
+          <div id="subtab-exchange-sent" class="subtab-pane hidden">
+            <div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px;">
+              <div>
+                <h2 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 700; color: #fff;">الطلبات التي أرسلتها للمعلنين الآخرين</h2>
+                <p style="margin: 0; font-size: 12.5px; color: #94a3b8;">تتبع حالة طلباتك المعلقة وإمكانية إلغائها قبل قبولها أو انتهائها</p>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button type="button" class="btn btn-sm notif-filter-btn active" data-sent-filter="all" onclick="filterExchangeSent('all')" style="padding: 5px 12px; font-size: 12px; border-radius: 16px;">الكل</button>
+                <button type="button" class="btn btn-sm notif-filter-btn" data-sent-filter="pending" onclick="filterExchangeSent('pending')" style="padding: 5px 12px; font-size: 12px; border-radius: 16px;">قيد الانتظار</button>
+                <button type="button" class="btn btn-sm notif-filter-btn" data-sent-filter="accepted" onclick="filterExchangeSent('accepted')" style="padding: 5px 12px; font-size: 12px; border-radius: 16px;">مقبولة</button>
+                <button type="button" class="btn btn-sm notif-filter-btn" data-sent-filter="rejected" onclick="filterExchangeSent('rejected')" style="padding: 5px 12px; font-size: 12px; border-radius: 16px;">مرفوضة / ملغاة</button>
+              </div>
+            </div>
+            <div id="exchange-sent-container">
+              <div style="text-align: center; color: #64748b; padding: 36px; font-size: 13px;">جاري تحميل الطلبات المرسلة...</div>
+            </div>
+          </div>
+
+          <!-- Subtab 4: Active Agreements -->
+          <div id="subtab-exchange-active" class="subtab-pane hidden">
+            <div class="panel-header" style="margin-bottom: 16px;">
+              <h2 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 700; color: #fff;">الاتفاقيات النشطة والتنفيذ الجاري</h2>
+              <p style="margin: 0; font-size: 12.5px; color: #94a3b8;">مراقبة تنفيذ الحملات المتبادلة والتقارير المباشرة لمهام النشر</p>
+            </div>
+            <div id="exchange-active-container">
+              <div style="text-align: center; color: #64748b; padding: 36px; font-size: 13px;">جاري تحميل الاتفاقيات النشطة...</div>
+            </div>
+          </div>
+
+          <!-- Subtab 5: History & Archive -->
+          <div id="subtab-exchange-history" class="subtab-pane hidden">
+            <div class="panel-header" style="margin-bottom: 16px;">
+              <h2 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 700; color: #fff;">أرشيف الاتفاقيات السابقة وسجل التبادل</h2>
+              <p style="margin: 0; font-size: 12.5px; color: #94a3b8;">كافة الشراكات المكتملة أو المنتهية مع تفاصيل النشر وتواريخ الإنجاز</p>
+            </div>
+            <div id="exchange-history-container">
+              <div style="text-align: center; color: #64748b; padding: 36px; font-size: 13px;">جاري تحميل السجل...</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==========================================
              HUB 3: الحساب والاشتراك (Account Hub)
              ========================================== -->
         <section id="tab-account-hub" class="tab-panel hidden">
@@ -2174,7 +2370,12 @@
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
         <span>التقارير</span>
       </button>
-      <button class="bottom-nav-item" data-tab="tab-account-hub" data-route="/app/settings" onclick="navigate('/app/settings')">
+            <button class="bottom-nav-item" data-tab="tab-exchange-hub" data-route="/app/exchange" onclick="navigate('/app/exchange')">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/></svg>
+        <span>التبادل</span>
+      </button>
+
+<button class="bottom-nav-item" data-tab="tab-account-hub" data-route="/app/settings" onclick="navigate('/app/settings')">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         <span>الحساب</span>
       </button>
@@ -2455,6 +2656,159 @@
         </button>
       </div>
 
+    </div>
+  </div>
+
+  <!-- ==========================================
+       MODAL: New Exchange & Campaign Request Wizard
+       ========================================== -->
+  <div id="modal-new-exchange-request" class="modal-overlay hidden" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 99999; padding: 16px; opacity: 0; pointer-events: none; transition: all 0.3s ease;">
+    <div class="modal-card" style="background: linear-gradient(145deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.98)); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 18px; width: 100%; max-width: 580px; max-height: 90dvh; overflow-y: auto; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); direction: rtl; text-align: right;">
+      
+      <div style="padding: 18px 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 22px;">🤝</span>
+          <div>
+            <h3 style="margin: 0; font-size: 17px; font-weight: 800; color: #fff;">إنشاء طلب شراكة / تبادل إعلاني</h3>
+            <span style="font-size: 12px; color: #94a3b8;">أرسل طلب تبادل متبادل أو طلب نشر حملة لمعلن آخر</span>
+          </div>
+        </div>
+        <button type="button" onclick="closeNewExchangeModal()" style="background: none; border: none; color: #94a3b8; font-size: 24px; cursor: pointer; line-height: 1; padding: 4px 8px;">&times;</button>
+      </div>
+
+      <form id="form-new-exchange-request" onsubmit="submitNewExchangeRequest(event)" style="padding: 20px 24px; display: flex; flex-direction: column; gap: 16px;">
+        <!-- Request Type Selector -->
+        <div>
+          <label style="display: block; font-size: 13px; font-weight: 700; color: #cbd5e1; margin-bottom: 8px;">نوع الطلب المطلوب:</label>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <label class="exchange-type-card active" id="type-card-exchange" style="cursor: pointer; border: 1.5px solid #38bdf8; background: rgba(56, 189, 248, 0.1); border-radius: 10px; padding: 12px; text-align: center; transition: all 0.2s;">
+              <input type="radio" name="exchange_request_type" value="exchange" checked onchange="toggleExchangeFormType('exchange')" style="display: none;">
+              <div style="font-size: 20px; margin-bottom: 4px;">🔄</div>
+              <strong style="display: block; font-size: 13px; color: #fff;">تبادل إعلاني متبادل</strong>
+              <span style="font-size: 11px; color: #94a3b8;">أعرض قناتي مقابل قناته</span>
+            </label>
+            <label class="exchange-type-card" id="type-card-campaign" style="cursor: pointer; border: 1.5px solid rgba(255, 255, 255, 0.1); background: rgba(15, 23, 42, 0.6); border-radius: 10px; padding: 12px; text-align: center; transition: all 0.2s;">
+              <input type="radio" name="exchange_request_type" value="campaign" onchange="toggleExchangeFormType('campaign')" style="display: none;">
+              <div style="font-size: 20px; margin-bottom: 4px;">📢</div>
+              <strong style="display: block; font-size: 13px; color: #fff;">طلب نشر حملة</strong>
+              <span style="font-size: 11px; color: #94a3b8;">ينشر حملتي على قنواته</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Target Advertiser Selector -->
+        <div>
+          <label for="select-target-advertiser" style="display: block; font-size: 13px; font-weight: 700; color: #cbd5e1; margin-bottom: 6px;">🎯 المعلن المستهدف:</label>
+          <select id="select-target-advertiser" required style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; color: #fff; font-size: 13.5px; box-sizing: border-box;">
+            <option value="" disabled selected>-- اختر معلناً من القائمة المتاحة --</option>
+          </select>
+          <span style="font-size: 11px; color: #64748b; margin-top: 4px; display: block;">فقط المعلنون أصحاب الحسابات النشطة والموثوقة</span>
+        </div>
+
+        <!-- Dynamic Field 1: Exchange -> Select MY Channel -->
+        <div id="box-field-my-channel">
+          <label for="select-my-exchange-channel" style="display: block; font-size: 13px; font-weight: 700; color: #cbd5e1; margin-bottom: 6px;">📢 قناتك المعروضة للتبادل (اختر قناة واحدة):</label>
+          <select id="select-my-exchange-channel" style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; color: #fff; font-size: 13.5px; box-sizing: border-box;">
+            <option value="" disabled selected>-- اختر إحدى قنواتك النشطة --</option>
+          </select>
+          <span style="font-size: 11px; color: #64748b; margin-top: 4px; display: block;">لا يمكنك اختيار قنوات الطرف الآخر؛ ستختار قناتك الخاصة فقط، والطرف الآخر سيختار قناته عند الموافقة.</span>
+        </div>
+
+        <!-- Dynamic Field 2: Campaign -> Input Campaign URL -->
+        <div id="box-field-campaign-url" class="hidden">
+          <label for="input-exchange-campaign-url" style="display: block; font-size: 13px; font-weight: 700; color: #cbd5e1; margin-bottom: 6px;">🔗 رابط منشور الحملة المطلوب نشرها:</label>
+          <input type="url" id="input-exchange-campaign-url" placeholder="https://t.me/channel_username/123 أو https://t.me/c/..." dir="ltr" style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; color: #fff; font-size: 13.5px; box-sizing: border-box;">
+          <span style="font-size: 11px; color: #64748b; margin-top: 4px; display: block;">رابط تيليجرام مباشر (t.me). سيتم التقاط نسخة ثابتة للحملة وتشغيلها على قنوات المعلن الآخر فور قبوله.</span>
+        </div>
+
+        <!-- Proposal Message Textarea -->
+        <div>
+          <label for="textarea-exchange-proposal-msg" style="display: block; font-size: 13px; font-weight: 700; color: #cbd5e1; margin-bottom: 6px;">💬 رسالة العرض أو الشروط المقترحة (اختياري):</label>
+          <textarea id="textarea-exchange-proposal-msg" rows="3" maxlength="500" placeholder="اكتب تفاصيل إضافية للمعلن، مثل أوقات النشر المفضلة، أو نوع المحتوى..." style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; color: #fff; font-size: 13px; box-sizing: border-box; resize: vertical;"></textarea>
+          <div style="display: flex; justify-content: space-between; font-size: 11px; color: #64748b; margin-top: 4px;">
+            <span>أقصى حد: 500 حرف</span>
+            <span id="char-count-proposal">0 / 500</span>
+          </div>
+        </div>
+
+        <div id="exchange-form-error" style="display: none; color: #f87171; font-size: 12.5px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); padding: 8px 12px; border-radius: 6px;"></div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 16px;">
+          <button type="button" onclick="closeNewExchangeModal()" class="btn btn-secondary" style="padding: 9px 18px; font-size: 13px;">إلغاء</button>
+          <button type="submit" id="btn-submit-exchange-req" class="btn btn-primary" style="padding: 10px 24px; font-size: 13.5px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+            <span class="btn-text">إرسال الطلب الآن 🚀</span>
+            <span class="spinner hidden"></span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       MODAL: Accept Exchange / Campaign Request
+       ========================================== -->
+  <div id="modal-accept-exchange" class="modal-overlay hidden" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 99999; padding: 16px; opacity: 0; pointer-events: none; transition: all 0.3s ease;">
+    <div class="modal-card" style="background: linear-gradient(145deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.98)); border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 18px; width: 100%; max-width: 540px; max-height: 90dvh; overflow-y: auto; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); direction: rtl; text-align: right;">
+      
+      <div style="padding: 18px 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 24px;">✅</span>
+          <div>
+            <h3 style="margin: 0; font-size: 17px; font-weight: 800; color: #fff;">قبول طلب الشراكة والبدء</h3>
+            <span id="accept-modal-subtitle" style="font-size: 12px; color: #10b981;">الموافقة على الطلب وجدولة التنفيذ آلياً</span>
+          </div>
+        </div>
+        <button type="button" onclick="closeAcceptExchangeModal()" style="background: none; border: none; color: #94a3b8; font-size: 24px; cursor: pointer; line-height: 1; padding: 4px 8px;">&times;</button>
+      </div>
+
+      <div style="padding: 20px 24px; display: flex; flex-direction: column; gap: 14px;">
+        <input type="hidden" id="accept-target-request-id">
+        <input type="hidden" id="accept-target-request-type">
+
+        <!-- Summary of the received request -->
+        <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-size: 12px; color: #94a3b8;">المرسل:</span>
+            <strong id="accept-summary-sender" style="color: #38bdf8; font-size: 13px;">-</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-size: 12px; color: #94a3b8;">نوع الطلب:</span>
+            <span id="accept-summary-type" class="badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-size: 11px;">-</span>
+          </div>
+          <div id="accept-summary-target-box" style="margin-bottom: 8px;">
+            <span style="font-size: 12px; color: #94a3b8; display: block; margin-bottom: 2px;">المحتوى / القناة المقترحة:</span>
+            <div id="accept-summary-target-val" style="background: rgba(0, 0, 0, 0.3); padding: 6px 10px; border-radius: 6px; font-size: 12.5px; color: #f8fafc; word-break: break-all; font-family: monospace;">-</div>
+          </div>
+          <div id="accept-summary-message-box">
+            <span style="font-size: 12px; color: #94a3b8; display: block; margin-bottom: 2px;">رسالة المعلن:</span>
+            <div id="accept-summary-message-val" style="font-size: 12.5px; color: #cbd5e1; font-style: italic;">لا توجد ملاحظات إضافية</div>
+          </div>
+        </div>
+
+        <!-- Conditional Input: Exchange Requires picking B's channel -->
+        <div id="accept-exchange-channel-selection-box">
+          <label for="select-accept-my-channel" style="display: block; font-size: 13px; font-weight: 700; color: #cbd5e1; margin-bottom: 6px;">📢 اختر قناتك التي توافق على النشر المتبادل فيها:</label>
+          <select id="select-accept-my-channel" style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; color: #fff; font-size: 13.5px; box-sizing: border-box;">
+            <option value="" disabled selected>-- اختر إحدى قنواتك النشطة للتبادل --</option>
+          </select>
+          <span style="font-size: 11.5px; color: #10b981; margin-top: 4px; display: block;">✓ سيتم نشر إعلانك في قناة الطرف الآخر، ونشر إعلانه في قناتك هذه آلياً.</span>
+        </div>
+
+        <!-- Conditional Info: Campaign Request has NO channel picker -->
+        <div id="accept-campaign-no-channel-box" class="hidden" style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 10px; padding: 12px 14px; font-size: 12.5px; color: #a7f3d0; line-height: 1.5;">
+          📢 <b>تأكيد نشر الحملة:</b> بالضغط على زر القبول أدناه، سيتم إطلاق ونشر رابط حملة هذا المعلن على قنواتك التابعة للمحرك فوراً، ولا تحتاج لاختيار أي قنوات يدوياً.
+        </div>
+
+        <div id="accept-modal-error" style="display: none; color: #f87171; font-size: 12.5px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); padding: 8px 12px; border-radius: 6px;"></div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 16px;">
+          <button type="button" onclick="closeAcceptExchangeModal()" class="btn btn-secondary" style="padding: 9px 18px; font-size: 13px;">إلغاء</button>
+          <button type="button" id="btn-confirm-accept-exchange" onclick="executeConfirmAcceptExchange()" class="btn btn-primary" style="padding: 10px 24px; font-size: 13.5px; font-weight: 700; background: linear-gradient(135deg, #10b981, #059669); border: none; display: inline-flex; align-items: center; gap: 6px;">
+            <span class="btn-text">تأكيد القبول والبدء 🚀</span>
+            <span class="spinner hidden"></span>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 
