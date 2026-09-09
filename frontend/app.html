@@ -573,10 +573,6 @@
         </div>
 
         <section id="tab-subscription" class="tab-panel">
-          <div class="panel-header compact-sub-header">
-            <h2 class="panel-title">ملخص الاشتراك وحالة المحرك</h2>
-          </div>
-
           <!-- Onboarding Checklist (Compact - Auto hides on 5/5 completion) -->
           <div id="onboarding-checklist-card" class="onboarding-checklist-card hidden">
             <div class="onboarding-header">
@@ -599,61 +595,61 @@
           </div>
           
           <!-- Cloud Campaign Control Panel with Integrated Compact Status Bar -->
-          <div id="campaign-panel-card" class="card campaign-panel-card" style="margin-top: 16px; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
-              <div style="display: flex; align-items: center; gap: 12px;">
-                <span style="font-size: 24px;">🕹️</span>
+          <div id="campaign-panel-card" class="card campaign-panel-card">
+            <div class="campaign-panel-header-wrap">
+              <div class="campaign-panel-title-box">
+                <span class="panel-icon">🕹️</span>
                 <div>
-                  <h3 class="card-title" style="margin: 0; font-size: 18px; color: #fff;">لوحة التحكم وإطلاق الحملات السحابية</h3>
-                  <p class="card-subtitle" style="color: #94a3b8; font-size: 12px; margin: 0; margin-top: 2px;">جدول وأطلق حملاتك بتأخيرات آمنة ونظام حذف آلي ذكي.</p>
+                  <h3 class="panel-heading">لوحة التحكم وإطلاق الحملات</h3>
+                  <p class="panel-desc">جدول وأطلق حملاتك بتأخيرات آمنة ونظام حذف آلي ذكي</p>
                 </div>
               </div>
               
-              <!-- Unified Compact Summary Bar (Engine + Proxy + Subscription) -->
-              <div class="account-status-bar engine-card compact-dashboard-summary-bar" style="background: rgba(15, 23, 42, 0.85); padding: 8px 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; gap: 12px; font-size: 12.5px; flex-wrap: wrap;">
+              <!-- Micro Summary Capsule Bar (Engine + Proxy + Plan + Assistant) -->
+              <div class="account-status-bar engine-card subscription-summary-card compact-dashboard-summary-bar">
                 
                 <!-- 1. Engine Status -->
-                <div style="display: flex; align-items: center; gap: 6px; cursor: pointer;" onclick="navigateToRoute('/app/health')" title="عرض تفاصيل صحة المحرك">
-                  <span style="color: #94a3b8; font-size: 11.5px; font-weight: 600;">حالة المحرك:</span>
-                  <span id="account-status-dot" class="status-dot-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #64748b; display: inline-block;"></span>
-                  <span id="campaign-account-name" style="color: #fff; font-weight: 700; font-size: 12px;">جاري الفحص...</span>
-                  <span id="bot-status-display" style="display: none;">جاري الاستعلام...</span>
+                <div class="summary-pill engine-pill" onclick="navigateToRoute('/app/health')" title="فحص صحة المحرك السحابي">
+                  <span id="account-status-dot" class="status-dot-indicator"></span>
+                  <span class="pill-icon">⚡</span>
+                  <span id="campaign-account-name" class="pill-txt">جاري الفحص...</span>
+                  <span id="bot-status-display" style="display: none;"></span>
                 </div>
 
-                <button id="btn-link-status-bot" type="button" class="btn-link-bot-pill" title="المساعد الإشعاري" style="padding: 3px 8px; font-size: 11px; background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.3); border-radius: 6px; color: #60a5fa; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
-                  <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-                  <span>المساعد 🔔</span>
+                <!-- Bot Assistant Button -->
+                <button id="btn-link-status-bot" type="button" class="summary-pill-btn" title="المساعد الإشعاري للتنبيهات">
+                  <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                  <span>المساعد</span>
                 </button>
 
                 <!-- Divider -->
-                <span style="width: 1px; height: 16px; background: rgba(255,255,255,0.1);"></span>
+                <span class="summary-divider"></span>
 
                 <!-- 2. Proxy Status -->
-                <div id="proxy-status-container" style="display: flex; align-items: center; gap: 5px;">
-                  <span id="proxy-status-dot" style="width: 7px; height: 7px; border-radius: 50%; background: #64748b; display: inline-block;"></span>
-                  <span id="campaign-proxy-name" style="color: #94a3b8; font-size: 11.5px;">الوكيل (Proxy)</span>
+                <div id="proxy-status-container" class="summary-pill proxy-pill" title="حالة الوكيل (Proxy)">
+                  <span id="proxy-status-dot" class="status-dot-indicator"></span>
+                  <span class="pill-icon">🌐</span>
+                  <span id="campaign-proxy-name" class="pill-txt">الوكيل</span>
                 </div>
 
                 <!-- Divider -->
-                <span style="width: 1px; height: 16px; background: rgba(255,255,255,0.1);"></span>
+                <span class="summary-divider"></span>
 
                 <!-- 3. Plan & Validity -->
-                <div style="display: flex; align-items: center; gap: 6px;">
-                  <span style="color: #94a3b8; font-size: 11.5px; font-weight: 600;">الباقة:</span>
-                  <span id="sub-status-badge" class="status-badge" style="font-size: 11px; padding: 2px 7px; border-radius: 6px;">جاري التحميل...</span>
-                  <span id="plan-duration-display" class="plan-name-text" style="font-weight: 700; color: #fff; font-size: 12px;">--</span>
-                  <div style="display: inline-flex; align-items: center; gap: 4px; background: rgba(30,41,59,0.7); border: 1px solid rgba(255,255,255,0.08); padding: 2px 7px; border-radius: 6px;">
-                    <span style="font-size: 11px;">⏳</span>
-                    <span id="remaining-days-count" class="font-mono" style="font-weight: 700; color: #38bdf8; font-size: 12px;">--</span>
-                    <span style="font-size: 10.5px; color: #94a3b8;">يوم متبقي</span>
-                  </div>
+                <div class="summary-pill plan-pill" title="تفاصيل باقة الاشتراك والمتبقي">
+                  <span class="pill-icon">👑</span>
+                  <span id="plan-duration-display" class="pill-txt font-bold">--</span>
+                  <span id="sub-status-badge" class="status-badge" style="display: none;"></span>
+                  <span class="pill-sep">•</span>
+                  <span class="pill-icon">⏳</span>
+                  <span id="remaining-days-count" class="pill-days font-mono">--</span>
+                  <span class="pill-unit">يوم</span>
                 </div>
 
                 <!-- Hidden elements to preserve 100% JS logic -->
                 <span id="end-date-display" style="display: none;">--</span>
                 <span id="start-date-display" style="display: none;">--</span>
                 <svg width="0" height="0" style="position: absolute; visibility: hidden;"><circle id="countdown-ring" r="70"></circle></svg>
-
               </div>
             </div>
 
