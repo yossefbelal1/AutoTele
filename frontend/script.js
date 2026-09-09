@@ -245,19 +245,18 @@ const ROUTE_CONFIG = {
   "/app/engines/connect": { tabId: "tab-engine-hub", subtabId: "subtab-engine-connect", title: "معالج ربط المحرك" },
   "/app/templates": { tabId: "tab-engine-hub", subtabId: "subtab-engine-templates", title: "مكتبة الصيغ والتسويق" },
 
-  // HUB 2: مركز التقارير والنشاط
-  "/app/reports": { tabId: "tab-reports", subtabId: "subtab-campaigns", title: "مركز التقارير والنشاط" },
-  "/app/campaigns": { tabId: "tab-reports", subtabId: "subtab-campaigns", title: "سجل الحملات والتقارير" },
-  "/app/analytics": { tabId: "tab-reports", subtabId: "subtab-analytics", title: "التحليلات ومؤشرات الأداء" },
-  "/app/notifications": { tabId: "tab-reports", subtabId: "subtab-notifications", title: "مركز الإشعارات والتنبيهات" },
+  // HUB 3: إدارة الحساب والتقارير والنشاط
+  "/app/reports": { tabId: "tab-account-hub", subtabId: "subtab-account-reports", branchId: "branch-campaigns", title: "التقارير وسجل النشاط" },
+  "/app/campaigns": { tabId: "tab-account-hub", subtabId: "subtab-account-reports", branchId: "branch-campaigns", title: "سجل الحملات والتقارير" },
+  "/app/analytics": { tabId: "tab-account-hub", subtabId: "subtab-account-reports", branchId: "branch-analytics", title: "التحليلات ومؤشرات الأداء" },
+  "/app/notifications": { tabId: "tab-account-hub", subtabId: "subtab-account-reports", branchId: "branch-notifications", title: "مركز الإشعارات والتنبيهات" },
 
-  // HUB 3: الحساب والاشتراك
-  "/app/settings": { tabId: "tab-account-hub", subtabId: "subtab-account-profile", title: "الحساب والاشتراك" },
-  "/app/account": { tabId: "tab-account-hub", subtabId: "subtab-account-profile", title: "الحساب والاشتراك" },
+  "/app/settings": { tabId: "tab-account-hub", subtabId: "subtab-account-profile", title: "إدارة الحساب" },
+  "/app/account": { tabId: "tab-account-hub", subtabId: "subtab-account-profile", title: "إدارة الحساب" },
   "/app/settings/profile": { tabId: "tab-account-hub", subtabId: "subtab-account-profile", title: "الملف الشخصي والإعدادات" },
   "/app/profile": { tabId: "tab-account-hub", subtabId: "subtab-account-profile", title: "الملف الشخصي والإعدادات" },
-  "/app/billing": { tabId: "tab-account-hub", subtabId: "subtab-account-billing", title: "الخطط والترقية والدفع" },
-  "/app/plans": { tabId: "tab-account-hub", subtabId: "subtab-account-billing", title: "الخطط والترقية والدفع" }
+  "/app/billing": { tabId: "tab-account-hub", subtabId: "subtab-account-billing", title: "الخطط والاشتراك والدفع" },
+  "/app/plans": { tabId: "tab-account-hub", subtabId: "subtab-account-billing", title: "الخطط والاشتراك والدفع" }
 };
 
 const TAB_TO_ROUTE_MAP = {
@@ -285,6 +284,7 @@ const SUBTAB_TO_ROUTE_MAP = {
   "subtab-campaigns": "/app/campaigns",
   "subtab-analytics": "/app/analytics",
   "subtab-notifications": "/app/notifications",
+  "subtab-account-reports": "/app/reports",
   "subtab-account-profile": "/app/settings/profile",
   "subtab-account-billing": "/app/billing",
   "subtab-exchange-overview": "/app/exchange/overview",
@@ -292,6 +292,63 @@ const SUBTAB_TO_ROUTE_MAP = {
   "subtab-exchange-sent": "/app/exchange/sent",
   "subtab-exchange-active": "/app/exchange/active",
   "subtab-exchange-history": "/app/exchange/history"
+};
+
+const BRANCH_TO_ROUTE_MAP = {
+  "branch-campaigns": "/app/campaigns",
+  "branch-analytics": "/app/analytics",
+  "branch-notifications": "/app/notifications"
+};
+
+window.switchReportsBranch = function(branchId, pushState = true) {
+  const container = document.getElementById("subtab-account-reports");
+  if (!container) return;
+
+  const validBranch = branchId || "branch-campaigns";
+
+  // Toggle branch button active states
+  container.querySelectorAll(".reports-branch-btn").forEach(btn => {
+    if (btn.getAttribute("data-branch") === validBranch) {
+      btn.classList.add("active");
+    } else {
+      btn.classList.remove("active");
+    }
+  });
+
+  // Toggle branch pane visibility
+  const rawTargetId = "branch-pane-" + validBranch.replace("branch-", "");
+  container.querySelectorAll(".reports-branch-pane").forEach(pane => {
+    if (pane.id === rawTargetId) {
+      pane.classList.remove("hidden");
+    } else {
+      pane.classList.add("hidden");
+    }
+  });
+
+  const branchRoute = BRANCH_TO_ROUTE_MAP[validBranch];
+  if (branchRoute) {
+    const routeInfo = ROUTE_CONFIG[branchRoute];
+    const title = routeInfo ? routeInfo.title : document.title;
+    if (pushState && window.location.pathname !== branchRoute) {
+      window.history.pushState({ route: branchRoute }, title, branchRoute);
+    }
+    const desktopTitle = document.getElementById("desktop-page-title");
+    if (desktopTitle) desktopTitle.textContent = title;
+    const mobileTitle = document.getElementById("mobile-page-title");
+    if (mobileTitle) mobileTitle.textContent = title;
+    document.title = `${title} | AutoTele Enterprise`;
+  }
+
+  // Trigger data loaders for selected branch
+  if (validBranch === "branch-campaigns") {
+    if (typeof loadCampaignsHistory === "function") loadCampaignsHistory();
+  } else if (validBranch === "branch-analytics") {
+    if (typeof loadAnalyticsData === "function") loadAnalyticsData();
+    if (typeof loadCampaignChannelsAnalytics === "function") loadCampaignChannelsAnalytics();
+  } else if (validBranch === "branch-notifications") {
+    if (typeof loadNotificationsPage === "function") loadNotificationsPage();
+    if (typeof loadEventLogs === "function") loadEventLogs();
+  }
 };
 
 window.switchSubTab = function(parentTabId, subtabId, pushState = true) {
@@ -348,6 +405,10 @@ window.switchSubTab = function(parentTabId, subtabId, pushState = true) {
     loadUserProfile();
   } else if (subtabId === "subtab-account-billing") {
     loadReceiveWalletAddress();
+  } else if (subtabId === "subtab-account-reports") {
+    const activeBtn = document.querySelector("#reports-branches-bar .reports-branch-btn.active");
+    const activeBranch = activeBtn ? activeBtn.getAttribute("data-branch") : "branch-campaigns";
+    switchReportsBranch(activeBranch, false);
   } else if (subtabId === "subtab-exchange-overview") {
     loadExchangeOverview();
   } else if (subtabId === "subtab-exchange-incoming") {
@@ -401,7 +462,7 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
     normalizedRoute = "/app";
   }
 
-  const { tabId, subtabId, title, scrollTo } = ROUTE_CONFIG[normalizedRoute];
+  const { tabId, subtabId, branchId, title, scrollTo } = ROUTE_CONFIG[normalizedRoute];
 
   // Hide all tab panels
   const panels = document.querySelectorAll(".tab-panel");
@@ -418,6 +479,11 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
     switchSubTab(tabId, subtabId, false);
   }
 
+  // If this route specifies a reports branch, activate it!
+  if (branchId) {
+    switchReportsBranch(branchId, false);
+  }
+
   if (campaignModalId && window.openCampaignDetailsModal) {
     setTimeout(() => window.openCampaignDetailsModal(campaignModalId), 250);
   }
@@ -430,7 +496,6 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
       const isParentMatch = d === tabId;
       const isRouteMatch = r === normalizedRoute || 
         (r === "/app/engines" && tabId === "tab-engine-hub") || 
-        (r === "/app/reports" && tabId === "tab-reports") || 
         (r === "/app/settings" && tabId === "tab-account-hub") ||
         (r === "/app/exchange" && tabId === "tab-exchange-hub");
       if (isParentMatch || isRouteMatch) t.classList.add("active");
@@ -449,8 +514,7 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
     const compactTitles = {
       "tab-subscription": "لوحة التحكم",
       "tab-engine-hub": "إدارة المحرك",
-      "tab-reports": "التقارير والنشاط",
-      "tab-account-hub": "الحساب والاشتراك",
+      "tab-account-hub": "إدارة الحساب",
       "tab-exchange-hub": "تبادل الإعلانات"
     };
     mobileTitle.textContent = compactTitles[tabId] || title;
@@ -4092,7 +4156,9 @@ function renderNotifications(notifications, unreadCount) {
     drawerBadge,
     document.getElementById("sidebar-reports-badge"),
     document.getElementById("drawer-reports-badge"),
-    document.getElementById("subtab-notif-badge")
+    document.getElementById("subtab-notif-badge"),
+    document.getElementById("subtab-account-reports-badge"),
+    document.getElementById("branch-notif-badge")
   ];
   allBadges.forEach(badge => {
     if (badge) {
@@ -4144,10 +4210,12 @@ function renderNotifications(notifications, unreadCount) {
   if (listMobile) listMobile.innerHTML = dropdownHtml;
 
   // If user is currently on the full notification center page, refresh it too
-  const notifPane = document.getElementById("subtab-notifications") || document.getElementById("tab-notifications");
-  const reportsTab = document.getElementById("tab-reports");
-  const isReportsVisible = reportsTab && !reportsTab.classList.contains("hidden");
-  if (notifPane && !notifPane.classList.contains("hidden") && isReportsVisible) {
+  const notifPane = document.getElementById("branch-pane-notifications") || document.getElementById("subtab-notifications") || document.getElementById("tab-notifications");
+  const accountTab = document.getElementById("tab-account-hub");
+  const isAccountVisible = accountTab && !accountTab.classList.contains("hidden");
+  const reportsSubtab = document.getElementById("subtab-account-reports");
+  const isReportsSubtabVisible = reportsSubtab && !reportsSubtab.classList.contains("hidden");
+  if (notifPane && !notifPane.classList.contains("hidden") && isAccountVisible && isReportsSubtabVisible) {
     loadNotificationsPage(currentNotifCategory);
   }
 }

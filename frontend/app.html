@@ -408,20 +408,14 @@
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
             <span>إدارة المحرك السحابي</span>
           </button>
-          <button class="drawer-nav-item" data-tab="tab-reports" data-route="/app/reports" onclick="navigate('/app/reports'); closeMobileDrawer();">
           <button class="drawer-nav-item" data-tab="tab-exchange-hub" data-route="/app/exchange" onclick="navigate('/app/exchange'); closeMobileDrawer();">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/></svg>
             <span>التبادل بين المعلنين</span>
             <span class="badge notif-sidebar-badge hidden" id="drawer-exchange-badge" style="margin-right: auto; background: #38bdf8; color: #0f172a; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 10px;">0</span>
           </button>
-
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
-            <span>التقارير والنشاط</span>
-            <span class="badge notif-sidebar-badge hidden" id="drawer-reports-badge" style="margin-right: auto; background: #ef4444; color: #fff; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 10px;">0</span>
-          </button>
           <button class="drawer-nav-item" data-tab="tab-account-hub" data-route="/app/settings" onclick="navigate('/app/settings'); closeMobileDrawer();">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            <span>الحساب والاشتراك</span>
+            <span>إدارة الحساب</span>
           </button>
         </div>
 
@@ -490,20 +484,14 @@
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
             <span>إدارة المحرك السحابي</span>
           </button>
-          <button class="nav-tab" data-tab="tab-reports" data-route="/app/reports">
           <button class="nav-tab" data-tab="tab-exchange-hub" data-route="/app/exchange">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/></svg>
             <span>التبادل بين المعلنين</span>
             <span class="badge notif-sidebar-badge hidden" id="sidebar-exchange-badge" style="margin-right: auto; background: #38bdf8; color: #0f172a; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 10px;">0</span>
           </button>
-
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
-            <span>التقارير والنشاط</span>
-            <span class="badge notif-sidebar-badge hidden" id="sidebar-reports-badge" style="margin-right: auto; background: #ef4444; color: #fff; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 10px;">0</span>
-          </button>
           <button class="nav-tab" data-tab="tab-account-hub" data-route="/app/settings">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            <span>الحساب والاشتراك</span>
+            <span>إدارة الحساب</span>
           </button>
           <button class="nav-tab hidden" id="admin-nav-tab" onclick="window.location.href='/admin'">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
@@ -1644,299 +1632,7 @@
           </div>
         </section>
 
-        <!-- ==========================================
-             HUB 2: مركز التقارير والنشاط (Reports Hub)
-             ========================================== -->
-        <section id="tab-reports" class="tab-panel hidden">
-          <div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px;">
-            <div>
-              <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0;">
-                <span>📊</span>
-                <span>مركز التقارير والنشاط</span>
-              </h1>
-              <p class="panel-subtitle" style="margin: 0;">أرشيف الحملات المكتملة، التحليلات ومعدلات الوصول، وسجل الإشعارات والتنبيهات</p>
-            </div>
-          </div>
-
-          <!-- Reports Sub-Tabs Bar -->
-          <div class="subtabs-nav-bar" id="subtabs-reports">
-            <button type="button" class="subtab-btn active" data-subtab="subtab-campaigns" onclick="switchSubTab('tab-reports', 'subtab-campaigns')">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-              <span>سجل الحملات والتقارير</span>
-            </button>
-            <button type="button" class="subtab-btn" data-subtab="subtab-analytics" onclick="switchSubTab('tab-reports', 'subtab-analytics')">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
-              <span>التحليلات ومؤشرات الأداء</span>
-            </button>
-            <button type="button" class="subtab-btn" data-subtab="subtab-notifications" onclick="switchSubTab('tab-reports', 'subtab-notifications')">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-              <span>مركز الإشعارات</span>
-              <span class="badge notif-subtab-badge hidden" id="subtab-notif-badge" style="background: #ef4444; color: #fff; font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 10px; margin-right: 4px;">0</span>
-            </button>
-          </div>
-
-          <!-- Subtab 1: Campaign History -->
-          <div id="subtab-campaigns" class="subtab-pane">
-            <div id="tab-campaigns">
-<div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px;">
-            <div>
-              <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0;">
-                <span>📢</span>
-                <span>سجل الحملات والتقارير المتقدمة</span>
-              </h1>
-              <p class="panel-subtitle" style="margin: 0;">أرشيف تفصيلي لجميع حملات النشر المنفذة، نسبة الوصول، والجدول الزمني</p>
-            </div>
-            
-            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-              <button type="button" class="btn btn-primary btn-sm" onclick="scrollToCampaignForm()" style="padding: 8px 16px; font-size: 13px; border-radius: 8px; font-weight: 700;">
-                <span>🚀 إطلاق حملة جديدة</span>
-              </button>
-              <button type="button" id="btn-refresh-campaigns" class="btn btn-secondary btn-sm" onclick="loadCampaignsHistory(currentCampaignFilter, true)" style="padding: 8px 14px; font-size: 13px; border-radius: 8px; font-weight: 600;">
-                <span>🔄 تحديث</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Campaign Filters Bar -->
-          <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 12px;">
-            <div class="notif-filter-bar" style="display: flex; gap: 8px; overflow-x: auto;">
-              <button type="button" class="btn btn-sm notif-filter-btn active" data-filter="all" onclick="filterCampaignsList('all')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">الكل (<span id="campaigns-count-all">0</span>)</button>
-              <button type="button" class="btn btn-sm notif-filter-btn" data-filter="active" onclick="filterCampaignsList('active')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">النشطة حالياً (<span id="campaigns-count-active">0</span>)</button>
-              <button type="button" class="btn btn-sm notif-filter-btn" data-filter="completed" onclick="filterCampaignsList('completed')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">المكتملة بنجاح (<span id="campaigns-count-completed">0</span>)</button>
-              <button type="button" class="btn btn-sm notif-filter-btn" data-filter="failed" onclick="filterCampaignsList('failed')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">المتعذرة أو الملغاة (<span id="campaigns-count-failed">0</span>)</button>
-            </div>
-
-            <div style="display: flex; align-items: center; gap: 8px; min-width: 240px;">
-              <input type="text" id="campaign-search-input" placeholder="بحث في نص أو رابط الحملة..." oninput="debounceCampaignSearch()" style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 6px 12px; border-radius: 8px; font-size: 12.5px; width: 100%;">
-            </div>
-          </div>
-
-          <!-- Campaigns Table Container -->
-          <div class="campaign-table-container">
-            <table class="campaign-history-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>نوع الحملة</th>
-                  <th>نص الإعلان أو الرابط</th>
-                  <th>القنوات والتقدم</th>
-                  <th>الحالة</th>
-                  <th>تاريخ الإطلاق</th>
-                  <th>التقرير</th>
-                </tr>
-              </thead>
-              <tbody id="campaigns-table-body">
-                <tr>
-                  <td colspan="7" style="text-align: center; padding: 40px; color: #94a3b8;">
-                    <div class="spinner" style="margin: 0 auto 10px auto;"></div>
-                    <span>جاري تحميل سجل الحملات...</span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <!-- Mobile Cards Container (Shown on small screens) -->
-          <div id="campaigns-mobile-cards-container" class="mobile-only" style="display: none; flex-direction: column; gap: 12px; margin-top: 14px;">
-            <!-- Mobile cards rendered via JS -->
-          </div>
-            </div>
-          </div>
-
-          <!-- Subtab 2: Analytics -->
-          <div id="subtab-analytics" class="subtab-pane hidden">
-            <div id="tab-analytics">
-<div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px;">
-            <div>
-              <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0;">
-                <span>📊</span>
-                <span>مركز التحليلات وإحصائيات الأداء</span>
-              </h1>
-              <p class="panel-subtitle" style="margin: 0;">أرقام حقيقية موثوقة ومباشرة من قاعدة البيانات وسجلات النشر الفعلية</p>
-            </div>
-            
-            <button type="button" id="btn-refresh-analytics" class="btn btn-secondary btn-sm" onclick="loadAnalyticsData(true)" style="padding: 8px 14px; font-size: 13px; border-radius: 8px; font-weight: 600;">
-              <span>🔄 تحديث الأرقام</span>
-            </button>
-          </div>
-
-          <!-- 4 Core Metric Cards -->
-          <div class="analytics-metrics-grid">
-            <div class="metric-box">
-              <div class="metric-box-header">
-                <span class="metric-box-title">إجمالي الحملات</span>
-                <span class="metric-box-icon">📢</span>
-              </div>
-              <div class="metric-box-value" id="metric-total-campaigns">0</div>
-              <p class="metric-box-sub" id="metric-sub-campaigns">جميع مهام النشر المجدولة</p>
-            </div>
-
-            <div class="metric-box">
-              <div class="metric-box-header">
-                <span class="metric-box-title">نسبة النجاح الفعلية</span>
-                <span class="metric-box-icon">🎯</span>
-              </div>
-              <div class="metric-box-value" id="metric-success-rate" style="color: #10b981;">100%</div>
-              <p class="metric-box-sub">معدل الحملات المكتملة بنجاح</p>
-            </div>
-
-            <div class="metric-box">
-              <div class="metric-box-header">
-                <span class="metric-box-title">الرسائل المنشورة</span>
-                <span class="metric-box-icon">✉️</span>
-              </div>
-              <div class="metric-box-value" id="metric-total-messages">0</div>
-              <p class="metric-box-sub">إجمالي الإعلانات بالقنوات</p>
-            </div>
-
-            <div class="metric-box">
-              <div class="metric-box-header">
-                <span class="metric-box-title">وصول القنوات الفريد</span>
-                <span class="metric-box-icon">📡</span>
-              </div>
-              <div class="metric-box-value" id="metric-unique-channels">0</div>
-              <p class="metric-box-sub">قنوات ومجموعات تم الوصول لها</p>
-            </div>
-          </div>
-
-          <!-- 7-Day Activity Chart Card -->
-          <div class="analytics-chart-card">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
-              <div>
-                <h3 style="margin: 0 0 4px 0; font-size: 15px; font-weight: 700; color: #fff;">نشاط النشر والحملات خلال آخر 7 أيام</h3>
-                <p style="margin: 0; font-size: 12.5px; color: #94a3b8;">معدل الرسائل والمهام اليومية المنفذة في قنواتك</p>
-              </div>
-              <div style="display: flex; align-items: center; gap: 12px; font-size: 11.5px; color: #94a3b8;">
-                <span style="display: flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; background: #38bdf8; border-radius: 2px;"></span> الرسائل</span>
-              </div>
-            </div>
-
-            <div class="analytics-bars-wrap" id="analytics-chart-bars">
-              <!-- Rendered via JS -->
-            </div>
-          </div>
-
-          <!-- Campaign Folder Channels Growth & Performance Card -->
-          <div class="card campaign-channels-analytics-card" style="margin-top: 24px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 24px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
-              <div>
-                <h3 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px;">
-                  <span>📁</span>
-                  <span>أداء قنوات مجلد "حملات" ومعدل النمو</span>
-                  <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 11px; padding: 2px 8px; border-radius: 10px;">مجلد حملات فقط</span>
-                </h3>
-                <p style="margin: 0; font-size: 12.5px; color: #94a3b8;">متابعة فورية لعدد المشتركين الفعلي ومعدل نمو الأعضاء الجدد المنضمين اليوم لكل قناة داخل مجلد حملات</p>
-              </div>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="loadCampaignChannelsAnalytics(true)" id="btn-refresh-campaign-channels" style="padding: 6px 12px; font-size: 12px; border-radius: 8px;">
-                <span>🔄 تحديث القنوات</span>
-              </button>
-            </div>
-
-            <!-- Summary metrics for folder 'حملات' -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px;">
-              <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 14px;">
-                <div style="font-size: 12px; color: #94a3b8; margin-bottom: 4px;">قنوات مجلد حملات</div>
-                <div style="font-size: 22px; font-weight: 800; color: #38bdf8;" id="folder-channels-count">0</div>
-              </div>
-              <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 14px;">
-                <div style="font-size: 12px; color: #94a3b8; margin-bottom: 4px;">إجمالي الأعضاء بالمجلد</div>
-                <div style="font-size: 22px; font-weight: 800; color: #fff;" id="folder-total-members">0</div>
-              </div>
-              <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 12px; padding: 14px;">
-                <div style="font-size: 12px; color: #34d399; margin-bottom: 4px; font-weight: 600;">المنضمين الجدد اليوم 🟢</div>
-                <div style="font-size: 22px; font-weight: 800; color: #10b981;" id="folder-joined-today">+0</div>
-              </div>
-            </div>
-
-            <!-- Channels Growth Table Container -->
-            <div id="campaign-channels-list-container" style="overflow-x: auto;">
-              <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: right;">
-                <thead>
-                  <tr style="border-bottom: 1px solid rgba(255,255,255,0.08); color: #94a3b8; font-size: 12px;">
-                    <th style="padding: 10px 14px;">القناة</th>
-                    <th style="padding: 10px 14px;">النوع / المعرف</th>
-                    <th style="padding: 10px 14px;">إجمالي الأعضاء</th>
-                    <th style="padding: 10px 14px;">انضم اليوم</th>
-                    <th style="padding: 10px 14px;">حالة النشر</th>
-                  </tr>
-                </thead>
-                <tbody id="campaign-channels-table-body">
-                  <tr>
-                    <td colspan="5" style="text-align: center; padding: 30px; color: #64748b;">
-                      جاري تحميل بيانات قنوات مجلد حملات...
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-            </div>
-          </div>
-
-          <!-- Subtab 3: Notifications -->
-          <div id="subtab-notifications" class="subtab-pane hidden">
-            <div id="tab-notifications">
-<div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px;">
-            <div>
-              <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0;">
-                <span>🔔</span>
-                <span>مركز الإشعارات والتنبيهات</span>
-                <span id="notif-page-unread-badge" class="badge" style="background: rgba(37, 99, 235, 0.2); border: 1px solid rgba(59, 130, 246, 0.4); color: #60a5fa; font-size: 11px; padding: 2px 8px; border-radius: 12px;">0 جديد</span>
-              </h1>
-              <p class="panel-subtitle" style="margin: 0;">متابعة فورية لجميع أحداث حملاتك، حالة قنواتك، تنبيهات الأمان، والاشتراك</p>
-            </div>
-            
-            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-              <button type="button" class="btn btn-secondary btn-sm" onclick="markAllNotificationsRead()" style="padding: 8px 14px; font-size: 12.5px; border-radius: 8px; font-weight: 600;">
-                <span>✓ تحديد الكل كمقروء</span>
-              </button>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="clearAllNotificationsConfirm()" style="padding: 8px 14px; font-size: 12.5px; border-radius: 8px; font-weight: 600; color: #f43f5e; border-color: rgba(244,63,94,0.3);">
-                <span>🗑️ مسح الكل</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Filter Pills Bar -->
-          <div class="notif-filter-bar" style="display: flex; gap: 8px; overflow-x: auto; padding-bottom: 12px; margin-bottom: 20px; -webkit-overflow-scrolling: touch; border-bottom: 1px solid rgba(255,255,255,0.06);">
-            <button type="button" class="btn btn-sm notif-filter-btn active" data-category="all" onclick="filterNotificationsPage('all')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">الكل (<span id="count-cat-all">0</span>)</button>
-            <button type="button" class="btn btn-sm notif-filter-btn" data-category="unread" onclick="filterNotificationsPage('unread')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">غير المقروء (<span id="count-cat-unread">0</span>)</button>
-            <button type="button" class="btn btn-sm notif-filter-btn" data-category="campaigns" onclick="filterNotificationsPage('campaigns')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">📢 حملات النشر</button>
-            <button type="button" class="btn btn-sm notif-filter-btn" data-category="account" onclick="filterNotificationsPage('account')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">⚡ المحرك والقنوات</button>
-            <button type="button" class="btn btn-sm notif-filter-btn" data-category="system" onclick="filterNotificationsPage('system')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">🛡️ النظام والأمان</button>
-          </div>
-
-          <!-- Notifications Stream Container -->
-          <div id="page-notif-list-container" style="display: flex; flex-direction: column; gap: 10px;">
-            <div class="card" style="text-align: center; padding: 40px; color: #94a3b8; background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.06); border-radius: 14px;">
-              <div class="spinner" style="margin: 0 auto 12px auto;"></div>
-              <p style="margin: 0;">جاري تحميل الإشعارات...</p>
-            </div>
-          </div>
-
-          <!-- Saved Messages Log Section in Reports & Notifications Hub -->
-          <div class="card event-log-card" style="margin-top: 24px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
-              <div style="display: flex; align-items: center; gap: 12px;">
-                <span style="font-size: 20px;">💬</span>
-                <div>
-                  <h3 style="margin: 0; font-size: 15px; color: #fff; font-weight: 600;">
-                    سجل الأحداث والرسائل المحفوظة (Saved Messages Log)
-                  </h3>
-                  <p style="margin: 0; font-size: 12px; color: #94a3b8; margin-top: 2px;">السجل اللحظي للأوامر والعمليات المرسلة مباشرة في تيليجرام</p>
-                </div>
-              </div>
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <button type="button" id="btn-refresh-logs" style="background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.3); color: #60a5fa; cursor: pointer; font-size: 12.5px; font-weight: 600; padding: 6px 12px; border-radius: 8px;">🔄 تحديث</button>
-                <button type="button" id="btn-clear-logs-web" style="background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171; cursor: pointer; font-size: 12.5px; font-weight: 600; padding: 6px 12px; border-radius: 8px;">🧹 مسح السجل</button>
-              </div>
-            </div>
-            <div id="logs-container" style="background: #090d16; border: 1px solid #1e293b; border-radius: 12px; padding: 16px; max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 13px; line-height: 1.6; display: flex; flex-direction: column; gap: 10px;">
-              <p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; font-family: sans-serif;">سجل الأحداث فارغ حالياً.</p>
-            </div>
-          </div>
-            </div>
-          </div>
-        </section>
+        
 
         <!-- ==========================================
              HUB 4: التبادل بين المعلنين (Advertiser Exchange Hub)
@@ -2130,9 +1826,9 @@
             <div>
               <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0;">
                 <span>⚙️</span>
-                <span>الحساب والاشتراك</span>
+                <span>إدارة الحساب</span>
               </h1>
-              <p class="panel-subtitle" style="margin: 0;">الملف الشخصي والاسم الظاهر، الخطط والترقية، وطرق الدفع وتأكيد التحويلات</p>
+              <p class="panel-subtitle" style="margin: 0;">الملف الشخصي والإعدادات، الخطط والاشتراك والدفع، والتقارير وسجل النشاط</p>
             </div>
           </div>
 
@@ -2144,7 +1840,12 @@
             </button>
             <button type="button" class="subtab-btn" data-subtab="subtab-account-billing" onclick="switchSubTab('tab-account-hub', 'subtab-account-billing')">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-              <span>الخطط والترقية والدفع</span>
+              <span>الخطط والاشتراك والدفع</span>
+            </button>
+            <button type="button" class="subtab-btn" data-subtab="subtab-account-reports" onclick="switchSubTab('tab-account-hub', 'subtab-account-reports')">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+              <span>التقارير والنشاط</span>
+              <span class="badge notif-subtab-badge hidden" id="subtab-account-reports-badge" style="background: #ef4444; color: #fff; font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 10px; margin-right: 4px;">0</span>
             </button>
           </div>
 
@@ -2349,6 +2050,298 @@
           </div>
             </div>
           </div>
+        
+          <!-- Subtab 3: Reports & Activity Hub inside Account Hub -->
+          <div id="subtab-account-reports" class="subtab-pane hidden">
+            <div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px;">
+              <div>
+                <h2 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0; font-size: 20px;">
+                  <span>📊</span>
+                  <span>التقارير وسجل النشاط</span>
+                </h2>
+                <p class="panel-subtitle" style="margin: 0;">أرشيف تفصيلي للحملات المنفذة، تحليلات الأداء ومعدلات النمو، وسجل الإشعارات والتنبيهات</p>
+              </div>
+            </div>
+
+            <!-- Reports & Activity Branches Navigation Bar -->
+            <div class="reports-branches-bar" id="reports-branches-bar">
+              <button type="button" class="reports-branch-btn active" data-branch="branch-campaigns" onclick="switchReportsBranch('branch-campaigns')">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                <span>سجل الحملات والتقارير</span>
+              </button>
+              <button type="button" class="reports-branch-btn" data-branch="branch-analytics" onclick="switchReportsBranch('branch-analytics')">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+                <span>التحليلات ومؤشرات الأداء</span>
+              </button>
+              <button type="button" class="reports-branch-btn" data-branch="branch-notifications" onclick="switchReportsBranch('branch-notifications')">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+                <span>مركز الإشعارات والتنبيهات</span>
+                <span class="badge notif-subtab-badge hidden" id="branch-notif-badge" style="background: #ef4444; color: #fff; font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 10px; margin-right: 4px;">0</span>
+              </button>
+            </div>
+
+            <!-- Branch 1: Campaign History -->
+            <div id="branch-pane-campaigns" class="reports-branch-pane">
+              <div id="tab-campaigns">
+<div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px;">
+            <div>
+              <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0;">
+                <span>📢</span>
+                <span>سجل الحملات والتقارير المتقدمة</span>
+              </h1>
+              <p class="panel-subtitle" style="margin: 0;">أرشيف تفصيلي لجميع حملات النشر المنفذة، نسبة الوصول، والجدول الزمني</p>
+            </div>
+            
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <button type="button" class="btn btn-primary btn-sm" onclick="scrollToCampaignForm()" style="padding: 8px 16px; font-size: 13px; border-radius: 8px; font-weight: 700;">
+                <span>🚀 إطلاق حملة جديدة</span>
+              </button>
+              <button type="button" id="btn-refresh-campaigns" class="btn btn-secondary btn-sm" onclick="loadCampaignsHistory(currentCampaignFilter, true)" style="padding: 8px 14px; font-size: 13px; border-radius: 8px; font-weight: 600;">
+                <span>🔄 تحديث</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Campaign Filters Bar -->
+          <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 12px;">
+            <div class="notif-filter-bar" style="display: flex; gap: 8px; overflow-x: auto;">
+              <button type="button" class="btn btn-sm notif-filter-btn active" data-filter="all" onclick="filterCampaignsList('all')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">الكل (<span id="campaigns-count-all">0</span>)</button>
+              <button type="button" class="btn btn-sm notif-filter-btn" data-filter="active" onclick="filterCampaignsList('active')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">النشطة حالياً (<span id="campaigns-count-active">0</span>)</button>
+              <button type="button" class="btn btn-sm notif-filter-btn" data-filter="completed" onclick="filterCampaignsList('completed')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">المكتملة بنجاح (<span id="campaigns-count-completed">0</span>)</button>
+              <button type="button" class="btn btn-sm notif-filter-btn" data-filter="failed" onclick="filterCampaignsList('failed')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">المتعذرة أو الملغاة (<span id="campaigns-count-failed">0</span>)</button>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 8px; min-width: 240px;">
+              <input type="text" id="campaign-search-input" placeholder="بحث في نص أو رابط الحملة..." oninput="debounceCampaignSearch()" style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 6px 12px; border-radius: 8px; font-size: 12.5px; width: 100%;">
+            </div>
+          </div>
+
+          <!-- Campaigns Table Container -->
+          <div class="campaign-table-container">
+            <table class="campaign-history-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>نوع الحملة</th>
+                  <th>نص الإعلان أو الرابط</th>
+                  <th>القنوات والتقدم</th>
+                  <th>الحالة</th>
+                  <th>تاريخ الإطلاق</th>
+                  <th>التقرير</th>
+                </tr>
+              </thead>
+              <tbody id="campaigns-table-body">
+                <tr>
+                  <td colspan="7" style="text-align: center; padding: 40px; color: #94a3b8;">
+                    <div class="spinner" style="margin: 0 auto 10px auto;"></div>
+                    <span>جاري تحميل سجل الحملات...</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Mobile Cards Container (Shown on small screens) -->
+          <div id="campaigns-mobile-cards-container" class="mobile-only" style="display: none; flex-direction: column; gap: 12px; margin-top: 14px;">
+            <!-- Mobile cards rendered via JS -->
+          </div>
+            </div>
+            </div>
+
+            <!-- Branch 2: Analytics & Performance -->
+            <div id="branch-pane-analytics" class="reports-branch-pane hidden">
+              <div id="tab-analytics">
+<div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px;">
+            <div>
+              <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0;">
+                <span>📊</span>
+                <span>مركز التحليلات وإحصائيات الأداء</span>
+              </h1>
+              <p class="panel-subtitle" style="margin: 0;">أرقام حقيقية موثوقة ومباشرة من قاعدة البيانات وسجلات النشر الفعلية</p>
+            </div>
+            
+            <button type="button" id="btn-refresh-analytics" class="btn btn-secondary btn-sm" onclick="loadAnalyticsData(true)" style="padding: 8px 14px; font-size: 13px; border-radius: 8px; font-weight: 600;">
+              <span>🔄 تحديث الأرقام</span>
+            </button>
+          </div>
+
+          <!-- 4 Core Metric Cards -->
+          <div class="analytics-metrics-grid">
+            <div class="metric-box">
+              <div class="metric-box-header">
+                <span class="metric-box-title">إجمالي الحملات</span>
+                <span class="metric-box-icon">📢</span>
+              </div>
+              <div class="metric-box-value" id="metric-total-campaigns">0</div>
+              <p class="metric-box-sub" id="metric-sub-campaigns">جميع مهام النشر المجدولة</p>
+            </div>
+
+            <div class="metric-box">
+              <div class="metric-box-header">
+                <span class="metric-box-title">نسبة النجاح الفعلية</span>
+                <span class="metric-box-icon">🎯</span>
+              </div>
+              <div class="metric-box-value" id="metric-success-rate" style="color: #10b981;">100%</div>
+              <p class="metric-box-sub">معدل الحملات المكتملة بنجاح</p>
+            </div>
+
+            <div class="metric-box">
+              <div class="metric-box-header">
+                <span class="metric-box-title">الرسائل المنشورة</span>
+                <span class="metric-box-icon">✉️</span>
+              </div>
+              <div class="metric-box-value" id="metric-total-messages">0</div>
+              <p class="metric-box-sub">إجمالي الإعلانات بالقنوات</p>
+            </div>
+
+            <div class="metric-box">
+              <div class="metric-box-header">
+                <span class="metric-box-title">وصول القنوات الفريد</span>
+                <span class="metric-box-icon">📡</span>
+              </div>
+              <div class="metric-box-value" id="metric-unique-channels">0</div>
+              <p class="metric-box-sub">قنوات ومجموعات تم الوصول لها</p>
+            </div>
+          </div>
+
+          <!-- 7-Day Activity Chart Card -->
+          <div class="analytics-chart-card">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+              <div>
+                <h3 style="margin: 0 0 4px 0; font-size: 15px; font-weight: 700; color: #fff;">نشاط النشر والحملات خلال آخر 7 أيام</h3>
+                <p style="margin: 0; font-size: 12.5px; color: #94a3b8;">معدل الرسائل والمهام اليومية المنفذة في قنواتك</p>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; font-size: 11.5px; color: #94a3b8;">
+                <span style="display: flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; background: #38bdf8; border-radius: 2px;"></span> الرسائل</span>
+              </div>
+            </div>
+
+            <div class="analytics-bars-wrap" id="analytics-chart-bars">
+              <!-- Rendered via JS -->
+            </div>
+          </div>
+
+          <!-- Campaign Folder Channels Growth & Performance Card -->
+          <div class="card campaign-channels-analytics-card" style="margin-top: 24px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 24px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+              <div>
+                <h3 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px;">
+                  <span>📁</span>
+                  <span>أداء قنوات مجلد "حملات" ومعدل النمو</span>
+                  <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 11px; padding: 2px 8px; border-radius: 10px;">مجلد حملات فقط</span>
+                </h3>
+                <p style="margin: 0; font-size: 12.5px; color: #94a3b8;">متابعة فورية لعدد المشتركين الفعلي ومعدل نمو الأعضاء الجدد المنضمين اليوم لكل قناة داخل مجلد حملات</p>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="loadCampaignChannelsAnalytics(true)" id="btn-refresh-campaign-channels" style="padding: 6px 12px; font-size: 12px; border-radius: 8px;">
+                <span>🔄 تحديث القنوات</span>
+              </button>
+            </div>
+
+            <!-- Summary metrics for folder 'حملات' -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px;">
+              <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 14px;">
+                <div style="font-size: 12px; color: #94a3b8; margin-bottom: 4px;">قنوات مجلد حملات</div>
+                <div style="font-size: 22px; font-weight: 800; color: #38bdf8;" id="folder-channels-count">0</div>
+              </div>
+              <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 14px;">
+                <div style="font-size: 12px; color: #94a3b8; margin-bottom: 4px;">إجمالي الأعضاء بالمجلد</div>
+                <div style="font-size: 22px; font-weight: 800; color: #fff;" id="folder-total-members">0</div>
+              </div>
+              <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 12px; padding: 14px;">
+                <div style="font-size: 12px; color: #34d399; margin-bottom: 4px; font-weight: 600;">المنضمين الجدد اليوم 🟢</div>
+                <div style="font-size: 22px; font-weight: 800; color: #10b981;" id="folder-joined-today">+0</div>
+              </div>
+            </div>
+
+            <!-- Channels Growth Table Container -->
+            <div id="campaign-channels-list-container" style="overflow-x: auto;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: right;">
+                <thead>
+                  <tr style="border-bottom: 1px solid rgba(255,255,255,0.08); color: #94a3b8; font-size: 12px;">
+                    <th style="padding: 10px 14px;">القناة</th>
+                    <th style="padding: 10px 14px;">النوع / المعرف</th>
+                    <th style="padding: 10px 14px;">إجمالي الأعضاء</th>
+                    <th style="padding: 10px 14px;">انضم اليوم</th>
+                    <th style="padding: 10px 14px;">حالة النشر</th>
+                  </tr>
+                </thead>
+                <tbody id="campaign-channels-table-body">
+                  <tr>
+                    <td colspan="5" style="text-align: center; padding: 30px; color: #64748b;">
+                      جاري تحميل بيانات قنوات مجلد حملات...
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+            </div>
+            </div>
+
+            <!-- Branch 3: Notifications & Event Logs -->
+            <div id="branch-pane-notifications" class="reports-branch-pane hidden">
+              <div id="tab-notifications">
+<div class="panel-header" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px;">
+            <div>
+              <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px; margin: 0 0 6px 0;">
+                <span>🔔</span>
+                <span>مركز الإشعارات والتنبيهات</span>
+                <span id="notif-page-unread-badge" class="badge" style="background: rgba(37, 99, 235, 0.2); border: 1px solid rgba(59, 130, 246, 0.4); color: #60a5fa; font-size: 11px; padding: 2px 8px; border-radius: 12px;">0 جديد</span>
+              </h1>
+              <p class="panel-subtitle" style="margin: 0;">متابعة فورية لجميع أحداث حملاتك، حالة قنواتك، تنبيهات الأمان، والاشتراك</p>
+            </div>
+            
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="markAllNotificationsRead()" style="padding: 8px 14px; font-size: 12.5px; border-radius: 8px; font-weight: 600;">
+                <span>✓ تحديد الكل كمقروء</span>
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="clearAllNotificationsConfirm()" style="padding: 8px 14px; font-size: 12.5px; border-radius: 8px; font-weight: 600; color: #f43f5e; border-color: rgba(244,63,94,0.3);">
+                <span>🗑️ مسح الكل</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Filter Pills Bar -->
+          <div class="notif-filter-bar" style="display: flex; gap: 8px; overflow-x: auto; padding-bottom: 12px; margin-bottom: 20px; -webkit-overflow-scrolling: touch; border-bottom: 1px solid rgba(255,255,255,0.06);">
+            <button type="button" class="btn btn-sm notif-filter-btn active" data-category="all" onclick="filterNotificationsPage('all')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">الكل (<span id="count-cat-all">0</span>)</button>
+            <button type="button" class="btn btn-sm notif-filter-btn" data-category="unread" onclick="filterNotificationsPage('unread')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">غير المقروء (<span id="count-cat-unread">0</span>)</button>
+            <button type="button" class="btn btn-sm notif-filter-btn" data-category="campaigns" onclick="filterNotificationsPage('campaigns')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">📢 حملات النشر</button>
+            <button type="button" class="btn btn-sm notif-filter-btn" data-category="account" onclick="filterNotificationsPage('account')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">⚡ المحرك والقنوات</button>
+            <button type="button" class="btn btn-sm notif-filter-btn" data-category="system" onclick="filterNotificationsPage('system')" style="padding: 6px 14px; font-size: 12.5px; border-radius: 20px;">🛡️ النظام والأمان</button>
+          </div>
+
+          <!-- Notifications Stream Container -->
+          <div id="page-notif-list-container" style="display: flex; flex-direction: column; gap: 10px;">
+            <div class="card" style="text-align: center; padding: 40px; color: #94a3b8; background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.06); border-radius: 14px;">
+              <div class="spinner" style="margin: 0 auto 12px auto;"></div>
+              <p style="margin: 0;">جاري تحميل الإشعارات...</p>
+            </div>
+          </div>
+
+          <!-- Saved Messages Log Section in Reports & Notifications Hub -->
+          <div class="card event-log-card" style="margin-top: 24px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;" class="card-header-flex">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-size: 20px;">💬</span>
+                <div>
+                  <h3 style="margin: 0; font-size: 15px; color: #fff; font-weight: 600;">
+                    سجل الأحداث والرسائل المحفوظة (Saved Messages Log)
+                  </h3>
+                  <p style="margin: 0; font-size: 12px; color: #94a3b8; margin-top: 2px;">السجل اللحظي للأوامر والعمليات المرسلة مباشرة في تيليجرام</p>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <button type="button" id="btn-refresh-logs" style="background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.3); color: #60a5fa; cursor: pointer; font-size: 12.5px; font-weight: 600; padding: 6px 12px; border-radius: 8px;">🔄 تحديث</button>
+                <button type="button" id="btn-clear-logs-web" style="background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171; cursor: pointer; font-size: 12.5px; font-weight: 600; padding: 6px 12px; border-radius: 8px;">🧹 مسح السجل</button>
+              </div>
+            </div>
+            <div id="logs-container" style="background: #090d16; border: 1px solid #1e293b; border-radius: 12px; padding: 16px; max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 13px; line-height: 1.6; display: flex; flex-direction: column; gap: 10px;">
+              <p style="color: #64748b; font-size: 13px; margin: 0; text-align: center; font-family: sans-serif;">سجل الأحداث فارغ حالياً.</p>
+            </div>
+          </div>
+            </div>
+            </div>
+          </div>
         </section>
 </main>
     </div>
@@ -2366,16 +2359,11 @@
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
         <span>المحرك</span>
       </button>
-      <button class="bottom-nav-item" data-tab="tab-reports" data-route="/app/reports" onclick="navigate('/app/reports')">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
-        <span>التقارير</span>
-      </button>
-            <button class="bottom-nav-item" data-tab="tab-exchange-hub" data-route="/app/exchange" onclick="navigate('/app/exchange')">
+      <button class="bottom-nav-item" data-tab="tab-exchange-hub" data-route="/app/exchange" onclick="navigate('/app/exchange')">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/></svg>
         <span>التبادل</span>
       </button>
-
-<button class="bottom-nav-item" data-tab="tab-account-hub" data-route="/app/settings" onclick="navigate('/app/settings')">
+      <button class="bottom-nav-item" data-tab="tab-account-hub" data-route="/app/settings" onclick="navigate('/app/settings')">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         <span>الحساب</span>
       </button>
