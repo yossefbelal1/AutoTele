@@ -32,9 +32,10 @@ def run_staging_deploy():
     ssh.connect(VPS_HOST, username=VPS_USER, password=VPS_PASSWORD, timeout=20)
 
     commands = [
-        'cd /root/staging_bot && git pull origin develop',
+        'cd /root/staging_bot && git checkout docker-compose.yml && git pull origin develop && cp docker-compose.staging.yml docker-compose.yml',
         'docker restart staging_fastapi_api staging_core_worker staging_frontend',
         'sleep 3',
+        'curl -s http://127.0.0.1:8005/health',
         'docker ps --filter name=staging'
     ]
 
