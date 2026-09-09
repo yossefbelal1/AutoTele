@@ -33,7 +33,7 @@ def run_staging_deploy():
 
     commands = [
         'cd /root/staging_bot && git checkout docker-compose.yml && git pull origin develop && cp docker-compose.staging.yml docker-compose.yml',
-        'docker restart staging_fastapi_api staging_core_worker staging_frontend',
+        'cd /root/staging_bot && docker compose up -d --remove-orphans',
         'sleep 3',
         'curl -s http://127.0.0.1:8005/health',
         'docker ps --filter name=staging'
