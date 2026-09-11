@@ -234,3 +234,55 @@ class TestCampaignTimelineAndChecklist:
             all_text_combined = " ".join(edited_texts)
             # Must have progressed and updated checklist
             assert "مخطط سير الحملة" in all_text_combined
+
+    @pytest.mark.asyncio
+    async def test_bulk_campaign_activates_bot_system_state_on_start(self):
+        """Bulk campaign must unconditionally activate bot_system_state so it is never killed by stale stopped states."""
+        tenant_id = 99
+        mock_client = AsyncMock()
+        mock_status_msg = AsyncMock()
+
+        mock_redis = AsyncMock()
+        mock_redis.get.return_value = json.dumps([-1001111111111])
+
+        recorded_settings = {}
+        async def mock_set_setting(sess, tid, key, val):
+            recorded_settings[key] = val
+
+        with patch("worker.check_admin_rights_dynamic", new=AsyncMock(return_value=True)), \
+             patch("cache_manager.get_channels_cache", new=AsyncMock(return_value=[
+                 {"id": -1001111111111, "title": "Target Ch", "can_send": True},
+                 {"id": -1002222222222, "title": "Host Ch", "can_send": True}
+             ])), \
+             patch("worker.get_channels_cache", new=AsyncMock(return_value=[
+                 {"id": -1001111111111, "title": "Target Ch", "can_send": True},
+                 {"id": -1002222222222, "title": "Host Ch", "can_send": True}
+             ])), \
+             patch("worker.get_blacklist_for_tenant", new=AsyncMock(return_value=[])), \
+             patch("cache_manager.redis_client", mock_redis), \
+             patch("worker.set_setting", side_effect=mock_set_setting), \
+             patch("worker.AsyncSessionLocal"), \
+             patch("worker.add_ad_record", new=AsyncMock()), \
+             patch("worker.save_active_campaign_state", new=AsyncMock()), \
+             patch("worker.clear_active_campaign_state", new=AsyncMock()), \
+             patch("worker.log_tenant_event", new=AsyncMock()), \
+             patch("status_bot.notify_user_by_tenant_id", new=AsyncMock()), \
+             patch("worker.get_safe_min_delay", return_value=0.01), \
+             patch("worker.get_adaptive_delay", return_value=0.01), \
+             patch("asyncio.sleep", new=AsyncMock()):
+
+            mock_sent = MagicMock()
+            mock_sent.id = 101
+            mock_client.send_message.return_value = mock_sent
+
+            await run_bulk_campaign_logic(
+                tenant_id=tenant_id,
+                client=mock_client,
+                ad_text_custom="Test",
+                delay_between_channels=0,
+                ad_lifespan=0,
+                status_msg=mock_status_msg
+            )
+
+            assert recorded_settings.get("bot_system_state") == "active"
+            mock_redis.set.assert_any_call(f"tenant:{tenant_id}:setting:bot_system_state", "active", ex=86400)

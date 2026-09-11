@@ -2363,6 +2363,16 @@ async def run_bulk_campaign_logic(
     curr_task.add_done_callback(cleanup_task)
     
     try:
+        from cache_manager import redis_client
+        # Ensure bot_system_state is active so the campaign does not get aborted by stale stopped states
+        try:
+            async with AsyncSessionLocal() as act_session:
+                await set_setting(act_session, tenant_id, "bot_system_state", "active")
+                await act_session.commit()
+            await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "active", ex=86400)
+        except Exception as _act_err:
+            logger.warning(f"Tenant {tenant_id}: Could not set bot_system_state to active at bulk start: {_act_err}")
+
         if folder_number is not None and folder_number > 0:
             redis_key = f"tenant:{tenant_id}:my_channels:{folder_number}"
             folder_label = f"My_channels{folder_number}"
@@ -2882,11 +2892,18 @@ async def run_bulk_campaign_logic(
                 next_target_start_dt = datetime.now(timezone.utc) + timedelta(minutes=delay_between_channels)
                 next_target_starts[index] = next_target_start_dt
                 while datetime.now(timezone.utc) < next_target_start_dt:
+                    if web_task_id:
+                        async with AsyncSessionLocal() as chk_sess:
+                            chk_status = (await chk_sess.execute(select(WebCampaignTask.status).where(WebCampaignTask.id == web_task_id))).scalar_one_or_none()
+                            if chk_status in ("failed", "cancelled"):
+                                logger.info(f"Tenant {tenant_id}: Bulk campaign task {web_task_id} cancelled during sleep (status={chk_status})")
+                                await clear_active_campaign_state(tenant_id)
+                                return
                     await update_status_message(index, "sleeping", next_target_start_dt=next_target_start_dt)
                     remaining = (next_target_start_dt - datetime.now(timezone.utc)).total_seconds()
                     if remaining <= 0:
                         break
-                    step = min(60.0, max(1.0, remaining))
+                    step = min(15.0, max(1.0, remaining))
                     await asyncio.sleep(step)
 
         if ad_lifespan > 0 and count > 0:
@@ -2894,11 +2911,17 @@ async def run_bulk_campaign_logic(
             final_delete_dt = target_actual_deletes.get(last_idx, datetime.now(timezone.utc) + timedelta(minutes=ad_lifespan))
             await log_tenant_event(tenant_id, f"اكتمل نشر جميع الأهداف. جاري انتظار مسح إعلانات الهدف الأخير ({ad_lifespan} دقيقة)...")
             while datetime.now(timezone.utc) < final_delete_dt:
+                if web_task_id:
+                    async with AsyncSessionLocal() as chk_sess:
+                        chk_status = (await chk_sess.execute(select(WebCampaignTask.status).where(WebCampaignTask.id == web_task_id))).scalar_one_or_none()
+                        if chk_status in ("failed", "cancelled"):
+                            await clear_active_campaign_state(tenant_id)
+                            return
                 await update_status_message(last_idx, "waiting_final_clean", next_target_start_dt=final_delete_dt)
                 remaining = (final_delete_dt - datetime.now(timezone.utc)).total_seconds()
                 if remaining <= 0:
                     break
-                step = min(60.0, max(1.0, remaining))
+                step = min(15.0, max(1.0, remaining))
                 await asyncio.sleep(step)
 
             # Final safety sweep for any remaining expired bulk ads for this tenant
@@ -3638,6 +3661,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         if delay_start == 0:
             # Create active task in database so it shows up on website
             async with AsyncSessionLocal() as db_session:
+                await set_setting(db_session, tenant_id, "bot_system_state", "active")
                 new_task = WebCampaignTask(
                     telegram_account_id=tenant_id,
                     campaign_type="bulk",
@@ -3652,6 +3676,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 db_session.add(new_task)
                 await db_session.commit()
                 web_task_id = new_task.id
+            await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "active", ex=86400)
 
             if status_msg:
                 await edit_or_reply(status_msg, f"🚀 **جاري بدء حملة المجلد المجمعة فوراً...**")
@@ -6435,6 +6460,16 @@ async def run_web_campaign_task(task_id: int):
                 except Exception as se:
                     logger.debug(f"Could not send start status message to Saved Messages: {se}")
             
+            if task.campaign_type in ["wave", "wave_folder", "single", "timed_post", "bulk", "custom_folder", "activate_exchange"]:
+                try:
+                    from cache_manager import redis_client
+                    async with AsyncSessionLocal() as act_session:
+                        await set_setting(act_session, tenant_id, "bot_system_state", "active")
+                        await act_session.commit()
+                    await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "active", ex=86400)
+                except Exception as _act_err:
+                    logger.warning(f"Tenant {tenant_id}: Could not activate bot_system_state on task start: {_act_err}")
+
             if task.campaign_type in ["wave", "wave_folder", "activate_exchange"]:
                 is_folder_wave = (task.campaign_type == "wave_folder")
                 try:
@@ -6518,8 +6553,8 @@ async def run_web_campaign_task(task_id: int):
                 # For wave/activate_exchange: stay "active" in database
                 if task.campaign_type in ["wave", "wave_folder", "activate_exchange"]:
                     final_status = "active"
-                # For timed_post, single, and bulk: stay "active" until the cleaner actually deletes the ad
-                elif task.campaign_type in ["timed_post", "single", "bulk"] and task.ad_lifespan > 0:
+                # For timed_post and single: stay "active" until the cleaner actually deletes the ad
+                elif task.campaign_type in ["timed_post", "single"] and task.ad_lifespan > 0:
                     final_status = "active"
                 else:
                     final_status = "completed"
@@ -6922,7 +6957,7 @@ async def global_cleaner_worker():
                     active_tasks = (await fin_session.execute(
                         select(WebCampaignTask).where(
                             WebCampaignTask.status == "active",
-                            WebCampaignTask.campaign_type.in_(["timed_post", "single", "bulk"])
+                            WebCampaignTask.campaign_type.in_(["timed_post", "single"])
                         )
                     )).scalars().all()
                     for t in active_tasks:
@@ -6938,8 +6973,6 @@ async def global_cleaner_worker():
                             
                         if t.campaign_type == "single":
                             ad_type = "campaign"
-                        elif t.campaign_type == "bulk":
-                            ad_type = "bulk"
                         else:
                             ad_type = "timed_post"
 
