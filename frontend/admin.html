@@ -16,7 +16,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
   
   <!-- CSS Stylesheet -->
-  <link rel="stylesheet" href="/style.css?v=4.0.0">
+  <link rel="stylesheet" href="/style.css?v=4.2.3">
 </head>
 <body class="admin-body">
 
@@ -129,6 +129,10 @@
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
             <span>إدارة المشتركين والتراخيص</span>
           </button>
+          <button class="drawer-nav-item" data-tab="tab-campaigns" data-route="/admin/campaigns" onclick="navigateAdmin('/admin/campaigns'); closeAdminMobileDrawer();">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <span>مراقبة المهام والحملات الحية 🕹️</span>
+          </button>
         </div>
 
         <div class="drawer-section-title">أدوات الصيانة وحل المشاكل</div>
@@ -208,6 +212,10 @@
           <button class="nav-tab" data-tab="tab-users" data-route="/admin/users">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
             <span>إدارة المشتركين</span>
+          </button>
+          <button class="nav-tab" data-tab="tab-campaigns" data-route="/admin/campaigns">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <span>مراقبة المهام والحملات الحية 🕹️</span>
           </button>
           <button class="nav-tab" data-tab="tab-broadcast" data-route="/admin/broadcast">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
@@ -304,6 +312,22 @@
               <span class="stat-label">إيصالات الدفع المعلقة</span>
               <h3 id="admin-stat-pending-payments" class="stat-val gold-text">--</h3>
             </div>
+            <div class="card stat-mini-card">
+              <span class="stat-label">إجمالي المنشور اليوم</span>
+              <h3 id="admin-stat-published-today" class="stat-val green-text">--</h3>
+            </div>
+            <div class="card stat-mini-card">
+              <span class="stat-label">المنشور خلال هذا الشهر</span>
+              <h3 id="admin-stat-published-month" class="stat-val blue-text">--</h3>
+            </div>
+            <div class="card stat-mini-card">
+              <span class="stat-label">معدل نجاح الحملات (Success Rate)</span>
+              <h3 id="admin-stat-success-rate" class="stat-val" style="color: #38bdf8;">--%</h3>
+            </div>
+            <div class="card stat-mini-card">
+              <span class="stat-label">الحملات الجارية الآن</span>
+              <h3 id="admin-stat-active-campaigns" class="stat-val gold-text">--</h3>
+            </div>
           </div>
 
           <div class="card" style="margin-top: 30px; border-right: 4px solid #e11d48;">
@@ -356,6 +380,78 @@
           </div>
         </section>
 
+        <!-- Tab: Live Tasks & Campaigns Monitor -->
+        <section id="tab-campaigns" class="tab-panel hidden">
+          <div class="panel-header">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+              <div>
+                <h1 class="panel-title">مراقبة المهام والحملات الحية (Live Campaigns Monitor)</h1>
+                <p class="panel-subtitle">متابعة فورية لكافة مهام النشر الجارية والمجدولة ومعدل تقدمها وحالتها</p>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <span id="campaigns-auto-refresh-indicator" style="font-size: 11px; color: #10b981; display: inline-flex; align-items: center; gap: 4px;">
+                  <span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
+                  تحديث حي تلقائي
+                </span>
+                <button type="button" class="btn btn-sm btn-outline" onclick="loadAdminActiveCampaigns(true)" style="padding: 6px 12px; font-size: 12px; border-radius: 8px; color: #38bdf8; border-color: rgba(56, 189, 248, 0.3);">
+                  🔄 تحديث الآن
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Campaigns Summary Counters -->
+          <div class="admin-stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 20px;">
+            <div class="card stat-mini-card">
+              <span class="stat-label">حملات قيد النشر الآن 🟢</span>
+              <h3 id="campaigns-stat-running" class="stat-val green-text">0</h3>
+            </div>
+            <div class="card stat-mini-card">
+              <span class="stat-label">مهام بانتظار الدور ⏳</span>
+              <h3 id="campaigns-stat-pending" class="stat-val gold-text">0</h3>
+            </div>
+            <div class="card stat-mini-card">
+              <span class="stat-label">مهام اكتملت مؤخراً ✅</span>
+              <h3 id="campaigns-stat-completed" class="stat-val blue-text">0</h3>
+            </div>
+            <div class="card stat-mini-card">
+              <span class="stat-label">مهام بها أخطاء ⚠️</span>
+              <h3 id="campaigns-stat-failed" class="stat-val red-text">0</h3>
+            </div>
+          </div>
+
+          <!-- Campaigns Table Card -->
+          <div class="card table-card">
+            <div style="padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+              <h3 class="card-title" style="margin: 0; padding: 0; border: none;">جدول الحملات والمهام الجارية والمجدولة</h3>
+              <div style="flex: 1; max-width: 280px; min-width: 180px;">
+                <input type="search" id="admin-campaigns-search" placeholder="🔍 بحث بالمشترك أو الحملة..." oninput="filterAdminCampaignsTable()" style="width: 100%; box-sizing: border-box; padding: 6px 12px; font-size: 12px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #fff; outline: none;">
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th style="width: 65px;">Task ID</th>
+                    <th>المشترك</th>
+                    <th>نوع الحملة</th>
+                    <th>نسبة الإنجاز (Progress)</th>
+                    <th>الحالة</th>
+                    <th>وقت البدء / المجدول</th>
+                    <th>ملاحظات والنتيجة</th>
+                    <th style="text-align: center; width: 130px;">إجراءات طارئة</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-campaigns-table-body">
+                  <tr>
+                    <td colspan="8" class="text-center" style="padding: 30px; color: #64748b;">جاري تحميل المهام والحملات الحية...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
         <!-- Tab C: Users List -->
         <section id="tab-users" class="tab-panel hidden">
           <div class="panel-header">
@@ -372,6 +468,30 @@
               <div class="users-search-wrapper" style="flex: 1; max-width: 320px; min-width: 200px;">
                 <input type="search" id="admin-users-search" placeholder="🔍 بحث بالاسم أو البريد أو الهاتف..." style="width: 100%; box-sizing: border-box; padding: 8px 14px; font-size: 13px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; color: #fff; outline: none;">
               </div>
+            </div>
+
+            <!-- Smart Triage Filter Chips -->
+            <div class="admin-triage-chips" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;">
+              <button type="button" class="triage-chip active" data-filter="all" onclick="setAdminUserFilter('all')">
+                <span>الكل</span>
+                <span class="chip-count" id="triage-count-all">0</span>
+              </button>
+              <button type="button" class="triage-chip chip-danger" data-filter="problem" onclick="setAdminUserFilter('problem')">
+                <span>مشاكل وتحذيرات 🔴</span>
+                <span class="chip-count" id="triage-count-problem">0</span>
+              </button>
+              <button type="button" class="triage-chip chip-warning" data-filter="expiring" onclick="setAdminUserFilter('expiring')">
+                <span>تنتهي خلال 3 أيام 🟡</span>
+                <span class="chip-count" id="triage-count-expiring">0</span>
+              </button>
+              <button type="button" class="triage-chip chip-success" data-filter="running" onclick="setAdminUserFilter('running')">
+                <span>ينشرون حالياً 🟢</span>
+                <span class="chip-count" id="triage-count-running">0</span>
+              </button>
+              <button type="button" class="triage-chip chip-neutral" data-filter="unlinked" onclick="setAdminUserFilter('unlinked')">
+                <span>غير مربوطين ⚪</span>
+                <span class="chip-count" id="triage-count-unlinked">0</span>
+              </button>
             </div>
 
             <!-- Desktop View: High-density Data Table (Visible on desktop >= 1025px) -->
@@ -647,8 +767,15 @@
         <!-- Tab G: Subscriptions Lifecycle Dashboard -->
         <section id="tab-subscriptions" class="tab-panel hidden">
           <div class="panel-header">
-            <h1 class="panel-title">إدارة دورة حياة الاشتراكات والتنبيهات (Subscriptions Lifecycle)</h1>
-            <p class="panel-subtitle">مراقبة تواريخ انتهاء الخدمة للمشتركين وسجلات الإشعارات والتحكم في حالة الإيقاف التلقائي</p>
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+              <div>
+                <h1 class="panel-title">إدارة دورة حياة الاشتراكات والتنبيهات (Subscriptions Lifecycle)</h1>
+                <p class="panel-subtitle">مراقبة تواريخ انتهاء الخدمة للمشتركين وسجلات الإشعارات والتحكم في حالة الإيقاف التلقائي</p>
+              </div>
+              <button type="button" class="btn btn-sm" onclick="openBulkExtendModal()" style="padding: 8px 16px; font-size: 13px; font-weight: 700; border-radius: 8px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #fff; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);">
+                <span>🎁 تمديد تعويضي جماعي (Bulk Extend)</span>
+              </button>
+            </div>
           </div>
 
           <!-- Alert Counters Cards -->
@@ -805,7 +932,13 @@
 
           <!-- SOCKS5 Proxy Details -->
           <div style="border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 15px; margin-top: 15px; margin-bottom: 15px; text-align: right;">
-            <h4 style="font-size: 13px; color: #a5b4fc; margin-bottom: 10px;">بيانات البروكسي (SOCKS5) المخصص للمستخدم:</h4>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <h4 style="font-size: 13px; color: #a5b4fc; margin: 0;">بيانات البروكسي (SOCKS5) المخصص للمستخدم:</h4>
+              <button type="button" id="btn-test-user-proxy" class="btn btn-sm btn-secondary" onclick="testCurrentUserProxy()" style="padding: 4px 10px; font-size: 11.5px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; background: rgba(56, 189, 248, 0.08);">
+                <span>⚡ فحص البروكسي الآن</span>
+              </button>
+            </div>
+            <div id="user-proxy-test-result" class="hidden" style="margin-bottom: 10px; padding: 8px 12px; border-radius: 6px; font-size: 12px;"></div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
               <div class="input-group" style="margin-bottom: 0;">
                 <label for="edit-user-proxy-host" style="font-size: 11px;">Host (الخادم)</label>
@@ -957,7 +1090,49 @@
     </div>
   </div>
 
+  <!-- ==========================================
+       6. MODAL: Bulk Subscription Extension
+       ========================================== -->
+  <div id="modal-bulk-extend" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width: 480px;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 20px;">🎁</span>
+          <h3 style="margin: 0; font-size: 16px; font-weight: 700;">تمديد اشتراك جماعي تعويضي</h3>
+        </div>
+        <button class="close-btn" onclick="closeBulkExtendModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 20px;">
+        <p style="font-size: 13px; color: #94a3b8; line-height: 1.6; margin: 0 0 16px 0;">
+          يمكنك تمديد اشتراكات جميع المشتركين النشطين (Active & Trial) بدفعة واحدة كتعويض عن فترة صيانة أو توقف.
+        </p>
+        
+        <div class="input-group" style="margin-bottom: 16px;">
+          <label style="font-size: 13px; font-weight: 600; margin-bottom: 8px; display: block;">عدد الأيام المراد إضافتها لكل المشتركين:</label>
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+            <button type="button" class="btn btn-secondary btn-bulk-days" data-days="1" onclick="selectBulkDays(1, this)" style="padding: 10px; font-weight: 700; border-radius: 8px;">+1 يوم</button>
+            <button type="button" class="btn btn-secondary btn-bulk-days active" data-days="3" onclick="selectBulkDays(3, this)" style="padding: 10px; font-weight: 700; border-radius: 8px; border-color: #10b981; color: #10b981;">+3 أيام</button>
+            <button type="button" class="btn btn-secondary btn-bulk-days" data-days="7" onclick="selectBulkDays(7, this)" style="padding: 10px; font-weight: 700; border-radius: 8px;">+7 أيام</button>
+          </div>
+        </div>
+
+        <div class="input-group" style="margin-bottom: 20px;">
+          <label for="bulk-extend-reason" style="font-size: 13px; font-weight: 600; margin-bottom: 8px; display: block;">رسالة الإشعار التلقائي للمشتركين:</label>
+          <textarea id="bulk-extend-reason" rows="3" style="width: 100%; box-sizing: border-box; padding: 10px; font-size: 13px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #fff; resize: none;">🎁 تم تمديد اشتراكك تلقائياً كهدية تعويضية عن فترة الصيانة. شكراً لثقتكم بنا!</textarea>
+        </div>
+
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+          <button type="button" class="btn btn-secondary" onclick="closeBulkExtendModal()">إلغاء</button>
+          <button type="button" id="btn-submit-bulk-extend" class="btn btn-primary" onclick="submitBulkExtend()" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
+            <span class="btn-text">تأكيد التمديد للجميع 🚀</span>
+            <span class="spinner hidden"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- JavaScript Admin Script -->
-  <script src="/admin.js?v=4.0.1"></script>
+  <script src="/admin.js?v=4.0.2"></script>
 </body>
 </html>

@@ -145,6 +145,7 @@ const ADMIN_ROUTE_MAP = {
   "/admin": "tab-stats",
   "/admin/": "tab-stats",
   "/admin/payments": "tab-payments",
+  "/admin/campaigns": "tab-campaigns",
   "/admin/users": "tab-users",
   "/admin/broadcast": "tab-broadcast",
   "/admin/logs": "tab-logs",
@@ -155,6 +156,7 @@ const ADMIN_ROUTE_MAP = {
 const TAB_TO_ADMIN_ROUTE = {
   "tab-stats": "/admin",
   "tab-payments": "/admin/payments",
+  "tab-campaigns": "/admin/campaigns",
   "tab-users": "/admin/users",
   "tab-broadcast": "/admin/broadcast",
   "tab-logs": "/admin/logs",
@@ -182,6 +184,7 @@ function navigateAdmin(route, pushState = true) {
 const TAB_TITLES = {
   "tab-stats": "الإحصائيات الحية",
   "tab-payments": "إيصالات الكريبتو",
+  "tab-campaigns": "مراقبة المهام والحملات الحية",
   "tab-users": "إدارة المشتركين",
   "tab-broadcast": "بث إشعار عام",
   "tab-logs": "السجلات الحية",
@@ -288,12 +291,20 @@ function switchTab(tabId) {
   if (tabId !== "tab-subscriptions") {
     stopSubscriptionsPolling();
   }
+
+  // Clear campaigns polling if navigating away from tab-campaigns
+  if (tabId !== "tab-campaigns") {
+    stopCampaignsPolling();
+  }
   
   // Load relevant tab data
   if (tabId === "tab-stats") {
     loadAdminStats();
   } else if (tabId === "tab-payments") {
     loadAdminPayments();
+  } else if (tabId === "tab-campaigns") {
+    loadAdminActiveCampaigns();
+    startCampaignsPolling();
   } else if (tabId === "tab-users") {
     loadAdminUsers();
   } else if (tabId === "tab-broadcast") {
@@ -457,6 +468,18 @@ async function loadAdminStats() {
 
     const elPay = document.getElementById("admin-stat-pending-payments");
     if (elPay) elPay.textContent = stats.pending_payments;
+
+    const elPubToday = document.getElementById("admin-stat-published-today");
+    if (elPubToday) elPubToday.textContent = (stats.total_published_today || 0).toLocaleString();
+
+    const elPubMonth = document.getElementById("admin-stat-published-month");
+    if (elPubMonth) elPubMonth.textContent = (stats.total_published_month || 0).toLocaleString();
+
+    const elSuccessRate = document.getElementById("admin-stat-success-rate");
+    if (elSuccessRate) elSuccessRate.textContent = `${stats.success_rate !== undefined ? stats.success_rate : 100}%`;
+
+    const elActiveCamp = document.getElementById("admin-stat-active-campaigns");
+    if (elActiveCamp) elActiveCamp.textContent = stats.active_campaigns_now !== undefined ? stats.active_campaigns_now : 0;
   } catch (error) {
     console.error("Failed to load admin stats:", error);
   }
@@ -665,8 +688,70 @@ window.rejectCryptoPayment = async function(paymentId) {
 };
 
 // ==========================================
-// 7. USER MANAGEMENT ENGINE
+// 7. USER MANAGEMENT & SMART TRIAGE ENGINE
 // ==========================================
+let currentAdminUsers = [];
+let currentAdminUserFilter = 'all';
+
+function updateTriageChipCounts(users) {
+  const cAll = users.length;
+  let cProblem = 0;
+  let cExpiring = 0;
+  let cRunning = 0;
+  let cUnlinked = 0;
+
+  const now = new Date();
+
+  users.forEach(u => {
+    // Problem check: banned/error userbot, or active bot with expired subscription
+    const isProblem = u.has_banned_bot || u.has_error || 
+      (u.banned_engines_count && u.banned_engines_count > 0) ||
+      (u.bot_status && (u.bot_status.includes('error') || u.bot_status.includes('banned'))) ||
+      (u.operational_status === 'banned' || u.operational_status === 'error') ||
+      (u.has_active_bot && u.subscription_status === 'expired');
+    if (isProblem) cProblem++;
+
+    // Expiring check: valid within next 3 days
+    if (u.subscription_end && u.subscription_status !== 'expired' && !u.is_sub_expired) {
+      const expDate = new Date(u.subscription_end.split(' ')[0]);
+      const diffDays = (expDate - now) / (1000 * 3600 * 24);
+      if (diffDays >= 0 && diffDays <= 3) cExpiring++;
+    }
+
+    // Running check
+    const isRunning = u.is_publishing || (u.active_campaigns && u.active_campaigns > 0) || u.operational_status === 'active';
+    if (isRunning) cRunning++;
+
+    // Unlinked check
+    const isUnlinked = u.operational_status === 'unlinked' || u.telegram_accounts_count === 0;
+    if (isUnlinked) cUnlinked++;
+  });
+
+  const elAll = document.getElementById("triage-count-all");
+  const elProb = document.getElementById("triage-count-problem");
+  const elExp = document.getElementById("triage-count-expiring");
+  const elRun = document.getElementById("triage-count-running");
+  const elUnlink = document.getElementById("triage-count-unlinked");
+
+  if (elAll) elAll.textContent = cAll;
+  if (elProb) elProb.textContent = cProblem;
+  if (elExp) elExp.textContent = cExpiring;
+  if (elRun) elRun.textContent = cRunning;
+  if (elUnlink) elUnlink.textContent = cUnlinked;
+}
+
+window.setAdminUserFilter = function(filterKey) {
+  currentAdminUserFilter = filterKey;
+  document.querySelectorAll(".triage-chip").forEach(chip => {
+    if (chip.getAttribute("data-filter") === filterKey) {
+      chip.classList.add("active");
+    } else {
+      chip.classList.remove("active");
+    }
+  });
+  renderFilteredAdminUsers();
+};
+
 async function loadAdminUsers() {
   const tbody = document.getElementById("admin-users-table-body");
   const mobileContainer = document.getElementById("admin-users-mobile-cards");
@@ -677,9 +762,10 @@ async function loadAdminUsers() {
 
   try {
     const users = await adminApiRequest("/admin/users");
-    if (countBadge) countBadge.textContent = `${users.length} مشترك`;
+    currentAdminUsers = users || [];
+    if (countBadge) countBadge.textContent = `${currentAdminUsers.length} مشترك`;
 
-    if (users.length === 0) {
+    if (currentAdminUsers.length === 0) {
       if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center" style="padding: 24px; color: #708499;">لا يوجد مستخدمون مسجلون حالياً.</td></tr>`;
       if (mobileContainer) mobileContainer.innerHTML = `<div style="text-align: center; padding: 24px; color: #708499;">لا يوجد مستخدمون مسجلون حالياً.</div>`;
       return;
@@ -690,7 +776,7 @@ async function loadAdminUsers() {
     if (broadcastSelect) {
       const currentVal = broadcastSelect.value;
       broadcastSelect.innerHTML = `<option value="all">📢 إرسال إلى جميع المشتركين (All Users)</option>`;
-      users.forEach(u => {
+      currentAdminUsers.forEach(u => {
         const opt = document.createElement("option");
         opt.value = u.id;
         const uName = u.full_name || u.email.split('@')[0];
@@ -701,266 +787,14 @@ async function loadAdminUsers() {
       broadcastSelect.value = currentVal || "all";
     }
 
-    if (tbody) tbody.innerHTML = "";
-    if (mobileContainer) mobileContainer.innerHTML = "";
-
-    users.forEach(user => {
-      // 1. User Identity & Initials
-      const idBadge = `<span style="font-family: monospace; font-weight: 700; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.25);">#${user.id}</span>`;
-      const rawName = user.full_name || user.email.split('@')[0];
-      const initials = rawName.substring(0, 2).toUpperCase();
-      const roleTag = user.is_admin ? `<span class="badge" style="background: rgba(225, 29, 72, 0.15); color: #f43f5e; border: 1px solid rgba(225, 29, 72, 0.3); font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 700; margin-right: 6px;">مدير</span>` : '';
-
-      // 2. Subscription Plan Badge
-      let planBadge = '';
-      if (user.subscription_plan === "yearly") {
-        planBadge = `<span style="background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">👑 سنوي</span>`;
-      } else if (user.subscription_plan === "monthly") {
-        planBadge = `<span style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">💎 شهري</span>`;
-      } else if (user.subscription_plan === "weekly") {
-        planBadge = `<span style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">⚡ أسبوعي</span>`;
-      } else {
-        planBadge = `<span style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">⏳ تجريبي</span>`;
-      }
-
-      // 3. Real Live Operational Status Badge (حالة التشغيل الفعلية الحية)
-      let operationalBadge = '';
-      if (user.operational_status === "unlinked") {
-        operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(148, 163, 184, 0.12); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.25); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">⚪ غير مربوط (بانتظار الإعداد)</span>`;
-      } else if (user.operational_status === "active") {
-        operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.35); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">🟢 متصل ونشط</span>`;
-      } else if (user.operational_status === "partially_active") {
-        operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(234, 179, 8, 0.15); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.35); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">🟡 نشط جزئياً (${user.active_engines_count || 1}/${user.telegram_accounts_count})</span>`;
-      } else if (user.operational_status === "banned") {
-        operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.35); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">🚫 محظور من تليجرام</span>`;
-      } else if (user.operational_status === "expired") {
-        operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(225, 29, 72, 0.15); color: #f43f5e; border: 1px solid rgba(225, 29, 72, 0.35); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">🔴 اشتراك منتهي</span>`;
-      } else if (user.operational_status === "paused") {
-        operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(249, 115, 22, 0.15); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.35); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">⏸️ متوقف مؤقتاً</span>`;
-      } else {
-        operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">⚪ ${escapeHtml(user.operational_label || "غير نشط")}</span>`;
-      }
-
-      // 4. Subscription Expiry String
-      let expiryShort = '--';
-      if (user.subscription_end) {
-        const dateStr = user.subscription_end.split(" ")[0];
-        const remDays = user.remaining_days !== undefined ? user.remaining_days : 0;
-        if (user.is_sub_expired || user.subscription_status === "expired") {
-          expiryShort = `<span style="color: #f43f5e; font-weight: 700;">منتهي (${dateStr})</span>`;
-        } else {
-          expiryShort = `<span style="color: #fff; font-family: monospace;">${dateStr}</span> <span style="color: #38bdf8; font-weight: 700;">(باقي ${remDays} يوم)</span>`;
-        }
-      }
-
-      // 5. Telegram Phone Numbers with Real Live Status per account
-      let phoneCell = '';
-      let phoneMobile = '';
-      const tgAccs = user.telegram_accounts || [];
-      if (tgAccs.length > 0) {
-        phoneCell = tgAccs.map(acc => {
-          let statusTag = '';
-          if (acc.status === 'active') {
-            statusTag = `<span style="color: #4ade80; font-size: 10.5px; font-weight: 700; background: rgba(34, 197, 94, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(34, 197, 94, 0.25);">🟢 شغال</span>`;
-          } else if (acc.status === 'banned') {
-            statusTag = `<span style="color: #f87171; font-size: 10.5px; font-weight: 700; background: rgba(239, 68, 68, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.25);">🚫 محظور</span>`;
-          } else if (acc.status === 'paused' || acc.status === 'stopped') {
-            statusTag = `<span style="color: #fb923c; font-size: 10.5px; font-weight: 700; background: rgba(249, 115, 22, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(249, 115, 22, 0.25);">⏸️ متوقف</span>`;
-          } else {
-            statusTag = `<span style="color: #facc15; font-size: 10.5px; font-weight: 700; background: rgba(234, 179, 8, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(234, 179, 8, 0.25);">⚠️ ${escapeHtml(acc.status)}</span>`;
-          }
-          return `
-            <div style="display: flex; align-items: center; gap: 6px; margin: 3px 0;">
-              <span style="font-family: monospace; font-size: 12px; direction: ltr; font-weight: 700; color: #fff; background: rgba(15, 23, 42, 0.7); padding: 3px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08);">
-                📞 ${escapeHtml(acc.phone)}
-              </span>
-              ${statusTag}
-            </div>
-          `;
-        }).join('');
-
-        phoneMobile = tgAccs.map(acc => {
-          const color = acc.status === 'active' ? '#4ade80' : (acc.status === 'banned' ? '#f87171' : '#facc15');
-          const icon = acc.status === 'active' ? '🟢 شغال' : (acc.status === 'banned' ? '🚫 محظور' : '⚠️ متوقف');
-          return `<span style="display: inline-flex; align-items: center; gap: 4px; direction: ltr; font-family: monospace; font-size: 11.5px; color: #fff; background: rgba(15, 23, 42, 0.7); border: 1px solid ${color}40; padding: 3px 7px; border-radius: 6px; margin: 2px 0;">📞 ${escapeHtml(acc.phone)} <b style="color: ${color}; font-size: 10px;">(${icon})</b></span>`;
-        }).join(' ');
-      } else {
-        phoneCell = `<span style="color: #64748b; font-size: 11.5px; font-style: italic; background: rgba(255,255,255,0.03); padding: 4px 8px; border-radius: 4px;">⚠️ لم يربط بعد</span>`;
-        phoneMobile = `<span style="color: #64748b; font-size: 11.5px; font-style: italic;">⚠️ لم يربط بعد</span>`;
-      }
-
-      // 6. Bot Engines Detailed Breakdown
-      let tgEnginesCell = '';
-      let tgEnginesMobile = '';
-      if (user.telegram_accounts_count > 0) {
-        let chips = [];
-        if (user.active_engines_count > 0) {
-          chips.push(`<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(34, 197, 94, 0.12); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); padding: 2px 7px; border-radius: 5px; font-size: 11px; font-weight: 700;">🤖 ${user.active_engines_count} شغال</span>`);
-        }
-        if (user.banned_engines_count > 0) {
-          chips.push(`<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(239, 68, 68, 0.12); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 7px; border-radius: 5px; font-size: 11px; font-weight: 700;">🚫 ${user.banned_engines_count} محظور</span>`);
-        }
-        if (user.paused_engines_count > 0) {
-          chips.push(`<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(249, 115, 22, 0.12); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.3); padding: 2px 7px; border-radius: 5px; font-size: 11px; font-weight: 700;">⏸️ ${user.paused_engines_count} متوقف</span>`);
-        }
-        if (chips.length === 0) {
-          chips.push(`<span style="color: #94a3b8; font-size: 11px;">${user.telegram_accounts_count} محرك</span>`);
-        }
-        tgEnginesCell = `<div style="display: flex; flex-direction: column; gap: 4px;">${chips.join('')}</div>`;
-        tgEnginesMobile = chips.join(' ');
-      } else {
-        tgEnginesCell = `<span style="color: #64748b; font-size: 11.5px; font-style: italic;">⚪ لا توجد محركات</span>`;
-        tgEnginesMobile = `<span style="color: #64748b; font-size: 11.5px; font-style: italic;">⚪ غير مربوط</span>`;
-      }
-
-      const userJson = JSON.stringify(user)
-        .replace(/&/g, '&amp;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-
-      // 7. Action buttons
-      const isUnlinked = user.telegram_accounts_count === 0;
-      const rebootBtnStyle = isUnlinked
-        ? `background: rgba(255, 255, 255, 0.05); color: #64748b; border: 1px solid rgba(255, 255, 255, 0.1); opacity: 0.5; cursor: not-allowed;`
-        : `background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); cursor: pointer;`;
-      const rebootAction = isUnlinked
-        ? `showToast('المستخدم غير مربوط بأي حساب تليجرام، لا توجد محركات لإعادة تشغيلها.', 'warning')`
-        : `rebootUserService(${user.id})`;
-
-      // 8. Populate Desktop Table Row
-      if (tbody) {
-        const tr = document.createElement("tr");
-        const clientCell = `
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <div style="width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, #1e293b, #0f172a); border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; color: #38bdf8; flex-shrink: 0; box-shadow: 0 2px 6px rgba(0,0,0,0.3);">
-              ${escapeHtml(initials)}
-            </div>
-            <div>
-              <div style="display: flex; align-items: center;">
-                <strong style="color: #ffffff; font-size: 14px; font-weight: 700;">${escapeHtml(rawName)}</strong>
-                ${roleTag}
-              </div>
-              <div style="color: #708499; font-size: 12px; margin-top: 2px; font-family: monospace;">${escapeHtml(user.email)}</div>
-            </div>
-          </div>
-        `;
-        const planAndValidityCell = `
-          <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-start;">
-            ${planBadge}
-            <div style="font-size: 11px; margin-top: 2px;">${expiryShort}</div>
-          </div>
-        `;
-        const actionButtons = `
-          <div class="action-btn-group" style="justify-content: center; gap: 5px; flex-wrap: wrap;">
-            <button type="button" class="btn-table btn-impersonate" style="background: rgba(14, 165, 233, 0.15); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.35); padding: 5px 9px; border-radius: 6px; font-weight: 700; cursor: pointer;" title="دخول إلى حساب العميل" onclick="impersonateUser(${user.id}, '${escapeHtml(rawName)}', '${escapeHtml(user.email)}')">👤 دخول</button>
-            <button type="button" class="btn-table btn-diag" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); padding: 5px 9px; border-radius: 6px; font-weight: 700; cursor: pointer;" title="تشخيص وحل المشاكل" onclick="openUserDiagnosticsModal(${user.id})">🔍 تشخيص</button>
-            <button type="button" class="btn-table btn-edit" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 5px 8px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="openAdminEditModal(${userJson})">تعديل</button>
-            <button type="button" class="btn-table btn-reboot" style="${rebootBtnStyle} padding: 5px 8px; border-radius: 6px; font-weight: 600;" onclick="${rebootAction}">ريبوت</button>
-            <button type="button" class="btn-table btn-delete" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 5px 8px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="deleteUserAccount(${user.id})">حذف</button>
-          </div>
-        `;
-        tr.innerHTML = `
-          <td>${idBadge}</td>
-          <td>${clientCell}</td>
-          <td>${phoneCell}</td>
-          <td>${planAndValidityCell}</td>
-          <td>${operationalBadge}</td>
-          <td>${tgEnginesCell}</td>
-          <td style="text-align: center;">${actionButtons}</td>
-        `;
-        tbody.appendChild(tr);
-      }
-
-      // 9. Populate Mobile Card
-      if (mobileContainer) {
-        const card = document.createElement("div");
-        card.className = "admin-user-card";
-        const searchKeywords = `${rawName} ${user.email} ${(user.phones || []).join(' ')} #${user.id} ${user.operational_label || ''}`.toLowerCase();
-        card.setAttribute("data-user-search", searchKeywords);
-        card.innerHTML = `
-          <div class="auc-top">
-            <div class="auc-avatar">${escapeHtml(initials)}</div>
-            <div class="auc-info">
-              <div class="auc-name-row">
-                <strong class="auc-name">${escapeHtml(rawName)}</strong>
-                ${roleTag}
-              </div>
-              <div class="auc-email">${escapeHtml(user.email)}</div>
-            </div>
-            <div class="auc-id">#${user.id}</div>
-          </div>
-
-          <div class="auc-pills-row" style="display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 10px 12px;">
-            <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
-              <div class="auc-pill-group">
-                <span class="auc-pill-label">الباقة:</span>
-                ${planBadge}
-              </div>
-              <div style="font-size: 11px;">${expiryShort}</div>
-            </div>
-            <div style="display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 2px;">
-              <span class="auc-pill-label" style="font-size: 11px; color: #94a3b8;">حالة التشغيل:</span>
-              ${operationalBadge}
-            </div>
-          </div>
-
-          <div class="auc-details-box">
-            <div class="auc-detail-row">
-              <span class="auc-detail-label">📱 الهواتف:</span>
-              <span class="auc-detail-val" style="display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px;">${phoneMobile}</span>
-            </div>
-            <div class="auc-detail-row" style="margin-top: 4px;">
-              <span class="auc-detail-label">⚡ المحركات:</span>
-              <span class="auc-detail-val" style="display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px;">${tgEnginesMobile}</span>
-            </div>
-          </div>
-
-          <div class="auc-actions">
-            <button type="button" class="btn-card-action btn-card-impersonate" style="background: rgba(14, 165, 233, 0.15); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.3);" onclick="impersonateUser(${user.id}, '${escapeHtml(rawName)}', '${escapeHtml(user.email)}')">
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-              <span>دخول</span>
-            </button>
-            <button type="button" class="btn-card-action btn-card-diag" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);" onclick="openUserDiagnosticsModal(${user.id})">
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <span>تشخيص</span>
-            </button>
-            <button type="button" class="btn-card-action btn-card-edit" onclick="openAdminEditModal(${userJson})">
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-              <span>تعديل</span>
-            </button>
-            <button type="button" class="btn-card-action btn-card-reboot" style="${rebootBtnStyle}" onclick="${rebootAction}">
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-              <span>ريبوت</span>
-            </button>
-            <button type="button" class="btn-card-action btn-card-delete" onclick="deleteUserAccount(${user.id})">
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-              <span>حذف</span>
-            </button>
-          </div>
-        `;
-        mobileContainer.appendChild(card);
-      }
-    });
+    updateTriageChipCounts(currentAdminUsers);
+    renderFilteredAdminUsers();
 
     // Wire instant search filter
     const searchInput = document.getElementById("admin-users-search");
     if (searchInput) {
-      searchInput.oninput = function(e) {
-        const query = e.target.value.toLowerCase().trim();
-        // Filter mobile cards
-        document.querySelectorAll("#admin-users-mobile-cards .admin-user-card").forEach(card => {
-          const haystack = card.getAttribute("data-user-search") || "";
-          card.style.display = haystack.includes(query) ? "" : "none";
-        });
-        // Filter desktop table rows
-        if (tbody) {
-          Array.from(tbody.querySelectorAll("tr")).forEach(row => {
-            const rowText = row.textContent.toLowerCase();
-            row.style.display = rowText.includes(query) ? "" : "none";
-          });
-        }
+      searchInput.oninput = function() {
+        renderFilteredAdminUsers();
       };
     }
   } catch (error) {
@@ -968,6 +802,294 @@ async function loadAdminUsers() {
     if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center red-text" style="padding: 24px;">فشل تحميل قائمة المستخدمين.</td></tr>`;
     if (mobileContainer) mobileContainer.innerHTML = `<div style="text-align: center; padding: 24px; color: #f87171;">فشل تحميل قائمة المستخدمين.</div>`;
   }
+}
+
+function renderFilteredAdminUsers() {
+  const tbody = document.getElementById("admin-users-table-body");
+  const mobileContainer = document.getElementById("admin-users-mobile-cards");
+  const query = (document.getElementById("admin-users-search")?.value || "").toLowerCase().trim();
+  const now = new Date();
+
+  let filtered = currentAdminUsers.filter(user => {
+    // 1. Triage Filter
+    if (currentAdminUserFilter === 'problem') {
+      const isProblem = user.has_banned_bot || user.has_error || 
+        (user.banned_engines_count && user.banned_engines_count > 0) ||
+        (user.bot_status && (user.bot_status.includes('error') || user.bot_status.includes('banned'))) ||
+        (user.operational_status === 'banned' || user.operational_status === 'error') ||
+        (user.has_active_bot && user.subscription_status === 'expired');
+      if (!isProblem) return false;
+    } else if (currentAdminUserFilter === 'expiring') {
+      if (!user.subscription_end || user.subscription_status === 'expired' || user.is_sub_expired) return false;
+      const expDate = new Date(user.subscription_end.split(' ')[0]);
+      const diffDays = (expDate - now) / (1000 * 3600 * 24);
+      if (diffDays < 0 || diffDays > 3) return false;
+    } else if (currentAdminUserFilter === 'running') {
+      const isRunning = user.is_publishing || (user.active_campaigns && user.active_campaigns > 0) || user.operational_status === 'active';
+      if (!isRunning) return false;
+    } else if (currentAdminUserFilter === 'unlinked') {
+      const isUnlinked = user.operational_status === 'unlinked' || user.telegram_accounts_count === 0;
+      if (!isUnlinked) return false;
+    }
+
+    // 2. Search Query Filter
+    if (query) {
+      const rawName = user.full_name || user.email.split('@')[0];
+      const searchKeywords = `${rawName} ${user.email} ${(user.phones || []).join(' ')} #${user.id} ${user.operational_label || ''}`.toLowerCase();
+      if (!searchKeywords.includes(query)) return false;
+    }
+
+    return true;
+  });
+
+  if (tbody) tbody.innerHTML = "";
+  if (mobileContainer) mobileContainer.innerHTML = "";
+
+  if (filtered.length === 0) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center" style="padding: 32px; color: #708499;">لا توجد حسابات مطابقة للفلتر المحدد.</td></tr>`;
+    if (mobileContainer) mobileContainer.innerHTML = `<div style="text-align: center; padding: 32px; color: #708499;">لا توجد حسابات مطابقة للفلتر المحدد.</div>`;
+    return;
+  }
+
+  filtered.forEach(user => {
+    // 1. User Identity & Initials
+    const idBadge = `<span style="font-family: monospace; font-weight: 700; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.25);">#${user.id}</span>`;
+    const rawName = user.full_name || user.email.split('@')[0];
+    const initials = rawName.substring(0, 2).toUpperCase();
+    const roleTag = user.is_admin ? `<span class="badge" style="background: rgba(225, 29, 72, 0.15); color: #f43f5e; border: 1px solid rgba(225, 29, 72, 0.3); font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 700; margin-right: 6px;">مدير</span>` : '';
+
+    // 2. Subscription Plan Badge
+    let planBadge = '';
+    if (user.subscription_plan === "yearly") {
+      planBadge = `<span style="background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">👑 سنوي</span>`;
+    } else if (user.subscription_plan === "monthly") {
+      planBadge = `<span style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">💎 شهري</span>`;
+    } else if (user.subscription_plan === "weekly") {
+      planBadge = `<span style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">⚡ أسبوعي</span>`;
+    } else {
+      planBadge = `<span style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">⏳ تجريبي</span>`;
+    }
+
+    // 3. Real Live Operational Status Badge (حالة التشغيل الفعلية الحية)
+    let operationalBadge = '';
+    if (user.operational_status === "unlinked") {
+      operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(148, 163, 184, 0.12); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.25); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">⚪ غير مربوط (بانتظار الإعداد)</span>`;
+    } else if (user.operational_status === "active") {
+      operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.35); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">🟢 متصل ونشط</span>`;
+    } else if (user.operational_status === "partially_active") {
+      operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(234, 179, 8, 0.15); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.35); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">🟡 نشط جزئياً (${user.active_engines_count || 1}/${user.telegram_accounts_count})</span>`;
+    } else if (user.operational_status === "banned") {
+      operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.35); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">🚫 محظور من تليجرام</span>`;
+    } else if (user.operational_status === "expired") {
+      operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(225, 29, 72, 0.15); color: #f43f5e; border: 1px solid rgba(225, 29, 72, 0.35); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">🔴 اشتراك منتهي</span>`;
+    } else if (user.operational_status === "paused") {
+      operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(249, 115, 22, 0.15); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.35); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">⏸️ متوقف مؤقتاً</span>`;
+    } else {
+      operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">⚪ ${escapeHtml(user.operational_label || "غير نشط")}</span>`;
+    }
+
+    // 4. Subscription Expiry String
+    let expiryShort = '--';
+    if (user.subscription_end) {
+      const dateStr = user.subscription_end.split(" ")[0];
+      const remDays = user.remaining_days !== undefined ? user.remaining_days : 0;
+      if (user.is_sub_expired || user.subscription_status === "expired") {
+        expiryShort = `<span style="color: #f43f5e; font-weight: 700;">منتهي (${dateStr})</span>`;
+      } else {
+        expiryShort = `<span style="color: #fff; font-family: monospace;">${dateStr}</span> <span style="color: #38bdf8; font-weight: 700;">(باقي ${remDays} يوم)</span>`;
+      }
+    }
+
+    // 5. Telegram Phone Numbers with Real Live Status per account
+    let phoneCell = '';
+    let phoneMobile = '';
+    const tgAccs = user.telegram_accounts || [];
+    if (tgAccs.length > 0) {
+      phoneCell = tgAccs.map(acc => {
+        let statusTag = '';
+        if (acc.status === 'active') {
+          statusTag = `<span style="color: #4ade80; font-size: 10.5px; font-weight: 700; background: rgba(34, 197, 94, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(34, 197, 94, 0.25);">🟢 شغال</span>`;
+        } else if (acc.status === 'banned') {
+          statusTag = `<span style="color: #f87171; font-size: 10.5px; font-weight: 700; background: rgba(239, 68, 68, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.25);">🚫 محظور</span>`;
+        } else if (acc.status === 'paused' || acc.status === 'stopped') {
+          statusTag = `<span style="color: #fb923c; font-size: 10.5px; font-weight: 700; background: rgba(249, 115, 22, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(249, 115, 22, 0.25);">⏸️ متوقف</span>`;
+        } else {
+          statusTag = `<span style="color: #facc15; font-size: 10.5px; font-weight: 700; background: rgba(234, 179, 8, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(234, 179, 8, 0.25);">⚠️ ${escapeHtml(acc.status)}</span>`;
+        }
+        return `
+          <div style="display: flex; align-items: center; gap: 6px; margin: 3px 0;">
+            <span style="font-family: monospace; font-size: 12px; direction: ltr; font-weight: 700; color: #fff; background: rgba(15, 23, 42, 0.7); padding: 3px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08);">
+              📞 ${escapeHtml(acc.phone)}
+            </span>
+            ${statusTag}
+          </div>
+        `;
+      }).join('');
+
+      phoneMobile = tgAccs.map(acc => {
+        const color = acc.status === 'active' ? '#4ade80' : (acc.status === 'banned' ? '#f87171' : '#facc15');
+        const icon = acc.status === 'active' ? '🟢 شغال' : (acc.status === 'banned' ? '🚫 محظور' : '⚠️ متوقف');
+        return `<span style="display: inline-flex; align-items: center; gap: 4px; direction: ltr; font-family: monospace; font-size: 11.5px; color: #fff; background: rgba(15, 23, 42, 0.7); border: 1px solid ${color}40; padding: 3px 7px; border-radius: 6px; margin: 2px 0;">📞 ${escapeHtml(acc.phone)} <b style="color: ${color}; font-size: 10px;">(${icon})</b></span>`;
+      }).join(' ');
+    } else {
+      phoneCell = `<span style="color: #64748b; font-size: 11.5px; font-style: italic; background: rgba(255,255,255,0.03); padding: 4px 8px; border-radius: 4px;">⚠️ لم يربط بعد</span>`;
+      phoneMobile = `<span style="color: #64748b; font-size: 11.5px; font-style: italic;">⚠️ لم يربط بعد</span>`;
+    }
+
+    // 6. Bot Engines Detailed Breakdown
+    let tgEnginesCell = '';
+    let tgEnginesMobile = '';
+    if (user.telegram_accounts_count > 0) {
+      let chips = [];
+      if (user.active_engines_count > 0) {
+        chips.push(`<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(34, 197, 94, 0.12); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); padding: 2px 7px; border-radius: 5px; font-size: 11px; font-weight: 700;">🤖 ${user.active_engines_count} شغال</span>`);
+      }
+      if (user.banned_engines_count > 0) {
+        chips.push(`<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(239, 68, 68, 0.12); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 7px; border-radius: 5px; font-size: 11px; font-weight: 700;">🚫 ${user.banned_engines_count} محظور</span>`);
+      }
+      if (user.paused_engines_count > 0) {
+        chips.push(`<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(249, 115, 22, 0.12); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.3); padding: 2px 7px; border-radius: 5px; font-size: 11px; font-weight: 700;">⏸️ ${user.paused_engines_count} متوقف</span>`);
+      }
+      if (chips.length === 0) {
+        chips.push(`<span style="color: #94a3b8; font-size: 11px;">${user.telegram_accounts_count} محرك</span>`);
+      }
+      tgEnginesCell = `<div style="display: flex; flex-direction: column; gap: 4px;">${chips.join('')}</div>`;
+      tgEnginesMobile = chips.join(' ');
+    } else {
+      tgEnginesCell = `<span style="color: #64748b; font-size: 11.5px; font-style: italic;">⚪ لا توجد محركات</span>`;
+      tgEnginesMobile = `<span style="color: #64748b; font-size: 11.5px; font-style: italic;">⚪ غير مربوط</span>`;
+    }
+
+    const userJson = JSON.stringify(user)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    // 7. Action buttons
+    const isUnlinked = user.telegram_accounts_count === 0;
+    const rebootBtnStyle = isUnlinked
+      ? `background: rgba(255, 255, 255, 0.05); color: #64748b; border: 1px solid rgba(255, 255, 255, 0.1); opacity: 0.5; cursor: not-allowed;`
+      : `background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); cursor: pointer;`;
+    const rebootAction = isUnlinked
+      ? `showToast('المستخدم غير مربوط بأي حساب تليجرام، لا توجد محركات لإعادة تشغيلها.', 'warning')`
+      : `rebootUserService(${user.id})`;
+
+    // 8. Populate Desktop Table Row
+    if (tbody) {
+      const tr = document.createElement("tr");
+      const clientCell = `
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, #1e293b, #0f172a); border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; color: #38bdf8; flex-shrink: 0; box-shadow: 0 2px 6px rgba(0,0,0,0.3);">
+            ${escapeHtml(initials)}
+          </div>
+          <div>
+            <div style="display: flex; align-items: center;">
+              <strong style="color: #ffffff; font-size: 14px; font-weight: 700;">${escapeHtml(rawName)}</strong>
+              ${roleTag}
+            </div>
+            <div style="color: #708499; font-size: 12px; margin-top: 2px; font-family: monospace;">${escapeHtml(user.email)}</div>
+          </div>
+        </div>
+      `;
+      const planAndValidityCell = `
+        <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-start;">
+          ${planBadge}
+          <div style="font-size: 11px; margin-top: 2px;">${expiryShort}</div>
+        </div>
+      `;
+      const actionButtons = `
+        <div class="action-btn-group" style="justify-content: center; gap: 5px; flex-wrap: wrap;">
+          <button type="button" class="btn-table btn-impersonate" style="background: rgba(14, 165, 233, 0.15); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.35); padding: 5px 9px; border-radius: 6px; font-weight: 700; cursor: pointer;" title="دخول إلى حساب العميل" onclick="impersonateUser(${user.id}, '${escapeHtml(rawName)}', '${escapeHtml(user.email)}')">👤 دخول</button>
+          <button type="button" class="btn-table btn-diag" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); padding: 5px 9px; border-radius: 6px; font-weight: 700; cursor: pointer;" title="تشخيص وحل المشاكل" onclick="openUserDiagnosticsModal(${user.id})">🔍 تشخيص</button>
+          <button type="button" class="btn-table btn-edit" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 5px 8px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="openAdminEditModal(${userJson})">تعديل</button>
+          <button type="button" class="btn-table btn-reboot" style="${rebootBtnStyle} padding: 5px 8px; border-radius: 6px; font-weight: 600;" onclick="${rebootAction}">ريبوت</button>
+          <button type="button" class="btn-table btn-delete" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 5px 8px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="deleteUserAccount(${user.id})">حذف</button>
+        </div>
+      `;
+      tr.innerHTML = `
+        <td>${idBadge}</td>
+        <td>${clientCell}</td>
+        <td>${phoneCell}</td>
+        <td>${planAndValidityCell}</td>
+        <td>${operationalBadge}</td>
+        <td>${tgEnginesCell}</td>
+        <td style="text-align: center;">${actionButtons}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    // 9. Populate Mobile Card
+    if (mobileContainer) {
+      const card = document.createElement("div");
+      card.className = "admin-user-card";
+      const searchKeywords = `${rawName} ${user.email} ${(user.phones || []).join(' ')} #${user.id} ${user.operational_label || ''}`.toLowerCase();
+      card.setAttribute("data-user-search", searchKeywords);
+      card.innerHTML = `
+        <div class="auc-top">
+          <div class="auc-avatar">${escapeHtml(initials)}</div>
+          <div class="auc-info">
+            <div class="auc-name-row">
+              <strong class="auc-name">${escapeHtml(rawName)}</strong>
+              ${roleTag}
+            </div>
+            <div class="auc-email">${escapeHtml(user.email)}</div>
+          </div>
+          <div class="auc-id">#${user.id}</div>
+        </div>
+
+        <div class="auc-pills-row" style="display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 10px 12px;">
+          <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+            <div class="auc-pill-group">
+              <span class="auc-pill-label">الباقة:</span>
+              ${planBadge}
+            </div>
+            <div style="font-size: 11px;">${expiryShort}</div>
+          </div>
+          <div style="display: flex; justify-content: space-between; width: 100%; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 6px; margin-top: 4px;">
+            <span class="auc-pill-label">حالة التشغيل:</span>
+            ${operationalBadge}
+          </div>
+        </div>
+
+        <div class="auc-meta" style="padding: 10px 12px; border-top: 1px solid rgba(255,255,255,0.04);">
+          <div class="auc-meta-row">
+            <span class="auc-meta-label">📱 أرقام الهواتف:</span>
+            <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-end;">${phoneMobile}</div>
+          </div>
+          <div class="auc-meta-row" style="margin-top: 6px;">
+            <span class="auc-meta-label">🤖 محركات البوت:</span>
+            <div style="display: flex; gap: 4px; flex-wrap: wrap;">${tgEnginesMobile}</div>
+          </div>
+        </div>
+
+        <div class="auc-actions" style="padding: 10px 12px; gap: 6px; border-top: 1px solid rgba(255,255,255,0.04);">
+          <button type="button" class="btn-card-action btn-card-impersonate" style="background: rgba(14, 165, 233, 0.15); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.35); font-weight: 700;" onclick="impersonateUser(${user.id}, '${escapeHtml(rawName)}', '${escapeHtml(user.email)}')">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span>دخول</span>
+          </button>
+          <button type="button" class="btn-card-action btn-card-diag" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);" onclick="openUserDiagnosticsModal(${user.id})">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <span>تشخيص</span>
+          </button>
+          <button type="button" class="btn-card-action btn-card-edit" onclick="openAdminEditModal(${userJson})">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            <span>تعديل</span>
+          </button>
+          <button type="button" class="btn-card-action btn-card-reboot" style="${rebootBtnStyle}" onclick="${rebootAction}">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            <span>ريبوت</span>
+          </button>
+          <button type="button" class="btn-card-action btn-card-delete" onclick="deleteUserAccount(${user.id})">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            <span>حذف</span>
+          </button>
+        </div>
+      `;
+      mobileContainer.appendChild(card);
+    }
+  });
 }
 
 function openAdminEditModal(user) {
@@ -994,6 +1116,12 @@ function openAdminEditModal(user) {
   document.getElementById("edit-user-proxy-user").value = user.proxy_username || "";
   document.getElementById("edit-user-proxy-pass").value = user.proxy_password || "";
   
+  const proxyResEl = document.getElementById("user-proxy-test-result");
+  if (proxyResEl) {
+    proxyResEl.classList.add("hidden");
+    proxyResEl.innerHTML = "";
+  }
+
   document.getElementById("admin-edit-modal").classList.remove("hidden");
 }
 window.openAdminEditModal = openAdminEditModal;
@@ -1002,6 +1130,62 @@ function closeAdminEditModal() {
   document.getElementById("admin-edit-modal").classList.add("hidden");
 }
 window.closeAdminEditModal = closeAdminEditModal;
+
+window.testCurrentUserProxy = async function() {
+  const userId = document.getElementById("edit-user-id")?.value;
+  if (!userId) {
+    showToast("يرجى اختيار مستخدم أولاً", "warning");
+    return;
+  }
+  const btn = document.getElementById("btn-test-user-proxy");
+  const resEl = document.getElementById("user-proxy-test-result");
+  const origBtnText = btn ? btn.innerHTML : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span>⏳ جاري الفحص...</span>`;
+  }
+  if (resEl) {
+    resEl.classList.remove("hidden");
+    resEl.style.display = "block";
+    resEl.style.background = "rgba(56, 189, 248, 0.1)";
+    resEl.style.color = "#38bdf8";
+    resEl.style.border = "1px solid rgba(56, 189, 248, 0.25)";
+    resEl.innerHTML = `<span>⏳ جاري فحص الاتصال بمصادقة SOCKS5 وقياس زمن الاستجابة...</span>`;
+  }
+  try {
+    const res = await adminApiRequest(`/admin/users/${userId}/test-proxy`, { method: "POST" });
+    if (res.status === "success") {
+      if (resEl) {
+        resEl.style.background = "rgba(16, 185, 129, 0.12)";
+        resEl.style.color = "#34d399";
+        resEl.style.border = "1px solid rgba(16, 185, 129, 0.3)";
+        resEl.innerHTML = `<b>✅ البروكسي متصل ونشط!</b> زمن الاستجابة: <b>${res.latency_ms} ms</b> | عنوان IP: <code>${escapeHtml(res.external_ip || 'SOCKS5 OK')}</code>`;
+      }
+      showToast("تم التحقق من البروكسي بنجاح ✅", "success");
+    } else {
+      if (resEl) {
+        resEl.style.background = "rgba(239, 68, 68, 0.12)";
+        resEl.style.color = "#f87171";
+        resEl.style.border = "1px solid rgba(239, 68, 68, 0.3)";
+        resEl.innerHTML = `<b>❌ فشل فحص البروكسي:</b> ${escapeHtml(res.detail || "تعذر الاتصال بخادم البروكسي")}`;
+      }
+      showToast("فشل الاتصال بالبروكسي", "error");
+    }
+  } catch (err) {
+    console.error("Proxy test error:", err);
+    if (resEl) {
+      resEl.style.background = "rgba(239, 68, 68, 0.12)";
+      resEl.style.color = "#f87171";
+      resEl.style.border = "1px solid rgba(239, 68, 68, 0.3)";
+      resEl.innerHTML = `<b>❌ خطأ:</b> ${escapeHtml(err.message || "فشل الاتصال")}`;
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origBtnText;
+    }
+  }
+};
 
 async function handleAdminEditSave(e) {
   e.preventDefault();
@@ -1961,3 +2145,226 @@ function initMobileHeaderScroll() {
     lastScrollTop = scrollTop <= 0 ? 0 : scrollTop;
   }, { passive: true });
 }
+
+// ==========================================
+// 8. LIVE TASKS & CAMPAIGNS MONITOR ENGINE
+// ==========================================
+let campaignsInterval = null;
+let currentAdminCampaigns = [];
+
+function startCampaignsPolling() {
+  if (campaignsInterval) clearInterval(campaignsInterval);
+  campaignsInterval = setInterval(() => {
+    loadAdminActiveCampaigns(false);
+  }, 10000);
+}
+window.startCampaignsPolling = startCampaignsPolling;
+
+function stopCampaignsPolling() {
+  if (campaignsInterval) {
+    clearInterval(campaignsInterval);
+    campaignsInterval = null;
+  }
+}
+window.stopCampaignsPolling = stopCampaignsPolling;
+
+async function loadAdminActiveCampaigns(isManual = false) {
+  const tbody = document.getElementById("admin-campaigns-table-body");
+  if (isManual && tbody) {
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 24px; color: #708499;">جاري تحديث المهام والحملات الحية...</td></tr>`;
+  }
+
+  try {
+    const res = await adminApiRequest("/admin/campaigns/active");
+    if (!res || res.status !== "success") {
+      throw new Error(res?.detail || "فشل جلب المهام والحملات الحية");
+    }
+
+    const summary = res.summary || {};
+    currentAdminCampaigns = res.tasks || [];
+
+    const elRunning = document.getElementById("campaigns-stat-running");
+    const elPending = document.getElementById("campaigns-stat-pending");
+    const elCompleted = document.getElementById("campaigns-stat-completed");
+    const elFailed = document.getElementById("campaigns-stat-failed");
+
+    if (elRunning) elRunning.textContent = summary.running || 0;
+    if (elPending) elPending.textContent = summary.pending || 0;
+    if (elCompleted) elCompleted.textContent = summary.completed || 0;
+    if (elFailed) elFailed.textContent = summary.failed || 0;
+
+    renderAdminCampaignsTable();
+    if (isManual) {
+      showToast("تم تحديث المهام والحملات الحية بنجاح ✅", "success", 2000);
+    }
+  } catch (err) {
+    console.error("Failed to load active campaigns:", err);
+    if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="text-center red-text" style="padding: 24px;">تعذر تحميل المهام والحملات: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+window.loadAdminActiveCampaigns = loadAdminActiveCampaigns;
+
+function filterAdminCampaignsTable() {
+  renderAdminCampaignsTable();
+}
+window.filterAdminCampaignsTable = filterAdminCampaignsTable;
+
+function renderAdminCampaignsTable() {
+  const tbody = document.getElementById("admin-campaigns-table-body");
+  if (!tbody) return;
+
+  const searchQuery = (document.getElementById("admin-campaigns-search")?.value || "").toLowerCase().trim();
+  let tasks = currentAdminCampaigns;
+
+  if (searchQuery) {
+    tasks = tasks.filter(t => {
+      const matchStr = `${t.task_id} ${t.user_email || ''} ${t.user_name || ''} ${t.task_type || ''} ${t.status || ''} ${t.result_summary || ''}`.toLowerCase();
+      return matchStr.includes(searchQuery);
+    });
+  }
+
+  if (tasks.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="8" class="text-center" style="padding: 32px 16px; color: #94a3b8;">
+          <div style="font-size: 26px; margin-bottom: 6px;">🕹️</div>
+          <div style="font-weight: 600; color: #cbd5e1;">لا توجد مهام أو حملات مطابقة حالياً</div>
+          <div style="font-size: 12px; color: #64748b; margin-top: 4px;">كافة العمليات خاملة أو تم اكتمالها بنجاح.</div>
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = tasks.map(t => {
+    // Campaign Type translation
+    let typeDisplay = t.task_type || "نشر";
+    if (t.task_type === "forward") typeDisplay = "🔄 إعادة توجيه (Forward)";
+    else if (t.task_type === "bulk_send") typeDisplay = "📢 نشر إعلاني (Bulk Send)";
+    else if (t.task_type === "join") typeDisplay = "📥 انضمام قنوات (Auto Join)";
+
+    // Status Badge
+    let statusBadge = '';
+    const st = (t.status || "").toLowerCase();
+    if (st === "running") {
+      statusBadge = `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 11px; padding: 3px 8px; border-radius: 6px;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #10b981; display: inline-block; margin-left: 4px;"></span>قيد النشر</span>`;
+    } else if (st === "pending") {
+      statusBadge = `<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 11px; padding: 3px 8px; border-radius: 6px;">⏳ بانتظار الدور</span>`;
+    } else if (st === "completed") {
+      statusBadge = `<span class="badge" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 11px; padding: 3px 8px; border-radius: 6px;">✅ مكتملة</span>`;
+    } else if (st === "failed") {
+      statusBadge = `<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); font-size: 11px; padding: 3px 8px; border-radius: 6px;">❌ خطأ</span>`;
+    } else if (st === "stopped" || st === "cancelled") {
+      statusBadge = `<span class="badge" style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); font-size: 11px; padding: 3px 8px; border-radius: 6px;">🛑 متوقفة</span>`;
+    } else {
+      statusBadge = `<span class="badge" style="background: rgba(255, 255, 255, 0.08); color: #ccc; font-size: 11px; padding: 3px 8px; border-radius: 6px;">${escapeHtml(st)}</span>`;
+    }
+
+    // Progress Bar
+    const cur = t.progress_current || 0;
+    const tgt = t.progress_target || 0;
+    const pct = t.progress_pct !== undefined ? t.progress_pct : (tgt > 0 ? Math.min(100, Math.round((cur / tgt) * 100)) : 0);
+    const barColor = st === "failed" ? "#ef4444" : (st === "completed" ? "#3b82f6" : "#10b981");
+
+    const progressCell = `
+      <div style="min-width: 140px;">
+        <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px; color: #cbd5e1;">
+          <span>${cur} / ${tgt}</span>
+          <strong style="color: ${barColor};">${pct}%</strong>
+        </div>
+        <div style="width: 100%; height: 6px; background: rgba(255, 255, 255, 0.08); border-radius: 3px; overflow: hidden;">
+          <div style="width: ${pct}%; height: 100%; background: ${barColor}; transition: width 0.3s ease;"></div>
+        </div>
+      </div>
+    `;
+
+    // Time info
+    const timeStr = t.start_time || t.scheduled_time || "--";
+
+    // Stop action button
+    const canStop = t.can_stop || st === "running" || st === "pending";
+    const actionCell = canStop
+      ? `<button type="button" class="btn btn-sm btn-danger" onclick="stopAdminCampaignTask(${t.task_id})" style="padding: 4px 8px; font-size: 11px; border-radius: 6px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); cursor: pointer;" title="إيقاف المهمة فوراً">🛑 إيقاف فوري</button>`
+      : `<span style="color: #64748b; font-size: 11px;">-</span>`;
+
+    const userNameDisplay = t.user_name ? `${escapeHtml(t.user_name)} (${escapeHtml(t.user_email)})` : escapeHtml(t.user_email || `User #${t.user_id}`);
+
+    return `
+      <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
+        <td style="font-family: monospace; font-weight: 700; color: #38bdf8;">#${t.task_id}</td>
+        <td>
+          <div style="font-size: 12.5px; font-weight: 600; color: #fff;">${userNameDisplay}</div>
+          <div style="font-size: 11px; color: #64748b; font-family: monospace;">User ID: ${t.user_id}</div>
+        </td>
+        <td style="font-size: 12px; color: #cbd5e1;">${typeDisplay}</td>
+        <td>${progressCell}</td>
+        <td>${statusBadge}</td>
+        <td style="font-size: 11px; color: #94a3b8; direction: ltr; text-align: right;">${escapeHtml(timeStr)}</td>
+        <td style="font-size: 11.5px; color: #94a3b8; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(t.result_summary || '')}">
+          ${escapeHtml(t.result_summary || '-')}
+        </td>
+        <td style="text-align: center;">${actionCell}</td>
+      </tr>
+    `;
+  }).join("");
+}
+
+window.stopAdminCampaignTask = async function(taskId) {
+  if (!confirm(`هل أنت متأكد من إيقاف المهمة #${taskId} بشكل فوري؟`)) return;
+  try {
+    const res = await adminApiRequest(`/admin/campaigns/${taskId}/stop`, { method: "POST" });
+    showToast(res.message || "تم إرسال أمر إيقاف المهمة بنجاح", "success");
+    loadAdminActiveCampaigns(true);
+  } catch (err) {
+    console.error("Stop campaign error:", err);
+  }
+};
+
+// ==========================================
+// 9. BULK SUBSCRIPTION EXTENSION ENGINE
+// ==========================================
+let bulkExtendDays = 3;
+
+window.openBulkExtendModal = function() {
+  const modal = document.getElementById("modal-bulk-extend");
+  if (modal) modal.classList.remove("hidden");
+};
+
+window.closeBulkExtendModal = function() {
+  const modal = document.getElementById("modal-bulk-extend");
+  if (modal) modal.classList.add("hidden");
+};
+
+window.selectBulkDays = function(days, btn) {
+  bulkExtendDays = days;
+  document.querySelectorAll(".btn-bulk-days").forEach(b => {
+    b.classList.remove("active");
+    b.style.borderColor = "";
+    b.style.color = "";
+  });
+  if (btn) {
+    btn.classList.add("active");
+    btn.style.borderColor = "#10b981";
+    btn.style.color = "#10b981";
+  }
+};
+
+window.submitBulkExtend = async function() {
+  const reason = (document.getElementById("bulk-extend-reason")?.value || "").trim();
+  if (!confirm(`هل أنت متأكد من تمديد اشتراكات جميع المشتركين النشطين بمقدار ${bulkExtendDays} أيام؟`)) return;
+  setButtonLoading("btn-submit-bulk-extend", true);
+  try {
+    const res = await adminApiRequest("/admin/subscriptions/bulk-extend", {
+      method: "POST",
+      body: JSON.stringify({ days: bulkExtendDays, reason: reason })
+    });
+    showToast(res.message || `تم تمديد اشتراكات ${res.extended_count} مشترك بنجاح!`, "success", 4000);
+    closeBulkExtendModal();
+    if (typeof loadSubscriptionsLifecycle === "function") loadSubscriptionsLifecycle();
+    loadAdminUsers();
+  } catch (err) {
+    console.error("Bulk extend error:", err);
+  } finally {
+    setButtonLoading("btn-submit-bulk-extend", false);
+  }
+};

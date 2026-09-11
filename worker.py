@@ -7,7 +7,7 @@ import logging
 import asyncio
 import random
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional, Set, Union
+from typing import Dict, List, Optional, Set, Union, Any
 import pytz
 import concurrent.futures
 
@@ -130,6 +130,8 @@ except Exception as rhe:
 
 running_clients: Dict[int, Client] = {}
 running_tasks: Dict[int, asyncio.Task] = {}
+active_running_tasks: Dict[int, Set[asyncio.Task]] = {}
+scheduled_jobs: Dict[int, List[Dict[str, Any]]] = {}
 starting_tenants: Set[int] = set()
 global_worker_running = False
 
@@ -1095,10 +1097,28 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                             
                             # Prioritize user's own custom named tracking link, then primary link
                             chosen_invite_link = None
-                            total_channel_joins = 0
+                            primary_invite_link = None
+                            primary_link_joins = 0
+                            custom_links_joins = 0
                             try:
                                 channel_access_hash = getattr(raw_chat, "access_hash", 0) or 0
                                 raw_peer = types.InputPeerChannel(channel_id=raw_chat.id, access_hash=channel_access_hash)
+
+                                # 1. Fetch channel's full info to get permanent/primary exported invite link & its usage
+                                try:
+                                    full_res = await client.invoke(functions.channels.GetFullChannel(channel=raw_peer), sleep_threshold=2)
+                                    full_chat = getattr(full_res, "full_chat", None)
+                                    exported_inv = getattr(full_chat, "exported_invite", None)
+                                    if exported_inv:
+                                        primary_invite_link = getattr(exported_inv, "link", None)
+                                        primary_link_joins = getattr(exported_inv, "usage", 0) or 0
+                                    full_participants = getattr(full_chat, "participants_count", None)
+                                    if full_participants:
+                                        members_count = full_participants
+                                except Exception as fe:
+                                    logger.debug(f"GetFullChannel skipped/failed for chat {chat_id}: {fe}")
+
+                                # 2. Fetch custom invites exported by this admin/userbot
                                 res_inv = await client.invoke(
                                     functions.messages.GetExportedChatInvites(
                                         peer=raw_peer,
@@ -1119,7 +1139,13 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                                     t = getattr(inv, "title", None)
                                     p = getattr(inv, "permanent", False)
                                     u = getattr(inv, "usage", 0) or 0
-                                    total_channel_joins += u
+                                    if p and not primary_link_joins:
+                                        primary_link_joins = u
+                                        if not primary_invite_link:
+                                            primary_invite_link = lnk
+                                    elif not p:
+                                        custom_links_joins += u
+                                        
                                     if t or not p:
                                         custom_named.append((u, lnk))
                                     else:
@@ -1131,10 +1157,14 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                                 elif permanent:
                                     permanent.sort(key=lambda x: x[0], reverse=True)
                                     chosen_invite_link = permanent[0][1]
-                            except Exception:
-                                pass
+                            except Exception as ie:
+                                logger.debug(f"Invite links check skipped for chat {chat_id}: {ie}")
 
-                            # If no link from user invites, try primary exported invite link
+                            # Fallback: if no custom link was chosen, use primary link
+                            if not chosen_invite_link:
+                                chosen_invite_link = primary_invite_link
+
+                            # If still no link, try export
                             if not chosen_invite_link:
                                 try:
                                     chosen_invite_link = await client.export_chat_invite_link(chat_id)
@@ -1142,54 +1172,7 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                                     pass
 
                             invite_link = chosen_invite_link or (f"https://t.me/{username}" if username else None)
-                                
-                            # Prioritize user's own custom named tracking link, then primary link
-                            chosen_invite_link = None
-                            try:
-                                channel_access_hash = getattr(raw_chat, "access_hash", 0) or 0
-                                raw_peer = types.InputPeerChannel(channel_id=raw_chat.id, access_hash=channel_access_hash)
-                                res_inv = await client.invoke(
-                                    functions.messages.GetExportedChatInvites(
-                                        peer=raw_peer,
-                                        admin_id=types.InputUserSelf(),
-                                        limit=30
-                                    ),
-                                    sleep_threshold=2
-                                )
-                                invites = getattr(res_inv, "invites", [])
-                                custom_named = []
-                                permanent = []
-                                for inv in invites:
-                                    if getattr(inv, "revoked", False) or getattr(inv, "expired", False):
-                                        continue
-                                    lnk = getattr(inv, "link", None)
-                                    if not lnk:
-                                        continue
-                                    t = getattr(inv, "title", None)
-                                    p = getattr(inv, "permanent", False)
-                                    u = getattr(inv, "usage", 0)
-                                    if t or not p:
-                                        custom_named.append((u, lnk))
-                                    else:
-                                        permanent.append((u, lnk))
-                                        
-                                if custom_named:
-                                    custom_named.sort(key=lambda x: x[0], reverse=True)
-                                    chosen_invite_link = custom_named[0][1]
-                                elif permanent:
-                                    permanent.sort(key=lambda x: x[0], reverse=True)
-                                    chosen_invite_link = permanent[0][1]
-                            except Exception:
-                                pass
-
-                            # If no link from user invites, try primary exported invite link
-                            if not chosen_invite_link:
-                                try:
-                                    chosen_invite_link = await client.export_chat_invite_link(chat_id)
-                                except Exception:
-                                    pass
-
-                            invite_link = chosen_invite_link or (f"https://t.me/{username}" if username else None)
+                            total_channel_joins = primary_link_joins + custom_links_joins
                                 
                             avg_views = 0
                             quality_score = 0
@@ -1217,6 +1200,8 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                                 "latest_views": views_count,
                                 "avg_views": avg_views,
                                 "total_joins": total_channel_joins,
+                                "primary_link_joins": primary_link_joins,
+                                "custom_links_joins": custom_links_joins,
                                 "quality_score": quality_score
                             })
                             
@@ -7396,6 +7381,153 @@ async def subscription_lifecycle_worker():
             logger.error(f"Error in Subscription Lifecycle Worker: {e}")
             
         await asyncio.sleep(300)
+
+
+async def refresh_tenant_campaign_channels(tenant_id: int) -> bool:
+    """
+    Fast refresh specifically for the tenant's 'حملات' campaign folder channels.
+    Fetches latest members_count, primary exported invite link joins, and custom invite links joins.
+    Updates Redis channel cache and daily baseline.
+    """
+    client = running_clients.get(tenant_id)
+    if not client or not client.is_connected:
+        logger.warning(f"Cannot refresh campaign channels for tenant {tenant_id}: client not running/connected.")
+        return False
+
+    from cache_manager import redis_client, get_channels_cache, save_channels_cache
+    from pyrogram.raw import functions, types
+    import json
+
+    try:
+        raw_campaign = await redis_client.get(f"tenant:{tenant_id}:campaign")
+        if not raw_campaign:
+            logger.info(f"Tenant {tenant_id} has no campaign folder in Redis.")
+            return False
+        campaign_ids = json.loads(raw_campaign)
+        if not campaign_ids:
+            return False
+
+        cached_channels = await get_channels_cache(tenant_id)
+        cached_map = {ch["id"]: ch for ch in cached_channels if "id" in ch}
+
+        for cid in campaign_ids:
+            try:
+                chat_id = int(cid)
+                peer = await client.resolve_peer(chat_id)
+                full_res = await client.invoke(functions.channels.GetFullChannel(channel=peer), sleep_threshold=2)
+                full_chat = getattr(full_res, "full_chat", None)
+
+                primary_link = None
+                primary_joins = 0
+                custom_joins = 0
+
+                exported_inv = getattr(full_chat, "exported_invite", None)
+                if exported_inv:
+                    primary_link = getattr(exported_inv, "link", None)
+                    primary_joins = getattr(exported_inv, "usage", 0) or 0
+
+                full_participants = getattr(full_chat, "participants_count", None)
+
+                try:
+                    res_inv = await client.invoke(
+                        functions.messages.GetExportedChatInvites(
+                            peer=peer,
+                            admin_id=types.InputUserSelf(),
+                            limit=30
+                        ),
+                        sleep_threshold=2
+                    )
+                    for inv in getattr(res_inv, "invites", []):
+                        if getattr(inv, "revoked", False) or getattr(inv, "expired", False):
+                            continue
+                        p = getattr(inv, "permanent", False)
+                        u = getattr(inv, "usage", 0) or 0
+                        if p and not primary_joins:
+                            primary_joins = u
+                            if not primary_link:
+                                primary_link = getattr(inv, "link", None)
+                        elif not p:
+                            custom_joins += u
+                except Exception as ie:
+                    logger.debug(f"Custom invites lookup skipped for {chat_id}: {ie}")
+
+                total_joins = primary_joins + custom_joins
+
+                # Find entry in cached_map
+                ch_entry = cached_map.get(chat_id)
+                if not ch_entry:
+                    for k in cached_map:
+                        if abs(k) == abs(chat_id) or str(k).endswith(str(abs(chat_id))[-9:]):
+                            ch_entry = cached_map[k]
+                            break
+
+                if ch_entry:
+                    if full_participants:
+                        ch_entry["members_count"] = full_participants
+                    if primary_link and not ch_entry.get("invite_link"):
+                        ch_entry["invite_link"] = primary_link
+                    ch_entry["primary_link_joins"] = primary_joins
+                    ch_entry["custom_links_joins"] = custom_joins
+                    ch_entry["total_joins"] = total_joins
+            except Exception as ce:
+                logger.warning(f"Failed to refresh campaign channel {cid} for tenant {tenant_id}: {ce}")
+
+        await save_channels_cache(tenant_id, list(cached_map.values()))
+        logger.info(f"Refreshed {len(campaign_ids)} campaign channels for tenant {tenant_id} successfully.")
+        return True
+    except Exception as e:
+        logger.error(f"Error in refresh_tenant_campaign_channels for tenant {tenant_id}: {e}")
+        return False
+
+
+async def redis_pubsub_listener():
+    """
+    Subscribes to Redis pubsub commands ('saas_tenant_commands') sent by main_api.
+    """
+    logger.info("Starting Redis PubSub command listener...")
+    from cache_manager import redis_client
+    import json
+
+    while global_worker_running:
+        pubsub = None
+        try:
+            pubsub = redis_client.pubsub()
+            await pubsub.subscribe("saas_tenant_commands")
+            logger.info("Subscribed to 'saas_tenant_commands' Redis channel.")
+
+            while global_worker_running:
+                try:
+                    message = await asyncio.wait_for(pubsub.get_message(ignore_subscribe_messages=True), timeout=2.0)
+                    if message and message.get("type") == "message":
+                        data_val = message.get("data")
+                        if data_val:
+                            payload = json.loads(data_val) if isinstance(data_val, str) else json.loads(data_val.decode("utf-8"))
+                            tenant_id = payload.get("tenant_id")
+                            cmd = payload.get("command")
+                            logger.info(f"[Redis Command] Received '{cmd}' for tenant {tenant_id}")
+
+                            if cmd == "cancel_jobs":
+                                if tenant_id in active_running_tasks:
+                                    for t in list(active_running_tasks[tenant_id]):
+                                        if not t.done():
+                                            t.cancel()
+                            elif cmd == "refresh_campaign_channels":
+                                asyncio.create_task(refresh_tenant_campaign_channels(tenant_id))
+                except asyncio.TimeoutError:
+                    continue
+                except Exception as loop_err:
+                    logger.error(f"Error in Redis PubSub message handler: {loop_err}")
+                    await asyncio.sleep(1)
+        except Exception as e:
+            logger.error(f"Redis PubSub listener error: {e}")
+            await asyncio.sleep(5)
+        finally:
+            if pubsub:
+                try:
+                    await pubsub.close()
+                except Exception:
+                    pass
+
 
 async def start_global_engine():
     global global_worker_running

@@ -146,3 +146,106 @@ class TestCampaignChannelsAnalytics:
             )
             assert res2 is False
             assert not mock_db_sess.add.called
+
+    @pytest.mark.asyncio
+    async def test_channels_analytics_with_link_joins(self):
+        """
+        Tests that link join counts (primary and custom invites) are accurately aggregated
+        and returned per channel and in the folder summary.
+        """
+        import main_api
+        from db_manager import TelegramAccount, User
+
+        mock_user = User(id=88, email="link_tracker@test.com")
+        mock_tg_acc = TelegramAccount(id=20, user_id=88, phone="+999888777", status="active")
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = mock_tg_acc
+
+        mock_db_sess = AsyncMock()
+        mock_db_sess.execute.return_value = mock_result
+
+        campaign_folder_ids = json.dumps([-100555])
+
+        cached_channels = [
+            {
+                "id": -100555,
+                "title": "قناة العروض المباشرة",
+                "username": "live_offers",
+                "members_count": 8200,
+                "can_send": True,
+                "is_broadcast": True,
+                "primary_link_joins": 35,
+                "custom_links_joins": 15,
+                "total_joins": 50
+            }
+        ]
+
+        redis_data = {
+            "tenant:20:campaign": campaign_folder_ids,
+        }
+
+        async def mock_redis_get(key):
+            return redis_data.get(key)
+
+        async def mock_redis_set(key, val, **kwargs):
+            redis_data[key] = str(val)
+            return True
+
+        with patch("main_api.AsyncSessionLocal") as MockSessionLocal, \
+             patch("main_api.verify_active_subscription", AsyncMock()), \
+             patch("main_api.redis_client.get", side_effect=mock_redis_get), \
+             patch("main_api.redis_client.set", side_effect=mock_redis_set), \
+             patch("main_api.get_channels_cache", AsyncMock(return_value=cached_channels)):
+
+            MockSessionLocal.return_value.__aenter__.return_value = mock_db_sess
+
+            result = await main_api.get_campaign_channels_analytics(user_id=88)
+
+            assert result["status"] == "success"
+            summary = result["summary"]
+            channels = result["channels"]
+
+            assert summary["folder_total_link_joins"] == 50
+            assert len(channels) == 1
+            ch = channels[0]
+            assert ch["total_link_joins"] == 50
+            assert ch["primary_link_joins"] == 35
+            assert ch["custom_links_joins"] == 15
+            assert ch["total_members"] == 8200
+
+    @pytest.mark.asyncio
+    async def test_admin_bulk_extend_subscriptions(self):
+        """
+        Tests that /admin/subscriptions/bulk-extend extends all active/trial subscribers.
+        """
+        import main_api
+        from db_manager import User
+        from datetime import datetime, timezone, timedelta
+
+        base_time = datetime.now(timezone.utc)
+        user1 = User(id=1, email="sub1@test.com", subscription_status="active", subscription_end=base_time + timedelta(days=5))
+        user2 = User(id=2, email="sub2@test.com", subscription_status="trial", subscription_end=base_time + timedelta(days=2))
+
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = [user1, user2]
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value = mock_scalars
+
+        mock_db_sess = AsyncMock()
+        mock_db_sess.execute.return_value = mock_result
+        mock_db_sess.add = MagicMock()
+        mock_db_sess.commit = AsyncMock()
+
+        with patch("main_api.AsyncSessionLocal") as MockSessionLocal:
+            MockSessionLocal.return_value.__aenter__.return_value = mock_db_sess
+
+            request_obj = main_api.BulkExtendReq(days=3, reason="تعويض صيانة")
+            res = await main_api.admin_bulk_extend_subscriptions(req=request_obj, admin_user=User(id=999, email="admin@test.com", is_admin=True))
+
+            assert res["status"] == "success"
+            assert res["extended_count"] == 2
+            assert res["days_added"] == 3
+            assert mock_db_sess.commit.called
+

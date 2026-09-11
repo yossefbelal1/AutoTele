@@ -42,7 +42,8 @@ from pyrogram.errors import (
 from db_manager import (
     get_db, User, TelegramAccount, AsyncSessionLocal, CryptoPayment,
     AdTemplate, WebCampaignTask, apply_pyrogram_patches, AccountNotification,
-    ActiveAd, PublishLog, ExchangeRequest, ExchangeAgreement, ExchangeExecution
+    ActiveAd, PublishLog, ExchangeRequest, ExchangeAgreement, ExchangeExecution,
+    SubscriptionNotificationLog
 )
 from cache_manager import is_rate_limited, is_key_rate_limited, redis_client, clear_tenant_cache, get_channels_cache, get_invite_link
 
@@ -1333,7 +1334,7 @@ async def get_user_analytics(user_id: int = Depends(get_current_user)):
         }
 
 @app.get("/user/analytics/campaign-channels")
-async def get_campaign_channels_analytics(user_id: int = Depends(get_current_user)):
+async def get_campaign_channels_analytics(refresh: bool = False, user_id: int = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
         await verify_active_subscription(user_id, session)
         tg_account = (await session.execute(
@@ -1346,12 +1347,24 @@ async def get_campaign_channels_analytics(user_id: int = Depends(get_current_use
                 "summary": {
                     "folder_channels_count": 0,
                     "folder_total_members": 0,
-                    "folder_joined_today": 0
+                    "folder_joined_today": 0,
+                    "folder_total_link_joins": 0
                 },
                 "channels": []
             }
 
         acc_id = tg_account.id
+
+        # If live refresh requested, publish command to worker and wait briefly
+        if refresh:
+            try:
+                await redis_client.publish(
+                    "saas_tenant_commands",
+                    json.dumps({"tenant_id": acc_id, "command": "refresh_campaign_channels"})
+                )
+                await asyncio.sleep(1.2)
+            except Exception as rpe:
+                logger.error(f"Failed to publish refresh_campaign_channels for tenant {acc_id}: {rpe}")
 
         # 1. Fetch channel IDs belonging specifically to the "حملات" folder
         raw_campaign = await redis_client.get(f"tenant:{acc_id}:campaign")
@@ -1368,7 +1381,8 @@ async def get_campaign_channels_analytics(user_id: int = Depends(get_current_use
                 "summary": {
                     "folder_channels_count": 0,
                     "folder_total_members": 0,
-                    "folder_joined_today": 0
+                    "folder_joined_today": 0,
+                    "folder_total_link_joins": 0
                 },
                 "channels": []
             }
@@ -1392,6 +1406,7 @@ async def get_campaign_channels_analytics(user_id: int = Depends(get_current_use
         matched_channels = []
         total_folder_members = 0
         total_folder_joined_today = 0
+        total_folder_link_joins = 0
 
         for ch in cached_channels:
             ch_id = ch.get("id")
@@ -1412,6 +1427,9 @@ async def get_campaign_channels_analytics(user_id: int = Depends(get_current_use
                 continue
 
             current_members = int(ch.get("members_count") or 0)
+            primary_joins = int(ch.get("primary_link_joins") or 0)
+            custom_joins = int(ch.get("custom_links_joins") or 0)
+            total_link_joins = int(ch.get("total_joins") or (primary_joins + custom_joins))
 
             # 3. Calculate joined_today from daily baseline in Redis
             baseline_key = f"tenant:{acc_id}:chan_baseline:{ch_id}:{today_str}"
@@ -1420,16 +1438,20 @@ async def get_campaign_channels_analytics(user_id: int = Depends(get_current_use
                 raw_baseline = await redis_client.get(baseline_key)
                 if raw_baseline is None:
                     await redis_client.set(baseline_key, str(current_members), ex=86400 * 7)
-                    joined_today = 0
+                    # If total_link_joins exists, this represents verified joins through links
+                    joined_today = total_link_joins if total_link_joins > 0 else 0
                 else:
                     baseline = int(raw_baseline)
-                    joined_today = max(0, current_members - baseline)
+                    net_member_gain = max(0, current_members - baseline)
+                    # If net member gain is positive, use it; otherwise use link joins if higher
+                    joined_today = max(net_member_gain, total_link_joins)
             except Exception as be:
                 logger.error(f"Error calculating joined_today baseline for channel {ch_id}: {be}")
-                joined_today = 0
+                joined_today = total_link_joins
 
             total_folder_members += current_members
             total_folder_joined_today += joined_today
+            total_folder_link_joins += total_link_joins
 
             matched_channels.append({
                 "channel_id": ch_id,
@@ -1438,18 +1460,22 @@ async def get_campaign_channels_analytics(user_id: int = Depends(get_current_use
                 "invite_link": ch.get("invite_link"),
                 "total_members": current_members,
                 "joined_today": joined_today,
+                "total_link_joins": total_link_joins,
+                "primary_link_joins": primary_joins,
+                "custom_links_joins": custom_joins,
                 "can_send": ch.get("can_send", True),
                 "is_broadcast": ch.get("is_broadcast", True)
             })
 
-        matched_channels.sort(key=lambda x: (x["joined_today"], x["total_members"]), reverse=True)
+        matched_channels.sort(key=lambda x: (x["joined_today"], x["total_link_joins"], x["total_members"]), reverse=True)
 
         return {
             "status": "success",
             "summary": {
                 "folder_channels_count": len(matched_channels),
                 "folder_total_members": total_folder_members,
-                "folder_joined_today": total_folder_joined_today
+                "folder_joined_today": total_folder_joined_today,
+                "folder_total_link_joins": total_folder_link_joins
             },
             "channels": matched_channels
         }
@@ -2986,6 +3012,29 @@ async def get_admin_stats(admin_user: User = Depends(check_admin_user)):
         banned_tg_accounts = (await session.execute(select(func.count(TelegramAccount.id)).where(TelegramAccount.status == "banned"))).scalar() or 0
         paused_tg_accounts = (await session.execute(select(func.count(TelegramAccount.id)).where(TelegramAccount.status.in_(["paused", "stopped"])))).scalar() or 0
         
+        today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+        total_published_today = (await session.execute(
+            select(func.count(PublishLog.id)).where(PublishLog.created_at >= today_midnight)
+        )).scalar() or 0
+        
+        total_published_month = (await session.execute(
+            select(func.count(PublishLog.id)).where(PublishLog.created_at >= month_start)
+        )).scalar() or 0
+        
+        total_tasks_completed = (await session.execute(
+            select(func.count(WebCampaignTask.id)).where(WebCampaignTask.status == "completed")
+        )).scalar() or 0
+        total_tasks_failed = (await session.execute(
+            select(func.count(WebCampaignTask.id)).where(WebCampaignTask.status == "failed")
+        )).scalar() or 0
+        
+        success_rate = round((total_tasks_completed / max(1, (total_tasks_completed + total_tasks_failed))) * 100, 1)
+        active_campaigns_now = (await session.execute(
+            select(func.count(WebCampaignTask.id)).where(WebCampaignTask.status.in_(["pending", "processing", "active"]))
+        )).scalar() or 0
+
         return {
             "total_users": total_users,
             "active_subscriptions": active_subs,
@@ -2998,7 +3047,220 @@ async def get_admin_stats(admin_user: User = Depends(check_admin_user)):
             "total_telegram_accounts": total_tg_accounts,
             "active_telegram_accounts": active_tg_accounts,
             "banned_telegram_accounts": banned_tg_accounts,
-            "paused_telegram_accounts": paused_tg_accounts
+            "paused_telegram_accounts": paused_tg_accounts,
+            "total_published_today": total_published_today,
+            "total_published_month": total_published_month,
+            "success_rate": success_rate,
+            "active_campaigns_now": active_campaigns_now,
+            "total_tasks_completed": total_tasks_completed
+        }
+
+@app.get("/admin/campaigns/active")
+async def get_admin_active_campaigns(admin_user: User = Depends(check_admin_user)):
+    """Return all active, running, pending or recently updated campaign tasks across all users."""
+    async with AsyncSessionLocal() as session:
+        recent_cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        stmt = (
+            select(
+                WebCampaignTask,
+                TelegramAccount.phone,
+                User.email,
+                User.full_name
+            )
+            .join(TelegramAccount, WebCampaignTask.telegram_account_id == TelegramAccount.id)
+            .join(User, TelegramAccount.user_id == User.id)
+            .where(
+                (WebCampaignTask.status.in_(["pending", "processing", "active"])) |
+                (WebCampaignTask.created_at >= recent_cutoff)
+            )
+            .order_by(WebCampaignTask.created_at.desc())
+            .limit(100)
+        )
+        results = (await session.execute(stmt)).all()
+        
+        campaign_type_labels = {
+            "wave": "تبادل عشوائي",
+            "wave_folder": "تبادل مجلد حملات",
+            "single": "حملة فردية",
+            "bulk": "حملة مجمعة",
+            "timed_post": "نشر مؤقت",
+            "clear": "مسح سريع",
+            "deep_clear": "مسح عميق",
+            "update": "تحديث المحرك"
+        }
+
+        tasks_list = []
+        for task, phone, email, full_name in results:
+            tasks_list.append({
+                "id": task.id,
+                "tenant_id": task.telegram_account_id,
+                "user_name": full_name or (email.split("@")[0] if email else "مستخدم"),
+                "user_email": email,
+                "phone": phone or "غير متوفر",
+                "campaign_type": task.campaign_type,
+                "campaign_type_label": campaign_type_labels.get(task.campaign_type, task.campaign_type),
+                "status": task.status,
+                "target_link": task.target_link,
+                "target_count": task.target_count or 0,
+                "completed_count": task.completed_count or 0,
+                "failed_count": task.failed_count or 0,
+                "result_summary": task.result_summary,
+                "created_at": task.created_at.isoformat() if task.created_at else None,
+                "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+            })
+            
+        return {
+            "status": "success",
+            "active_count": sum(1 for t in tasks_list if t["status"] in ["pending", "processing", "active"]),
+            "tasks": tasks_list
+        }
+
+@app.post("/admin/campaigns/{task_id}/stop")
+async def stop_admin_campaign_task(task_id: int, admin_user: User = Depends(check_admin_user)):
+    """Emergency stop a campaign task from the admin panel."""
+    async with AsyncSessionLocal() as session:
+        task = (await session.execute(
+            select(WebCampaignTask).where(WebCampaignTask.id == task_id)
+        )).scalar_one_or_none()
+        
+        if not task:
+            raise HTTPException(status_code=404, detail="المهمة غير موجودة")
+            
+        task.status = "failed"
+        task.result_summary = f"🛑 تم إيقاف وإلغاء المهمة فورياً بواسطة المشرف ({admin_user.email})."
+        task.completed_at = datetime.now(timezone.utc)
+        session.add(task)
+        await session.commit()
+        
+        try:
+            await redis_client.publish(
+                "saas_tenant_commands",
+                json.dumps({"tenant_id": task.telegram_account_id, "command": "cancel_jobs"})
+            )
+        except Exception as pe:
+            logger.error(f"Failed to publish cancel_jobs command: {pe}")
+            
+        return {"status": "success", "message": f"تم إيقاف المهمة #{task_id} فورياً بنجاح."}
+
+@app.post("/admin/users/{target_user_id}/test-proxy")
+async def admin_test_user_proxy(target_user_id: int, admin_user: User = Depends(check_admin_user)):
+    """Test TCP / SOCKS5 handshake & response time for the proxy assigned to this user."""
+    async with AsyncSessionLocal() as session:
+        account = (await session.execute(
+            select(TelegramAccount).where(TelegramAccount.user_id == target_user_id)
+        )).scalars().first()
+        
+        if not account or not account.proxy_host or not account.proxy_port:
+            return {
+                "status": "warning",
+                "is_alive": False,
+                "message": "لا يوجد بروكسي معين لهذا المشترك بعد."
+            }
+            
+        host = account.proxy_host
+        port = int(account.proxy_port)
+        user = account.proxy_username
+        pwd = account.proxy_password
+        
+        t0 = time.time()
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port),
+                timeout=4.0
+            )
+            writer.write(b'\x05\x02\x00\x02')
+            await writer.drain()
+            resp = await asyncio.wait_for(reader.readexactly(2), timeout=3.0)
+            
+            if resp[0] != 5:
+                writer.close()
+                return {"status": "error", "is_alive": False, "message": "الخادم ليس بروكسي SOCKS5 صالح (رد غير متوقع)."}
+                
+            if resp[1] == 0x02:
+                if not user or not pwd:
+                    writer.close()
+                    return {"status": "error", "is_alive": False, "message": "البروكسي يتطلب بيانات تسجيل دخول (User/Pass) ولكنها غير مدخلة."}
+                u_bytes = str(user).encode()
+                p_bytes = str(pwd).encode()
+                auth_msg = b'\x01' + bytes([len(u_bytes)]) + u_bytes + bytes([len(p_bytes)]) + p_bytes
+                writer.write(auth_msg)
+                await writer.drain()
+                auth_resp = await asyncio.wait_for(reader.readexactly(2), timeout=3.0)
+                if auth_resp[1] != 0:
+                    writer.close()
+                    return {"status": "error", "is_alive": False, "message": "فشل التحقق من اسم المستخدم أو كلمة المرور الخاصة بالبروكسي."}
+            elif resp[1] != 0x00:
+                writer.close()
+                return {"status": "error", "is_alive": False, "message": "نوع المصادقة في البروكسي غير مدعوم."}
+                
+            writer.close()
+            await writer.wait_closed()
+            latency_ms = int((time.time() - t0) * 1000)
+            return {
+                "status": "success",
+                "is_alive": True,
+                "latency_ms": latency_ms,
+                "message": f"البروكسي متصل ونشط وسريع الاستجابة ({latency_ms}ms) ⚡"
+            }
+        except asyncio.TimeoutError:
+            return {"status": "error", "is_alive": False, "message": "انتهت مهلة الاتصال بالبروكسي (Timeout > 4s). قد يكون الخادم متوقفاً."}
+        except Exception as e:
+            return {"status": "error", "is_alive": False, "message": f"تعذر الاتصال بالبروكسي: {str(e)}"}
+
+class BulkExtendReq(BaseModel):
+    days: int
+    reason: Optional[str] = "تعويض صيانة عامة للنظام"
+
+@app.post("/admin/subscriptions/bulk-extend")
+async def admin_bulk_extend_subscriptions(req: BulkExtendReq, admin_user: User = Depends(check_admin_user)):
+    """Extend subscriptions for all currently active/trial users in one click."""
+    if req.days < 1 or req.days > 365:
+        raise HTTPException(status_code=400, detail="عدد الأيام يجب أن يكون بين 1 و 365 يوماً.")
+        
+    async with AsyncSessionLocal() as session:
+        now = datetime.now(timezone.utc)
+        stmt = select(User).where(User.subscription_status.in_(["active", "trial"]))
+        users = (await session.execute(stmt)).scalars().all()
+        
+        extended_count = 0
+        for u in users:
+            curr_end = u.subscription_end
+            if curr_end and curr_end.tzinfo is None:
+                curr_end = curr_end.replace(tzinfo=timezone.utc)
+                
+            base_date = max(now, curr_end) if curr_end else now
+            u.subscription_end = base_date + timedelta(days=req.days)
+            u.subscription_status = "active"
+            session.add(u)
+            
+            notif = SubscriptionNotificationLog(
+                user_id=u.id,
+                notification_type="bulk_extension",
+                channel="Dashboard",
+                message_content=f"🎁 تم تمديد اشتراكك بمقدار {req.days} يوم إضافي: {req.reason}",
+                success=True,
+                details=f"Extended by admin {admin_user.email}"
+            )
+            session.add(notif)
+            
+            # Also add an AccountNotification so it shows in the user dashboard notification bell
+            bell_notif = AccountNotification(
+                user_id=u.id,
+                notification_type="subscription_extended",
+                title="🎁 تمديد اشتراك مجاني!",
+                message=f"تم تمديد اشتراكك لمدة {req.days} يوم إضافي: {req.reason}",
+                target_url="/app"
+            )
+            session.add(bell_notif)
+            extended_count += 1
+            
+        await session.commit()
+        logger.info(f"Admin {admin_user.email} bulk-extended {extended_count} subscriptions by {req.days} days.")
+        return {
+            "status": "success",
+            "extended_count": extended_count,
+            "days_added": req.days,
+            "message": f"تم تمديد اشتراك {extended_count} مشترك نشط بنجاح بمقدار {req.days} يوم!"
         }
 
 @app.get("/admin/system-stats")

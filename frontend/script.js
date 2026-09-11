@@ -4941,10 +4941,15 @@ window.loadAnalyticsData = loadAnalyticsData;
 // ==========================================
 async function loadCampaignChannelsAnalytics(isManual = false) {
   const refreshBtn = document.getElementById("btn-refresh-campaign-channels");
-  if (isManual && refreshBtn) refreshBtn.disabled = true;
+  const origBtnText = refreshBtn ? refreshBtn.innerHTML : "";
+  if (isManual && refreshBtn) {
+    refreshBtn.disabled = true;
+    refreshBtn.innerHTML = `<span>⏳ جاري الفحص المباشر...</span>`;
+  }
 
   try {
-    const data = await apiRequest("/user/analytics/campaign-channels");
+    const url = isManual ? "/user/analytics/campaign-channels?refresh=true" : "/user/analytics/campaign-channels";
+    const data = await apiRequest(url);
     if (!data || data.status !== "success") {
       throw new Error(data?.detail || "فشل جلب أداء قنوات مجلد حملات");
     }
@@ -4954,18 +4959,20 @@ async function loadCampaignChannelsAnalytics(isManual = false) {
 
     const countEl = document.getElementById("folder-channels-count");
     const membersEl = document.getElementById("folder-total-members");
+    const linkJoinsEl = document.getElementById("folder-total-link-joins");
     const joinedEl = document.getElementById("folder-joined-today");
     const tbody = document.getElementById("campaign-channels-table-body");
 
     if (countEl) countEl.textContent = summary.folder_channels_count || 0;
     if (membersEl) membersEl.textContent = (summary.folder_total_members || 0).toLocaleString();
+    if (linkJoinsEl) linkJoinsEl.textContent = (summary.folder_total_link_joins || 0).toLocaleString();
     if (joinedEl) joinedEl.textContent = `+${(summary.folder_joined_today || 0).toLocaleString()}`;
 
     if (tbody) {
       if (channels.length === 0) {
         tbody.innerHTML = `
           <tr>
-            <td colspan="5" style="text-align: center; padding: 36px 16px; color: #94a3b8;">
+            <td colspan="6" style="text-align: center; padding: 36px 16px; color: #94a3b8;">
               <div style="font-size: 24px; margin-bottom: 8px;">📁</div>
               <p style="margin: 0 0 6px 0; font-weight: 600; color: #cbd5e1;">لا توجد قنوات مسجلة داخل مجلد "حملات" حتى الآن</p>
               <p style="margin: 0; font-size: 12px; color: #64748b;">تأكد من إنشاء مجلد باسم "حملات" في حساب تليجرام وإضافة القنوات المراد الترويج لها داخله، ثم الضغط على مزامنة القنوات.</p>
@@ -4974,9 +4981,14 @@ async function loadCampaignChannelsAnalytics(isManual = false) {
         `;
       } else {
         tbody.innerHTML = channels.map(ch => {
-          const joinedBadge = ch.joined_today > 0
-            ? `<span style="background: rgba(16,185,129,0.15); color: #34d399; font-weight: 700; padding: 2px 8px; border-radius: 12px; font-size: 11.5px; border: 1px solid rgba(16,185,129,0.3);">+${ch.joined_today}</span>`
-            : `<span style="color: #64748b; font-size: 12px;">-</span>`;
+          const totalJoins = ch.total_link_joins !== undefined && ch.total_link_joins !== null ? ch.total_link_joins : 0;
+          const linkJoinsBadge = totalJoins > 0
+            ? `<span style="background: rgba(56,189,248,0.15); color: #38bdf8; font-weight: 700; padding: 2px 8px; border-radius: 12px; font-size: 11.5px; border: 1px solid rgba(56,189,248,0.3);" title="رابط أساسي: ${ch.primary_link_joins || 0} | روابط مخصصة: ${ch.custom_links_joins || 0}">🔗 ${totalJoins.toLocaleString()}</span>`
+            : `<span style="color: #64748b; font-size: 12px;">0</span>`;
+
+          const joinedBadge = (ch.joined_today && ch.joined_today > 0)
+            ? `<span style="background: rgba(16,185,129,0.15); color: #34d399; font-weight: 700; padding: 2px 8px; border-radius: 12px; font-size: 11.5px; border: 1px solid rgba(16,185,129,0.3);">+${ch.joined_today.toLocaleString()}</span>`
+            : `<span style="color: #64748b; font-size: 12px;">+0</span>`;
 
           const canSendBadge = ch.can_send
             ? `<span style="color: #10b981; font-size: 11.5px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;"><span>🟢</span><span>متاح للنشر</span></span>`
@@ -4999,6 +5011,9 @@ async function loadCampaignChannelsAnalytics(isManual = false) {
                 ${(ch.total_members || 0).toLocaleString()}
               </td>
               <td style="padding: 12px 14px;">
+                ${linkJoinsBadge}
+              </td>
+              <td style="padding: 12px 14px;">
                 ${joinedBadge}
               </td>
               <td style="padding: 12px 14px;">
@@ -5017,7 +5032,10 @@ async function loadCampaignChannelsAnalytics(isManual = false) {
     console.error("Campaign channels analytics load error:", err);
     if (isManual) showToast("تعذر جلب بيانات قنوات المجلد: " + err.message, "error");
   } finally {
-    if (isManual && refreshBtn) refreshBtn.disabled = false;
+    if (isManual && refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.innerHTML = origBtnText;
+    }
   }
 }
 window.loadCampaignChannelsAnalytics = loadCampaignChannelsAnalytics;

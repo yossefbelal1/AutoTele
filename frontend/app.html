@@ -2241,7 +2241,7 @@
             </div>
 
             <!-- Summary metrics for folder 'حملات' -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px;">
               <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 14px;">
                 <div style="font-size: 12px; color: #94a3b8; margin-bottom: 4px;">قنوات مجلد حملات</div>
                 <div style="font-size: 22px; font-weight: 800; color: #38bdf8;" id="folder-channels-count">0</div>
@@ -2249,6 +2249,10 @@
               <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 14px;">
                 <div style="font-size: 12px; color: #94a3b8; margin-bottom: 4px;">إجمالي الأعضاء بالمجلد</div>
                 <div style="font-size: 22px; font-weight: 800; color: #fff;" id="folder-total-members">0</div>
+              </div>
+              <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 12px; padding: 14px;">
+                <div style="font-size: 12px; color: #38bdf8; margin-bottom: 4px; font-weight: 600;">المنضمين عبر الروابط 🔗</div>
+                <div style="font-size: 22px; font-weight: 800; color: #38bdf8;" id="folder-total-link-joins">0</div>
               </div>
               <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 12px; padding: 14px;">
                 <div style="font-size: 12px; color: #34d399; margin-bottom: 4px; font-weight: 600;">المنضمين الجدد اليوم 🟢</div>
@@ -2264,13 +2268,14 @@
                     <th style="padding: 10px 14px;">القناة</th>
                     <th style="padding: 10px 14px;">النوع / المعرف</th>
                     <th style="padding: 10px 14px;">إجمالي الأعضاء</th>
+                    <th style="padding: 10px 14px;">انضمام عبر الروابط 🔗</th>
                     <th style="padding: 10px 14px;">انضم اليوم</th>
                     <th style="padding: 10px 14px;">حالة النشر</th>
                   </tr>
                 </thead>
                 <tbody id="campaign-channels-table-body">
                   <tr>
-                    <td colspan="5" style="text-align: center; padding: 30px; color: #64748b;">
+                    <td colspan="6" style="text-align: center; padding: 30px; color: #64748b;">
                       جاري تحميل بيانات قنوات مجلد حملات...
                     </td>
                   </tr>
@@ -2891,7 +2896,7 @@
   </div>
 
   <!-- Application Script -->
-  <script src="/script.js?v=4.3.4"></script>
+  <script src="/script.js?v=4.3.5"></script>
 
   <!-- Edit Scheduled Job Modal -->
   <div id="edit-job-modal" class="modal-overlay hidden" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 99999; padding: 16px; opacity: 0; pointer-events: none; transition: all 0.3s ease;">
