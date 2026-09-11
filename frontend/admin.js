@@ -1683,43 +1683,53 @@ function clearLogConsole() {
 
 
 // ==========================================
-// 8. INITIALIZATION & LISTENERS
-// ==========================================
-document.addEventListener("DOMContentLoaded", () => {
-  
-  // Check auth status & route
-  const token = localStorage.getItem("admin_token");
-  if (token) {
-    navigateAdmin(window.location.pathname, false);
-  } else {
-    showAuthScreen();
-  }
-
-  // Sidebar navigation with History API
-  document.querySelectorAll(".nav-tab").forEach(tab => {
-    tab.addEventListener("click", (e) => {
-      e.preventDefault();
-      const tabTarget = tab.getAttribute("data-tab");
-      const routeTarget = tab.getAttribute("data-route") || TAB_TO_ADMIN_ROUTE[tabTarget] || "/admin";
-      navigateAdmin(routeTarget);
-    });
-  });
-
-  // Browser back/forward navigation
-  window.addEventListener("popstate", () => {
-    const activeToken = localStorage.getItem("admin_token");
-    if (activeToken) {
-      navigateAdmin(window.location.pathname, false);
-    } else {
-      showAuthScreen();
-    }
-  });
-
-// ==========================================
-// BROADCAST MEDIA HANDLERS
+// 7.5 BROADCAST SUITE (GLOBAL MODULE)
 // ==========================================
 let broadcastSelectedFile = null;
 let broadcastMediaThumbUrl = null;
+let currentBroadcastMode = "all"; // all, group_active, group_expired, custom_select
+
+function selectBroadcastMode(mode) {
+  currentBroadcastMode = mode;
+  const select = document.getElementById("broadcast-target");
+  if (select) select.value = mode;
+
+  // Update card visual styles
+  document.querySelectorAll(".broadcast-mode-card").forEach(c => {
+    c.style.borderColor = "rgba(255, 255, 255, 0.08)";
+    c.style.background = "rgba(255, 255, 255, 0.03)";
+    c.classList.remove("active");
+  });
+
+  const activeCard = document.getElementById(`card-mode-${mode.replace("group_", "")}`);
+  if (activeCard) {
+    activeCard.classList.add("active");
+    if (mode === "all") {
+      activeCard.style.borderColor = "#38bdf8";
+      activeCard.style.background = "rgba(56, 189, 248, 0.15)";
+    } else if (mode === "group_active") {
+      activeCard.style.borderColor = "#10b981";
+      activeCard.style.background = "rgba(16, 185, 129, 0.15)";
+    } else if (mode === "group_expired") {
+      activeCard.style.borderColor = "#ef4444";
+      activeCard.style.background = "rgba(239, 68, 68, 0.15)";
+    } else if (mode === "custom_select") {
+      activeCard.style.borderColor = "#a855f7";
+      activeCard.style.background = "rgba(168, 85, 247, 0.15)";
+    }
+  }
+
+  const customPanel = document.getElementById("broadcast-custom-users-panel");
+  if (customPanel) {
+    if (mode === "custom_select") {
+      customPanel.classList.remove("hidden");
+      loadBroadcastAudience();
+    } else {
+      customPanel.classList.add("hidden");
+    }
+  }
+}
+window.selectBroadcastMode = selectBroadcastMode;
 
 function removeBroadcastMedia(e) {
   if (e) e.stopPropagation();
@@ -1788,72 +1798,131 @@ function handleBroadcastFileSelect(file) {
   if (uploadBox) uploadBox.classList.add("hidden");
   if (previewContainer) previewContainer.classList.remove("hidden");
 }
+window.handleBroadcastFileSelect = handleBroadcastFileSelect;
 
 function populateBroadcastTargets(users) {
   if (!users || !Array.isArray(users)) return;
-  
-  // 1. Populate individual users optgroup in dropdown
-  const optgroup = document.getElementById("broadcast-individual-users");
-  if (optgroup) {
-    optgroup.innerHTML = "";
-    users.forEach(u => {
-      const opt = document.createElement("option");
-      opt.value = u.id;
-      const uName = u.full_name || u.email.split('@')[0];
-      const uPhone = u.phone ? ` [📞 ${u.phone}]` : '';
-      const subBadge = u.subscription_status === 'active' ? '🟢' : '🔴';
-      opt.textContent = `${subBadge} ${uName} (${u.email})${uPhone} [ID: ${u.id}]`;
-      optgroup.appendChild(opt);
-    });
+
+  const checklist = document.getElementById("broadcast-users-checklist");
+  if (!checklist) return;
+
+  checklist.innerHTML = "";
+  if (users.length === 0) {
+    checklist.innerHTML = `<div style="text-align: center; padding: 20px; color: #94a3b8; font-size: 13px;">لا يوجد مشتركون مسجلون حالياً.</div>`;
+    return;
   }
 
-  // 2. Populate checklist for custom_select
-  const checklist = document.getElementById("broadcast-users-checklist");
-  if (checklist) {
-    checklist.innerHTML = "";
-    if (users.length === 0) {
-      checklist.innerHTML = `<div style="text-align: center; padding: 12px; color: #94a3b8; font-size: 13px;">لا يوجد مشتركون مسجلون حالياً.</div>`;
-      return;
-    }
-    users.forEach(u => {
-      const uName = u.full_name || u.email.split('@')[0];
-      const uPhone = u.phone ? ` • 📞 ${u.phone}` : '';
-      const isActive = u.subscription_status === 'active';
-      const statusBadge = isActive ? '<span style="color: #10b981; font-size: 11px;">(نشط 🟢)</span>' : '<span style="color: #ef4444; font-size: 11px;">(منتهي 🔴)</span>';
-      
-      const label = document.createElement("label");
-      label.className = "broadcast-user-row";
-      label.setAttribute("data-search", `${uName} ${u.email} ${u.phone || ''} ${u.id}`.toLowerCase());
-      label.style.cssText = "display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 6px; cursor: pointer; transition: background 0.15s; font-size: 13px;";
-      label.onmouseenter = () => label.style.background = "rgba(56, 189, 248, 0.08)";
-      label.onmouseleave = () => label.style.background = "rgba(255, 255, 255, 0.03)";
-      
-      label.innerHTML = `
-        <input type="checkbox" class="broadcast-user-checkbox" value="${u.id}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #38bdf8;">
-        <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-          <strong style="color: #fff;">${uName}</strong> <span style="color: #94a3b8;">(${u.email})</span> ${statusBadge} <span style="color: #64748b; font-size: 11px;">#${u.id}${uPhone}</span>
-        </span>
-      `;
-      checklist.appendChild(label);
-    });
+  users.forEach(u => {
+    const uName = u.full_name || u.email.split('@')[0];
+    const uPhone = u.phone ? ` • 📞 ${u.phone}` : '';
+    const isActive = u.subscription_status === 'active' && !u.is_sub_expired;
+    const statusBadge = isActive 
+      ? '<span style="background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600;">نشط 🟢</span>' 
+      : '<span style="background: rgba(239, 68, 68, 0.2); color: #ef4444; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600;">منتهي 🔴</span>';
+    
+    const botBadge = u.status_bot_linked 
+      ? '<span style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 2px 6px; border-radius: 4px; font-size: 11px;">🤖 البوت متصل</span>'
+      : '<span style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; padding: 2px 6px; border-radius: 4px; font-size: 11px;">⚠️ البوت غير متصل</span>';
 
-    // Wire checkbox changes
-    checklist.querySelectorAll(".broadcast-user-checkbox").forEach(cb => {
-      cb.addEventListener("change", updateBroadcastSelectedCount);
-    });
+    const row = document.createElement("div");
+    row.className = "broadcast-user-row";
+    row.id = `user-row-${u.id}`;
+    row.setAttribute("data-search", `${uName} ${u.email} ${u.phone || ''} ${u.id}`.toLowerCase());
+    row.style.cssText = "display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; transition: all 0.15s;";
+    
+    row.innerHTML = `
+      <label style="display: flex; align-items: center; gap: 12px; cursor: pointer; flex: 1; margin: 0; overflow: hidden;">
+        <input type="checkbox" class="broadcast-user-checkbox" value="${u.id}" data-name="${escapeHtml(uName)}" onchange="updateBroadcastSelectedCount()" style="width: 18px; height: 18px; cursor: pointer; accent-color: #38bdf8; flex-shrink: 0;">
+        <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+          <div style="font-weight: 700; color: #fff; font-size: 13px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <span>${escapeHtml(uName)}</span>
+            ${statusBadge}
+            ${botBadge}
+            <span style="color: #64748b; font-size: 11px; font-weight: normal;">#ID: ${u.id}</span>
+          </div>
+          <div style="color: #94a3b8; font-size: 12px; margin-top: 2px;">
+            ${escapeHtml(u.email)}${uPhone}
+          </div>
+        </div>
+      </label>
+      <button type="button" class="btn btn-secondary" onclick="selectOnlyThisBroadcastUser(${u.id})" style="padding: 4px 10px; font-size: 11px; flex-shrink: 0; background: rgba(255, 255, 255, 0.05); border-color: rgba(255, 255, 255, 0.12); color: #cbd5e1;" title="إرسال لهذا العميل فقط">
+        🎯 اختيار هذا فقط
+      </button>
+    `;
+    checklist.appendChild(row);
+  });
+
+  updateBroadcastSelectedCount();
+}
+window.populateBroadcastTargets = populateBroadcastTargets;
+
+function selectOnlyThisBroadcastUser(userId) {
+  selectBroadcastMode('custom_select');
+  
+  document.querySelectorAll(".broadcast-user-checkbox").forEach(cb => {
+    cb.checked = (parseInt(cb.value) === userId);
+  });
+  
+  updateBroadcastSelectedCount();
+  
+  const targetRow = document.getElementById(`user-row-${userId}`);
+  if (targetRow) {
+    targetRow.style.borderColor = "#38bdf8";
+    targetRow.style.background = "rgba(56, 189, 248, 0.12)";
+    setTimeout(() => {
+      targetRow.style.borderColor = "rgba(255, 255, 255, 0.06)";
+      targetRow.style.background = "rgba(255, 255, 255, 0.03)";
+    }, 1500);
   }
 }
+window.selectOnlyThisBroadcastUser = selectOnlyThisBroadcastUser;
+
+function broadcastSelectAll(checked) {
+  document.querySelectorAll(".broadcast-user-checkbox").forEach(cb => {
+    const row = cb.closest(".broadcast-user-row");
+    if (!row || row.style.display !== "none") {
+      cb.checked = checked;
+    }
+  });
+  updateBroadcastSelectedCount();
+}
+window.broadcastSelectAll = broadcastSelectAll;
+
+function filterBroadcastUsers(query) {
+  const q = (query || "").toLowerCase().trim();
+  document.querySelectorAll(".broadcast-user-row").forEach(row => {
+    const text = row.getAttribute("data-search") || "";
+    if (!q || text.includes(q)) {
+      row.style.display = "flex";
+    } else {
+      row.style.display = "none";
+    }
+  });
+}
+window.filterBroadcastUsers = filterBroadcastUsers;
 
 function updateBroadcastSelectedCount() {
   const checked = document.querySelectorAll(".broadcast-user-checkbox:checked");
-  const badge = document.getElementById("broadcast-selected-count");
-  if (badge) badge.textContent = checked.length;
+  const badge = document.getElementById("broadcast-selected-count-badge");
+  if (badge) {
+    badge.textContent = `${checked.length} محددين`;
+    if (checked.length > 0) {
+      badge.style.background = "#0284c7";
+    } else {
+      badge.style.background = "#475569";
+    }
+  }
 }
+window.updateBroadcastSelectedCount = updateBroadcastSelectedCount;
 
 async function loadBroadcastAudience() {
   if (currentAdminUsers && currentAdminUsers.length > 0) {
     populateBroadcastTargets(currentAdminUsers);
     return;
+  }
+  const checklist = document.getElementById("broadcast-users-checklist");
+  if (checklist) {
+    checklist.innerHTML = `<div style="text-align: center; padding: 20px; color: #94a3b8; font-size: 13px;">جاري تحميل المشتركين...</div>`;
   }
   try {
     const users = await adminApiRequest("/admin/users");
@@ -1861,8 +1930,12 @@ async function loadBroadcastAudience() {
     populateBroadcastTargets(currentAdminUsers);
   } catch (err) {
     console.error("Failed to load audience for broadcast:", err);
+    if (checklist) {
+      checklist.innerHTML = `<div style="text-align: center; padding: 20px; color: #f87171; font-size: 13px;">فشل تحميل قائمة المشتركين. يرجى إعادة المحاولة.</div>`;
+    }
   }
 }
+window.loadBroadcastAudience = loadBroadcastAudience;
 
 function setupBroadcastMediaHandlers() {
   const fileInput = document.getElementById("broadcast-media-file");
@@ -1871,38 +1944,38 @@ function setupBroadcastMediaHandlers() {
   const charCounter = document.getElementById("broadcast-char-counter");
   
   if (fileInput) {
-    fileInput.addEventListener("change", (e) => {
+    fileInput.onchange = (e) => {
       if (e.target.files && e.target.files.length > 0) {
         handleBroadcastFileSelect(e.target.files[0]);
       }
-    });
+    };
   }
   
   if (uploadBox) {
-    uploadBox.addEventListener("dragover", (e) => {
+    uploadBox.ondragover = (e) => {
       e.preventDefault();
       uploadBox.style.borderColor = "#38bdf8";
       uploadBox.style.backgroundColor = "rgba(56, 189, 248, 0.1)";
-    });
+    };
     
-    uploadBox.addEventListener("dragleave", (e) => {
+    uploadBox.ondragleave = (e) => {
       e.preventDefault();
       uploadBox.style.borderColor = "rgba(255, 255, 255, 0.15)";
       uploadBox.style.backgroundColor = "rgba(0, 0, 0, 0.15)";
-    });
+    };
     
-    uploadBox.addEventListener("drop", (e) => {
+    uploadBox.ondrop = (e) => {
       e.preventDefault();
       uploadBox.style.borderColor = "rgba(255, 255, 255, 0.15)";
       uploadBox.style.backgroundColor = "rgba(0, 0, 0, 0.15)";
       if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
         handleBroadcastFileSelect(e.dataTransfer.files[0]);
       }
-    });
+    };
   }
   
   if (msgTextarea && charCounter) {
-    msgTextarea.addEventListener("input", () => {
+    msgTextarea.oninput = () => {
       const len = msgTextarea.value.length;
       if (len > 1024) {
         charCounter.textContent = `${len} حرف (تنبيه: سيتجاوز كابشن الميديا وسيرسل كرسالة متابعة)`;
@@ -1911,59 +1984,14 @@ function setupBroadcastMediaHandlers() {
         charCounter.textContent = `${len} حرف (الحد الأقصى للكابشن: 1024)`;
         charCounter.style.color = "#94a3b8";
       }
-    });
-  }
-
-  // Audience selector toggle
-  const targetSelect = document.getElementById("broadcast-target");
-  const customPanel = document.getElementById("broadcast-custom-users-panel");
-  if (targetSelect && customPanel) {
-    targetSelect.addEventListener("change", () => {
-      if (targetSelect.value === "custom_select") {
-        customPanel.classList.remove("hidden");
-        loadBroadcastAudience();
-      } else {
-        customPanel.classList.add("hidden");
-      }
-    });
-  }
-
-  // Select all / Deselect all
-  const btnSelectAll = document.getElementById("btn-broadcast-select-all");
-  const btnDeselectAll = document.getElementById("btn-broadcast-deselect-all");
-  if (btnSelectAll) {
-    btnSelectAll.addEventListener("click", () => {
-      document.querySelectorAll(".broadcast-user-checkbox").forEach(cb => cb.checked = true);
-      updateBroadcastSelectedCount();
-    });
-  }
-  if (btnDeselectAll) {
-    btnDeselectAll.addEventListener("click", () => {
-      document.querySelectorAll(".broadcast-user-checkbox").forEach(cb => cb.checked = false);
-      updateBroadcastSelectedCount();
-    });
-  }
-
-  // Search input in checklist
-  const userSearch = document.getElementById("broadcast-user-search");
-  if (userSearch) {
-    userSearch.addEventListener("input", (e) => {
-      const q = (e.target.value || "").toLowerCase().trim();
-      document.querySelectorAll(".broadcast-user-row").forEach(row => {
-        const text = row.getAttribute("data-search") || "";
-        if (!q || text.includes(q)) {
-          row.style.display = "flex";
-        } else {
-          row.style.display = "none";
-        }
-      });
-    });
+    };
   }
 }
+window.setupBroadcastMediaHandlers = setupBroadcastMediaHandlers;
 
 async function handleAdminBroadcast(e) {
   e.preventDefault();
-  const msgText = document.getElementById("broadcast-message").value.trim();
+  const msgText = (document.getElementById("broadcast-message")?.value || "").trim();
   const urlInput = document.getElementById("broadcast-media-url");
   const mediaUrl = urlInput ? urlInput.value.trim() : "";
   
@@ -1972,33 +2000,35 @@ async function handleAdminBroadcast(e) {
     return;
   }
   
-  const targetSelect = document.getElementById("broadcast-target");
-  const targetVal = targetSelect ? targetSelect.value : "all";
   let targetUserId = null;
   let targetUserIds = [];
   let targetGroup = null;
   let targetText = "كافة المشتركين";
 
-  if (targetVal === "all") {
+  if (currentBroadcastMode === "all") {
     targetGroup = "all";
-    targetText = "جميع المشتركين";
-  } else if (targetVal === "group_active") {
+    targetText = "جميع المشتركين (All Users)";
+  } else if (currentBroadcastMode === "group_active") {
     targetGroup = "active";
     targetText = "المشتركين ذوي الاشتراكات النشطة فقط";
-  } else if (targetVal === "group_expired") {
+  } else if (currentBroadcastMode === "group_expired") {
     targetGroup = "expired";
     targetText = "المشتركين ذوي الاشتراكات المنتهية فقط";
-  } else if (targetVal === "custom_select") {
+  } else if (currentBroadcastMode === "custom_select") {
     const checked = document.querySelectorAll(".broadcast-user-checkbox:checked");
     targetUserIds = Array.from(checked).map(cb => parseInt(cb.value));
     if (targetUserIds.length === 0) {
-      showToast("يرجى اختيار عميل واحد على الأقل من القائمة.", "error");
+      showToast("⚠️ يرجى تحديد عميل واحد على الأقل من القائمة بالأسفل.", "error");
       return;
     }
-    targetText = `${targetUserIds.length} عميل محدد`;
-  } else if (targetVal && !isNaN(targetVal)) {
-    targetUserId = parseInt(targetVal);
-    targetText = targetSelect.options[targetSelect.selectedIndex].text;
+    if (targetUserIds.length === 1) {
+      const singleName = checked[0].getAttribute("data-name") || `#${targetUserIds[0]}`;
+      targetUserId = targetUserIds[0];
+      targetUserIds = [];
+      targetText = `العميل (${singleName} - ID: ${targetUserId})`;
+    } else {
+      targetText = `${targetUserIds.length} عملاء محددين`;
+    }
   }
   
   let mediaDesc = "";
@@ -2051,6 +2081,46 @@ async function handleAdminBroadcast(e) {
     setButtonLoading("btn-send-broadcast", false);
   }
 }
+window.handleAdminBroadcast = handleAdminBroadcast;
+
+// ==========================================
+// 8. INITIALIZATION & LISTENERS
+// ==========================================
+document.addEventListener("DOMContentLoaded", () => {
+  // Wire Broadcast controls
+  setupBroadcastMediaHandlers();
+  const broadcastForm = document.getElementById("admin-broadcast-form");
+  if (broadcastForm) {
+    broadcastForm.addEventListener("submit", handleAdminBroadcast);
+  }
+
+  // Check auth status & route
+  const token = localStorage.getItem("admin_token");
+  if (token) {
+    navigateAdmin(window.location.pathname, false);
+  } else {
+    showAuthScreen();
+  }
+
+  // Sidebar navigation with History API
+  document.querySelectorAll(".nav-tab").forEach(tab => {
+    tab.addEventListener("click", (e) => {
+      e.preventDefault();
+      const tabTarget = tab.getAttribute("data-tab");
+      const routeTarget = tab.getAttribute("data-route") || TAB_TO_ADMIN_ROUTE[tabTarget] || "/admin";
+      navigateAdmin(routeTarget);
+    });
+  });
+
+  // Browser back/forward navigation
+  window.addEventListener("popstate", () => {
+    const activeToken = localStorage.getItem("admin_token");
+    if (activeToken) {
+      navigateAdmin(window.location.pathname, false);
+    } else {
+      showAuthScreen();
+    }
+  });
 
   // Form handlers
   document.getElementById("admin-login-form").addEventListener("submit", handleAdminLogin);
