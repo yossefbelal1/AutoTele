@@ -21,7 +21,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
   
   <!-- CSS Stylesheet -->
-  <link rel="stylesheet" href="/style.css?v=4.2.1">
+  <link rel="stylesheet" href="/style.css?v=4.2.2">
 
   <!-- Google Sign-In API -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -573,26 +573,7 @@
         </div>
 
         <section id="tab-subscription" class="tab-panel">
-          <!-- Onboarding Checklist (Compact - Auto hides on 5/5 completion) -->
-          <div id="onboarding-checklist-card" class="onboarding-checklist-card hidden">
-            <div class="onboarding-header">
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="font-size: 18px;">🚀</span>
-                <span style="font-weight: 700; font-size: 13.5px; color: #fff;">دليل الإعداد السريع لحسابك</span>
-                <span id="onboarding-progress-badge" class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 11px; padding: 2px 8px; border-radius: 10px;">0 / 5</span>
-              </div>
-              <button type="button" id="onboarding-action-btn" class="btn btn-primary btn-sm" onclick="handleOnboardingNextAction()" style="padding: 4px 12px; font-size: 11.5px; border-radius: 6px; font-weight: 700;">
-                <span id="onboarding-action-text">متابعة الإعداد</span>
-              </button>
-            </div>
-            <div class="onboarding-steps-list">
-              <span class="onboarding-step-pill completed" id="ob-step-1">✓ 1. إنشاء الحساب</span>
-              <span class="onboarding-step-pill" id="ob-step-2"><span class="ob-icon">○</span> 2. تفعيل الاشتراك</span>
-              <span class="onboarding-step-pill" id="ob-step-3"><span class="ob-icon">○</span> 3. ربط تليجرام</span>
-              <span class="onboarding-step-pill" id="ob-step-4"><span class="ob-icon">○</span> 4. مزامنة القنوات</span>
-              <span class="onboarding-step-pill" id="ob-step-5"><span class="ob-icon">○</span> 5. أول حملة</span>
-            </div>
-          </div>
+          <!-- Onboarding Checklist (Disabled per user request) -->
           
           <!-- Cloud Campaign Control Panel with Integrated Compact Status Bar -->
           <div id="campaign-panel-card" class="card campaign-panel-card">
@@ -2910,7 +2891,7 @@
   </div>
 
   <!-- Application Script -->
-  <script src="/script.js?v=4.3.3"></script>
+  <script src="/script.js?v=4.3.4"></script>
 
   <!-- Edit Scheduled Job Modal -->
   <div id="edit-job-modal" class="modal-overlay hidden" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 99999; padding: 16px; opacity: 0; pointer-events: none; transition: all 0.3s ease;">

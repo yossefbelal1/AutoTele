@@ -5031,58 +5031,11 @@ let onboardingNextRoute = "/app/engines/connect";
 
 function checkAndRenderOnboardingChecklist(dashboardData) {
   const card = document.getElementById("onboarding-checklist-card");
-  if (!card) return;
-
-  const isRegistered = true; // User is logged in
-  const isSubActive = dashboardData && (dashboardData.subscription_status === "active" || dashboardData.is_trial);
-  const isAccountConnected = !!(dashboardData && dashboardData.telegram_account_id);
-  const hasChannels = !!(dashboardData && dashboardData.total_channels_count > 0);
-  const hasCampaigns = !!(dashboardData && (dashboardData.total_tasks_count > 0 || (dashboardData.active_tasks && dashboardData.active_tasks.length > 0)));
-
-  const steps = [
-    { id: "ob-step-1", completed: isRegistered, label: "1. إنشاء الحساب", route: null },
-    { id: "ob-step-2", completed: isSubActive, label: "2. تفعيل الاشتراك", route: "/app/billing" },
-    { id: "ob-step-3", completed: isAccountConnected, label: "3. ربط تليجرام", route: "/app/engines/connect" },
-    { id: "ob-step-4", completed: hasChannels, label: "4. مزامنة القنوات", route: "/app/engines/connect" },
-    { id: "ob-step-5", completed: hasCampaigns, label: "5. أول حملة", route: "/app" }
-  ];
-
-  let completedCount = 0;
-  let firstIncomplete = null;
-
-  steps.forEach(s => {
-    const el = document.getElementById(s.id);
-    if (s.completed) {
-      completedCount++;
-      if (el) {
-        el.className = "onboarding-step-pill completed";
-        el.innerHTML = `✓ ${s.label}`;
-      }
-    } else {
-      if (!firstIncomplete) firstIncomplete = s;
-      if (el) {
-        el.className = "onboarding-step-pill";
-        el.innerHTML = `<span class="ob-icon">○</span> ${s.label}`;
-      }
-    }
-  });
-
-  // Strict Rule: If 5 of 5 are complete, hide card permanently!
-  if (completedCount === 5) {
+  if (card) {
     card.classList.add("hidden");
-    return;
+    card.style.display = "none";
   }
-
-  // Otherwise, show card and set next action
-  card.classList.remove("hidden");
-  const badge = document.getElementById("onboarding-progress-badge");
-  if (badge) badge.textContent = `${completedCount} / 5 مكتمل`;
-
-  const actionText = document.getElementById("onboarding-action-text");
-  if (firstIncomplete) {
-    onboardingNextRoute = firstIncomplete.route;
-    if (actionText) actionText.textContent = `متابعة: ${firstIncomplete.label} ←`;
-  }
+  return;
 }
 window.checkAndRenderOnboardingChecklist = checkAndRenderOnboardingChecklist;
 

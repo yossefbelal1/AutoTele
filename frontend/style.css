@@ -4028,6 +4028,7 @@ body.drawer-open {
    PHASE 7: ONBOARDING CHECKLIST STYLES
    ========================================== */
 .onboarding-checklist-card {
+  display: none !important;
   background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.8) 100%);
   border: 1px solid rgba(56, 189, 248, 0.25);
   border-radius: 14px;
