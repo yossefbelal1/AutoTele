@@ -1989,7 +1989,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
         
         exclude_ids = set(blacklist) | set(banned_ids) | set(no_post_ids)
         
-        target_links = [lnk.strip() for lnk in re.split(r'[\s\n]+', target_link) if lnk.strip()]
+        target_links = [lnk.strip() for lnk in re.split(r'[\s,\n]+', target_link) if lnk.strip()]
         resolved_links = []
         target_titles = []
         target_chat_ids_list = []

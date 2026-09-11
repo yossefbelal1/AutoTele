@@ -5590,17 +5590,7 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
             agreed_lifespan = getattr(req_obj, "ad_lifespan", 30) or 30
             life_lbl = format_ad_lifespan_arabic(agreed_lifespan)
 
-            # Check if recipient has a campaign folder
-            raw_campaign = await redis_client.get(f"tenant:{recipient_acc.id}:campaign")
-            has_campaign_folder = False
-            if raw_campaign:
-                try:
-                    c_list = json.loads(raw_campaign)
-                    has_campaign_folder = bool(c_list and len(c_list) > 0)
-                except Exception:
-                    pass
-
-            camp_task_type = "bulk" if has_campaign_folder else "single"
+            camp_task_type = "single"
             
             task_camp = WebCampaignTask(
                 telegram_account_id=recipient_acc.id,

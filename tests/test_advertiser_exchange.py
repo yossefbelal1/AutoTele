@@ -481,3 +481,120 @@ class TestAdvertiserExchange:
             assert "https://t.me/chan_a, https://t.me/chan_b" in task_b.target_link
             assert "-100333" in task_b.target_link
             assert "https://t.me/manual_rec_chan" in task_b.target_link
+
+    @pytest.mark.asyncio
+    async def test_multi_channel_and_manual_campaign_publish_request_flow(self):
+        """Test campaign publish request with multiple selected channels and manual URLs."""
+        from main_api import CreateExchangeReq
+        now = datetime.now(timezone.utc)
+
+        sender_user = MagicMock(spec=User)
+        sender_user.id = 1
+        sender_user.full_name = "Advertiser 1"
+        sender_user.email = "adv1@example.com"
+
+        target_user = MagicMock(spec=User)
+        target_user.id = 2
+        target_user.full_name = "Advertiser 2"
+        target_user.email = "adv2@example.com"
+
+        sender_acc = MagicMock(spec=TelegramAccount)
+        sender_acc.id = 11
+        recipient_acc = MagicMock(spec=TelegramAccount)
+        recipient_acc.id = 22
+
+        added_objects = []
+        mock_session = AsyncMock()
+        mock_session.add = lambda obj: added_objects.append(obj)
+        mock_session.flush = AsyncMock()
+        mock_session.commit = AsyncMock()
+
+        call_idx = 0
+        def fake_exec(stmt):
+            nonlocal call_idx
+            call_idx += 1
+            res = MagicMock()
+            res.scalar.return_value = 0
+            res.scalars.return_value.first.return_value = None
+            if call_idx == 1:
+                res.scalars.return_value.first.return_value = sender_acc
+            elif call_idx == 2:
+                res.scalars.return_value.first.return_value = target_user
+            elif call_idx == 3:
+                res.scalars.return_value.first.return_value = recipient_acc
+            elif call_idx == 4:
+                res.scalar.return_value = 0
+            elif call_idx == 5:
+                res.scalars.return_value.first.return_value = None
+            return res
+
+        mock_session.execute = AsyncMock(side_effect=fake_exec)
+
+        sender_channels = [
+            {"id": -100111, "title": "قناة 1", "invite_link": "https://t.me/chan1", "can_send": True},
+            {"id": -100222, "title": "قناة 2", "invite_link": "https://t.me/chan2", "can_send": True}
+        ]
+
+        create_req = CreateExchangeReq(
+            recipient_user_id=2,
+            target_user_id=2,
+            request_type="campaign",
+            channel_ids=[-100111, -100222],
+            manual_channels="https://t.me/manual_post_1, https://t.me/manual_post_2",
+            ad_lifespan=60,
+            message="يرجى نشر قنواتنا ومشاريعنا"
+        )
+
+        with patch("main_api.AsyncSessionLocal", return_value=mock_session), \
+             patch("main_api.verify_active_subscription", return_value=MagicMock()), \
+             patch("main_api.get_channels_cache", return_value=sender_channels), \
+             patch("main_api.get_invite_link", side_effect=lambda tid, cid: f"https://t.me/track_{cid}"):
+            mock_session.__aenter__.return_value = mock_session
+
+            res = await create_exchange_request(req=create_req, current_user_id=1)
+            assert res["status"] == "success"
+
+            created_req = next(o for o in added_objects if isinstance(o, ExchangeRequest))
+            assert created_req.request_type == "campaign"
+            assert created_req.ad_lifespan == 60
+            assert "https://t.me/track_-100111" in created_req.campaign_url
+            assert "https://t.me/track_-100222" in created_req.campaign_url
+            assert "https://t.me/manual_post_1" in created_req.campaign_url
+            assert "https://t.me/manual_post_2" in created_req.campaign_url
+
+            # Now test accepting it
+            created_req.id = 701
+            created_req.status = "pending"
+            created_req.expires_at = now + timedelta(hours=48)
+            added_objects.clear()
+            call_idx = 0
+
+            def fake_accept_exec(stmt):
+                nonlocal call_idx
+                call_idx += 1
+                res = MagicMock()
+                if call_idx == 1:
+                    res.scalars.return_value.first.return_value = recipient_acc
+                elif call_idx == 2:
+                    res.scalars.return_value.first.return_value = created_req
+                elif call_idx == 3:
+                    res.scalar_one_or_none.return_value = sender_user
+                elif call_idx == 4:
+                    res.scalars.return_value.first.return_value = sender_acc
+                return res
+
+            mock_session.execute = AsyncMock(side_effect=fake_accept_exec)
+
+            accept_result = await accept_exchange_request(request_id=701, req=AcceptExchangeReq(), current_user_id=2)
+            assert accept_result["status"] == "success"
+
+            camp_task = next(o for o in added_objects if isinstance(o, WebCampaignTask))
+            assert camp_task.campaign_type == "single"
+            assert camp_task.ad_lifespan == 60
+            assert "https://t.me/track_-100111" in camp_task.target_link
+            assert "https://t.me/manual_post_1" in camp_task.target_link
+
+            camp_exec = next(o for o in added_objects if isinstance(o, ExchangeExecution))
+            assert camp_exec.execution_type == "campaign_request"
+            assert camp_exec.executor_user_id == 2
+

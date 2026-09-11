@@ -5850,6 +5850,20 @@ window.updateExchangeChannelsCount = function() {
   }
 };
 
+window.selectAllCampaignChannels = function(selectBool) {
+  const cbs = document.querySelectorAll("input[name='campaign_my_channel_cb']");
+  cbs.forEach(cb => { cb.checked = !!selectBool; });
+  updateCampaignChannelsCount();
+};
+
+window.updateCampaignChannelsCount = function() {
+  const cbs = document.querySelectorAll("input[name='campaign_my_channel_cb']:checked");
+  const badge = document.getElementById("campaign-my-channels-count");
+  if (badge) {
+    badge.textContent = `${cbs.length} محددة`;
+  }
+};
+
 window.toggleAcceptChannelInputMode = function(mode) {
   currentAcceptChannelMode = mode;
   const btnOwned = document.getElementById("btn-accept-ch-mode-owned");
@@ -5966,12 +5980,12 @@ window.openNewExchangeModal = async function() {
 
   // Load Advertisers & Channels in parallel
   const advSelect = document.getElementById("select-target-advertiser");
-  const campChSelect = document.getElementById("select-campaign-channel");
   const cbContainer = document.getElementById("exchange-my-channels-checkbox-list");
+  const campCbContainer = document.getElementById("campaign-my-channels-checkbox-list");
 
   if (advSelect) advSelect.innerHTML = `<option value="" disabled selected>جاري تحميل قائمة المعلنين...</option>`;
-  if (campChSelect) campChSelect.innerHTML = `<option value="" disabled selected>جاري تحميل قنواتك...</option>`;
   if (cbContainer) cbContainer.innerHTML = `<div style="text-align: center; color: #64748b; padding: 12px; font-size: 12.5px;">جاري تحميل قنواتك...</div>`;
+  if (campCbContainer) campCbContainer.innerHTML = `<div style="text-align: center; color: #64748b; padding: 12px; font-size: 12.5px;">جاري تحميل قنواتك...</div>`;
 
   modal.classList.remove("hidden");
   modal.style.opacity = "1";
@@ -6016,20 +6030,32 @@ window.openNewExchangeModal = async function() {
       updateExchangeChannelsCount();
     }
 
-    const channelOptionsHtml = (cachedMyExchangeChannels.length === 0)
-      ? `<option value="" disabled selected>لم يتم العثور على قنوات مسجلة بحسابك</option>`
-      : `<option value="" disabled selected>-- اختر إحدى قنواتك (${cachedMyExchangeChannels.length} قناة متاحة) --</option>` +
-        cachedMyExchangeChannels.map(c => {
+    if (campCbContainer) {
+      if (cachedMyExchangeChannels.length === 0) {
+        campCbContainer.innerHTML = `<div style="text-align: center; color: #64748b; padding: 12px; font-size: 12px;">لم يتم العثور على قنوات مسجلة بحسابك</div>`;
+      } else {
+        campCbContainer.innerHTML = cachedMyExchangeChannels.map(c => {
           const tLink = c.tracking_link || c.invite_link || "";
-          return `<option value="${c.id}" data-tracking="${escapeHtml(tLink)}" data-title="${escapeHtml(c.title)}">${escapeHtml(c.title)} (${c.members_count || 0} عضو)</option>`;
+          const members = (c.members_count !== undefined) ? `${Number(c.members_count).toLocaleString()} عضو` : "";
+          return `
+            <label style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; cursor: pointer; transition: background 0.2s;">
+              <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
+                <input type="checkbox" name="campaign_my_channel_cb" value="${c.id}" data-title="${escapeHtml(c.title)}" data-tracking="${escapeHtml(tLink)}" onchange="updateCampaignChannelsCount()" style="width: 16px; height: 16px; accent-color: #38bdf8; cursor: pointer;">
+                <span style="font-size: 13px; color: #fff; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(c.title)}</span>
+              </div>
+              ${members ? `<span style="font-size: 11px; color: #94a3b8; background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; white-space: nowrap;">👥 ${members}</span>` : ""}
+            </label>
+          `;
         }).join("");
-
-    if (campChSelect) campChSelect.innerHTML = channelOptionsHtml;
+      }
+      updateCampaignChannelsCount();
+    }
 
   } catch (err) {
     console.error("Failed to load modal dependencies:", err);
     if (advSelect) advSelect.innerHTML = `<option value="" disabled selected>تعذر تحميل المعلنين: ${escapeHtml(err.message)}</option>`;
     if (cbContainer) cbContainer.innerHTML = `<div style="text-align: center; color: #f87171; padding: 12px; font-size: 12px;">تعذر تحميل القنوات</div>`;
+    if (campCbContainer) campCbContainer.innerHTML = `<div style="text-align: center; color: #f87171; padding: 12px; font-size: 12px;">تعذر تحميل القنوات</div>`;
   }
 };
 
@@ -6061,9 +6087,6 @@ window.toggleExchangeFormType = function(type) {
     if (radioCp) radioCp.checked = true;
     if (boxMyCh) boxMyCh.classList.add("hidden");
     if (boxCpSelection) boxCpSelection.classList.remove("hidden");
-    if (currentCampaignTargetMode === "channel") {
-      onCampaignChannelChanged();
-    }
   }
 };
 
@@ -6079,7 +6102,6 @@ window.toggleCampaignTargetMode = function(mode) {
     if (btnManual) btnManual.classList.remove("active");
     if (boxCh) boxCh.classList.remove("hidden");
     if (boxManual) boxManual.classList.add("hidden");
-    onCampaignChannelChanged();
   } else {
     if (btnCh) btnCh.classList.remove("active");
     if (btnManual) btnManual.classList.add("active");
@@ -6089,24 +6111,7 @@ window.toggleCampaignTargetMode = function(mode) {
 };
 
 window.onCampaignChannelChanged = function() {
-  const select = document.getElementById("select-campaign-channel");
-  const previewBox = document.getElementById("campaign-tracking-preview-box");
-  const linkDisplay = document.getElementById("campaign-tracking-link-display");
-  if (!select || !previewBox || !linkDisplay) return;
-
-  const opt = select.selectedOptions[0];
-  if (opt && opt.value) {
-    const tLink = opt.getAttribute("data-tracking");
-    if (tLink) {
-      linkDisplay.textContent = tLink;
-      previewBox.classList.remove("hidden");
-    } else {
-      linkDisplay.textContent = "لا يوجد رابط تتبع مخصص مسجل للقناة (سيتم استخدام رابط دعوة عام)";
-      previewBox.classList.remove("hidden");
-    }
-  } else {
-    previewBox.classList.add("hidden");
-  }
+  // Retained for backward-compat
 };
 
 window.submitNewExchangeRequest = async function(e) {
@@ -6162,29 +6167,39 @@ window.submitNewExchangeRequest = async function(e) {
       payload.proposed_channel_url = manualVal;
     }
   } else {
-    // Campaign Request: Option 1 (Channel with tracking) vs Option 2 (Manual)
+    // Campaign Request: Option 1 (Channels with tracking) vs Option 2 (Manual URLs)
     if (currentCampaignTargetMode === "channel") {
-      const campChSelect = document.getElementById("select-campaign-channel");
-      const opt = campChSelect.selectedOptions[0];
-      if (!campChSelect.value || !opt) {
-        if (errEl) { errEl.textContent = "يرجى اختيار إحدى قنواتك لاستخدام رابط تتبعها، أو التبديل لإدخال الرابط يدوياً."; errEl.style.display = "block"; }
+      const checkedBoxes = Array.from(document.querySelectorAll("input[name='campaign_my_channel_cb']:checked"));
+      if (checkedBoxes.length === 0) {
+        if (errEl) { errEl.textContent = "يرجى تحديد قناة واحدة على الأقل لنشر رابط تتبعها (أو التبديل للإدخال اليدوي)."; errEl.style.display = "block"; }
         return;
       }
-      const chId = parseInt(opt.value, 10);
-      const trackingLink = opt.getAttribute("data-tracking");
-      payload.requester_channel_id = chId;
-      payload.proposed_channel_id = chId;
-      payload.proposed_channel_name = opt.getAttribute("data-title") || opt.text;
-      payload.campaign_url = trackingLink;
-      payload.campaign_target_link = trackingLink;
+      const cids = checkedBoxes.map(cb => parseInt(cb.value, 10));
+      const cnames = checkedBoxes.map(cb => cb.getAttribute("data-title") || "");
+      const curls = checkedBoxes.map(cb => cb.getAttribute("data-tracking") || "").filter(Boolean);
+
+      payload.channel_ids = cids;
+      payload.channel_names = cnames;
+      payload.channel_urls = curls;
+      payload.requester_channel_id = cids[0];
+      payload.proposed_channel_id = cids[0];
+      payload.proposed_channel_name = cnames.join("، ");
+      payload.campaign_url = curls.join(", ");
+      payload.campaign_target_link = curls.join(", ");
     } else {
-      const cpUrl = document.getElementById("input-exchange-campaign-url").value.trim();
-      if (!cpUrl || !cpUrl.startsWith("http") || (!cpUrl.includes("t.me") && !cpUrl.includes("telegram"))) {
-        if (errEl) { errEl.textContent = "يرجى إدخال رابط منشور حملة تليجرام صحيح (يبدأ بـ https://t.me/)."; errEl.style.display = "block"; }
+      const manualUrls = document.getElementById("textarea-campaign-manual-urls")?.value.trim();
+      if (!manualUrls) {
+        if (errEl) { errEl.textContent = "يرجى إدخال رابط حملة أو قناة واحد على الأقل يدوياً."; errEl.style.display = "block"; }
         return;
       }
-      payload.campaign_url = cpUrl;
-      payload.campaign_target_link = cpUrl;
+      const parsedUrls = manualUrls.split(/[\r\n,]+/).map(u => u.trim()).filter(Boolean);
+      if (parsedUrls.length === 0) {
+        if (errEl) { errEl.textContent = "يرجى إدخال رابط صحيح للحملة."; errEl.style.display = "block"; }
+        return;
+      }
+      payload.manual_channels = manualUrls;
+      payload.campaign_url = parsedUrls.join(", ");
+      payload.campaign_target_link = parsedUrls.join(", ");
     }
   }
 
