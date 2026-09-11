@@ -5584,12 +5584,14 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
             }
             
         elif req_obj.request_type == "campaign":
-            # Campaign Request: B only accepts, system runs campaign with A's URL on B's campaign channels
+            # Campaign Request: B accepts → system runs A's URLs as a SINGLE campaign
+            # across ALL of B's channels (NOT bulk which uses B's own campaign folder).
             req_obj.status = "accepted"
             req_obj.responded_at = now
             agreed_lifespan = getattr(req_obj, "ad_lifespan", 30) or 30
             life_lbl = format_ad_lifespan_arabic(agreed_lifespan)
 
+            # MUST be "single" — "bulk" would use B's own campaign folder links instead of A's
             camp_task_type = "single"
             
             task_camp = WebCampaignTask(
