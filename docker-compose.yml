@@ -84,6 +84,7 @@ services:
       - ./main_api.py:/app/main_api.py:ro
       - ./db_manager.py:/app/db_manager.py:ro
       - ./cache_manager.py:/app/cache_manager.py:ro
+      - ./uploads:/app/uploads:rw
     command: uvicorn main_api:app --host 0.0.0.0 --port 8000
     ports:
       - "127.0.0.1:8001:8000"
@@ -146,6 +147,7 @@ services:
       - ./db_manager.py:/app/db_manager.py:ro
       - ./cache_manager.py:/app/cache_manager.py:ro
       - ./status_bot.py:/app/status_bot.py:ro
+      - ./uploads:/app/uploads:rw
     networks:
       - teleauto_internal_network
     restart: always

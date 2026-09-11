@@ -244,6 +244,46 @@ class AdminBroadcastUnitTests(unittest.TestCase):
 
         self.loop.run_until_complete(run())
 
+    def test_admin_broadcast_200mb_media_streaming(self):
+        """Verify 200MB media streaming and oversized rejection."""
+        from main_api import admin_broadcast, User
+        from fastapi import BackgroundTasks
+
+        async def run():
+            with patch("main_api.redis_client") as mock_redis, \
+                 patch("main_api.AsyncSessionLocal") as mock_session_cls:
+
+                mock_redis.set = AsyncMock(return_value=True)
+
+                admin = MagicMock(spec=User)
+                admin.id = 1
+                admin.is_admin = True
+
+                # 1. Reject media exceeding 200MB
+                req_oversized = MagicMock()
+                req_oversized.headers = {"content-type": "application/json"}
+                # Simulating 205MB payload
+                oversized_bytes = b"0" * (205 * 1024 * 1024)
+                import base64
+                b64_str = base64.b64encode(oversized_bytes).decode("ascii")
+                req_oversized.json = AsyncMock(return_value={
+                    "message_text": "Too large video",
+                    "media_base64": b64_str,
+                    "media_type": "video"
+                })
+
+                with self.assertRaises(HTTPException) as ctx:
+                    await admin_broadcast(
+                        request=req_oversized,
+                        background_tasks=BackgroundTasks(),
+                        admin_user=admin
+                    )
+                self.assertEqual(ctx.exception.status_code, 400)
+                self.assertIn("200 ميجابايت", ctx.exception.detail)
+
+        self.loop.run_until_complete(run())
+
 if __name__ == "__main__":
     unittest.main()
+
 

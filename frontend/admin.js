@@ -1688,6 +1688,22 @@ function clearLogConsole() {
 let broadcastSelectedFile = null;
 let broadcastMediaThumbUrl = null;
 let currentBroadcastMode = "all"; // all, group_active, group_expired, custom_select
+window.broadcastSelectedFile = null;
+
+function triggerBroadcastFileInput() {
+  const fileInput = document.getElementById("broadcast-media-file");
+  if (fileInput) {
+    fileInput.click();
+  }
+}
+window.triggerBroadcastFileInput = triggerBroadcastFileInput;
+
+function handleBroadcastFileInputChange(input) {
+  if (input && input.files && input.files.length > 0) {
+    handleBroadcastFileSelect(input.files[0]);
+  }
+}
+window.handleBroadcastFileInputChange = handleBroadcastFileInputChange;
 
 function selectBroadcastMode(mode) {
   currentBroadcastMode = mode;
@@ -1734,29 +1750,40 @@ window.selectBroadcastMode = selectBroadcastMode;
 function removeBroadcastMedia(e) {
   if (e) e.stopPropagation();
   broadcastSelectedFile = null;
+  window.broadcastSelectedFile = null;
   const fileInput = document.getElementById("broadcast-media-file");
   if (fileInput) fileInput.value = "";
   
   if (broadcastMediaThumbUrl) {
-    URL.revokeObjectURL(broadcastMediaThumbUrl);
+    try { URL.revokeObjectURL(broadcastMediaThumbUrl); } catch (_) {}
     broadcastMediaThumbUrl = null;
   }
   
   const previewContainer = document.getElementById("broadcast-media-preview-container");
   const uploadBox = document.getElementById("broadcast-upload-box");
   const thumbDiv = document.getElementById("broadcast-media-thumb");
+  const uploadPrompt = document.getElementById("broadcast-upload-prompt");
+
   if (previewContainer) previewContainer.classList.add("hidden");
-  if (uploadBox) uploadBox.classList.remove("hidden");
+  if (uploadBox) {
+    uploadBox.classList.remove("hidden");
+    uploadBox.style.borderColor = "rgba(56, 189, 248, 0.35)";
+  }
   if (thumbDiv) thumbDiv.innerHTML = "";
+  if (uploadPrompt) {
+    uploadPrompt.textContent = "اضغط هنا لاختيار صورة أو فيديو أو اسحبه إلى هنا";
+    uploadPrompt.style.color = "#38bdf8";
+  }
 }
 window.removeBroadcastMedia = removeBroadcastMedia;
 
 function handleBroadcastFileSelect(file) {
   if (!file) return;
   
-  const maxSize = 50 * 1024 * 1024; // 50 MB
-  if (file.size > maxSize) {
-    showToast("حجم الملف كبير جداً! الحد الأقصى المسموح به هو 50 ميجابايت.", "error");
+  const MAX_SIZE = 200 * 1024 * 1024; // 200 MB
+  if (file.size > MAX_SIZE) {
+    showToast("⚠️ حجم الملف كبير جداً! الحد الأقصى المسموح به هو 200 ميجابايت.", "error");
+    removeBroadcastMedia();
     return;
   }
   
@@ -1764,39 +1791,54 @@ function handleBroadcastFileSelect(file) {
   const isVideo = file.type.startsWith("video/") || /\.(mp4|mov|avi|mkv|webm)$/i.test(file.name);
   
   if (!isImage && !isVideo) {
-    showToast("نوع الملف غير مدعوم. يرجى اختيار ملف صورة أو فيديو صالح.", "error");
+    showToast("⚠️ نوع الملف غير مدعوم. يرجى اختيار ملف صورة أو فيديو صالح.", "error");
+    removeBroadcastMedia();
     return;
   }
   
   broadcastSelectedFile = file;
+  window.broadcastSelectedFile = file;
   
   if (broadcastMediaThumbUrl) {
-    URL.revokeObjectURL(broadcastMediaThumbUrl);
+    try { URL.revokeObjectURL(broadcastMediaThumbUrl); } catch (_) {}
   }
-  broadcastMediaThumbUrl = URL.createObjectURL(file);
+  try {
+    broadcastMediaThumbUrl = URL.createObjectURL(file);
+  } catch (_) {
+    broadcastMediaThumbUrl = null;
+  }
   
-  const uploadBox = document.getElementById("broadcast-upload-box");
   const previewContainer = document.getElementById("broadcast-media-preview-container");
   const thumbDiv = document.getElementById("broadcast-media-thumb");
   const filenameDiv = document.getElementById("broadcast-media-filename");
   const filesizeDiv = document.getElementById("broadcast-media-filesize");
+  const uploadPrompt = document.getElementById("broadcast-upload-prompt");
   
   if (thumbDiv) {
-    if (isImage) {
+    if (isImage && broadcastMediaThumbUrl) {
       thumbDiv.innerHTML = `<img src="${broadcastMediaThumbUrl}" alt="Preview" style="width: 100%; height: 100%; object-fit: cover;">`;
+    } else if (isVideo) {
+      thumbDiv.innerHTML = `<div style="font-size: 28px;">🎬</div>`;
     } else {
-      thumbDiv.innerHTML = `<video src="${broadcastMediaThumbUrl}" muted style="width: 100%; height: 100%; object-fit: cover;"></video>`;
+      thumbDiv.innerHTML = `<div style="font-size: 28px;">📷</div>`;
     }
   }
   
+  const sizeMb = (file.size / (1024 * 1024)).toFixed(2);
+  const sizeKb = (file.size / 1024).toFixed(0);
+  const formattedSize = file.size >= 1024 * 1024 ? `${sizeMb} MB` : `${sizeKb} KB`;
+
   if (filenameDiv) filenameDiv.textContent = file.name;
   if (filesizeDiv) {
-    const sizeMb = (file.size / (1024 * 1024)).toFixed(2);
-    filesizeDiv.textContent = `${sizeMb} MB | ${isImage ? "صورة 📷" : "فيديو 🎥"}`;
+    filesizeDiv.textContent = `${formattedSize} | ${isImage ? "صورة 📷" : "فيديو 🎥"}`;
+  }
+  if (uploadPrompt) {
+    uploadPrompt.textContent = `✅ تم اختيار: ${file.name} (${formattedSize})`;
+    uploadPrompt.style.color = "#10b981";
   }
   
-  if (uploadBox) uploadBox.classList.add("hidden");
   if (previewContainer) previewContainer.classList.remove("hidden");
+  showToast(`📁 تم تجهيز ${isImage ? 'الصورة' : 'الفيديو'}: ${file.name} (${formattedSize})`, "info");
 }
 window.handleBroadcastFileSelect = handleBroadcastFileSelect;
 
@@ -1942,6 +1984,14 @@ function setupBroadcastMediaHandlers() {
   const uploadBox = document.getElementById("broadcast-upload-box");
   const msgTextarea = document.getElementById("broadcast-message");
   const charCounter = document.getElementById("broadcast-char-counter");
+  const removeBtn = document.getElementById("btn-remove-broadcast-media");
+
+  if (removeBtn) {
+    removeBtn.onclick = (e) => {
+      e.stopPropagation();
+      removeBroadcastMedia();
+    };
+  }
   
   if (fileInput) {
     fileInput.onchange = (e) => {
@@ -1952,6 +2002,19 @@ function setupBroadcastMediaHandlers() {
   }
   
   if (uploadBox) {
+    uploadBox.onclick = (e) => {
+      // Don't trigger if clicked on child button or input
+      if (e.target.closest("button") || e.target.closest("input")) return;
+      triggerBroadcastFileInput();
+    };
+
+    uploadBox.onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        triggerBroadcastFileInput();
+      }
+    };
+
     uploadBox.ondragover = (e) => {
       e.preventDefault();
       uploadBox.style.borderColor = "#38bdf8";
@@ -1960,14 +2023,14 @@ function setupBroadcastMediaHandlers() {
     
     uploadBox.ondragleave = (e) => {
       e.preventDefault();
-      uploadBox.style.borderColor = "rgba(255, 255, 255, 0.15)";
-      uploadBox.style.backgroundColor = "rgba(0, 0, 0, 0.15)";
+      uploadBox.style.borderColor = "rgba(56, 189, 248, 0.35)";
+      uploadBox.style.backgroundColor = "rgba(0, 0, 0, 0.2)";
     };
     
     uploadBox.ondrop = (e) => {
       e.preventDefault();
-      uploadBox.style.borderColor = "rgba(255, 255, 255, 0.15)";
-      uploadBox.style.backgroundColor = "rgba(0, 0, 0, 0.15)";
+      uploadBox.style.borderColor = "rgba(56, 189, 248, 0.35)";
+      uploadBox.style.backgroundColor = "rgba(0, 0, 0, 0.2)";
       if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
         handleBroadcastFileSelect(e.dataTransfer.files[0]);
       }

@@ -4413,14 +4413,21 @@ async def dispatch_admin_broadcast(
 @app.get("/broadcast/media/{media_id}")
 @app.get("/api/broadcast/media/{media_id}")
 async def get_broadcast_media(media_id: str):
+    from starlette.responses import FileResponse
+    disk_path_raw = await redis_client.get(f"broadcast_media_path:{media_id}")
+    disk_path = disk_path_raw.decode("utf-8") if isinstance(disk_path_raw, bytes) else str(disk_path_raw or "")
+
+    media_type_raw = await redis_client.get(f"broadcast_media_type:{media_id}")
+    media_type_str = media_type_raw.decode("utf-8") if isinstance(media_type_raw, bytes) else str(media_type_raw or "")
+    content_type = "video/mp4" if media_type_str == "video" else "image/jpeg"
+
+    if disk_path and os.path.exists(disk_path):
+        return FileResponse(disk_path, media_type=content_type)
+
     media_bytes = await redis_client.get(f"broadcast_media:{media_id}")
     if not media_bytes:
         raise HTTPException(status_code=404, detail="المرفق غير موجود أو انتهت صلاحيته")
 
-    media_type_raw = await redis_client.get(f"broadcast_media_type:{media_id}")
-    media_type_str = media_type_raw.decode("utf-8") if isinstance(media_type_raw, bytes) else str(media_type_raw or "")
-
-    content_type = "video/mp4" if media_type_str == "video" else "image/jpeg"
     return Response(content=media_bytes, media_type=content_type)
 
 @app.post("/admin/broadcast")
@@ -4432,6 +4439,10 @@ async def admin_broadcast(
     import base64
     import uuid
 
+    MAX_BROADCAST_MEDIA_SIZE = 200 * 1024 * 1024  # 200 MB
+    UPLOAD_BROADCAST_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads", "broadcast")
+    os.makedirs(UPLOAD_BROADCAST_DIR, exist_ok=True)
+
     content_type = request.headers.get("content-type", "")
     message_text = ""
     target_user_id = None
@@ -4442,6 +4453,7 @@ async def admin_broadcast(
     media_id = None
     media_filename = None
     media_bytes = None
+    disk_media_path = None
 
     if "application/json" in content_type:
         try:
@@ -4469,6 +4481,16 @@ async def admin_broadcast(
                 if "," in media_b64:
                     media_b64 = media_b64.split(",", 1)[1]
                 media_bytes = base64.b64decode(media_b64)
+                if len(media_bytes) > MAX_BROADCAST_MEDIA_SIZE:
+                    raise HTTPException(status_code=400, detail="حجم الملف يتجاوز الحد الأقصى المسموح (200 ميجابايت)")
+                
+                media_id = uuid.uuid4().hex
+                ext = os.path.splitext(media_filename)[1] if media_filename and "." in media_filename else (".mp4" if media_type == "video" else ".jpg")
+                disk_media_path = os.path.join(UPLOAD_BROADCAST_DIR, f"broadcast_{media_id}{ext}")
+                with open(disk_media_path, "wb") as f_out:
+                    f_out.write(media_bytes)
+            except HTTPException:
+                raise
             except Exception as b64e:
                 raise HTTPException(status_code=400, detail=f"بيانات الملف المشفرة base64 غير صالحة: {b64e}")
     else:
@@ -4491,7 +4513,6 @@ async def admin_broadcast(
 
         file_obj = form.get("media_file")
         if file_obj and hasattr(file_obj, "read"):
-            media_bytes = await file_obj.read()
             media_filename = getattr(file_obj, "filename", "media_file")
             file_mime = getattr(file_obj, "content_type", "") or ""
             if not media_type:
@@ -4500,28 +4521,59 @@ async def admin_broadcast(
                 elif file_mime.startswith("video/") or any(media_filename.lower().endswith(ext) for ext in [".mp4", ".mov", ".avi", ".mkv", ".webm"]):
                     media_type = "video"
 
+            media_id = uuid.uuid4().hex
+            ext = os.path.splitext(media_filename)[1] if media_filename and "." in media_filename else (".mp4" if media_type == "video" else ".jpg")
+            disk_media_path = os.path.join(UPLOAD_BROADCAST_DIR, f"broadcast_{media_id}{ext}")
+            
+            total_size = 0
+            try:
+                with open(disk_media_path, "wb") as f_out:
+                    while True:
+                        chunk = await file_obj.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        total_size += len(chunk)
+                        if total_size > MAX_BROADCAST_MEDIA_SIZE:
+                            f_out.close()
+                            if os.path.exists(disk_media_path):
+                                os.remove(disk_media_path)
+                            raise HTTPException(status_code=400, detail="حجم الملف يتجاوز الحد الأقصى المسموح (200 ميجابايت)")
+                        f_out.write(chunk)
+            except HTTPException:
+                raise
+            except Exception as fe:
+                if os.path.exists(disk_media_path):
+                    try: os.remove(disk_media_path)
+                    except: pass
+                raise HTTPException(status_code=500, detail=f"فشل حفظ المرفق على السيرفر: {fe}")
+
     # Validate that either message_text or media is provided
-    if not message_text and not media_bytes and not media_url:
+    if not message_text and not disk_media_path and not media_url:
         raise HTTPException(status_code=400, detail="يرجى كتابة نص للرسالة أو إرفاق وسائط (صورة/فيديو)")
 
-    # Validate media file size (max 50 MB)
-    if media_bytes:
-        if len(media_bytes) > 50 * 1024 * 1024:
-            raise HTTPException(status_code=400, detail="حجم الملف يتجاوز الحد الأقصى المسموح (50 ميجابايت)")
-
+    # Cache metadata and small files in Redis
+    if disk_media_path and os.path.exists(disk_media_path):
         if not media_type:
-            media_type = "photo"
+            media_type = "video" if any(disk_media_path.lower().endswith(ext) for ext in [".mp4", ".mov", ".avi", ".webm"]) else "photo"
 
-        media_id = uuid.uuid4().hex
         try:
-            await redis_client.set(f"broadcast_media:{media_id}", media_bytes, ex=7200)
+            await redis_client.set(f"broadcast_media_path:{media_id}", disk_media_path, ex=7200)
             if media_filename:
                 await redis_client.set(f"broadcast_media_filename:{media_id}", media_filename, ex=7200)
             if media_type:
                 await redis_client.set(f"broadcast_media_type:{media_id}", media_type, ex=7200)
+
+            # If small (<= 5 MB), also cache in Redis for backward compatibility
+            file_sz = os.path.getsize(disk_media_path)
+            if file_sz <= 5 * 1024 * 1024:
+                try:
+                    with open(disk_media_path, "rb") as sm_f:
+                        await redis_client.set(f"broadcast_media:{media_id}", sm_f.read(), ex=7200)
+                except Exception as c_err:
+                    logger.warning(f"Could not cache small media in Redis: {c_err}")
         except Exception as re:
-            logger.error(f"Failed to cache broadcast media in Redis: {re}")
-            raise HTTPException(status_code=500, detail=f"فشل حفظ المرفق مؤقتاً في السيرفر: {re}")
+            logger.error(f"Failed to cache broadcast media metadata in Redis: {re}")
+            raise HTTPException(status_code=500, detail=f"فشل تسجيل بيانات المرفق في السيرفر: {re}")
 
     if media_url and not media_type:
         lower_url = media_url.lower()

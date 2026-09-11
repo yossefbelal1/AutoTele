@@ -7054,24 +7054,31 @@ async def dispatch_worker_broadcast(
     try:
         from cache_manager import redis_client
         if media_id:
-            media_bytes = await redis_client.get(f"broadcast_media:{media_id}")
-            if media_bytes:
-                ext = ""
-                if media_filename and "." in media_filename:
-                    ext = os.path.splitext(media_filename)[1]
-                if not ext:
-                    ext = ".mp4" if media_type == "video" else ".jpg"
+            # 1. Check if direct disk path exists
+            disk_path_raw = await redis_client.get(f"broadcast_media_path:{media_id}")
+            disk_path = disk_path_raw.decode("utf-8") if isinstance(disk_path_raw, bytes) else str(disk_path_raw or "")
+            if disk_path and os.path.exists(disk_path):
+                local_temp_path = disk_path
+                logger.info(f"Using direct disk broadcast media: {local_temp_path} ({os.path.getsize(local_temp_path)} bytes)")
+            else:
+                media_bytes = await redis_client.get(f"broadcast_media:{media_id}")
+                if media_bytes:
+                    ext = ""
+                    if media_filename and "." in media_filename:
+                        ext = os.path.splitext(media_filename)[1]
+                    if not ext:
+                        ext = ".mp4" if media_type == "video" else ".jpg"
 
-                import tempfile
-                temp_dir = tempfile.gettempdir()
-                local_temp_path = os.path.join(temp_dir, f"broadcast_{media_id}{ext}")
-                try:
-                    with open(local_temp_path, "wb") as f:
-                        f.write(media_bytes)
-                    logger.info(f"Cached broadcast media to local temp file: {local_temp_path} ({len(media_bytes)} bytes)")
-                except Exception as fe:
-                    logger.error(f"Failed to write local temp media file {local_temp_path}: {fe}")
-                    local_temp_path = None
+                    import tempfile
+                    temp_dir = tempfile.gettempdir()
+                    local_temp_path = os.path.join(temp_dir, f"broadcast_{media_id}{ext}")
+                    try:
+                        with open(local_temp_path, "wb") as f:
+                            f.write(media_bytes)
+                        logger.info(f"Cached broadcast media to local temp file: {local_temp_path} ({len(media_bytes)} bytes)")
+                    except Exception as fe:
+                        logger.error(f"Failed to write local temp media file {local_temp_path}: {fe}")
+                        local_temp_path = None
 
         media_path = local_temp_path or media_url
 
