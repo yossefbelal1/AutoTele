@@ -537,7 +537,30 @@
                 <label for="broadcast-target" style="margin-bottom: 8px; display: block; font-weight: 600;">المستلم / الفئة المستهدفة:</label>
                 <select id="broadcast-target" style="width: 100%; border: 1px solid rgba(255, 255, 255, 0.08); background-color: #17212b; color: #fff; padding: 12px; border-radius: 8px; font-family: inherit; font-size: 14px; box-sizing: border-box;">
                   <option value="all">📢 إرسال إلى جميع المشتركين (All Users)</option>
+                  <option value="group_active">🟢 المشتركون ذوو الاشتراكات النشطة فقط</option>
+                  <option value="group_expired">🔴 المشتركون ذوو الاشتراكات المنتهية فقط</option>
+                  <option value="custom_select">👥 تحديد عدة عملاء مخصصين (اختيار متعدد)...</option>
+                  <optgroup id="broadcast-individual-users" label="👤 إرسال لعميل محدد بالاسم:">
+                    <!-- Loaded dynamically -->
+                  </optgroup>
                 </select>
+              </div>
+
+              <!-- Multi-client selection panel (shown when custom_select is chosen) -->
+              <div id="broadcast-custom-users-panel" class="hidden" style="margin-top: -10px; margin-bottom: 20px; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 10px; padding: 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 10px; flex-wrap: wrap;">
+                  <div style="font-weight: 600; font-size: 13px; color: #38bdf8;">
+                    اختر العملاء المستهدفين (<span id="broadcast-selected-count">0</span> محددين):
+                  </div>
+                  <div style="display: flex; gap: 8px;">
+                    <button type="button" id="btn-broadcast-select-all" class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3);">تحديد الكل</button>
+                    <button type="button" id="btn-broadcast-deselect-all" class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px; background: rgba(239, 68, 68, 0.15); color: #f87171; border-color: rgba(239, 68, 68, 0.3);">إلغاء التحديد</button>
+                  </div>
+                </div>
+                <input type="text" id="broadcast-user-search" placeholder="🔍 ابحث بالاسم، البريد، الهاتف، أو المعرف..." style="width: 100%; border: 1px solid rgba(255, 255, 255, 0.08); background-color: #0f172a; color: #fff; padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 10px; box-sizing: border-box;">
+                <div id="broadcast-users-checklist" style="max-height: 230px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 4px;">
+                  <div style="text-align: center; padding: 14px; color: #94a3b8; font-size: 13px;">جاري تحميل المشتركين...</div>
+                </div>
               </div>
 
               <!-- Media Attachment Section -->

@@ -312,6 +312,7 @@ function switchTab(tabId) {
   } else if (tabId === "tab-broadcast") {
     document.getElementById("broadcast-message").value = "";
     if (typeof removeBroadcastMedia === "function") removeBroadcastMedia();
+    if (typeof loadBroadcastAudience === "function") loadBroadcastAudience();
   } else if (tabId === "tab-logs") {
     loadLogTenants().then(() => startLogStream());
   } else if (tabId === "tab-health") {
@@ -774,20 +775,9 @@ async function loadAdminUsers() {
       return;
     }
 
-    // Update broadcast target dropdown
-    const broadcastSelect = document.getElementById("broadcast-target");
-    if (broadcastSelect) {
-      const currentVal = broadcastSelect.value;
-      broadcastSelect.innerHTML = `<option value="all">📢 إرسال إلى جميع المشتركين (All Users)</option>`;
-      currentAdminUsers.forEach(u => {
-        const opt = document.createElement("option");
-        opt.value = u.id;
-        const uName = u.full_name || u.email.split('@')[0];
-        const uPhone = u.phone ? ` [📞 ${u.phone}]` : '';
-        opt.textContent = `👤 ${uName} (${u.email})${uPhone} [ID: ${u.id}]`;
-        broadcastSelect.appendChild(opt);
-      });
-      broadcastSelect.value = currentVal || "all";
+    // Update broadcast audience selectors
+    if (typeof populateBroadcastTargets === "function") {
+      populateBroadcastTargets(currentAdminUsers);
     }
 
     updateTriageChipCounts(currentAdminUsers);
@@ -1799,6 +1789,81 @@ function handleBroadcastFileSelect(file) {
   if (previewContainer) previewContainer.classList.remove("hidden");
 }
 
+function populateBroadcastTargets(users) {
+  if (!users || !Array.isArray(users)) return;
+  
+  // 1. Populate individual users optgroup in dropdown
+  const optgroup = document.getElementById("broadcast-individual-users");
+  if (optgroup) {
+    optgroup.innerHTML = "";
+    users.forEach(u => {
+      const opt = document.createElement("option");
+      opt.value = u.id;
+      const uName = u.full_name || u.email.split('@')[0];
+      const uPhone = u.phone ? ` [📞 ${u.phone}]` : '';
+      const subBadge = u.subscription_status === 'active' ? '🟢' : '🔴';
+      opt.textContent = `${subBadge} ${uName} (${u.email})${uPhone} [ID: ${u.id}]`;
+      optgroup.appendChild(opt);
+    });
+  }
+
+  // 2. Populate checklist for custom_select
+  const checklist = document.getElementById("broadcast-users-checklist");
+  if (checklist) {
+    checklist.innerHTML = "";
+    if (users.length === 0) {
+      checklist.innerHTML = `<div style="text-align: center; padding: 12px; color: #94a3b8; font-size: 13px;">لا يوجد مشتركون مسجلون حالياً.</div>`;
+      return;
+    }
+    users.forEach(u => {
+      const uName = u.full_name || u.email.split('@')[0];
+      const uPhone = u.phone ? ` • 📞 ${u.phone}` : '';
+      const isActive = u.subscription_status === 'active';
+      const statusBadge = isActive ? '<span style="color: #10b981; font-size: 11px;">(نشط 🟢)</span>' : '<span style="color: #ef4444; font-size: 11px;">(منتهي 🔴)</span>';
+      
+      const label = document.createElement("label");
+      label.className = "broadcast-user-row";
+      label.setAttribute("data-search", `${uName} ${u.email} ${u.phone || ''} ${u.id}`.toLowerCase());
+      label.style.cssText = "display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 6px; cursor: pointer; transition: background 0.15s; font-size: 13px;";
+      label.onmouseenter = () => label.style.background = "rgba(56, 189, 248, 0.08)";
+      label.onmouseleave = () => label.style.background = "rgba(255, 255, 255, 0.03)";
+      
+      label.innerHTML = `
+        <input type="checkbox" class="broadcast-user-checkbox" value="${u.id}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #38bdf8;">
+        <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+          <strong style="color: #fff;">${uName}</strong> <span style="color: #94a3b8;">(${u.email})</span> ${statusBadge} <span style="color: #64748b; font-size: 11px;">#${u.id}${uPhone}</span>
+        </span>
+      `;
+      checklist.appendChild(label);
+    });
+
+    // Wire checkbox changes
+    checklist.querySelectorAll(".broadcast-user-checkbox").forEach(cb => {
+      cb.addEventListener("change", updateBroadcastSelectedCount);
+    });
+  }
+}
+
+function updateBroadcastSelectedCount() {
+  const checked = document.querySelectorAll(".broadcast-user-checkbox:checked");
+  const badge = document.getElementById("broadcast-selected-count");
+  if (badge) badge.textContent = checked.length;
+}
+
+async function loadBroadcastAudience() {
+  if (currentAdminUsers && currentAdminUsers.length > 0) {
+    populateBroadcastTargets(currentAdminUsers);
+    return;
+  }
+  try {
+    const users = await adminApiRequest("/admin/users");
+    currentAdminUsers = users || [];
+    populateBroadcastTargets(currentAdminUsers);
+  } catch (err) {
+    console.error("Failed to load audience for broadcast:", err);
+  }
+}
+
 function setupBroadcastMediaHandlers() {
   const fileInput = document.getElementById("broadcast-media-file");
   const uploadBox = document.getElementById("broadcast-upload-box");
@@ -1848,6 +1913,52 @@ function setupBroadcastMediaHandlers() {
       }
     });
   }
+
+  // Audience selector toggle
+  const targetSelect = document.getElementById("broadcast-target");
+  const customPanel = document.getElementById("broadcast-custom-users-panel");
+  if (targetSelect && customPanel) {
+    targetSelect.addEventListener("change", () => {
+      if (targetSelect.value === "custom_select") {
+        customPanel.classList.remove("hidden");
+        loadBroadcastAudience();
+      } else {
+        customPanel.classList.add("hidden");
+      }
+    });
+  }
+
+  // Select all / Deselect all
+  const btnSelectAll = document.getElementById("btn-broadcast-select-all");
+  const btnDeselectAll = document.getElementById("btn-broadcast-deselect-all");
+  if (btnSelectAll) {
+    btnSelectAll.addEventListener("click", () => {
+      document.querySelectorAll(".broadcast-user-checkbox").forEach(cb => cb.checked = true);
+      updateBroadcastSelectedCount();
+    });
+  }
+  if (btnDeselectAll) {
+    btnDeselectAll.addEventListener("click", () => {
+      document.querySelectorAll(".broadcast-user-checkbox").forEach(cb => cb.checked = false);
+      updateBroadcastSelectedCount();
+    });
+  }
+
+  // Search input in checklist
+  const userSearch = document.getElementById("broadcast-user-search");
+  if (userSearch) {
+    userSearch.addEventListener("input", (e) => {
+      const q = (e.target.value || "").toLowerCase().trim();
+      document.querySelectorAll(".broadcast-user-row").forEach(row => {
+        const text = row.getAttribute("data-search") || "";
+        if (!q || text.includes(q)) {
+          row.style.display = "flex";
+        } else {
+          row.style.display = "none";
+        }
+      });
+    });
+  }
 }
 
 async function handleAdminBroadcast(e) {
@@ -1863,7 +1974,32 @@ async function handleAdminBroadcast(e) {
   
   const targetSelect = document.getElementById("broadcast-target");
   const targetVal = targetSelect ? targetSelect.value : "all";
-  const targetText = targetSelect && targetVal !== "all" ? targetSelect.options[targetSelect.selectedIndex].text : "كافة المشتركين";
+  let targetUserId = null;
+  let targetUserIds = [];
+  let targetGroup = null;
+  let targetText = "كافة المشتركين";
+
+  if (targetVal === "all") {
+    targetGroup = "all";
+    targetText = "جميع المشتركين";
+  } else if (targetVal === "group_active") {
+    targetGroup = "active";
+    targetText = "المشتركين ذوي الاشتراكات النشطة فقط";
+  } else if (targetVal === "group_expired") {
+    targetGroup = "expired";
+    targetText = "المشتركين ذوي الاشتراكات المنتهية فقط";
+  } else if (targetVal === "custom_select") {
+    const checked = document.querySelectorAll(".broadcast-user-checkbox:checked");
+    targetUserIds = Array.from(checked).map(cb => parseInt(cb.value));
+    if (targetUserIds.length === 0) {
+      showToast("يرجى اختيار عميل واحد على الأقل من القائمة.", "error");
+      return;
+    }
+    targetText = `${targetUserIds.length} عميل محدد`;
+  } else if (targetVal && !isNaN(targetVal)) {
+    targetUserId = parseInt(targetVal);
+    targetText = targetSelect.options[targetSelect.selectedIndex].text;
+  }
   
   let mediaDesc = "";
   if (broadcastSelectedFile) {
@@ -1878,9 +2014,14 @@ async function handleAdminBroadcast(e) {
   try {
     const formData = new FormData();
     formData.append("message_text", msgText);
-    if (targetVal !== "all") {
-      formData.append("target_user_id", targetVal);
+    if (targetUserIds.length > 0) {
+      formData.append("target_user_ids", targetUserIds.join(","));
+    } else if (targetUserId) {
+      formData.append("target_user_id", targetUserId);
+    } else if (targetGroup) {
+      formData.append("target_group", targetGroup);
     }
+
     if (broadcastSelectedFile) {
       formData.append("media_file", broadcastSelectedFile);
       const isVideo = broadcastSelectedFile.type.startsWith("video/") || /\.(mp4|mov|webm)$/i.test(broadcastSelectedFile.name);

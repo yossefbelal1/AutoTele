@@ -170,5 +170,80 @@ class AdminBroadcastUnitTests(unittest.TestCase):
 
         self.loop.run_until_complete(run())
 
+    def test_dispatch_admin_broadcast_multi_users_and_group(self):
+        """Verify dispatch_admin_broadcast formats payload with target_user_ids and target_group."""
+        from main_api import dispatch_admin_broadcast
+
+        async def run():
+            with patch("main_api.redis_client") as mock_redis, \
+                 patch("main_api.AsyncSessionLocal") as mock_session_cls:
+
+                mock_redis.publish = AsyncMock(return_value=1)
+                mock_session = AsyncMock()
+                mock_session.__aenter__.return_value = mock_session
+                mock_session_cls.return_value = mock_session
+
+                mock_result = MagicMock()
+                mock_result.scalars.return_value.all.return_value = []
+                mock_session.execute = AsyncMock(return_value=mock_result)
+
+                # 1. Multiple target users
+                await dispatch_admin_broadcast(
+                    text="📢 Multiple Users Alert",
+                    target_user_ids=[1, 3, 5]
+                )
+                self.assertEqual(mock_redis.publish.call_count, 1)
+                payload1 = json.loads(mock_redis.publish.call_args[0][1])
+                self.assertEqual(payload1["target_user_ids"], [1, 3, 5])
+                self.assertIsNone(payload1["target_user_id"])
+
+                # 2. Target group: active
+                await dispatch_admin_broadcast(
+                    text="📢 Active Subscribers Alert",
+                    target_group="active"
+                )
+                self.assertEqual(mock_redis.publish.call_count, 2)
+                payload2 = json.loads(mock_redis.publish.call_args[0][1])
+                self.assertEqual(payload2["target_group"], "active")
+
+        self.loop.run_until_complete(run())
+
+    def test_dispatch_worker_broadcast_multi_users(self):
+        """Verify worker dispatches alerts to all users specified in target_user_ids."""
+        from worker import dispatch_worker_broadcast
+
+        async def run():
+            with patch("worker.AsyncSessionLocal") as mock_session_cls, \
+                 patch("worker.send_telegram_alert") as mock_alert, \
+                 patch("status_bot.notify_user_by_id", new_callable=AsyncMock) as mock_bot_notify, \
+                 patch("cache_manager.redis_client") as mock_redis:
+
+                mock_alert.return_value = (True, "OK")
+
+                mock_session = AsyncMock()
+                mock_session.__aenter__.return_value = mock_session
+                mock_session_cls.return_value = mock_session
+
+                fake_user_1 = MagicMock()
+                fake_user_1.id = 10
+                fake_user_2 = MagicMock()
+                fake_user_2.id = 20
+
+                mock_res = MagicMock()
+                mock_res.scalars.return_value.all.return_value = [fake_user_1, fake_user_2]
+                mock_session.execute = AsyncMock(return_value=mock_res)
+
+                await dispatch_worker_broadcast(
+                    text="Multi target broadcast test",
+                    target_user_ids=[10, 20]
+                )
+
+                self.assertEqual(mock_alert.call_count, 2)
+                alert_user_ids = [c[0][0] for c in mock_alert.call_args_list]
+                self.assertEqual(alert_user_ids, [10, 20])
+
+        self.loop.run_until_complete(run())
+
 if __name__ == "__main__":
     unittest.main()
+

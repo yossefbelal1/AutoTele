@@ -25,7 +25,7 @@ from pyrogram.errors import (
     Unauthorized,
     SessionPasswordNeeded
 )
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, update, delete, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db_manager import (
@@ -7041,12 +7041,14 @@ async def global_cleaner_worker():
 async def dispatch_worker_broadcast(
     text: str, 
     target_user_id: Optional[int] = None,
+    target_user_ids: Optional[List[int]] = None,
+    target_group: Optional[str] = None,
     media_type: Optional[str] = None,
     media_id: Optional[str] = None,
     media_url: Optional[str] = None,
     media_filename: Optional[str] = None
 ):
-    logger.info(f"Starting admin broadcast (target_user_id={target_user_id}, media_type={media_type}, media_id={media_id}): {text[:50]}...")
+    logger.info(f"Starting admin broadcast (target_user_id={target_user_id}, target_user_ids={target_user_ids}, target_group={target_group}, media_type={media_type}, media_id={media_id}): {text[:50]}...")
 
     local_temp_path = None
     try:
@@ -7073,9 +7075,16 @@ async def dispatch_worker_broadcast(
 
         media_path = local_temp_path or media_url
 
+        now = datetime.now(timezone.utc)
         async with AsyncSessionLocal() as session:
-            if target_user_id:
+            if target_user_ids:
+                users = (await session.execute(select(User).where(User.id.in_(target_user_ids)))).scalars().all()
+            elif target_user_id:
                 users = (await session.execute(select(User).where(User.id == target_user_id))).scalars().all()
+            elif target_group == "active":
+                users = (await session.execute(select(User).where(User.subscription_status == "active", User.subscription_end > now))).scalars().all()
+            elif target_group == "expired":
+                users = (await session.execute(select(User).where(or_(User.subscription_status != "active", User.subscription_end <= now)))).scalars().all()
             else:
                 users = (await session.execute(select(User))).scalars().all()
 
@@ -7183,6 +7192,8 @@ async def redis_pubsub_listener():
                 elif channel == "saas_admin_broadcast":
                     message_text = data.get("message_text")
                     target_user_id = data.get("target_user_id")
+                    target_user_ids = data.get("target_user_ids")
+                    target_group = data.get("target_group")
                     media_type = data.get("media_type")
                     media_id = data.get("media_id")
                     media_url = data.get("media_url")
@@ -7191,6 +7202,8 @@ async def redis_pubsub_listener():
                         asyncio.create_task(dispatch_worker_broadcast(
                             text=message_text or "",
                             target_user_id=target_user_id,
+                            target_user_ids=target_user_ids,
+                            target_group=target_group,
                             media_type=media_type,
                             media_id=media_id,
                             media_url=media_url,

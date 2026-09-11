@@ -21,7 +21,7 @@ class UpdateScheduledJobReq(BaseModel):
     target_link: Optional[str] = None
 
 import bcrypt
-from sqlalchemy import select, update, delete, func, desc
+from sqlalchemy import select, update, delete, func, desc, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from pyrogram import Client, raw
 from pyrogram.errors import (
@@ -4338,6 +4338,8 @@ async def admin_send_notice(target_user_id: int, req: SendNoticeReq, background_
 class BroadcastReq(BaseModel):
     message_text: str = ""
     target_user_id: Optional[int] = None
+    target_user_ids: Optional[List[int]] = None
+    target_group: Optional[str] = None
     media_type: Optional[str] = None
     media_url: Optional[str] = None
     media_base64: Optional[str] = None
@@ -4346,17 +4348,21 @@ class BroadcastReq(BaseModel):
 async def dispatch_admin_broadcast(
     text: str, 
     target_user_id: Optional[int] = None,
+    target_user_ids: Optional[List[int]] = None,
+    target_group: Optional[str] = None,
     media_type: Optional[str] = None,
     media_id: Optional[str] = None,
     media_url: Optional[str] = None,
     media_filename: Optional[str] = None
 ):
-    logger.info(f"Starting admin broadcast via Redis (target_user_id={target_user_id}, media_type={media_type}): {text[:50]}...")
+    logger.info(f"Starting admin broadcast via Redis (target_user_id={target_user_id}, target_user_ids={target_user_ids}, target_group={target_group}, media_type={media_type}): {text[:50]}...")
     try:
         import json as _json
         payload = {
             "message_text": text,
             "target_user_id": target_user_id,
+            "target_user_ids": target_user_ids,
+            "target_group": target_group,
             "media_type": media_type,
             "media_id": media_id,
             "media_url": media_url,
@@ -4370,9 +4376,16 @@ async def dispatch_admin_broadcast(
 
         # Also create AccountNotification in database for dashboard bell
         try:
+            now = datetime.now(timezone.utc)
             async with AsyncSessionLocal() as session:
-                if target_user_id:
+                if target_user_ids:
+                    users = (await session.execute(select(User).where(User.id.in_(target_user_ids)))).scalars().all()
+                elif target_user_id:
                     users = (await session.execute(select(User).where(User.id == target_user_id))).scalars().all()
+                elif target_group == "active":
+                    users = (await session.execute(select(User).where(User.subscription_status == "active", User.subscription_end > now))).scalars().all()
+                elif target_group == "expired":
+                    users = (await session.execute(select(User).where(or_(User.subscription_status != "active", User.subscription_end <= now)))).scalars().all()
                 else:
                     users = (await session.execute(select(User))).scalars().all()
 
@@ -4422,6 +4435,8 @@ async def admin_broadcast(
     content_type = request.headers.get("content-type", "")
     message_text = ""
     target_user_id = None
+    target_user_ids = None
+    target_group = None
     media_type = None
     media_url = None
     media_id = None
@@ -4435,7 +4450,16 @@ async def admin_broadcast(
             raise HTTPException(status_code=400, detail="تنسيق JSON غير صالح")
         message_text = str(body.get("message_text") or "").strip()
         t_id = body.get("target_user_id")
-        target_user_id = int(t_id) if t_id not in (None, "", "all") else None
+        target_user_id = int(t_id) if t_id not in (None, "", "all") and str(t_id).isdigit() else None
+
+        t_ids = body.get("target_user_ids")
+        if t_ids:
+            if isinstance(t_ids, list):
+                target_user_ids = [int(x) for x in t_ids if str(x).isdigit()]
+            elif isinstance(t_ids, str):
+                target_user_ids = [int(x.strip()) for x in t_ids.split(",") if x.strip().isdigit()]
+
+        target_group = body.get("target_group")
         media_type = body.get("media_type")
         media_url = body.get("media_url")
         media_filename = body.get("media_filename")
@@ -4452,7 +4476,16 @@ async def admin_broadcast(
         form = await request.form()
         message_text = str(form.get("message_text") or "").strip()
         t_id = form.get("target_user_id")
-        target_user_id = int(t_id) if t_id not in (None, "", "all") else None
+        target_user_id = int(t_id) if t_id not in (None, "", "all") and str(t_id).isdigit() else None
+
+        t_ids = form.get("target_user_ids")
+        if t_ids:
+            if isinstance(t_ids, str):
+                target_user_ids = [int(x.strip()) for x in t_ids.split(",") if x.strip().isdigit()]
+            elif isinstance(t_ids, list):
+                target_user_ids = [int(x) for x in t_ids if str(x).isdigit()]
+
+        target_group = form.get("target_group")
         media_type = form.get("media_type")
         media_url = form.get("media_url")
 
@@ -4501,13 +4534,24 @@ async def admin_broadcast(
         dispatch_admin_broadcast,
         text=message_text,
         target_user_id=target_user_id,
+        target_user_ids=target_user_ids,
+        target_group=target_group,
         media_type=media_type,
         media_id=media_id,
         media_url=media_url,
         media_filename=media_filename
     )
 
-    dest_msg = f"للمستخدم المحدد (ID: {target_user_id})" if target_user_id else "لجميع المشتركين"
+    if target_user_ids:
+        dest_msg = f"لـ ({len(target_user_ids)}) عملاء محددين"
+    elif target_user_id:
+        dest_msg = f"للمستخدم المحدد (ID: {target_user_id})"
+    elif target_group == "active":
+        dest_msg = "للمشتركين ذوي الاشتراكات النشطة فقط"
+    elif target_group == "expired":
+        dest_msg = "للمشتركين ذوي الاشتراكات المنتهية فقط"
+    else:
+        dest_msg = "لجميع المشتركين"
     media_desc = f" متضمناً ({'صورة' if media_type == 'photo' else 'فيديو'})" if media_type else ""
     return {"status": "success", "message": f"جاري إطلاق البث{media_desc} {dest_msg} في الخلفية بنجاح!"}
 
