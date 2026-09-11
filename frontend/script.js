@@ -4983,12 +4983,26 @@ async function loadCampaignChannelsAnalytics(isManual = false) {
         tbody.innerHTML = channels.map(ch => {
           const totalJoins = ch.total_link_joins !== undefined && ch.total_link_joins !== null ? ch.total_link_joins : 0;
           const linkJoinsBadge = totalJoins > 0
-            ? `<span style="background: rgba(56,189,248,0.15); color: #38bdf8; font-weight: 700; padding: 2px 8px; border-radius: 12px; font-size: 11.5px; border: 1px solid rgba(56,189,248,0.3);" title="رابط أساسي: ${ch.primary_link_joins || 0} | روابط مخصصة: ${ch.custom_links_joins || 0}">🔗 ${totalJoins.toLocaleString()}</span>`
+            ? `<div style="display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px;">
+                 <span style="background: rgba(56,189,248,0.15); color: #38bdf8; font-weight: 700; padding: 2px 8px; border-radius: 12px; font-size: 11.5px; border: 1px solid rgba(56,189,248,0.3);" title="إجمالي الروابط: ${totalJoins.toLocaleString()} (أساسي: ${ch.primary_link_joins || 0} | مخصص: ${ch.custom_links_joins || 0})">
+                   🔗 ${totalJoins.toLocaleString()}
+                 </span>
+                 <span style="font-size: 10px; color: #64748b;">إجمالي الروابط</span>
+               </div>`
             : `<span style="color: #64748b; font-size: 12px;">0</span>`;
 
-          const joinedBadge = (ch.joined_today && ch.joined_today > 0)
-            ? `<span style="background: rgba(16,185,129,0.15); color: #34d399; font-weight: 700; padding: 2px 8px; border-radius: 12px; font-size: 11.5px; border: 1px solid rgba(16,185,129,0.3);">+${ch.joined_today.toLocaleString()}</span>`
-            : `<span style="color: #64748b; font-size: 12px;">+0</span>`;
+          const joinedTodayCount = ch.joined_today || 0;
+          const joinedBadge = (joinedTodayCount > 0)
+            ? `<div style="display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px;">
+                 <span style="background: rgba(16,185,129,0.15); color: #34d399; font-weight: 700; padding: 2px 8px; border-radius: 12px; font-size: 11.5px; border: 1px solid rgba(16,185,129,0.3);" title="انضمام اليوم فقط: +${joinedTodayCount.toLocaleString()}">
+                   +${joinedTodayCount.toLocaleString()}
+                 </span>
+                 <span style="font-size: 10px; color: #10b981; font-weight: 600;">اليوم فقط</span>
+               </div>`
+            : `<div style="display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px;">
+                 <span style="color: #64748b; font-size: 12px; font-weight: 600; padding: 2px 6px;">+0</span>
+                 <span style="font-size: 10px; color: #475569;">اليوم</span>
+               </div>`;
 
           const canSendBadge = ch.can_send
             ? `<span style="color: #10b981; font-size: 11.5px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;"><span>🟢</span><span>متاح للنشر</span></span>`

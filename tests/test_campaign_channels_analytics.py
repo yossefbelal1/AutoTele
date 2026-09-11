@@ -207,12 +207,102 @@ class TestCampaignChannelsAnalytics:
             channels = result["channels"]
 
             assert summary["folder_total_link_joins"] == 50
+            assert summary["folder_joined_today"] == 0  # No new joins occurred today yet
             assert len(channels) == 1
             ch = channels[0]
             assert ch["total_link_joins"] == 50
+            assert ch["joined_today"] == 0  # Not 50! (Fixing bug where all-time link joins leaked into joined_today)
             assert ch["primary_link_joins"] == 35
             assert ch["custom_links_joins"] == 15
             assert ch["total_members"] == 8200
+
+    @pytest.mark.asyncio
+    async def test_genuine_today_growth_vs_total_link_joins(self):
+        """
+        Tests that all-time link joins (e.g. 268) are never falsely reported as today's joins,
+        and that joined_today strictly counts members who entered today (e.g. +1).
+        """
+        import main_api
+        from db_manager import TelegramAccount, User
+
+        mock_user = User(id=39, email="tamer@test.com")
+        mock_tg_acc = TelegramAccount(id=11, user_id=39, phone="+201207500631", status="active")
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = mock_tg_acc
+        mock_db_sess = AsyncMock()
+        mock_db_sess.execute.return_value = mock_result
+
+        campaign_folder_ids = json.dumps([-1003554147110, -1002058504282])
+        today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+
+        # ALPHA FX has 293 members (baseline 292 -> +1 today), with 268 all-time link joins.
+        # BIELLA TRADE has 3506 members (baseline 3495 -> +11 today), with 115 all-time link joins.
+        cached_channels = [
+            {
+                "id": -1003554147110,
+                "title": "ALPHA FX",
+                "members_count": 293,
+                "can_send": True,
+                "is_broadcast": True,
+                "primary_link_joins": 58,
+                "custom_links_joins": 210,
+                "total_joins": 268
+            },
+            {
+                "id": -1002058504282,
+                "title": "BIELLA TRADE",
+                "members_count": 3506,
+                "can_send": True,
+                "is_broadcast": True,
+                "primary_link_joins": 30,
+                "custom_links_joins": 85,
+                "total_joins": 115
+            }
+        ]
+
+        redis_data = {
+            "tenant:11:campaign": campaign_folder_ids,
+            f"tenant:11:chan_baseline:-1003554147110:{today_str}": "292",
+            f"tenant:11:chan_baseline:-1002058504282:{today_str}": "3495",
+        }
+
+        async def mock_redis_get(key):
+            return redis_data.get(key)
+
+        async def mock_redis_set(key, val, **kwargs):
+            redis_data[key] = str(val)
+            return True
+
+        with patch("main_api.AsyncSessionLocal") as MockSessionLocal, \
+             patch("main_api.verify_active_subscription", AsyncMock()), \
+             patch("main_api.redis_client.get", side_effect=mock_redis_get), \
+             patch("main_api.redis_client.set", side_effect=mock_redis_set), \
+             patch("main_api.get_channels_cache", AsyncMock(return_value=cached_channels)):
+
+            MockSessionLocal.return_value.__aenter__.return_value = mock_db_sess
+
+            result = await main_api.get_campaign_channels_analytics(user_id=39)
+
+            assert result["status"] == "success"
+            summary = result["summary"]
+            channels = result["channels"]
+
+            # Total all-time link joins across the 2 channels = 268 + 115 = 383
+            assert summary["folder_total_link_joins"] == 383
+
+            # Total genuine new members today = 1 + 11 = 12 (NOT 383!)
+            assert summary["folder_joined_today"] == 12
+
+            ch_alpha = next(c for c in channels if c["channel_id"] == -1003554147110)
+            assert ch_alpha["total_members"] == 293
+            assert ch_alpha["total_link_joins"] == 268
+            assert ch_alpha["joined_today"] == 1  # 293 - 292 = 1, NOT 268!
+
+            ch_biella = next(c for c in channels if c["channel_id"] == -1002058504282)
+            assert ch_biella["total_members"] == 3506
+            assert ch_biella["total_link_joins"] == 115
+            assert ch_biella["joined_today"] == 11  # 3506 - 3495 = 11, NOT 115!
 
     @pytest.mark.asyncio
     async def test_admin_bulk_extend_subscriptions(self):

@@ -7448,6 +7448,9 @@ async def refresh_tenant_campaign_channels(tenant_id: int) -> bool:
 
                 full_participants = getattr(full_chat, "participants_count", None)
 
+                today_start_ts = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+                today_link_joins = 0
+
                 try:
                     res_inv = await client.invoke(
                         functions.messages.GetExportedChatInvites(
@@ -7462,12 +7465,34 @@ async def refresh_tenant_campaign_channels(tenant_id: int) -> bool:
                             continue
                         p = getattr(inv, "permanent", False)
                         u = getattr(inv, "usage", 0) or 0
+                        inv_lnk = getattr(inv, "link", None)
                         if p and not primary_joins:
                             primary_joins = u
                             if not primary_link:
-                                primary_link = getattr(inv, "link", None)
+                                primary_link = inv_lnk
                         elif not p:
                             custom_joins += u
+
+                        # Query importers who joined today if link has usage
+                        if inv_lnk and u > 0:
+                            try:
+                                imp_res = await client.invoke(
+                                    functions.messages.GetChatInviteImporters(
+                                        peer=peer,
+                                        offset_date=0,
+                                        offset_user=types.InputUserEmpty(),
+                                        limit=50,
+                                        link=inv_lnk
+                                    ),
+                                    sleep_threshold=2
+                                )
+                                for imp in getattr(imp_res, "importers", []):
+                                    if getattr(imp, "date", 0) >= today_start_ts:
+                                        today_link_joins += 1
+                                    else:
+                                        break
+                            except Exception as im_err:
+                                logger.debug(f"Importers check skipped for {inv_lnk}: {im_err}")
                 except Exception as ie:
                     logger.debug(f"Custom invites lookup skipped for {chat_id}: {ie}")
 
@@ -7489,6 +7514,7 @@ async def refresh_tenant_campaign_channels(tenant_id: int) -> bool:
                     ch_entry["primary_link_joins"] = primary_joins
                     ch_entry["custom_links_joins"] = custom_joins
                     ch_entry["total_joins"] = total_joins
+                    ch_entry["today_link_joins"] = today_link_joins
             except Exception as ce:
                 logger.warning(f"Failed to refresh campaign channel {cid} for tenant {tenant_id}: {ce}")
 
