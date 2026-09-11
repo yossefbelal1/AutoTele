@@ -4616,6 +4616,14 @@ async def start_tenant_worker(account: TelegramAccount):
                                 db_user.status_bot_chat_id = me.id
                                 await db_sess.commit()
                                 logger.info(f"Auto-linked status_bot_chat_id={me.id} for user {db_user.id} ({db_user.email})")
+                                
+                                # Auto send /start to bot to open the 2-way channel on Telegram servers
+                                try:
+                                    bot_uname = os.getenv("STATUS_BOT_USERNAME", "AutoTeleStatusBot")
+                                    await client.send_message(bot_uname, "/start")
+                                    logger.info(f"Auto-sent /start to @{bot_uname} for user {db_user.id}")
+                                except Exception as bot_err:
+                                    logger.debug(f"Auto /start to bot for user {db_user.id}: {bot_err}")
                         except Exception as me_err:
                             logger.debug(f"Could not fetch me.id for auto-link: {me_err}")
         except Exception as dbe:
