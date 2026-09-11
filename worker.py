@@ -49,7 +49,7 @@ from db_manager import (
     get_active_templates_for_tenant,
     apply_pyrogram_patches
 )
-from cache_manager import save_channels_cache, get_channels_cache, is_rate_limited, clear_tenant_cache
+from cache_manager import save_channels_cache, get_channels_cache, is_rate_limited, clear_tenant_cache, redis_client
 
 import redis
 import re as _re
@@ -410,7 +410,7 @@ async def send_sticker_if_needed(client: Client, chat_id: int, tenant_id: int) -
 
 async def check_admin_rights_dynamic(client: Client, chat_id: int, tenant_id: int, require_posting_rights: bool = True) -> bool:
     try:
-        member = await client.get_chat_member(chat_id, "me")
+        member = await asyncio.wait_for(client.get_chat_member(chat_id, "me"), timeout=10.0)
         from pyrogram.enums import ChatMemberStatus
         if member.status in (ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR):
             return True
@@ -730,21 +730,23 @@ async def update_task_progress_in_db(task_id: int, text: str):
         logger.error(f"Failed to update task progress in DB for task {task_id}: {e}")
 
 async def safe_edit_message(message: Optional[Message], text: str):
-
     if not message:
         return
     try:
-        await message.edit_text(text, disable_web_page_preview=True)
+        await asyncio.wait_for(message.edit_text(text, disable_web_page_preview=True), timeout=8.0)
     except FloodWait as fw:
-        await asyncio.sleep(fw.value)
-        try:
-            await message.edit_text(text, disable_web_page_preview=True)
-        except Exception:
-            pass
+        if fw.value <= 10:
+            await asyncio.sleep(fw.value)
+            try:
+                await asyncio.wait_for(message.edit_text(text, disable_web_page_preview=True), timeout=8.0)
+            except Exception:
+                pass
+        else:
+            logger.warning(f"safe_edit_message: FloodWait is {fw.value}s (>10s). Skipping edit to avoid blocking execution.")
     except Exception as e:
         # Fallback without markdown parsing if entity syntax is malformed
         try:
-            await message.edit_text(text, parse_mode=None, disable_web_page_preview=True)
+            await asyncio.wait_for(message.edit_text(text, parse_mode=None, disable_web_page_preview=True), timeout=8.0)
         except Exception:
             pass
 
@@ -2426,7 +2428,14 @@ async def run_bulk_campaign_logic(
 
         target_states = {}
         target_actual_starts = {}
-        target_actual_deletes = {}  # tid -> str ("skipped", "success", "failed")
+        target_actual_deletes = {}  # tid -> datetime
+        target_scheduled_starts = {}
+        target_scheduled_deletes = {}
+        next_target_starts = {}
+
+        for j in range(total_targets):
+            target_scheduled_starts[j] = start_time + timedelta(minutes=j * delay_between_channels)
+            target_scheduled_deletes[j] = target_scheduled_starts[j] + timedelta(minutes=ad_lifespan)
 
         def format_time(dt: datetime) -> str:
             # Egypt/Middle East timezone (UTC+3)
@@ -2434,26 +2443,25 @@ async def run_bulk_campaign_logic(
             period = "مساءً" if egypt_dt.strftime("%p") == "PM" else "صباحاً"
             return f"{egypt_dt.strftime('%I:%M')} {period}"
 
-        def generate_checklist_markdown(current_idx: int, target_posting_status: str, sleep_countdown: int) -> tuple:
+        def generate_checklist_markdown(current_idx: int, target_posting_status: str, next_target_start_dt: Optional[datetime] = None) -> tuple:
             lines = []
             now_utc = datetime.now(timezone.utc)
             
-            # STABLE TIMELINE ANCHOR:
-            # If sleeping, target (current_idx + 1) starts exactly when the countdown reaches 0 (now_utc + sleep_countdown)
-            # This ensures (now_utc + sleep_countdown) is perfectly constant throughout the entire sleep duration!
-            if target_posting_status == "sleeping":
-                next_target_start = now_utc + timedelta(seconds=sleep_countdown)
+            # DETERMINISTIC CLOCKWORK TIMELINE ANCHOR:
+            if next_target_start_dt is not None:
+                next_target_start = next_target_start_dt
+            elif current_idx in next_target_starts:
+                next_target_start = next_target_starts[current_idx]
             elif target_posting_status == "waiting_final_clean":
                 next_target_start = now_utc
             else:
-                # When posting target current_idx, next target will start after delay_between_channels from current start
-                cur_start = target_actual_starts.get(current_idx, now_utc)
+                cur_start = target_actual_starts.get(current_idx, target_scheduled_starts.get(current_idx, now_utc))
                 next_target_start = cur_start + timedelta(minutes=delay_between_channels)
             
             # Calculate fixed final campaign completion time
             if total_targets > 0:
                 if total_targets == 1:
-                    last_start = target_actual_starts.get(0, now_utc)
+                    last_start = target_actual_starts.get(0, target_scheduled_starts.get(0, now_utc))
                 elif (total_targets - 1) in target_actual_starts:
                     last_start = target_actual_starts[total_targets - 1]
                 else:
@@ -2479,8 +2487,11 @@ async def run_bulk_campaign_logic(
                     delete_str = format_time(act_delete) if ad_lifespan > 0 else "دائم"
                 else:
                     # Future target: offset mathematically from next_target_start anchor (100% STABLE, ZERO JITTER)
-                    future_offset_min = (j - (current_idx + 1)) * delay_between_channels if j > current_idx else 0
-                    pred_start = next_target_start + timedelta(minutes=future_offset_min)
+                    if j == current_idx + 1:
+                        pred_start = next_target_start
+                    else:
+                        future_offset_min = (j - (current_idx + 1)) * delay_between_channels if j > current_idx else 0
+                        pred_start = next_target_start + timedelta(minutes=future_offset_min)
                     pred_delete = pred_start + timedelta(minutes=ad_lifespan)
                     start_str = format_time(pred_start)
                     delete_str = format_time(pred_delete) if ad_lifespan > 0 else "دائم"
@@ -2492,13 +2503,21 @@ async def run_bulk_campaign_logic(
                     status_label = "❌ [فشل]"
                 elif j < current_idx:
                     act_del = target_actual_deletes.get(j)
-                    if ad_lifespan > 0 and act_del and now_utc >= act_del:
+                    is_past_lifespan = ad_lifespan > 0 and (
+                        (act_del and now_utc >= act_del) or 
+                        (j in target_actual_starts and now_utc >= target_actual_starts[j] + timedelta(minutes=ad_lifespan))
+                    )
+                    if is_past_lifespan:
                         status_label = "🗑️ [تم المسح]"
                     else:
                         status_label = "✅ [تم النشر]"
                 elif j == current_idx:
                     act_del = target_actual_deletes.get(j)
-                    if ad_lifespan > 0 and act_del and now_utc >= act_del:
+                    is_past_lifespan = ad_lifespan > 0 and (
+                        (act_del and now_utc >= act_del) or 
+                        (j in target_actual_starts and now_utc >= target_actual_starts[j] + timedelta(minutes=ad_lifespan))
+                    )
+                    if is_past_lifespan:
                         status_label = "🗑️ [تم المسح]"
                     elif target_posting_status == "posting":
                         status_label = "🚀 [جاري النشر]"
@@ -2518,8 +2537,8 @@ async def run_bulk_campaign_logic(
                 lines.append(item_text)
             return "\n".join(lines), final_completion_dt
 
-        async def update_status_message(current_idx: int, target_posting_status: str, sleep_countdown: int = 0, current_post_info: str = ""):
-            checklist_str, final_completion_dt = generate_checklist_markdown(current_idx, target_posting_status, sleep_countdown)
+        async def update_status_message(current_idx: int, target_posting_status: str, next_target_start_dt: Optional[datetime] = None, current_post_info: str = ""):
+            checklist_str, final_completion_dt = generate_checklist_markdown(current_idx, target_posting_status, next_target_start_dt)
             end_time_str = format_time(final_completion_dt)
             
             current_target_title = targets_info[current_idx]["title"] if current_idx < len(targets_info) else "الأهداف"
@@ -2535,6 +2554,14 @@ async def run_bulk_campaign_logic(
                 pct = min(95, max(1, round(((done_targets + 0.5) / total_targets) * 100)))
                 
             progress_header_line = f"📊 **التقدم الحالي:** تم إنجاز `{done_targets}` من `{total_targets}` هدف ({current_target_title}) — `{pct}%`\n"
+
+            now_utc = datetime.now(timezone.utc)
+            if next_target_start_dt is not None:
+                rem_seconds = max(0, int((next_target_start_dt - now_utc).total_seconds()))
+            elif current_idx in next_target_starts:
+                rem_seconds = max(0, int((next_target_starts[current_idx] - now_utc).total_seconds()))
+            else:
+                rem_seconds = 0
 
             if not status_msg:
                 # If no status message but we have a web task, update status text on web UI still
@@ -2555,13 +2582,13 @@ async def run_bulk_campaign_logic(
                 countdown_line = ""
             elif target_posting_status == "sleeping":
                 general_status = "⏳ **جاري الانتظار بين الأهداف...**"
-                minutes = sleep_countdown // 60
-                seconds = sleep_countdown % 60
+                minutes = rem_seconds // 60
+                seconds = rem_seconds % 60
                 countdown_line = f"⏱️ **الوقت المتبقي للهدف التالي:** `{minutes:02d}:{seconds:02d}`\n"
             elif target_posting_status == "waiting_final_clean":
                 general_status = "🧹 **جاري انتظار المسح التلقائي للهدف الأخير...**"
-                minutes = sleep_countdown // 60
-                seconds = sleep_countdown % 60
+                minutes = rem_seconds // 60
+                seconds = rem_seconds % 60
                 countdown_line = f"⏱️ **الوقت المتبقي لمسح الإعلانات الأخيرة:** `{minutes:02d}:{seconds:02d}`\n"
             else:
                 general_status = "🚀 **جاري تشغيل النشر للحملة المجمعة...**"
@@ -2627,6 +2654,12 @@ async def run_bulk_campaign_logic(
                 await redis_client.set(f"tenant:{tenant_id}:last_processed_bulk_target", str(target_id))
             except Exception as se:
                 logger.error(f"Failed to save last processed target for tenant {tenant_id}: {se}")
+
+            # Immediately display this target as active / posting on the checklist
+            try:
+                await update_status_message(index, "posting")
+            except Exception as _pe:
+                logger.debug(f"Failed to update target start status: {_pe}")
             
             try:
                 is_admin = await check_admin_rights_dynamic(client, target_id, tenant_id, require_posting_rights=False)
@@ -2798,13 +2831,17 @@ async def run_bulk_campaign_logic(
                 
                 # Dedicated auto delete timer for this specific target
                 if ad_lifespan > 0:
-                    async def auto_delete_target_ads(t_idx=index, t_id=target_id, t_title=target_title, lifespan=ad_lifespan):
+                    del_deadline = target_actual_deletes[index]
+                    async def auto_delete_target_ads(t_idx=index, t_id=target_id, t_title=target_title, lifespan=ad_lifespan, deadline=del_deadline):
                         try:
-                            await asyncio.sleep(lifespan * 60)
+                            del_wait_seconds = max(0.0, (deadline - datetime.now(timezone.utc)).total_seconds())
+                            if del_wait_seconds > 0:
+                                await asyncio.sleep(del_wait_seconds)
                             logger.info(f"Target {t_title} lifespan expired ({lifespan}m). Sweeping ads now...")
                             async with AsyncSessionLocal() as session:
                                 stmt = select(ActiveAd).where(
                                     ActiveAd.telegram_account_id == tenant_id,
+                                    ActiveAd.campaign_type == "bulk",
                                     ActiveAd.expires_at <= datetime.now(timezone.utc)
                                 )
                                 ads_to_del = list((await session.execute(stmt)).scalars().all())
@@ -2824,7 +2861,11 @@ async def run_bulk_campaign_logic(
                             
                             target_actual_deletes[t_idx] = datetime.now(timezone.utc)
                             await log_tenant_event(tenant_id, f"🗑️ تم مسح إعلانات الهدف بنجاح: {t_title} ({del_count} إعلان).")
-                            await update_status_message(index, "sleeping")
+                            
+                            # Safely update status without corrupting the current target state or countdown
+                            cur_next = next_target_starts.get(t_idx)
+                            if cur_next and datetime.now(timezone.utc) < cur_next:
+                                await update_status_message(t_idx, "sleeping", next_target_start_dt=cur_next)
                         except Exception as sweep_err:
                             logger.error(f"Error sweeping target {t_title}: {sweep_err}")
                     
@@ -2838,21 +2879,50 @@ async def run_bulk_campaign_logic(
                 state_data["current_target_index"] = index + 1
                 await save_active_campaign_state(tenant_id, state_data)
                 
-                sleep_time_seconds = delay_between_channels * 60
-                while sleep_time_seconds > 0:
-                    await update_status_message(index, "sleeping", sleep_countdown=sleep_time_seconds)
-                    step = min(15, sleep_time_seconds)
+                next_target_start_dt = datetime.now(timezone.utc) + timedelta(minutes=delay_between_channels)
+                next_target_starts[index] = next_target_start_dt
+                while datetime.now(timezone.utc) < next_target_start_dt:
+                    await update_status_message(index, "sleeping", next_target_start_dt=next_target_start_dt)
+                    remaining = (next_target_start_dt - datetime.now(timezone.utc)).total_seconds()
+                    if remaining <= 0:
+                        break
+                    step = min(60.0, max(1.0, remaining))
                     await asyncio.sleep(step)
-                    sleep_time_seconds -= step
 
         if ad_lifespan > 0 and count > 0:
+            last_idx = total_targets - 1
+            final_delete_dt = target_actual_deletes.get(last_idx, datetime.now(timezone.utc) + timedelta(minutes=ad_lifespan))
             await log_tenant_event(tenant_id, f"اكتمل نشر جميع الأهداف. جاري انتظار مسح إعلانات الهدف الأخير ({ad_lifespan} دقيقة)...")
-            clean_time_seconds = ad_lifespan * 60
-            while clean_time_seconds > 0:
-                await update_status_message(total_targets - 1, "waiting_final_clean", sleep_countdown=clean_time_seconds)
-                step = min(15, clean_time_seconds)
+            while datetime.now(timezone.utc) < final_delete_dt:
+                await update_status_message(last_idx, "waiting_final_clean", next_target_start_dt=final_delete_dt)
+                remaining = (final_delete_dt - datetime.now(timezone.utc)).total_seconds()
+                if remaining <= 0:
+                    break
+                step = min(60.0, max(1.0, remaining))
                 await asyncio.sleep(step)
-                clean_time_seconds -= step
+
+            # Final safety sweep for any remaining expired bulk ads for this tenant
+            try:
+                async with AsyncSessionLocal() as session:
+                    stmt = select(ActiveAd).where(
+                        ActiveAd.telegram_account_id == tenant_id,
+                        ActiveAd.campaign_type == "bulk",
+                        ActiveAd.expires_at <= datetime.now(timezone.utc)
+                    )
+                    final_ads = list((await session.execute(stmt)).scalars().all())
+                for ad in final_ads:
+                    try:
+                        ids = [ad.msg_id]
+                        if ad.sticker_msg_id: ids.append(ad.sticker_msg_id)
+                        await client.delete_messages(chat_id=ad.chat_id, message_ids=ids)
+                    except Exception: pass
+                    try:
+                        async with AsyncSessionLocal() as del_sess:
+                            await remove_ad_record(del_sess, ad.id, tenant_id)
+                    except Exception: pass
+                target_actual_deletes[last_idx] = datetime.now(timezone.utc)
+            except Exception as fe:
+                logger.error(f"Error during final bulk campaign cleanup: {fe}")
 
         await update_status_message(total_targets - 1, "completed")
         
@@ -3157,6 +3227,16 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 await set_setting(session, tenant_id, "bot_system_state", "active")
                 await session.commit()
                 
+                try:
+                    from cache_manager import redis_client
+                    await redis_client.delete(f"tenant:{tenant_id}:campaign_global_pause")
+                except Exception:
+                    pass
+
+                w_task = running_tasks.get(tenant_id)
+                if not w_task or w_task.done():
+                    running_tasks[tenant_id] = asyncio.create_task(wave_publisher_worker(tenant_id))
+
                 status_msg = await message.reply_text("⏳ **جاري بدء النشر التبادلي التلقائي (داخل مجلد حملات فقط 📁)...**")
                 last_wave_time[tenant_id] = datetime.now(timezone.utc)
                 try:
@@ -3214,6 +3294,16 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 await set_setting(session, tenant_id, "bot_system_state", "active")
                 await session.commit()
                 
+                try:
+                    from cache_manager import redis_client
+                    await redis_client.delete(f"tenant:{tenant_id}:campaign_global_pause")
+                except Exception:
+                    pass
+
+                w_task = running_tasks.get(tenant_id)
+                if not w_task or w_task.done():
+                    running_tasks[tenant_id] = asyncio.create_task(wave_publisher_worker(tenant_id))
+
                 status_msg = await message.reply_text("⏳ **جاري بدء النشر التبادلي التلقائي...**")
                 last_wave_time[tenant_id] = datetime.now(timezone.utc)
                 try:
@@ -3261,12 +3351,30 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 .values(status="completed")
             )
             await session.commit()
+
+        try:
+            from cache_manager import redis_client
+            await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
+        except Exception:
+            pass
+
         await message.reply_text("⏸️ **تم إيقاف توليد موجات النشر التلقائي مؤقتاً.**\n💡 مكنسة الحذف لا تزال تعمل في الخلفية لتنظيف الإعلانات القديمة.")
 
     async def handle_كمل(message: Message):
         async with AsyncSessionLocal() as session:
             await set_setting(session, tenant_id, "bot_system_state", "active")
             await session.commit()
+
+        try:
+            from cache_manager import redis_client
+            await redis_client.delete(f"tenant:{tenant_id}:campaign_global_pause")
+        except Exception:
+            pass
+
+        w_task = running_tasks.get(tenant_id)
+        if not w_task or w_task.done():
+            running_tasks[tenant_id] = asyncio.create_task(wave_publisher_worker(tenant_id))
+
         await message.reply_text("▶️ **تم استئناف النشر التلقائي للموجات.**")
 
     async def handle_تثبيت(message: Message, text: str):
@@ -4033,6 +4141,24 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         try:
             status_msg = await message.reply_text("⏳ **جاري إلغاء ومسح كافة المهام والحملات المجدولة...**")
             
+            # 1. Cancel background wave publisher worker loop task and pop from running_tasks
+            if tenant_id in running_tasks:
+                w_task = running_tasks.pop(tenant_id, None)
+                if w_task and not w_task.done():
+                    w_task.cancel()
+
+            # 2. Hard kill-switch: Set global campaign pause in Redis
+            try:
+                from cache_manager import redis_client
+                await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
+                await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "stopped", ex=86400)
+                await redis_client.delete(f"tenant:{tenant_id}:last_wave_time")
+            except Exception as pe:
+                logger.error(f"Failed to set pause flags in Redis in clear_scheduled_jobs: {pe}")
+
+            # 3. Clear in-memory last_wave_time
+            last_wave_time.pop(tenant_id, None)
+
             jobs = scheduled_jobs.get(tenant_id, [])
             total_jobs = len(jobs)
             for j in jobs:
@@ -5095,8 +5221,8 @@ async def wave_publisher_worker(tenant_id: int):
                 state_val = await get_setting(session, tenant_id, "bot_system_state")
                 state_val = state_val if state_val else "stopped"
                 
-                if state_val in ("stopped", "paused"):
-                    logger.debug(f"[Debug Loop] Tenant {tenant_id} is stopped/paused (state={state_val}). Sleeping.")
+                if state_val != "active":
+                    logger.debug(f"[Debug Loop] Tenant {tenant_id} is not active (state={state_val}). Sleeping.")
                     await asyncio.sleep(15)
                     continue
                 
@@ -5213,7 +5339,10 @@ async def wave_publisher_worker(tenant_id: int):
                     status_msg=status_msg,
                     is_manual=False
                 )
-        except asyncio.CancelledError: break
+        except asyncio.CancelledError:
+            logger.info(f"wave_publisher_worker cancelled for tenant {tenant_id}")
+            running_tasks.pop(tenant_id, None)
+            break
         except Exception as e:
             logger.error(f"Error in wave publisher loop: {e}")
             await asyncio.sleep(60)
@@ -5787,6 +5916,26 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
         await update_task_progress_in_db(web_task_id, "🚨 **جاري تفعيل أمر المسح العميق (.مسح عميق)...**\n🔄 يتم أولاً إيقاف المهام النشطة والمجدولة وتحديث الكاش.")
 
     try:
+        # 1. Cancel background wave publisher worker loop task and pop from running_tasks
+        if tenant_id in running_tasks:
+            w_task = running_tasks.pop(tenant_id, None)
+            if w_task and not w_task.done():
+                w_task.cancel()
+
+        # 2. Hard kill-switch: Set global campaign pause in Redis
+        from cache_manager import redis_client
+        try:
+            await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
+        except Exception as pe:
+            logger.error(f"Failed to set campaign_global_pause in deep clear: {pe}")
+
+        # 3. Clear in-memory and Redis last_wave_time
+        last_wave_time.pop(tenant_id, None)
+        try:
+            await redis_client.delete(f"tenant:{tenant_id}:last_wave_time")
+        except Exception:
+            pass
+
         running_tasks_list = list(active_running_tasks.get(tenant_id, []))
         for t in running_tasks_list:
             try:
@@ -6009,14 +6158,28 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
                 f"tenant:{tenant_id}:no_post",
                 f"tenant:{tenant_id}:campaign",
                 f"tenant:{tenant_id}:scheduled_jobs",
+                f"tenant:{tenant_id}:last_wave_time",
+                f"tenant:{tenant_id}:active_campaign_state",
             ]
             for key in cache_keys_to_clear:
                 try:
                     await redis_client.delete(key)
                 except Exception:
                     pass
+
+            # CRITICAL: Re-affirm stopped state and global pause killswitch in Redis AFTER cache purge
+            await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "stopped", ex=86400)
+            await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
         except Exception as rc_err:
             logger.error(f"Failed to clear settings Redis keys in deep clear: {rc_err}")
+
+        # Re-affirm stopped state in DB as well to prevent any concurrent resurrection
+        try:
+            async with AsyncSessionLocal() as session:
+                await set_setting(session, tenant_id, "bot_system_state", "stopped")
+                await session.commit()
+        except Exception as se:
+            logger.error(f"Failed to reaffirm bot_system_state stopped in DB: {se}")
                 
         report = (
             f"🔥 **اكتمل المسح الأمني العميق وإعادة الضبط النووي التام (صفر نظيف)!**\n"
@@ -6061,7 +6224,25 @@ async def run_stop_everything_logic(tenant_id: int, client: Client, reply_to_mes
         await update_task_progress_in_db(web_task_id, "🚨 **جاري إيقاف كافة الحملات والعمليات المجدولة والنشطة...**")
         
     try:
-        # 1. Cancel running python tasks
+        # 1. Cancel background wave publisher worker loop task and pop from running_tasks
+        if tenant_id in running_tasks:
+            w_task = running_tasks.pop(tenant_id, None)
+            if w_task and not w_task.done():
+                w_task.cancel()
+
+        # 2. Hard kill-switch: Set global campaign pause in Redis
+        from cache_manager import redis_client
+        try:
+            await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
+            await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "stopped", ex=86400)
+            await redis_client.delete(f"tenant:{tenant_id}:last_wave_time")
+        except Exception as pe:
+            logger.error(f"Failed to set pause flags in Redis in stop_everything: {pe}")
+
+        # 3. Clear in-memory last_wave_time
+        last_wave_time.pop(tenant_id, None)
+
+        # 4. Cancel running python tasks
         running_tasks_list = list(active_running_tasks.get(tenant_id, []))
         for t in running_tasks_list:
             try:
@@ -6070,10 +6251,10 @@ async def run_stop_everything_logic(tenant_id: int, client: Client, reply_to_mes
                 pass
         active_running_tasks.pop(tenant_id, None)
         
-        # 2. Clear Redis active campaign state
+        # 5. Clear Redis active campaign state
         await clear_active_campaign_state(tenant_id)
         
-        # 3. Cancel pyrogram scheduled jobs
+        # 6. Cancel pyrogram scheduled jobs
         jobs = scheduled_jobs.get(tenant_id, [])
         for j in jobs:
             try:
@@ -6083,7 +6264,7 @@ async def run_stop_everything_logic(tenant_id: int, client: Client, reply_to_mes
         scheduled_jobs[tenant_id] = []
         await save_scheduled_jobs(tenant_id)
         
-        # 4. Mark due pending/processing as failed, active as completed (since we are stopping)
+        # 7. Mark due pending/processing as failed, active as completed (since we are stopping)
         from db_manager import WebCampaignTask
         from datetime import datetime, timezone, timedelta
         now_utc = datetime.now(timezone.utc)
@@ -6114,7 +6295,7 @@ async def run_stop_everything_logic(tenant_id: int, client: Client, reply_to_mes
             )
             await session.commit()
             
-        # 5. Set bot system state to stopped
+        # 8. Set bot system state to stopped in DB
         async with AsyncSessionLocal() as session:
             await set_setting(session, tenant_id, "bot_system_state", "stopped")
             await session.commit()
@@ -6256,6 +6437,11 @@ async def run_web_campaign_task(task_id: int):
             
             if task.campaign_type in ["wave", "wave_folder", "activate_exchange"]:
                 is_folder_wave = (task.campaign_type == "wave_folder")
+                try:
+                    from cache_manager import redis_client
+                    await redis_client.delete(f"tenant:{tenant_id}:campaign_global_pause")
+                except Exception:
+                    pass
                 async with AsyncSessionLocal() as db_session:
                     await set_setting(db_session, tenant_id, "bot_system_state", "active")
                     await set_setting(db_session, tenant_id, "wave_folder_mode", "campaign" if is_folder_wave else "all")
@@ -6911,7 +7097,24 @@ async def redis_pubsub_listener():
                     elif command == "cancel_jobs":
                         logger.info(f"Received cancel_jobs command via Redis Pub/Sub for tenant {tenant_id}")
                         
-                        # 1. Cancel delayed scheduled jobs
+                        # 1. Cancel background wave publisher worker loop task and pop from running_tasks
+                        if tenant_id in running_tasks:
+                            w_task = running_tasks.pop(tenant_id, None)
+                            if w_task and not w_task.done():
+                                w_task.cancel()
+
+                        # 2. Hard kill-switch: Set global campaign pause and stopped state in Redis
+                        try:
+                            await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
+                            await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "stopped", ex=86400)
+                            await redis_client.delete(f"tenant:{tenant_id}:last_wave_time")
+                        except Exception as pe:
+                            logger.error(f"Failed to set pause flags in Redis in cancel_jobs: {pe}")
+
+                        # 3. Clear in-memory last_wave_time
+                        last_wave_time.pop(tenant_id, None)
+
+                        # 4. Cancel delayed scheduled jobs
                         jobs = scheduled_jobs.get(tenant_id, [])
                         for j in jobs:
                             try:
@@ -6921,7 +7124,7 @@ async def redis_pubsub_listener():
                         scheduled_jobs[tenant_id] = []
                         await save_scheduled_jobs(tenant_id)
                         
-                        # 2. Cancel active running tasks (waves, campaigns)
+                        # 5. Cancel active running tasks (waves, campaigns)
                         running_tasks_list = list(active_running_tasks.get(tenant_id, []))
                         for t in running_tasks_list:
                             try:
@@ -6930,10 +7133,10 @@ async def redis_pubsub_listener():
                                 pass
                         active_running_tasks.pop(tenant_id, None)
                         
-                        # 3. Clear active campaign state from Redis
+                        # 6. Clear active campaign state from Redis
                         await clear_active_campaign_state(tenant_id)
                         
-                        # 4. Cancel all active/pending/processing tasks in DB
+                        # 7. Cancel all active/pending/processing tasks in DB and set bot_system_state = stopped
                         async with AsyncSessionLocal() as session:
                             from db_manager import WebCampaignTask
                             from sqlalchemy import update
@@ -6945,6 +7148,7 @@ async def redis_pubsub_listener():
                                 )
                                 .values(status="failed", result_summary="🚨 تم إيقاف وإلغاء المهمة فوراً بناءً على طلب إيقاف كل شيء.")
                             )
+                            await set_setting(session, tenant_id, "bot_system_state", "stopped")
                             await session.commit()
                         
                         # Log cancellation event for the tenant

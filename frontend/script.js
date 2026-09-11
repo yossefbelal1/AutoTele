@@ -4936,6 +4936,93 @@ async function loadAnalyticsData(isManual = false) {
 }
 window.loadAnalyticsData = loadAnalyticsData;
 
+// ==========================================
+// CAMPAIGN CHANNELS GROWTH ANALYTICS CONTROLLER
+// ==========================================
+async function loadCampaignChannelsAnalytics(isManual = false) {
+  const refreshBtn = document.getElementById("btn-refresh-campaign-channels");
+  if (isManual && refreshBtn) refreshBtn.disabled = true;
+
+  try {
+    const data = await apiRequest("/user/analytics/campaign-channels");
+    if (!data || data.status !== "success") {
+      throw new Error(data?.detail || "فشل جلب أداء قنوات مجلد حملات");
+    }
+
+    const summary = data.summary || {};
+    const channels = data.channels || [];
+
+    const countEl = document.getElementById("folder-channels-count");
+    const membersEl = document.getElementById("folder-total-members");
+    const joinedEl = document.getElementById("folder-joined-today");
+    const tbody = document.getElementById("campaign-channels-table-body");
+
+    if (countEl) countEl.textContent = summary.folder_channels_count || 0;
+    if (membersEl) membersEl.textContent = (summary.folder_total_members || 0).toLocaleString();
+    if (joinedEl) joinedEl.textContent = `+${(summary.folder_joined_today || 0).toLocaleString()}`;
+
+    if (tbody) {
+      if (channels.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="5" style="text-align: center; padding: 36px 16px; color: #94a3b8;">
+              <div style="font-size: 24px; margin-bottom: 8px;">📁</div>
+              <p style="margin: 0 0 6px 0; font-weight: 600; color: #cbd5e1;">لا توجد قنوات مسجلة داخل مجلد "حملات" حتى الآن</p>
+              <p style="margin: 0; font-size: 12px; color: #64748b;">تأكد من إنشاء مجلد باسم "حملات" في حساب تليجرام وإضافة القنوات المراد الترويج لها داخله، ثم الضغط على مزامنة القنوات.</p>
+            </td>
+          </tr>
+        `;
+      } else {
+        tbody.innerHTML = channels.map(ch => {
+          const joinedBadge = ch.joined_today > 0
+            ? `<span style="background: rgba(16,185,129,0.15); color: #34d399; font-weight: 700; padding: 2px 8px; border-radius: 12px; font-size: 11.5px; border: 1px solid rgba(16,185,129,0.3);">+${ch.joined_today}</span>`
+            : `<span style="color: #64748b; font-size: 12px;">-</span>`;
+
+          const canSendBadge = ch.can_send
+            ? `<span style="color: #10b981; font-size: 11.5px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;"><span>🟢</span><span>متاح للنشر</span></span>`
+            : `<span style="color: #f59e0b; font-size: 11.5px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;"><span>🔒</span><span>للقراءة فقط</span></span>`;
+
+          const channelLink = ch.username ? `https://t.me/${ch.username}` : (ch.invite_link || "#");
+          const channelIdDisplay = ch.username ? `@${ch.username}` : `ID: ${ch.channel_id}`;
+
+          return `
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.2s;">
+              <td style="padding: 12px 14px;">
+                <div style="font-weight: 700; color: #fff; font-size: 13px;">${escapeHtml(ch.title)}</div>
+              </td>
+              <td style="padding: 12px 14px;">
+                <a href="${escapeHtml(channelLink)}" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; text-decoration: none; font-size: 12px; direction: ltr; display: inline-block;">
+                  ${escapeHtml(channelIdDisplay)}
+                </a>
+              </td>
+              <td style="padding: 12px 14px; color: #e2e8f0; font-weight: 600;">
+                ${(ch.total_members || 0).toLocaleString()}
+              </td>
+              <td style="padding: 12px 14px;">
+                ${joinedBadge}
+              </td>
+              <td style="padding: 12px 14px;">
+                ${canSendBadge}
+              </td>
+            </tr>
+          `;
+        }).join("");
+      }
+    }
+
+    if (isManual) {
+      showToast("تم تحديث قنوات مجلد حملات ومعدل النمو بنجاح ✅", "success", 2000);
+    }
+  } catch (err) {
+    console.error("Campaign channels analytics load error:", err);
+    if (isManual) showToast("تعذر جلب بيانات قنوات المجلد: " + err.message, "error");
+  } finally {
+    if (isManual && refreshBtn) refreshBtn.disabled = false;
+  }
+}
+window.loadCampaignChannelsAnalytics = loadCampaignChannelsAnalytics;
+
+
 
 // ==========================================
 // PHASE 7: FIRST-TIME SETUP / ONBOARDING CHECKLIST

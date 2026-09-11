@@ -1715,7 +1715,10 @@ async def stop_everything(user_id: int = Depends(get_current_user)):
             json.dumps({"tenant_id": tenant_id, "command": "cancel_jobs"})
         )
         
-        # 4. Clear active campaign state in Redis
+        # 4. Clear active campaign state and set global pause in Redis
+        await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
+        await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "stopped", ex=86400)
+        await redis_client.delete(f"tenant:{tenant_id}:last_wave_time")
         await redis_client.delete(f"tenant:{tenant_id}:active_campaign_state")
         await redis_client.delete(f"tenant:{tenant_id}:scheduled_jobs")
         await redis_client.delete(f"tenant:{tenant_id}:last_processed_bulk_target")
