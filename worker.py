@@ -1289,76 +1289,6 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
     return scraped
 
 
-async def ensure_default_telegram_folders(client: Client) -> list:
-    """
-    Ensures the 4 core folders exist on the user's Telegram:
-      1. حملات (🚀) - For promotional/campaign channels
-      2. استثناء (🔒) - For channels to promote without posting ads in them
-      3. حظر (🚫) - For blacklisted/forbidden chats
-      4. نشر_فقط (📢) - For destination-only channels
-    Telegram MTProto requires include_peers to not be empty (FILTER_INCLUDE_EMPTY).
-    We supply [types.InputPeerSelf()] (Saved Messages) so Telegram accepts the filter.
-    During crawler operations, Saved Messages is safely ignored.
-    """
-    from pyrogram.raw import functions, types
-    import logging
-    _log = logging.getLogger("folders")
-    
-    default_folders = [
-        {"title": "حملات", "emoticon": "🚀", "keywords": ["حملات", "campaign", "حملة", "قنوات_النشر", "قنوات النشر"]},
-        {"title": "استثناء", "emoticon": "🔒", "keywords": ["استثناء", "no_post", "nopost", "exclude", "dont_post", "لا_تنشر", "بدون_نشر"]},
-        {"title": "حظر", "emoticon": "🚫", "keywords": ["حظر", "banned", "محظور", "محظورة", "المحظورات"]},
-        {"title": "نشر_فقط", "emoticon": "📢", "keywords": ["نشر_فقط", "only_post", "onlypost", "فقط_نشر", "فقط نشر", "نشر فقط"]}
-    ]
-    
-    try:
-        existing = await client.invoke(functions.messages.GetDialogFilters())
-    except Exception as e:
-        _log.warning(f"Could not retrieve dialog filters: {e}")
-        return []
-
-    existing_ids = set()
-    existing_titles = set()
-    for f in existing:
-        if hasattr(f, "id"):
-            existing_ids.add(f.id)
-        if hasattr(f, "title") and f.title:
-            existing_titles.add(f.title.strip().lower())
-
-    def get_next_id():
-        for i in range(2, 255):
-            if i not in existing_ids:
-                existing_ids.add(i)
-                return i
-        return 250
-
-    created = []
-    for df in default_folders:
-        t = df["title"]
-        kws = df["keywords"]
-        already_exists = any(any(kw in ex_t for kw in kws) for ex_t in existing_titles)
-        if already_exists:
-            continue
-            
-        next_id = get_next_id()
-        new_filter = types.DialogFilter(
-            id=next_id,
-            title=t,
-            emoticon=df["emoticon"],
-            pinned_peers=[],
-            include_peers=[types.InputPeerSelf()],
-            exclude_peers=[]
-        )
-        try:
-            await client.invoke(functions.messages.UpdateDialogFilter(id=next_id, filter=new_filter))
-            created.append(t)
-            _log.info(f"Auto-created Telegram default folder '{t}' (ID: {next_id})")
-        except Exception as e:
-            _log.error(f"Failed to auto-create default Telegram folder '{t}': {e}")
-            
-    return created
-
-
 async def crawl_and_cache_tenant_channels(tenant_id: int, client: Client, status_msg: Optional[Message] = None):
 
     from cache_manager import redis_client
@@ -1407,14 +1337,6 @@ async def _crawl_and_cache_tenant_channels_inner(tenant_id: int, client: Client,
     try:
         from pyrogram.raw import functions, types
         from cache_manager import redis_client
-        # Auto-ensure 4 default Telegram folders exist
-        try:
-            created_f = await ensure_default_telegram_folders(client)
-            if created_f:
-                logger.info(f"Tenant {tenant_id}: Auto-created missing default folders: {created_f}")
-        except Exception as fe:
-            logger.debug(f"Tenant {tenant_id}: Could not auto-ensure default folders: {fe}")
-
         dialog_filters = await client.invoke(functions.messages.GetDialogFilters())
         for df in dialog_filters:
             if isinstance(df, (types.DialogFilter, types.DialogFilterChatlist)):
