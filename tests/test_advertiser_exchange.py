@@ -294,6 +294,11 @@ class TestAdvertiserExchange:
         """Test the helper formatting minutes into professional Arabic labels."""
         from main_api import format_ad_lifespan_arabic
         assert format_ad_lifespan_arabic(0) == "تثبيت دائم"
+        assert format_ad_lifespan_arabic(5) == "5 دقائق"
+        assert format_ad_lifespan_arabic(10) == "10 دقائق"
+        assert format_ad_lifespan_arabic(15) == "15 دقيقة"
+        assert format_ad_lifespan_arabic(30) == "30 دقيقة"
+        assert format_ad_lifespan_arabic(45) == "45 دقيقة"
         assert format_ad_lifespan_arabic(60) == "ساعة واحدة"
         assert format_ad_lifespan_arabic(120) == "ساعتان"
         assert format_ad_lifespan_arabic(180) == "3 ساعات"
@@ -301,7 +306,6 @@ class TestAdvertiserExchange:
         assert format_ad_lifespan_arabic(720) == "12 ساعة"
         assert format_ad_lifespan_arabic(1440) == "24 ساعة (يوم كامل)"
         assert format_ad_lifespan_arabic(2880) == "48 ساعة (يومان)"
-        assert format_ad_lifespan_arabic(45) == "45 دقيقة"
 
     @pytest.mark.asyncio
     async def test_accept_exchange_creates_targeted_channel_exchange_tasks(self):
@@ -315,6 +319,7 @@ class TestAdvertiserExchange:
         req_obj.requester_channel_id = -100111222
         req_obj.requester_channel_title = "قناة تامر"
         req_obj.requester_channel_link = "https://t.me/tamer_chan"
+        req_obj.requester_host_channels = "-100111222"
         req_obj.ad_lifespan = 720
         req_obj.status = "pending"
         req_obj.expires_at = now + timedelta(hours=48)
@@ -391,3 +396,88 @@ class TestAdvertiserExchange:
 
             agreement = next(o for o in added_objects if isinstance(o, ExchangeAgreement))
             assert agreement.ad_lifespan == 720
+
+    @pytest.mark.asyncio
+    async def test_multi_channel_and_manual_exchange_flow(self):
+        """Test creating and accepting an exchange request with multiple selected channels and manual additions."""
+        now = datetime.now(timezone.utc)
+        req_obj = MagicMock(spec=ExchangeRequest)
+        req_obj.id = 601
+        req_obj.requester_user_id = 1
+        req_obj.recipient_user_id = 2
+        req_obj.request_type = "exchange"
+        req_obj.requester_channel_id = -100111
+        req_obj.requester_channel_title = "قناة أ، قناة ب"
+        req_obj.requester_channel_link = "https://t.me/chan_a, https://t.me/chan_b"
+        req_obj.requester_host_channels = "-100111, -100222"
+        req_obj.ad_lifespan = 30  # Default 30 mins
+        req_obj.status = "pending"
+        req_obj.expires_at = now + timedelta(hours=48)
+
+        requester_user = MagicMock(spec=User)
+        requester_user.id = 1
+        recipient_acc = MagicMock(spec=TelegramAccount)
+        recipient_acc.id = 22
+        requester_acc = MagicMock(spec=TelegramAccount)
+        requester_acc.id = 11
+
+        added_objects = []
+        mock_session = AsyncMock()
+        mock_session.add = lambda obj: added_objects.append(obj)
+        mock_session.flush = AsyncMock()
+        mock_session.commit = AsyncMock()
+
+        call_idx = 0
+        def fake_exec(stmt):
+            nonlocal call_idx
+            call_idx += 1
+            res = MagicMock()
+            if call_idx == 1:
+                res.scalars.return_value.first.return_value = recipient_acc
+            elif call_idx == 2:
+                res.scalars.return_value.first.return_value = req_obj
+            elif call_idx == 3:
+                res.scalar_one_or_none.return_value = requester_user
+            elif call_idx == 4:
+                res.scalars.return_value.first.return_value = requester_acc
+            return res
+
+        mock_session.execute = AsyncMock(side_effect=fake_exec)
+
+        accept_req = AcceptExchangeReq(
+            channel_ids=[-100333],
+            channel_names=["قناة ج"],
+            channel_urls=["https://t.me/chan_c"],
+            manual_channels="https://t.me/manual_rec_chan"
+        )
+
+        mock_channels = [
+            {"id": -100333, "title": "قناة ج", "invite_link": "https://t.me/chan_c", "can_send": True}
+        ]
+
+        with patch("main_api.AsyncSessionLocal", return_value=mock_session), \
+             patch("main_api.verify_active_subscription", return_value=MagicMock()), \
+             patch("main_api.get_channels_cache", return_value=mock_channels):
+            mock_session.__aenter__.return_value = mock_session
+
+            result = await accept_exchange_request(request_id=601, req=accept_req, current_user_id=2)
+            assert result["status"] == "success"
+
+            tasks = [o for o in added_objects if isinstance(o, WebCampaignTask)]
+            assert len(tasks) == 2
+
+            task_a = next(t for t in tasks if t.telegram_account_id == 11)
+            task_b = next(t for t in tasks if t.telegram_account_id == 22)
+
+            assert task_a.ad_lifespan == 30
+            assert task_b.ad_lifespan == 30
+
+            # task_a posts B's promo links strictly in A's host channels
+            assert "https://t.me/chan_c" in task_a.target_link
+            assert "https://t.me/manual_rec_chan" in task_a.target_link
+            assert "|-100111, -100222" in task_a.target_link
+
+            # task_b posts A's promo links strictly in B's host channels (-100333 and manual_rec_chan)
+            assert "https://t.me/chan_a, https://t.me/chan_b" in task_b.target_link
+            assert "-100333" in task_b.target_link
+            assert "https://t.me/manual_rec_chan" in task_b.target_link

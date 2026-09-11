@@ -21,7 +21,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
   
   <!-- CSS Stylesheet -->
-  <link rel="stylesheet" href="/style.css?v=4.3.6">
+  <link rel="stylesheet" href="/style.css?v=4.3.7">
 
   <!-- Google Sign-In API -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -2701,13 +2701,45 @@
           <span style="font-size: 11px; color: #64748b; margin-top: 4px; display: block;">فقط المعلنون أصحاب الحسابات النشطة والموثوقة</span>
         </div>
 
-        <!-- Dynamic Field 1: Exchange -> Select MY Channel -->
+        <!-- Dynamic Field 1: Exchange -> Select MY Channel(s) -->
         <div id="box-field-my-channel">
-          <label for="select-my-exchange-channel" style="display: block; font-size: 13px; font-weight: 700; color: #cbd5e1; margin-bottom: 6px;">📢 قناتك المعروضة للتبادل (اختر قناة واحدة):</label>
-          <select id="select-my-exchange-channel" style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; color: #fff; font-size: 13.5px; box-sizing: border-box;">
-            <option value="" disabled selected>-- اختر إحدى قنواتك النشطة --</option>
-          </select>
-          <span style="font-size: 11px; color: #64748b; margin-top: 4px; display: block;">لا يمكنك اختيار قنوات الطرف الآخر؛ ستختار قناتك الخاصة فقط، والطرف الآخر سيختار قناته عند الموافقة.</span>
+          <label style="display: block; font-size: 13px; font-weight: 700; color: #cbd5e1; margin-bottom: 8px;">📢 قنواتك المعروضة للتبادل (اختيار متعدد أو يدوي):</label>
+          
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+            <button type="button" class="btn btn-sm exchange-sub-btn active" id="btn-exchange-ch-mode-owned" onclick="toggleExchangeChannelInputMode('owned')">
+              <span>📋</span>
+              <span>قنواتي المسجلة</span>
+            </button>
+            <button type="button" class="btn btn-sm exchange-sub-btn" id="btn-exchange-ch-mode-manual" onclick="toggleExchangeChannelInputMode('manual')">
+              <span>✍️</span>
+              <span>إضافة قنوات يدوياً</span>
+            </button>
+          </div>
+
+          <!-- Mode 1: Owned Registered Channels Checkbox List -->
+          <div id="exchange-ch-mode-owned-box">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="font-size: 12px; color: #94a3b8;">حدد القنوات التي ترغب بالتبادل بها:</span>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <button type="button" onclick="selectAllExchangeChannels(true)" style="background: none; border: none; color: #38bdf8; font-size: 11.5px; cursor: pointer; padding: 0; text-decoration: underline;">تحديد الكل</button>
+                <span style="color: #475569; font-size: 11px;">|</span>
+                <button type="button" onclick="selectAllExchangeChannels(false)" style="background: none; border: none; color: #94a3b8; font-size: 11.5px; cursor: pointer; padding: 0; text-decoration: underline;">إلغاء التحديد</button>
+                <span id="exchange-my-channels-count" class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 11px;">0 محددة</span>
+              </div>
+            </div>
+            <div id="exchange-my-channels-checkbox-list" style="max-height: 180px; overflow-y: auto; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px;">
+              <div style="text-align: center; color: #64748b; padding: 12px; font-size: 12.5px;">جاري تحميل قنواتك...</div>
+            </div>
+          </div>
+
+          <!-- Mode 2: Manual Channels Input -->
+          <div id="exchange-ch-mode-manual-box" class="hidden">
+            <label for="textarea-exchange-manual-channels" style="display: block; font-size: 12.5px; font-weight: 600; color: #94a3b8; margin-bottom: 6px;">أدخل روابط أو معرفات قنواتك يدوياً:</label>
+            <textarea id="textarea-exchange-manual-channels" rows="3" placeholder="https://t.me/channel1&#10;@channel2&#10;https://t.me/+AbCdEf..." dir="ltr" style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; color: #fff; font-size: 13px; box-sizing: border-box; resize: vertical;"></textarea>
+            <span style="font-size: 11px; color: #64748b; margin-top: 4px; display: block;">أدخل كل رابط في سطر أو افصل بفاصلة. يقبل الروابط العامة (@username أو https://t.me/...) وروابط الدعوة الخاصة.</span>
+          </div>
+
+          <span style="font-size: 11px; color: #64748b; margin-top: 6px; display: block;">لا يمكنك اختيار قنوات الطرف الآخر؛ ستختار قناتك الخاصة فقط، والطرف الآخر سيختار قناته عند الموافقة.</span>
         </div>
 
         <!-- Dynamic Field 2: Campaign -> Choose Channel with Tracking link OR Manual URL -->
@@ -2752,23 +2784,22 @@
         <div>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
             <label style="font-size: 13px; font-weight: 700; color: #cbd5e1; margin: 0;">⏱️ مدة بقاء الإعلان (قبل الحذف التلقائي):</label>
-            <span id="exchange-lifespan-badge" style="font-size: 11.5px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 8px; border-radius: 6px; font-weight: 700;">24 ساعة (يوم كامل) ⭐</span>
+            <span id="exchange-lifespan-badge" style="font-size: 11.5px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 8px; border-radius: 6px; font-weight: 700;">30 دقيقة ⭐ (موصى به)</span>
           </div>
-          <input type="hidden" id="input-exchange-lifespan" value="1440">
+          <input type="hidden" id="input-exchange-lifespan" value="30">
           
           <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;" id="exchange-lifespan-chips">
+            <button type="button" class="exchange-lifespan-chip" data-mins="5" onclick="selectExchangeLifespan(5)">5 دقائق</button>
+            <button type="button" class="exchange-lifespan-chip" data-mins="10" onclick="selectExchangeLifespan(10)">10 دقائق</button>
+            <button type="button" class="exchange-lifespan-chip" data-mins="15" onclick="selectExchangeLifespan(15)">15 دقيقة</button>
+            <button type="button" class="exchange-lifespan-chip active" data-mins="30" onclick="selectExchangeLifespan(30)">30 دقيقة ⭐</button>
+            <button type="button" class="exchange-lifespan-chip" data-mins="45" onclick="selectExchangeLifespan(45)">45 دقيقة</button>
             <button type="button" class="exchange-lifespan-chip" data-mins="60" onclick="selectExchangeLifespan(60)">1 ساعة</button>
-            <button type="button" class="exchange-lifespan-chip" data-mins="180" onclick="selectExchangeLifespan(180)">3 ساعات</button>
-            <button type="button" class="exchange-lifespan-chip" data-mins="360" onclick="selectExchangeLifespan(360)">6 ساعات</button>
-            <button type="button" class="exchange-lifespan-chip" data-mins="720" onclick="selectExchangeLifespan(720)">12 ساعة</button>
-            <button type="button" class="exchange-lifespan-chip active" data-mins="1440" onclick="selectExchangeLifespan(1440)">24 ساعة ⭐</button>
-            <button type="button" class="exchange-lifespan-chip" data-mins="2880" onclick="selectExchangeLifespan(2880)">48 ساعة</button>
-            <button type="button" class="exchange-lifespan-chip" data-mins="0" onclick="selectExchangeLifespan(0)">تثبيت دائم ♾️</button>
             <button type="button" class="exchange-lifespan-chip" data-mins="custom" onclick="selectExchangeLifespan('custom')">مخصص...</button>
           </div>
           
           <div id="exchange-custom-lifespan-box" class="hidden" style="margin-top: 10px; display: flex; align-items: center; gap: 8px;">
-            <input type="number" id="input-exchange-custom-lifespan" min="1" max="10080" placeholder="أدخل المدة بالدقائق (مثال: 120)" oninput="onCustomLifespanInput(this.value)" style="flex: 1; padding: 8px 12px; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 8px; color: #fff; font-size: 13px;">
+            <input type="number" id="input-exchange-custom-lifespan" min="5" max="1440" placeholder="أدخل المدة بالدقائق (مثال: 20)" oninput="onCustomLifespanInput(this.value)" style="flex: 1; padding: 8px 12px; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 8px; color: #fff; font-size: 13px;">
             <span style="font-size: 12px; color: #94a3b8;">دقيقة</span>
           </div>
           <span style="font-size: 11px; color: #64748b; margin-top: 6px; display: block;">⏳ سيقوم النظام بحذف إعلان كلا الطرفين تلقائياً وبدقة فور انتهاء هذه المدة.</span>
@@ -2842,13 +2873,45 @@
           </div>
         </div>
 
-        <!-- Conditional Input: Exchange Requires picking B's channel -->
+        <!-- Conditional Input: Exchange Requires picking B's channel(s) -->
         <div id="accept-exchange-channel-selection-box">
-          <label for="select-accept-my-channel" style="display: block; font-size: 13px; font-weight: 700; color: #cbd5e1; margin-bottom: 6px;">📢 اختر قناتك التي توافق على النشر المتبادل فيها:</label>
-          <select id="select-accept-my-channel" style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; color: #fff; font-size: 13.5px; box-sizing: border-box;">
-            <option value="" disabled selected>-- اختر إحدى قنواتك النشطة للتبادل --</option>
-          </select>
-          <span style="font-size: 11.5px; color: #10b981; margin-top: 4px; display: block;">✓ سيتم نشر إعلانك في قناة الطرف الآخر، ونشر إعلانه في قناتك هذه آلياً.</span>
+          <label style="display: block; font-size: 13px; font-weight: 700; color: #cbd5e1; margin-bottom: 8px;">📢 اختر قنواتك التي توافق على النشر المتبادل فيها:</label>
+          
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+            <button type="button" class="btn btn-sm exchange-sub-btn active" id="btn-accept-ch-mode-owned" onclick="toggleAcceptChannelInputMode('owned')">
+              <span>📋</span>
+              <span>قنواتي المسجلة</span>
+            </button>
+            <button type="button" class="btn btn-sm exchange-sub-btn" id="btn-accept-ch-mode-manual" onclick="toggleAcceptChannelInputMode('manual')">
+              <span>✍️</span>
+              <span>إضافة يدوي</span>
+            </button>
+          </div>
+
+          <!-- Mode 1: Owned Channels Multi-select -->
+          <div id="accept-ch-mode-owned-box">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="font-size: 12px; color: #94a3b8;">حدد القنوات المشاركة في التبادل:</span>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <button type="button" onclick="selectAllAcceptChannels(true)" style="background: none; border: none; color: #10b981; font-size: 11.5px; cursor: pointer; padding: 0; text-decoration: underline;">تحديد الكل</button>
+                <span style="color: #475569; font-size: 11px;">|</span>
+                <button type="button" onclick="selectAllAcceptChannels(false)" style="background: none; border: none; color: #94a3b8; font-size: 11.5px; cursor: pointer; padding: 0; text-decoration: underline;">إلغاء التحديد</button>
+                <span id="accept-channels-count" class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; font-size: 11px;">0 محددة</span>
+              </div>
+            </div>
+            <div id="accept-my-channels-checkbox-list" style="max-height: 180px; overflow-y: auto; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px;">
+              <div style="text-align: center; color: #64748b; padding: 12px; font-size: 12.5px;">جاري تحميل قنواتك...</div>
+            </div>
+          </div>
+
+          <!-- Mode 2: Manual Channels -->
+          <div id="accept-ch-mode-manual-box" class="hidden">
+            <label for="textarea-accept-manual-channels" style="display: block; font-size: 12.5px; font-weight: 600; color: #94a3b8; margin-bottom: 6px;">أدخل روابط أو معرفات قنواتك يدوياً:</label>
+            <textarea id="textarea-accept-manual-channels" rows="3" placeholder="https://t.me/channel1&#10;@channel2&#10;https://t.me/+AbCdEf..." dir="ltr" style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; color: #fff; font-size: 13px; box-sizing: border-box; resize: vertical;"></textarea>
+            <span style="font-size: 11px; color: #64748b; margin-top: 4px; display: block;">أدخل كل رابط في سطر أو افصل بفاصلة. يقبل الروابط العامة (@username أو https://t.me/...) وروابط الدعوة الخاصة.</span>
+          </div>
+
+          <span style="font-size: 11.5px; color: #10b981; margin-top: 6px; display: block;">✓ سيتم نشر إعلانك في قنوات الطرف الآخر، ونشر إعلانه في قنواتك المحددة آلياً.</span>
         </div>
 
         <!-- Conditional Info: Campaign Request has NO channel picker -->
@@ -2926,7 +2989,7 @@
   </div>
 
   <!-- Application Script -->
-  <script src="/script.js?v=4.3.6"></script>
+  <script src="/script.js?v=4.3.7"></script>
 
   <!-- Edit Scheduled Job Modal -->
   <div id="edit-job-modal" class="modal-overlay hidden" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 99999; padding: 16px; opacity: 0; pointer-events: none; transition: all 0.3s ease;">

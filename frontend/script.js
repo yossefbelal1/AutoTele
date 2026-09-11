@@ -5533,7 +5533,7 @@ function renderExchangeRequestCard(req, isCompact = false) {
     ? `<span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); font-size: 11px;">🔄 تبادل إعلاني</span>`
     : `<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 11px;">📢 طلب نشر حملة</span>`;
 
-  const lifespanLabel = escapeHtml(req.ad_lifespan_label || "24 ساعة");
+  const lifespanLabel = escapeHtml(req.ad_lifespan_label || "30 دقيقة");
   const lifespanBadge = `<span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 11px;">⏱️ ${lifespanLabel}</span>`;
 
   const senderName = escapeHtml(req.requester_name || req.sender_name || req.sender_email || `معلن #${req.requester_id || req.sender_user_id || ""}`);
@@ -5544,8 +5544,8 @@ function renderExchangeRequestCard(req, isCompact = false) {
   if (isExchange) {
     const chName = escapeHtml(req.requester_channel_title || req.proposed_channel_name || req.proposed_channel_url || "قناة المعلن");
     const chLink = req.requester_channel_link || req.proposed_channel_url;
-    const linkHtml = chLink ? `<a href="${escapeHtml(chLink)}" target="_blank" style="color: #38bdf8; text-decoration: underline; margin-right: 6px;">[فتح القناة]</a>` : "";
-    targetDisplay = `<div style="font-size: 12.5px; color: #cbd5e1; margin-top: 6px;">📢 <b>القناة المعروضة للتبادل:</b> <span style="color: #fff; font-weight: 600;">${chName}</span> ${linkHtml}</div>`;
+    const linkHtml = chLink ? chLink.split(",").map(l => l.trim()).filter(Boolean).map(l => `<a href="${escapeHtml(l)}" target="_blank" style="color: #38bdf8; text-decoration: underline; margin-right: 6px;">[فتح الرابط]</a>`).join(" ") : "";
+    targetDisplay = `<div style="font-size: 12.5px; color: #cbd5e1; margin-top: 6px;">📢 <b>القنوات المعروضة للتبادل:</b> <span style="color: #fff; font-weight: 600;">${chName}</span> ${linkHtml}</div>`;
   } else {
     const cUrl = escapeHtml(req.campaign_url || req.campaign_target_link || "--");
     const chTitle = req.requester_channel_title ? `<span style="color: #93c5fd; margin-right: 4px;">(${escapeHtml(req.requester_channel_title)})</span>` : "";
@@ -5563,7 +5563,7 @@ function renderExchangeRequestCard(req, isCompact = false) {
       actionButtons = `
         <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;">
           <button type="button" class="btn btn-primary btn-sm" onclick="openAcceptExchangeModal(${req.id}, 'exchange')" style="padding: 7px 14px; font-size: 12.5px; font-weight: 700;">
-            قبول واختيار قناتي ✓
+            قبول واختيار قنواتي ✓
           </button>
           <button type="button" class="btn btn-danger btn-sm" onclick="rejectExchangeRequest(${req.id})" style="padding: 7px 14px; font-size: 12.5px;">
             رفض ✕
@@ -5668,7 +5668,7 @@ function renderSentList() {
       ? `<span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); font-size: 11px;">🔄 تبادل إعلاني</span>`
       : `<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 11px;">📢 طلب نشر حملة</span>`;
 
-    const lifespanLabel = escapeHtml(req.ad_lifespan_label || "24 ساعة");
+    const lifespanLabel = escapeHtml(req.ad_lifespan_label || "30 دقيقة");
     const lifespanBadge = `<span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 11px;">⏱️ ${lifespanLabel}</span>`;
 
     const targetName = escapeHtml(req.recipient_name || req.target_name || req.target_email || `معلن #${req.recipient_id || req.target_user_id || ""}`);
@@ -5677,8 +5677,10 @@ function renderSentList() {
 
     let targetDisplay = "";
     if (isExchange) {
-      const chName = escapeHtml(req.requester_channel_title || req.proposed_channel_name || req.proposed_channel_url || "قناتك");
-      targetDisplay = `<div style="font-size: 12.5px; color: #cbd5e1; margin-top: 6px;">📢 <b>قناتك المعروضة:</b> <span style="color: #fff; font-weight: 600;">${chName}</span></div>`;
+      const chName = escapeHtml(req.requester_channel_title || req.proposed_channel_name || req.proposed_channel_url || "قنواتك");
+      const chLink = req.requester_channel_link || req.proposed_channel_url;
+      const linksHtml = chLink ? chLink.split(",").map(l => l.trim()).filter(Boolean).map(l => `<a href="${escapeHtml(l)}" target="_blank" style="color: #38bdf8; text-decoration: underline; margin-right: 6px;">[فتح الرابط]</a>`).join(" ") : "";
+      targetDisplay = `<div style="font-size: 12.5px; color: #cbd5e1; margin-top: 6px;">📢 <b>قنواتك المعروضة:</b> <span style="color: #fff; font-weight: 600;">${chName}</span> ${linksHtml}</div>`;
     } else {
       const cUrl = escapeHtml(req.campaign_url || req.campaign_target_link || "--");
       const chTitle = req.requester_channel_title ? `<span style="color: #93c5fd; margin-right: 4px;">(${escapeHtml(req.requester_channel_title)})</span>` : "";
@@ -5790,12 +5792,83 @@ function renderAgreementCard(ag) {
         <div><b>الشريك:</b> <span style="color: #fff;">${escapeHtml(ag.peer_name || "معلن")}</span></div>
         <div><b>قناتك:</b> <span style="color: #10b981;">${escapeHtml(ag.my_channel || "--")}</span></div>
         <div><b>قناة الشريك:</b> <span style="color: #38bdf8;">${escapeHtml(ag.peer_channel || "--")}</span></div>
-        <div><b>⏱️ مدة بقاء الإعلان:</b> <span style="color: #c084fc; font-weight: 600;">${escapeHtml(ag.ad_lifespan_label || "24 ساعة")}</span></div>
-        ${ag.peer_link ? `<div><b>رابط النشر:</b> <a href="${escapeHtml(ag.peer_link)}" target="_blank" style="color: #f59e0b; text-decoration: underline;">فتح الرابط</a></div>` : ""}
+        <div><b>⏱️ مدة بقاء الإعلان:</b> <span style="color: #c084fc; font-weight: 600;">${escapeHtml(ag.ad_lifespan_label || "30 دقيقة")}</span></div>
+        ${ag.peer_link ? `<div><b>روابط النشر:</b> ${ag.peer_link.split(',').map(l => l.trim()).filter(Boolean).map(l => `<a href="${escapeHtml(l)}" target="_blank" style="color: #f59e0b; text-decoration: underline; margin-right: 6px;">فتح الرابط</a>`).join(' ')}</div>` : ""}
       </div>
     </div>
   `;
 }
+
+let currentExchangeChannelMode = "owned";
+let currentAcceptChannelMode = "owned";
+
+window.toggleExchangeChannelInputMode = function(mode) {
+  currentExchangeChannelMode = mode;
+  const btnOwned = document.getElementById("btn-exchange-ch-mode-owned");
+  const btnManual = document.getElementById("btn-exchange-ch-mode-manual");
+  const boxOwned = document.getElementById("exchange-ch-mode-owned-box");
+  const boxManual = document.getElementById("exchange-ch-mode-manual-box");
+
+  if (mode === "owned") {
+    if (btnOwned) btnOwned.classList.add("active");
+    if (btnManual) btnManual.classList.remove("active");
+    if (boxOwned) boxOwned.classList.remove("hidden");
+    if (boxManual) boxManual.classList.add("hidden");
+  } else {
+    if (btnOwned) btnOwned.classList.remove("active");
+    if (btnManual) btnManual.classList.add("active");
+    if (boxOwned) boxOwned.classList.add("hidden");
+    if (boxManual) boxManual.classList.remove("hidden");
+  }
+};
+
+window.selectAllExchangeChannels = function(selectBool) {
+  const cbs = document.querySelectorAll("input[name='exchange_my_channel_cb']");
+  cbs.forEach(cb => { cb.checked = !!selectBool; });
+  updateExchangeChannelsCount();
+};
+
+window.updateExchangeChannelsCount = function() {
+  const cbs = document.querySelectorAll("input[name='exchange_my_channel_cb']:checked");
+  const badge = document.getElementById("exchange-my-channels-count");
+  if (badge) {
+    badge.textContent = `${cbs.length} محددة`;
+  }
+};
+
+window.toggleAcceptChannelInputMode = function(mode) {
+  currentAcceptChannelMode = mode;
+  const btnOwned = document.getElementById("btn-accept-ch-mode-owned");
+  const btnManual = document.getElementById("btn-accept-ch-mode-manual");
+  const boxOwned = document.getElementById("accept-ch-mode-owned-box");
+  const boxManual = document.getElementById("accept-ch-mode-manual-box");
+
+  if (mode === "owned") {
+    if (btnOwned) btnOwned.classList.add("active");
+    if (btnManual) btnManual.classList.remove("active");
+    if (boxOwned) boxOwned.classList.remove("hidden");
+    if (boxManual) boxManual.classList.add("hidden");
+  } else {
+    if (btnOwned) btnOwned.classList.remove("active");
+    if (btnManual) btnManual.classList.add("active");
+    if (boxOwned) boxOwned.classList.add("hidden");
+    if (boxManual) boxManual.classList.remove("hidden");
+  }
+};
+
+window.selectAllAcceptChannels = function(selectBool) {
+  const cbs = document.querySelectorAll("input[name='accept_my_channel_cb']");
+  cbs.forEach(cb => { cb.checked = !!selectBool; });
+  updateAcceptChannelsCount();
+};
+
+window.updateAcceptChannelsCount = function() {
+  const cbs = document.querySelectorAll("input[name='accept_my_channel_cb']:checked");
+  const badge = document.getElementById("accept-channels-count");
+  if (badge) {
+    badge.textContent = `${cbs.length} محددة`;
+  }
+};
 
 window.selectExchangeLifespan = function(mins) {
   const inputHidden = document.getElementById("input-exchange-lifespan");
@@ -5811,13 +5884,15 @@ window.selectExchangeLifespan = function(mins) {
   });
 
   const labelsMap = {
-    60: "1 ساعة (60د)",
-    180: "3 ساعات (180د)",
-    360: "6 ساعات (360د)",
-    720: "12 ساعة (720د)",
-    1440: "24 ساعة (يوم كامل) ⭐",
-    2880: "48 ساعة (يومان)",
-    0: "تثبيت دائم (بدون حذف) ♾️"
+    5: "5 دقائق (5د)",
+    10: "10 دقائق (10د)",
+    15: "15 دقيقة (15د)",
+    30: "30 دقيقة ⭐ (موصى به)",
+    45: "45 دقيقة (45د)",
+    60: "ساعة واحدة (60د)",
+    120: "ساعتان",
+    180: "3 ساعات",
+    1440: "24 ساعة"
   };
 
   if (mins === "custom") {
@@ -5828,7 +5903,7 @@ window.selectExchangeLifespan = function(mins) {
       if (inputHidden) inputHidden.value = currCustom;
       if (badge) badge.textContent = `مخصص: ${currCustom} دقيقة`;
     } else {
-      if (inputHidden) inputHidden.value = "1440";
+      if (inputHidden) inputHidden.value = "30";
       if (badge) badge.textContent = "مدة مخصصة بالدقائق";
     }
   } else {
@@ -5859,7 +5934,8 @@ window.openNewExchangeModal = async function() {
   if (form) form.reset();
   toggleExchangeFormType("exchange");
   toggleCampaignTargetMode("channel");
-  selectExchangeLifespan(1440);
+  toggleExchangeChannelInputMode("owned");
+  selectExchangeLifespan(30);
 
   const errEl = document.getElementById("exchange-form-error");
   if (errEl) { errEl.style.display = "none"; errEl.textContent = ""; }
@@ -5876,12 +5952,12 @@ window.openNewExchangeModal = async function() {
 
   // Load Advertisers & Channels in parallel
   const advSelect = document.getElementById("select-target-advertiser");
-  const myChSelect = document.getElementById("select-my-exchange-channel");
   const campChSelect = document.getElementById("select-campaign-channel");
+  const cbContainer = document.getElementById("exchange-my-channels-checkbox-list");
 
   if (advSelect) advSelect.innerHTML = `<option value="" disabled selected>جاري تحميل قائمة المعلنين...</option>`;
-  if (myChSelect) myChSelect.innerHTML = `<option value="" disabled selected>جاري تحميل قنواتك...</option>`;
   if (campChSelect) campChSelect.innerHTML = `<option value="" disabled selected>جاري تحميل قنواتك...</option>`;
+  if (cbContainer) cbContainer.innerHTML = `<div style="text-align: center; color: #64748b; padding: 12px; font-size: 12.5px;">جاري تحميل قنواتك...</div>`;
 
   modal.classList.remove("hidden");
   modal.style.opacity = "1";
@@ -5905,6 +5981,27 @@ window.openNewExchangeModal = async function() {
       }
     }
 
+    if (cbContainer) {
+      if (cachedMyExchangeChannels.length === 0) {
+        cbContainer.innerHTML = `<div style="text-align: center; color: #64748b; padding: 12px; font-size: 12px;">لم يتم العثور على قنوات مسجلة بحسابك</div>`;
+      } else {
+        cbContainer.innerHTML = cachedMyExchangeChannels.map(c => {
+          const tLink = c.tracking_link || c.invite_link || "";
+          const members = (c.members_count !== undefined) ? `${Number(c.members_count).toLocaleString()} عضو` : "";
+          return `
+            <label style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; cursor: pointer; transition: background 0.2s;">
+              <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
+                <input type="checkbox" name="exchange_my_channel_cb" value="${c.id}" data-title="${escapeHtml(c.title)}" data-tracking="${escapeHtml(tLink)}" onchange="updateExchangeChannelsCount()" style="width: 16px; height: 16px; accent-color: #38bdf8; cursor: pointer;">
+                <span style="font-size: 13px; color: #fff; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(c.title)}</span>
+              </div>
+              ${members ? `<span style="font-size: 11px; color: #94a3b8; background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; white-space: nowrap;">👥 ${members}</span>` : ""}
+            </label>
+          `;
+        }).join("");
+      }
+      updateExchangeChannelsCount();
+    }
+
     const channelOptionsHtml = (cachedMyExchangeChannels.length === 0)
       ? `<option value="" disabled selected>لم يتم العثور على قنوات مسجلة بحسابك</option>`
       : `<option value="" disabled selected>-- اختر إحدى قنواتك (${cachedMyExchangeChannels.length} قناة متاحة) --</option>` +
@@ -5913,13 +6010,12 @@ window.openNewExchangeModal = async function() {
           return `<option value="${c.id}" data-tracking="${escapeHtml(tLink)}" data-title="${escapeHtml(c.title)}">${escapeHtml(c.title)} (${c.members_count || 0} عضو)</option>`;
         }).join("");
 
-    if (myChSelect) myChSelect.innerHTML = channelOptionsHtml;
     if (campChSelect) campChSelect.innerHTML = channelOptionsHtml;
 
   } catch (err) {
     console.error("Failed to load modal dependencies:", err);
     if (advSelect) advSelect.innerHTML = `<option value="" disabled selected>تعذر تحميل المعلنين: ${escapeHtml(err.message)}</option>`;
-    if (myChSelect) myChSelect.innerHTML = `<option value="" disabled selected>تعذر تحميل القنوات</option>`;
+    if (cbContainer) cbContainer.innerHTML = `<div style="text-align: center; color: #f87171; padding: 12px; font-size: 12px;">تعذر تحميل القنوات</div>`;
   }
 };
 
@@ -6014,29 +6110,43 @@ window.submitNewExchangeRequest = async function(e) {
     return;
   }
 
-  const lifespanVal = parseInt(document.getElementById("input-exchange-lifespan")?.value || "1440", 10);
+  const lifespanVal = parseInt(document.getElementById("input-exchange-lifespan")?.value || "30", 10);
 
   const payload = {
     recipient_user_id: targetUserId,
     target_user_id: targetUserId,
     request_type: requestType,
-    ad_lifespan: isNaN(lifespanVal) ? 1440 : lifespanVal,
+    ad_lifespan: isNaN(lifespanVal) ? 30 : lifespanVal,
     message: proposalMsg || (requestType === "exchange" ? "طلب تبادل إعلاني متبادل" : "طلب نشر حملة إعلانية"),
     proposal_message: proposalMsg || (requestType === "exchange" ? "طلب تبادل إعلاني متبادل" : "طلب نشر حملة إعلانية")
   };
 
   if (requestType === "exchange") {
-    const chSelect = document.getElementById("select-my-exchange-channel");
-    const selectedOpt = chSelect.selectedOptions[0];
-    if (!chSelect.value || !selectedOpt) {
-      if (errEl) { errEl.textContent = "يرجى اختيار إحدى قنواتك لعرضها للتبادل."; errEl.style.display = "block"; }
-      return;
+    if (currentExchangeChannelMode === "owned") {
+      const checkedBoxes = Array.from(document.querySelectorAll("input[name='exchange_my_channel_cb']:checked"));
+      if (checkedBoxes.length === 0) {
+        if (errEl) { errEl.textContent = "يرجى تحديد قناة واحدة على الأقل من قنواتك (أو التبديل للإدخال اليدوي)."; errEl.style.display = "block"; }
+        return;
+      }
+      const cids = checkedBoxes.map(cb => parseInt(cb.value, 10));
+      const cnames = checkedBoxes.map(cb => cb.getAttribute("data-title") || "");
+      const curls = checkedBoxes.map(cb => cb.getAttribute("data-tracking") || "");
+      payload.channel_ids = cids;
+      payload.channel_names = cnames;
+      payload.channel_urls = curls;
+      payload.requester_channel_id = cids[0];
+      payload.proposed_channel_id = cids[0];
+      payload.proposed_channel_name = cnames.join("، ");
+      payload.proposed_channel_url = curls.join(", ");
+    } else {
+      const manualVal = document.getElementById("textarea-exchange-manual-channels")?.value.trim();
+      if (!manualVal) {
+        if (errEl) { errEl.textContent = "يرجى إدخال رابط أو معرف قناة واحدة على الأقل يدوياً."; errEl.style.display = "block"; }
+        return;
+      }
+      payload.manual_channels = manualVal;
+      payload.proposed_channel_url = manualVal;
     }
-    const chId = parseInt(selectedOpt.value, 10);
-    payload.requester_channel_id = chId;
-    payload.proposed_channel_id = chId;
-    payload.proposed_channel_name = selectedOpt.getAttribute("data-title") || selectedOpt.text;
-    payload.proposed_channel_url = selectedOpt.getAttribute("data-tracking") || "";
   } else {
     // Campaign Request: Option 1 (Channel with tracking) vs Option 2 (Manual)
     if (currentCampaignTargetMode === "channel") {
@@ -6113,14 +6223,15 @@ window.openAcceptExchangeModal = async function(requestId, type) {
 
   const durationEl = document.getElementById("accept-summary-duration");
   if (durationEl) {
-    durationEl.textContent = req.ad_lifespan_label || "24 ساعة (يوم كامل)";
+    durationEl.textContent = req.ad_lifespan_label || "30 دقيقة";
   }
 
   if (targetValEl) {
     if (type === "exchange") {
       const chName = req.requester_channel_title || req.proposed_channel_name || "قناة المعلن";
       const chLink = req.requester_channel_link || req.proposed_channel_url || "";
-      targetValEl.innerHTML = `${escapeHtml(chName)} ${chLink ? `<a href="${escapeHtml(chLink)}" target="_blank" style="color: #38bdf8; margin-right: 6px;">[فتح الرابط]</a>` : ""}`;
+      const linksHtml = chLink ? chLink.split(",").map(l => l.trim()).filter(Boolean).map(l => `<a href="${escapeHtml(l)}" target="_blank" style="color: #38bdf8; margin-right: 6px;">[فتح الرابط]</a>`).join(" ") : "";
+      targetValEl.innerHTML = `${escapeHtml(chName)} ${linksHtml}`;
     } else {
       const campLink = req.campaign_url || req.campaign_target_link || "";
       const chTitle = req.requester_channel_title ? `<span style="color: #93c5fd; margin-right: 4px;">(${escapeHtml(req.requester_channel_title)})</span> ` : "";
@@ -6134,12 +6245,13 @@ window.openAcceptExchangeModal = async function(requestId, type) {
 
   const chBox = document.getElementById("accept-exchange-channel-selection-box");
   const noChBox = document.getElementById("accept-campaign-no-channel-box");
-  const chSelect = document.getElementById("select-accept-my-channel");
+  const cbContainer = document.getElementById("accept-my-channels-checkbox-list");
 
   if (type === "exchange") {
     if (chBox) chBox.classList.remove("hidden");
     if (noChBox) noChBox.classList.add("hidden");
-    if (chSelect) chSelect.innerHTML = `<option value="" disabled selected>جاري تحميل قنواتك...</option>`;
+    toggleAcceptChannelInputMode("owned");
+    if (cbContainer) cbContainer.innerHTML = `<div style="text-align: center; color: #64748b; padding: 12px; font-size: 12.5px;">جاري تحميل قنواتك...</div>`;
 
     modal.classList.remove("hidden");
     modal.style.opacity = "1";
@@ -6148,20 +6260,29 @@ window.openAcceptExchangeModal = async function(requestId, type) {
     try {
       const chRes = await apiRequest("/user/exchange/my-channels");
       const channels = Array.isArray(chRes) ? chRes : (chRes?.channels || []);
-      if (chSelect) {
+      if (cbContainer) {
         if (!channels || channels.length === 0) {
-          chSelect.innerHTML = `<option value="" disabled selected>لم يتم العثور على قنوات مسجلة لديك</option>`;
+          cbContainer.innerHTML = `<div style="text-align: center; color: #64748b; padding: 12px; font-size: 12px;">لم يتم العثور على قنوات مسجلة لديك</div>`;
         } else {
-          chSelect.innerHTML = `<option value="" disabled selected>-- اختر إحدى قنواتك للتبادل (${channels.length} قناة متاحة) --</option>` +
-            channels.map(c => {
-              const tLink = c.tracking_link || c.invite_link || "";
-              return `<option value="${c.id}" data-url="${escapeHtml(tLink)}" data-title="${escapeHtml(c.title)}">${escapeHtml(c.title)} (${c.members_count || 0} عضو)</option>`;
-            }).join("");
+          cbContainer.innerHTML = channels.map(c => {
+            const tLink = c.tracking_link || c.invite_link || "";
+            const members = (c.members_count !== undefined) ? `${Number(c.members_count).toLocaleString()} عضو` : "";
+            return `
+              <label style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; cursor: pointer; transition: background 0.2s;">
+                <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
+                  <input type="checkbox" name="accept_my_channel_cb" value="${c.id}" data-title="${escapeHtml(c.title)}" data-url="${escapeHtml(tLink)}" onchange="updateAcceptChannelsCount()" style="width: 16px; height: 16px; accent-color: #10b981; cursor: pointer;">
+                  <span style="font-size: 13px; color: #fff; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(c.title)}</span>
+                </div>
+                ${members ? `<span style="font-size: 11px; color: #94a3b8; background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; white-space: nowrap;">👥 ${members}</span>` : ""}
+              </label>
+            `;
+          }).join("");
         }
+        updateAcceptChannelsCount();
       }
     } catch (e) {
       console.error(e);
-      if (chSelect) chSelect.innerHTML = `<option value="" disabled selected>تعذر تحميل قنواتك</option>`;
+      if (cbContainer) cbContainer.innerHTML = `<div style="text-align: center; color: #f87171; padding: 12px; font-size: 12px;">تعذر تحميل قنواتك</div>`;
     }
   } else {
     // Campaign Request: No channel picker needed!
@@ -6190,17 +6311,31 @@ window.executeConfirmAcceptExchange = async function() {
 
   const payload = {};
   if (type === "exchange") {
-    const chSelect = document.getElementById("select-accept-my-channel");
-    const opt = chSelect.selectedOptions[0];
-    if (!chSelect.value || !opt) {
-      if (errEl) { errEl.textContent = "يرجى اختيار إحدى قنواتك للنشر المتبادل أولاً."; errEl.style.display = "block"; }
-      return;
+    if (currentAcceptChannelMode === "owned") {
+      const checkedBoxes = Array.from(document.querySelectorAll("input[name='accept_my_channel_cb']:checked"));
+      if (checkedBoxes.length === 0) {
+        if (errEl) { errEl.textContent = "يرجى تحديد قناة واحدة على الأقل من قنواتك (أو التبديل للإدخال اليدوي)."; errEl.style.display = "block"; }
+        return;
+      }
+      const cids = checkedBoxes.map(cb => parseInt(cb.value, 10));
+      const cnames = checkedBoxes.map(cb => cb.getAttribute("data-title") || "");
+      const curls = checkedBoxes.map(cb => cb.getAttribute("data-url") || "");
+      payload.channel_ids = cids;
+      payload.channel_names = cnames;
+      payload.channel_urls = curls;
+      payload.recipient_channel_id = cids[0];
+      payload.accepted_channel_id = cids[0];
+      payload.accepted_channel_name = cnames.join("، ");
+      payload.accepted_channel_url = curls.join(", ");
+    } else {
+      const manualVal = document.getElementById("textarea-accept-manual-channels")?.value.trim();
+      if (!manualVal) {
+        if (errEl) { errEl.textContent = "يرجى إدخال رابط أو معرف قناة واحدة على الأقل يدوياً."; errEl.style.display = "block"; }
+        return;
+      }
+      payload.manual_channels = manualVal;
+      payload.accepted_channel_url = manualVal;
     }
-    const chId = parseInt(opt.value, 10);
-    payload.recipient_channel_id = chId;
-    payload.accepted_channel_id = chId;
-    payload.accepted_channel_url = opt.getAttribute("data-url") || opt.value;
-    payload.accepted_channel_name = opt.getAttribute("data-title") || opt.text;
   }
 
   const btn = document.getElementById("btn-confirm-accept-exchange");

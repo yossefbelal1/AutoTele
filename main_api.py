@@ -7,7 +7,7 @@ import urllib.request
 import jwt
 import asyncio
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, Request
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -4647,6 +4647,16 @@ async def clear_all_notifications(current_user_id: int = Depends(get_current_use
 def format_ad_lifespan_arabic(minutes: int) -> str:
     if not minutes or minutes <= 0:
         return "تثبيت دائم"
+    if minutes == 5:
+        return "5 دقائق"
+    if minutes == 10:
+        return "10 دقائق"
+    if minutes == 15:
+        return "15 دقيقة"
+    if minutes == 30:
+        return "30 دقيقة"
+    if minutes == 45:
+        return "45 دقيقة"
     if minutes == 60:
         return "ساعة واحدة"
     if minutes == 120:
@@ -4675,9 +4685,13 @@ class CreateExchangeReq(BaseModel):
     proposed_channel_id: Optional[int] = None
     proposed_channel_url: Optional[str] = None
     proposed_channel_name: Optional[str] = None
+    channel_ids: Optional[List[int]] = None
+    channel_urls: Optional[List[str]] = None
+    channel_names: Optional[List[str]] = None
+    manual_channels: Optional[str] = None
     campaign_url: Optional[str] = None
     campaign_target_link: Optional[str] = None
-    ad_lifespan: Optional[int] = Field(1440, ge=0, le=10080)
+    ad_lifespan: Optional[int] = Field(30, ge=0, le=10080)
     message: Optional[str] = Field(None, min_length=5)
     proposal_message: Optional[str] = Field(None, min_length=5)
 
@@ -4686,6 +4700,10 @@ class AcceptExchangeReq(BaseModel):
     accepted_channel_id: Optional[int] = None
     accepted_channel_url: Optional[str] = None
     accepted_channel_name: Optional[str] = None
+    channel_ids: Optional[List[int]] = None
+    channel_urls: Optional[List[str]] = None
+    channel_names: Optional[List[str]] = None
+    manual_channels: Optional[str] = None
 
 class RejectExchangeReq(BaseModel):
     reason: Optional[str] = None
@@ -4843,71 +4861,161 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
         if dup:
             raise HTTPException(status_code=400, detail="يوجد لديك طلب معلق بالفعل لنفس المعلن ونفس النوع. يرجى انتظار الرد أو إلغاء الطلب السابق.")
             
+        # Resolve channels for Requester
+        selected_cids: List[int] = []
+        if req.channel_ids:
+            for cid in req.channel_ids:
+                if cid and cid not in selected_cids:
+                    selected_cids.append(cid)
+        if req.requester_channel_id and req.requester_channel_id not in selected_cids:
+            selected_cids.append(req.requester_channel_id)
+        if req.proposed_channel_id and req.proposed_channel_id not in selected_cids:
+            selected_cids.append(req.proposed_channel_id)
+
+        manual_entries: List[str] = []
+        if req.manual_channels:
+            for m in _re.split(r'[\r\n,]+', req.manual_channels):
+                m = m.strip()
+                if m and m not in manual_entries:
+                    manual_entries.append(m)
+        if not selected_cids and req.proposed_channel_url and req.proposed_channel_url.strip():
+            p_url = req.proposed_channel_url.strip()
+            if p_url not in manual_entries:
+                manual_entries.append(p_url)
+
         requester_channel_title = None
         requester_channel_username = None
         requester_channel_link = None
+        requester_host_channels = None
         campaign_url = None
-        saved_channel_id = req.requester_channel_id or req.proposed_channel_id
-        camp_url = req.campaign_url or req.campaign_target_link
+        saved_channel_id = selected_cids[0] if selected_cids else None
         
         sender_channels = await get_channels_cache(sender_acc.id)
-        
+        url_pattern = _re.compile(r'^(https?:\/\/)?(t\.me|telegram\.me)\/[a-zA-Z0-9_\+\/\?=\-]+$|^@[a-zA-Z0-9_]{3,}$')
+
+        resolved_titles: List[str] = []
+        resolved_promo_links: List[str] = []
+        resolved_hosts: List[str] = []
+        first_username: Optional[str] = None
+
         if req.request_type == "exchange":
-            matched_ch = None
-            if saved_channel_id:
-                for ch in (sender_channels or []):
-                    if isinstance(ch, dict) and ch.get("id") == saved_channel_id:
-                        matched_ch = ch
-                        break
-            elif req.proposed_channel_url:
-                for ch in (sender_channels or []):
-                    if isinstance(ch, dict) and (req.proposed_channel_url in str(ch.get("invite_link") or "") or (ch.get("username") and ch.get("username") in req.proposed_channel_url)):
-                        matched_ch = ch
-                        saved_channel_id = ch.get("id")
-                        break
-                        
-            if not matched_ch or not matched_ch.get("can_send", True):
-                raise HTTPException(status_code=400, detail="يجب اختيار إحدى قنواتك الخاصة التابعة للمحرك لعرضها للتبادل.")
-                
-            requester_channel_title = matched_ch.get("title") or req.proposed_channel_name or f"قناة {saved_channel_id}"
-            requester_channel_username = matched_ch.get("username")
-            t_link = await get_invite_link(sender_acc.id, saved_channel_id)
-            requester_channel_link = t_link or matched_ch.get("invite_link") or (f"https://t.me/{requester_channel_username}" if requester_channel_username else f"https://t.me/c/{abs(saved_channel_id)}")
-            
-        elif req.request_type == "campaign":
-            # Either Option 1: Selected owned channel (use its tracking link)
-            if saved_channel_id:
+            # 1. Process selected registered channels
+            for cid in selected_cids:
                 matched_ch = None
                 for ch in (sender_channels or []):
-                    if isinstance(ch, dict) and ch.get("id") == saved_channel_id:
+                    if isinstance(ch, dict) and ch.get("id") == cid:
                         matched_ch = ch
                         break
                 if not matched_ch or not matched_ch.get("can_send", True):
-                    raise HTTPException(status_code=400, detail="القناة المختارة غير مسجلة بحسابك أو لا تملك صلاحية النشر فيها.")
-                    
-                requester_channel_title = matched_ch.get("title") or f"قناة {saved_channel_id}"
-                requester_channel_username = matched_ch.get("username")
-                t_link = await get_invite_link(sender_acc.id, saved_channel_id)
-                requester_channel_link = t_link or matched_ch.get("invite_link") or (f"https://t.me/{requester_channel_username}" if requester_channel_username else f"https://t.me/c/{abs(saved_channel_id)}")
-                campaign_url = requester_channel_link
-            # Or Option 2: Custom URL
-            elif camp_url and camp_url.strip():
-                url_clean = camp_url.strip()
-                url_pattern = _re.compile(r'^(https?:\/\/)?(t\.me|telegram\.me)\/[a-zA-Z0-9_\+\/\?=\-]+$|^@[a-zA-Z0-9_]{3,}$')
-                if not url_pattern.match(url_clean):
-                    raise HTTPException(status_code=400, detail="رابط الحملة غير صالح. يرجى إدخال رابط تليجرام صحيح (مثال: https://t.me/example أو @example).")
-                if url_clean.startswith("@"):
-                    url_clean = f"https://t.me/{url_clean[1:]}"
-                elif not url_clean.startswith("http"):
-                    url_clean = f"https://{url_clean}"
-                campaign_url = url_clean
-            else:
-                raise HTTPException(status_code=400, detail="يرجى اختيار إحدى قنواتك لاستخدام رابط تتبعها التلقائي أو إدخال رابط الحملة يدوياً.")
+                    raise HTTPException(status_code=400, detail=f"القناة ذات المعرف ({cid}) غير مسجلة بحسابك أو لا تملك صلاحية النشر بها.")
+                
+                ch_title = matched_ch.get("title") or f"قناة {cid}"
+                ch_user = matched_ch.get("username")
+                if not first_username and ch_user:
+                    first_username = ch_user
+                t_link = await get_invite_link(sender_acc.id, cid)
+                ch_link = t_link or matched_ch.get("invite_link") or (f"https://t.me/{ch_user}" if ch_user else f"https://t.me/c/{abs(cid)}")
+                
+                resolved_titles.append(ch_title)
+                resolved_promo_links.append(ch_link)
+                resolved_hosts.append(str(cid))
+
+            # 2. Process manual channel entries
+            for m_entry in manual_entries:
+                if not url_pattern.match(m_entry):
+                    raise HTTPException(status_code=400, detail=f"رابط القناة اليدوي غير صالح: {m_entry}. يرجى إدخال رابط تليجرام صحيح (مثال: https://t.me/channel أو @channel).")
+                clean_url = m_entry
+                if clean_url.startswith("@"):
+                    clean_url = f"https://t.me/{clean_url[1:]}"
+                elif not clean_url.startswith("http"):
+                    clean_url = f"https://{clean_url}"
+                
+                matched_owned = None
+                for ch in (sender_channels or []):
+                    if isinstance(ch, dict):
+                        inv = str(ch.get("invite_link") or "")
+                        usr = str(ch.get("username") or "")
+                        if (inv and inv in clean_url) or (usr and usr in clean_url):
+                            matched_owned = ch
+                            break
+                if matched_owned:
+                    m_title = matched_owned.get("title") or clean_url.split("/")[-1]
+                    m_cid = matched_owned.get("id")
+                    t_link = await get_invite_link(sender_acc.id, m_cid)
+                    m_promo = t_link or clean_url
+                    m_host = str(m_cid)
+                    if not saved_channel_id:
+                        saved_channel_id = m_cid
+                else:
+                    m_title = clean_url.split("/")[-1]
+                    m_promo = clean_url
+                    m_host = clean_url
+                
+                resolved_titles.append(m_title)
+                resolved_promo_links.append(m_promo)
+                resolved_hosts.append(m_host)
+
+            if not resolved_promo_links:
+                raise HTTPException(status_code=400, detail="يجب اختيار إحدى قنواتك أو إدخال رابط قناة يدوياً للتبادل.")
+
+            requester_channel_title = "، ".join(resolved_titles)
+            requester_channel_link = ", ".join(resolved_promo_links)
+            requester_host_channels = ", ".join(resolved_hosts)
+            requester_channel_username = first_username
+            
+        elif req.request_type == "campaign":
+            camp_urls: List[str] = []
+            for cid in selected_cids:
+                matched_ch = None
+                for ch in (sender_channels or []):
+                    if isinstance(ch, dict) and ch.get("id") == cid:
+                        matched_ch = ch
+                        break
+                if matched_ch:
+                    ch_title = matched_ch.get("title") or f"قناة {cid}"
+                    ch_user = matched_ch.get("username")
+                    t_link = await get_invite_link(sender_acc.id, cid)
+                    ch_link = t_link or matched_ch.get("invite_link") or (f"https://t.me/{ch_user}" if ch_user else f"https://t.me/c/{abs(cid)}")
+                    resolved_titles.append(ch_title)
+                    camp_urls.append(ch_link)
+            
+            for m_entry in manual_entries:
+                if not url_pattern.match(m_entry):
+                    raise HTTPException(status_code=400, detail=f"رابط الحملة غير صالح: {m_entry}.")
+                clean_url = m_entry
+                if clean_url.startswith("@"):
+                    clean_url = f"https://t.me/{clean_url[1:]}"
+                elif not clean_url.startswith("http"):
+                    clean_url = f"https://{clean_url}"
+                camp_urls.append(clean_url)
+                resolved_titles.append(clean_url.split("/")[-1])
+                
+            camp_url_field = req.campaign_url or req.campaign_target_link
+            if camp_url_field and camp_url_field.strip():
+                for c_item in _re.split(r'[\r\n,]+', camp_url_field):
+                    c_item = c_item.strip()
+                    if c_item and c_item not in camp_urls:
+                        if not url_pattern.match(c_item):
+                            raise HTTPException(status_code=400, detail=f"رابط الحملة غير صالح: {c_item}.")
+                        if c_item.startswith("@"):
+                            c_item = f"https://t.me/{c_item[1:]}"
+                        elif not c_item.startswith("http"):
+                            c_item = f"https://{c_item}"
+                        camp_urls.append(c_item)
+                        resolved_titles.append(c_item.split("/")[-1])
+                        
+            if not camp_urls:
+                raise HTTPException(status_code=400, detail="يرجى اختيار إحدى قنواتك أو إدخال رابط الحملة يدوياً.")
+                
+            requester_channel_title = "، ".join(resolved_titles)
+            campaign_url = ", ".join(camp_urls)
+            requester_channel_link = campaign_url
+            requester_host_channels = None
 
         msg_body = (req.message or req.proposal_message or ("طلب تبادل إعلاني" if req.request_type == "exchange" else "طلب نشر حملة إعلانية")).strip()
-        ad_lifespan_val = req.ad_lifespan if req.ad_lifespan is not None else 1440
-        if ad_lifespan_val < 0 or ad_lifespan_val > 10080:
-            ad_lifespan_val = 1440
+        ad_lifespan_val = req.ad_lifespan if (req.ad_lifespan is not None and req.ad_lifespan > 0) else 30
+        if ad_lifespan_val > 10080:
+            ad_lifespan_val = 30
 
         # Create ExchangeRequest
         new_req = ExchangeRequest(
@@ -4918,6 +5026,7 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
             requester_channel_title=requester_channel_title,
             requester_channel_username=requester_channel_username,
             requester_channel_link=requester_channel_link,
+            requester_host_channels=requester_host_channels,
             campaign_url=campaign_url,
             ad_lifespan=ad_lifespan_val,
             message=msg_body,
@@ -4982,7 +5091,7 @@ async def get_incoming_exchange_requests(status: Optional[str] = None, current_u
         for req_obj, sender in results:
             rem_sec = max(0, int((req_obj.expires_at - now).total_seconds())) if req_obj.expires_at else 0
             hours_left = round(rem_sec / 3600, 1)
-            life_val = getattr(req_obj, "ad_lifespan", 1440) or 1440
+            life_val = getattr(req_obj, "ad_lifespan", 30) or 30
             requests_data.append({
                 "id": req_obj.id,
                 "request_type": req_obj.request_type,
@@ -5036,7 +5145,7 @@ async def get_sent_exchange_requests(status: Optional[str] = None, current_user_
         for req_obj, recipient in results:
             rem_sec = max(0, int((req_obj.expires_at - now).total_seconds())) if req_obj.expires_at else 0
             hours_left = round(rem_sec / 3600, 1)
-            life_val = getattr(req_obj, "ad_lifespan", 1440) or 1440
+            life_val = getattr(req_obj, "ad_lifespan", 30) or 30
             requests_data.append({
                 "id": req_obj.id,
                 "request_type": req_obj.request_type,
@@ -5105,27 +5214,111 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
             raise HTTPException(status_code=400, detail="تعذر المتابعة: حساب تليجرام الخاص بالمرسل غير متصل حالياً.")
             
         if req_obj.request_type == "exchange":
-            if not req.recipient_channel_id:
-                raise HTTPException(status_code=400, detail="يجب اختيار القناة التي ستدخل بها في التبادل.")
-                
-            # Verify recipient channel ownership
+            b_selected_cids: List[int] = []
+            if req.channel_ids:
+                for cid in req.channel_ids:
+                    if cid and cid not in b_selected_cids:
+                        b_selected_cids.append(cid)
+            if req.recipient_channel_id and req.recipient_channel_id not in b_selected_cids:
+                b_selected_cids.append(req.recipient_channel_id)
+            if req.accepted_channel_id and req.accepted_channel_id not in b_selected_cids:
+                b_selected_cids.append(req.accepted_channel_id)
+
+            b_manual_entries: List[str] = []
+            if req.manual_channels:
+                for m in _re.split(r'[\r\n,]+', req.manual_channels):
+                    m = m.strip()
+                    if m and m not in b_manual_entries:
+                        b_manual_entries.append(m)
+            if not b_selected_cids and req.accepted_channel_url and req.accepted_channel_url.strip():
+                a_url = req.accepted_channel_url.strip()
+                if a_url not in b_manual_entries:
+                    b_manual_entries.append(a_url)
+
             recipient_channels = await get_channels_cache(recipient_acc.id)
-            matched_b = None
-            for ch in recipient_channels:
-                if isinstance(ch, dict) and ch.get("id") == req.recipient_channel_id:
-                    matched_b = ch
-                    break
-            if not matched_b or not matched_b.get("can_send", True):
-                raise HTTPException(status_code=400, detail="القناة المختارة غير صالحة أو لا تملك صلاحية النشر بها.")
+            url_pattern = _re.compile(r'^(https?:\/\/)?(t\.me|telegram\.me)\/[a-zA-Z0-9_\+\/\?=\-]+$|^@[a-zA-Z0-9_]{3,}$')
+
+            b_resolved_titles: List[str] = []
+            b_resolved_promo_links: List[str] = []
+            b_resolved_hosts: List[str] = []
+            first_b_cid: Optional[int] = b_selected_cids[0] if b_selected_cids else None
+
+            # Process B's selected registered channels
+            for cid in b_selected_cids:
+                matched_b = None
+                for ch in (recipient_channels or []):
+                    if isinstance(ch, dict) and ch.get("id") == cid:
+                        matched_b = ch
+                        break
+                if not matched_b or not matched_b.get("can_send", True):
+                    raise HTTPException(status_code=400, detail=f"القناة ذات المعرف ({cid}) غير صالحة أو لا تملك صلاحية النشر بها.")
                 
-            b_title = matched_b.get("title") or f"قناة {req.recipient_channel_id}"
-            b_username = matched_b.get("username")
-            b_link = matched_b.get("invite_link") or (f"https://t.me/{b_username}" if b_username else f"https://t.me/c/{abs(req.recipient_channel_id)}")
-            
+                ch_title = matched_b.get("title") or f"قناة {cid}"
+                ch_user = matched_b.get("username")
+                t_link = await get_invite_link(recipient_acc.id, cid)
+                ch_link = t_link or matched_b.get("invite_link") or (f"https://t.me/{ch_user}" if ch_user else f"https://t.me/c/{abs(cid)}")
+                
+                if ch_title not in b_resolved_titles:
+                    b_resolved_titles.append(ch_title)
+                if ch_link not in b_resolved_promo_links:
+                    b_resolved_promo_links.append(ch_link)
+                if str(cid) not in b_resolved_hosts:
+                    b_resolved_hosts.append(str(cid))
+
+            # Process B's manual channels
+            for m_entry in b_manual_entries:
+                if not url_pattern.match(m_entry):
+                    raise HTTPException(status_code=400, detail=f"رابط القناة اليدوي غير صالح: {m_entry}.")
+                clean_url = m_entry
+                if clean_url.startswith("@"):
+                    clean_url = f"https://t.me/{clean_url[1:]}"
+                elif not clean_url.startswith("http"):
+                    clean_url = f"https://{clean_url}"
+                
+                matched_owned = None
+                for ch in (recipient_channels or []):
+                    if isinstance(ch, dict):
+                        inv = str(ch.get("invite_link") or "")
+                        usr = str(ch.get("username") or "")
+                        if (inv and inv in clean_url) or (usr and usr in clean_url):
+                            matched_owned = ch
+                            break
+                if matched_owned:
+                    m_title = matched_owned.get("title") or clean_url.split("/")[-1]
+                    m_cid = matched_owned.get("id")
+                    t_link = await get_invite_link(recipient_acc.id, m_cid)
+                    m_promo = t_link or clean_url
+                    m_host = str(m_cid)
+                    if not first_b_cid:
+                        first_b_cid = m_cid
+                else:
+                    m_title = clean_url.split("/")[-1]
+                    m_promo = clean_url
+                    m_host = clean_url
+                
+                if m_title not in b_resolved_titles:
+                    b_resolved_titles.append(m_title)
+                if m_promo not in b_resolved_promo_links:
+                    b_resolved_promo_links.append(m_promo)
+                if m_host not in b_resolved_hosts:
+                    b_resolved_hosts.append(m_host)
+
+            if not b_resolved_promo_links:
+                raise HTTPException(status_code=400, detail="يجب اختيار إحدى قنواتك أو إدخال رابط قناة يدوياً للمشاركة في التبادل.")
+
+            b_title = "، ".join(b_resolved_titles)
+            b_link = ", ".join(b_resolved_promo_links)
+            b_hosts = ", ".join(b_resolved_hosts)
+
             # Transition Request Status Atomically
             req_obj.status = "accepted"
             req_obj.responded_at = now
-            agreed_lifespan = getattr(req_obj, "ad_lifespan", 1440) or 1440
+            agreed_lifespan = getattr(req_obj, "ad_lifespan", 30) or 30
+            
+            req_hosts = getattr(req_obj, "requester_host_channels", None)
+            if not isinstance(req_hosts, str) or not req_hosts.strip():
+                req_hosts = str(req_obj.requester_channel_id) if req_obj.requester_channel_id else str(req_obj.requester_channel_link)
+            a_hosts = req_hosts
             
             # Create Agreement
             agreement = ExchangeAgreement(
@@ -5133,19 +5326,21 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
                 requester_user_id=req_obj.requester_user_id,
                 recipient_user_id=current_user_id,
                 requester_channel_id=req_obj.requester_channel_id,
-                requester_channel_title=req_obj.requester_channel_title or "قناة المعلن A",
+                requester_channel_title=req_obj.requester_channel_title or "قنوات المعلن الأول",
                 requester_channel_link=req_obj.requester_channel_link,
-                recipient_channel_id=req.recipient_channel_id,
+                requester_host_channels=a_hosts,
+                recipient_channel_id=first_b_cid,
                 recipient_channel_title=b_title,
                 recipient_channel_link=b_link,
+                recipient_host_channels=b_hosts,
                 ad_lifespan=agreed_lifespan,
                 status="scheduled"
             )
             session.add(agreement)
             await session.flush()
             
-            # Create Execution Tasks strictly on target channels (1-to-1 Exchange)
-            # 1. A's account posts ad for B's channel strictly into A's channel
+            # Create Execution Tasks strictly on target host channels
+            # 1. A's account posts ad for B's channel(s) strictly into A's host channels
             task_a = WebCampaignTask(
                 telegram_account_id=requester_acc.id,
                 campaign_type="channel_exchange",
@@ -5153,7 +5348,7 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
                 delay_start=0,
                 delay_between_channels=0,
                 ad_lifespan=agreed_lifespan,
-                target_link=f"{b_link}|{req_obj.requester_channel_id}",
+                target_link=f"{b_link}|{a_hosts}",
                 status="pending"
             )
             session.add(task_a)
@@ -5171,15 +5366,15 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
             )
             session.add(exec_a)
             
-            # 2. B's account posts ad for A's channel strictly into B's channel
+            # 2. B's account posts ad for A's channel(s) strictly into B's host channels
             task_b = WebCampaignTask(
                 telegram_account_id=recipient_acc.id,
                 campaign_type="channel_exchange",
-                destination_channel_id=req.recipient_channel_id,
+                destination_channel_id=first_b_cid,
                 delay_start=0,
                 delay_between_channels=0,
                 ad_lifespan=agreed_lifespan,
-                target_link=f"{req_obj.requester_channel_link}|{req.recipient_channel_id}",
+                target_link=f"{req_obj.requester_channel_link}|{b_hosts}",
                 status="pending"
             )
             session.add(task_b)
@@ -5229,7 +5424,7 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
             # Campaign Request: B only accepts, system runs campaign with A's URL on B's campaign channels
             req_obj.status = "accepted"
             req_obj.responded_at = now
-            agreed_lifespan = getattr(req_obj, "ad_lifespan", 1440) or 1440
+            agreed_lifespan = getattr(req_obj, "ad_lifespan", 30) or 30
             life_lbl = format_ad_lifespan_arabic(agreed_lifespan)
 
             # Check if recipient has a campaign folder
@@ -5379,7 +5574,7 @@ async def get_exchange_agreements(current_user_id: int = Depends(get_current_use
             my_channel = ag.requester_channel_title if is_requester else ag.recipient_channel_title
             peer_channel = ag.recipient_channel_title if is_requester else ag.requester_channel_title
             peer_link = ag.recipient_channel_link if is_requester else ag.requester_channel_link
-            life_val = getattr(ag, "ad_lifespan", 1440) or 1440
+            life_val = getattr(ag, "ad_lifespan", 30) or 30
             
             out.append({
                 "id": ag.id,

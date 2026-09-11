@@ -232,7 +232,7 @@ class WebCampaignTask(Base):
     delay_start: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     delay_between_channels: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     ad_lifespan: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    target_link: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    target_link: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     custom_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     destination_channel_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)  # pending, processing, completed, failed
@@ -289,18 +289,19 @@ class ExchangeRequest(Base):
     
     # For Exchange requests:
     requester_channel_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
-    requester_channel_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    requester_channel_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     requester_channel_username: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    requester_channel_link: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    requester_channel_link: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    requester_host_channels: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # For Campaign requests (immutable snapshot of A's campaign URL):
-    campaign_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    campaign_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # Request explanatory message
     message: Mapped[str] = mapped_column(Text, nullable=False)
     
-    # Ad lifespan in minutes (default 1440 = 24h, 0 = permanent)
-    ad_lifespan: Mapped[int] = mapped_column(Integer, default=1440, nullable=False)
+    # Ad lifespan in minutes (default 30 mins)
+    ad_lifespan: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     
     # Lifecycle: pending, accepted, rejected, expired, cancelled
     status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)
@@ -329,17 +330,19 @@ class ExchangeAgreement(Base):
     recipient_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     
     # Channel A details:
-    requester_channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    requester_channel_title: Mapped[str] = mapped_column(String(255), nullable=False)
-    requester_channel_link: Mapped[str] = mapped_column(String(500), nullable=False)
+    requester_channel_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    requester_channel_title: Mapped[str] = mapped_column(Text, nullable=False)
+    requester_channel_link: Mapped[str] = mapped_column(Text, nullable=False)
+    requester_host_channels: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # Channel B details (selected by recipient B upon Accept):
-    recipient_channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    recipient_channel_title: Mapped[str] = mapped_column(String(255), nullable=False)
-    recipient_channel_link: Mapped[str] = mapped_column(String(500), nullable=False)
+    recipient_channel_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    recipient_channel_title: Mapped[str] = mapped_column(Text, nullable=False)
+    recipient_channel_link: Mapped[str] = mapped_column(Text, nullable=False)
+    recipient_host_channels: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # Ad lifespan in minutes (agreed)
-    ad_lifespan: Mapped[int] = mapped_column(Integer, default=1440, nullable=False)
+    ad_lifespan: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
 
     # Status: accepted, scheduled, executing, completed, partial_failed, failed
     status: Mapped[str] = mapped_column(String(50), default="accepted", nullable=False)
@@ -390,8 +393,20 @@ async def init_db() -> None:
                 await conn.execute(text("ALTER TABLE web_campaign_tasks ADD COLUMN IF NOT EXISTS failed_count INTEGER DEFAULT 0;"))
                 await conn.execute(text("ALTER TABLE web_campaign_tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP WITH TIME ZONE;"))
                 await conn.execute(text("ALTER TABLE web_campaign_tasks ADD COLUMN IF NOT EXISTS destination_channel_id BIGINT;"))
-                await conn.execute(text("ALTER TABLE exchange_requests ADD COLUMN IF NOT EXISTS ad_lifespan INTEGER DEFAULT 1440;"))
-                await conn.execute(text("ALTER TABLE exchange_agreements ADD COLUMN IF NOT EXISTS ad_lifespan INTEGER DEFAULT 1440;"))
+                await conn.execute(text("ALTER TABLE web_campaign_tasks ALTER COLUMN target_link TYPE TEXT;"))
+                await conn.execute(text("ALTER TABLE exchange_requests ADD COLUMN IF NOT EXISTS ad_lifespan INTEGER DEFAULT 30;"))
+                await conn.execute(text("ALTER TABLE exchange_requests ALTER COLUMN requester_channel_link TYPE TEXT;"))
+                await conn.execute(text("ALTER TABLE exchange_requests ALTER COLUMN requester_channel_title TYPE TEXT;"))
+                await conn.execute(text("ALTER TABLE exchange_requests ADD COLUMN IF NOT EXISTS requester_host_channels TEXT;"))
+                await conn.execute(text("ALTER TABLE exchange_agreements ADD COLUMN IF NOT EXISTS ad_lifespan INTEGER DEFAULT 30;"))
+                await conn.execute(text("ALTER TABLE exchange_agreements ALTER COLUMN requester_channel_link TYPE TEXT;"))
+                await conn.execute(text("ALTER TABLE exchange_agreements ALTER COLUMN recipient_channel_link TYPE TEXT;"))
+                await conn.execute(text("ALTER TABLE exchange_agreements ALTER COLUMN requester_channel_title TYPE TEXT;"))
+                await conn.execute(text("ALTER TABLE exchange_agreements ALTER COLUMN recipient_channel_title TYPE TEXT;"))
+                await conn.execute(text("ALTER TABLE exchange_agreements ALTER COLUMN requester_channel_id DROP NOT NULL;"))
+                await conn.execute(text("ALTER TABLE exchange_agreements ALTER COLUMN recipient_channel_id DROP NOT NULL;"))
+                await conn.execute(text("ALTER TABLE exchange_agreements ADD COLUMN IF NOT EXISTS requester_host_channels TEXT;"))
+                await conn.execute(text("ALTER TABLE exchange_agreements ADD COLUMN IF NOT EXISTS recipient_host_channels TEXT;"))
             except Exception as me:
                 logger.warning(f"Schema migration check notice: {me}")
         logger.info("Database initialized successfully.")
