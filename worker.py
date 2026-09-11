@@ -1720,7 +1720,8 @@ async def run_timed_post_logic(
     target_link: str,
     ad_text_custom: Optional[str],
     ad_lifespan: int,
-    status_msg: Optional[Message] = None
+    status_msg: Optional[Message] = None,
+    campaign_type: str = "timed_post"
 ):
     curr_task = asyncio.current_task()
     if tenant_id not in active_running_tasks:
@@ -1735,6 +1736,10 @@ async def run_timed_post_logic(
             pass
     curr_task.add_done_callback(cleanup_task)
     
+    is_exchange = (campaign_type == "channel_exchange")
+    campaign_name_ar = "تبادل القنوات" if is_exchange else "النشر المؤقت"
+    lifespan_desc = f"لمدة {ad_lifespan} دقيقة" if ad_lifespan > 0 else "بشكل دائم"
+
     try:
         parts = target_link.split('|')
         if len(parts) != 2:
@@ -1749,7 +1754,10 @@ async def run_timed_post_logic(
         if not host_links:
             raise Exception("لم يتم تحديد أي قناة حاضنة للنشر (B).")
 
-        await log_tenant_event(tenant_id, f"بدء النشر المؤقت لعدد {len(promo_links)} قناة ترويج في {len(host_links)} قناة حاضنة...")
+        if is_exchange:
+            await log_tenant_event(tenant_id, f"بدء تبادل القنوات: نشر ترويج [{promo_links[0]}] في القناة الحاضنة [{host_links[0]}] ({lifespan_desc})...")
+        else:
+            await log_tenant_event(tenant_id, f"بدء النشر المؤقت لعدد {len(promo_links)} قناة ترويج في {len(host_links)} قناة حاضنة ({lifespan_desc})...")
         
         success_count = 0
         fail_count = 0
@@ -1784,7 +1792,7 @@ async def run_timed_post_logic(
             # Process each promo link inside this host channel
             for promo_link in promo_links:
                 try:
-                    await log_tenant_event(tenant_id, f"جاري النشر المؤقت للقناة [{promo_link}] في القناة الحاضنة [{host_link}] لمدة {ad_lifespan} دقيقة...")
+                    await log_tenant_event(tenant_id, f"جاري نشر إعلان [{promo_link}] في القناة [{host_link}] ({lifespan_desc})...")
                     
                     # Resolve promo title — cache first, then Telegram API
                     promo_title = await _resolve_link_to_title(client, tenant_id, promo_link)
@@ -1806,8 +1814,11 @@ async def run_timed_post_logic(
                     # Send the message to the host channel B (disabling web page previews)
                     sent_msg = await client.send_message(chat_id=host_chat_id, text=ad_text, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
                     
-                    # Calculate expiry time
-                    expires_at = datetime.now(timezone.utc) + timedelta(minutes=ad_lifespan)
+                    # Calculate expiry time (if lifespan == 0, ad is permanent: set 100 years ahead)
+                    if ad_lifespan > 0:
+                        expires_at = datetime.now(timezone.utc) + timedelta(minutes=ad_lifespan)
+                    else:
+                        expires_at = datetime.now(timezone.utc) + timedelta(days=36500)
                     
                     # Record ad transaction row in ActiveAd & PublishLog
                     from db_manager import add_ad_record
@@ -1818,12 +1829,12 @@ async def run_timed_post_logic(
                             chat_id=host_chat_id,
                             msg_id=sent_msg.id,
                             expires_at=expires_at,
-                            campaign_type="timed_post",
+                            campaign_type=campaign_type,
                             target_chat_ids=[host_chat_id],
                             sticker_msg_id=sticker_msg_id
                         )
                         
-                    await log_tenant_event(tenant_id, f"تم نشر الإعلان المؤقت بنجاح للقناة [{promo_link}] في [{host_link}]. (رسالة رقم: {sent_msg.id})")
+                    await log_tenant_event(tenant_id, f"تم نشر إعلان ({campaign_name_ar}) بنجاح للقناة [{promo_link}] في [{host_link}]. (رسالة رقم: {sent_msg.id})")
                     success_count += 1
                 except Exception as ex:
                     err_msg = f"فشل نشر الترويج للقناة [{promo_link}] في [{host_link}]: {str(ex)}"
@@ -1834,28 +1845,31 @@ async def run_timed_post_logic(
 
         # Summary logging
         posted_in = f"{success_count} قناة" if success_count == 1 else f"{success_count} قنوات"
-        await log_tenant_event(tenant_id, f"تم نشر الإعلان المؤقت في {posted_in}. سيُحذف تلقائياً بعد {ad_lifespan} دقيقة.")
+        if ad_lifespan > 0:
+            await log_tenant_event(tenant_id, f"تم نشر الإعلان ({campaign_name_ar}) في {posted_in}. سيُحذف تلقائياً بعد {ad_lifespan} دقيقة.")
+        else:
+            await log_tenant_event(tenant_id, f"تم نشر الإعلان ({campaign_name_ar}) في {posted_in} بشكل دائم (بدون حذف تلقائي).")
         if status_msg:
+            expiry_msg = f"⏳ سيتم حذف الإعلان تلقائياً بعد `{ad_lifespan}` دقيقة.\n✅ ستتحول المهمة إلى (مكتمل) بعد الحذف الفعلي." if ad_lifespan > 0 else "📌 الإعلان دائم (بدون حذف تلقائي).\n✅ اكتملت المهمة بنجاح."
             if fail_count == 0:
                 await safe_edit_message(status_msg, (
-                    f"📌 **تم النشر بنجاح في {posted_in}**\n"
-                    f"⏳ سيتم حذف الإعلان تلقائياً بعد `{ad_lifespan}` دقيقة.\n"
-                    f"✅ ستتحول المهمة إلى (مكتمل) بعد الحذف الفعلي."
+                    f"📌 **تم نشر ({campaign_name_ar}) بنجاح في {posted_in}**\n"
+                    f"{expiry_msg}"
                 ))
             else:
                 detailed_err = "\n".join(errors[:3])
                 if len(errors) > 3:
                     detailed_err += "\n..."
                 await safe_edit_message(status_msg, (
-                    f"⚠️ **تم النشر في {success_count} قناة (فشل: {fail_count})**\n"
-                    f"⏳ سيتم حذف الإعلانات الناجحة بعد `{ad_lifespan}` دقيقة.\n"
+                    f"⚠️ **تم نشر ({campaign_name_ar}) في {success_count} قناة (فشل: {fail_count})**\n"
+                    f"{expiry_msg}\n"
                     f"أخطاء:\n{detailed_err}"
                 ))
                 
     except Exception as e:
-        await log_tenant_event(tenant_id, f"فشلت عملية النشر المؤقت كلياً: {str(e)}")
+        await log_tenant_event(tenant_id, f"فشلت عملية النشر ({campaign_name_ar}) كلياً: {str(e)}")
         if status_msg:
-            await safe_edit_message(status_msg, f"❌ **فشلت عملية النشر المؤقت:**\n{e}")
+            await safe_edit_message(status_msg, f"❌ **فشلت عملية ({campaign_name_ar}):**\n{e}")
         raise e
 
 
@@ -3932,6 +3946,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 "bulk": "حملة مجلد مجمع",
                 "custom_folder": "حملة مجلد مخصص",
                 "timed_post": "نشر مؤقت",
+                "channel_exchange": "تبادل قناة بقناة (معلنين)",
                 "clear": "مسح سريع",
                 "deep_clear": "مسح عميق",
                 "activate_exchange": "تشغيل التبادل التلقائي"
@@ -5748,7 +5763,7 @@ async def run_clear_logic(tenant_id: int, client: Client, reply_to_message: Opti
                 .where(
                     WebCampaignTask.telegram_account_id == tenant_id,
                     WebCampaignTask.status == "active",
-                    WebCampaignTask.campaign_type.in_(["single", "bulk", "timed_post"])
+                    WebCampaignTask.campaign_type.in_(["single", "bulk", "timed_post", "channel_exchange"])
                 )
                 .values(status="completed")
             )
@@ -6421,6 +6436,7 @@ async def run_web_campaign_task(task_id: int):
             "single": "حملة فردية",
             "bulk": "حملة مجلد مجمع",
             "timed_post": "حملة نشر مؤقتة",
+            "channel_exchange": "تبادل قناة بقناة (معلنين)",
             "clear": "مسح سريع",
             "deep_clear": "مسح عميق",
             "update": "تحديث المحرك",
@@ -6436,7 +6452,7 @@ async def run_web_campaign_task(task_id: int):
             
             # Create a start status message in Saved Messages to keep the user in the loop
             status_msg = None
-            if task.campaign_type in ["wave", "wave_folder", "single", "timed_post", "bulk", "activate_exchange"]:
+            if task.campaign_type in ["wave", "wave_folder", "single", "timed_post", "channel_exchange", "bulk", "activate_exchange"]:
                 try:
                     status_msg = await client.send_message("me", f"🌐 **تم استلام طلب [{type_ar}]...**")
                     if status_msg:
@@ -6445,7 +6461,7 @@ async def run_web_campaign_task(task_id: int):
                 except Exception as se:
                     logger.debug(f"Could not send start status message to Saved Messages: {se}")
             
-            if task.campaign_type in ["wave", "wave_folder", "single", "timed_post", "bulk", "custom_folder", "activate_exchange"]:
+            if task.campaign_type in ["wave", "wave_folder", "single", "timed_post", "channel_exchange", "bulk", "custom_folder", "activate_exchange"]:
                 try:
                     from cache_manager import redis_client
                     async with AsyncSessionLocal() as act_session:
@@ -6488,14 +6504,15 @@ async def run_web_campaign_task(task_id: int):
                     ad_lifespan=task.ad_lifespan,
                     status_msg=status_msg
                 )
-            elif task.campaign_type == "timed_post":
+            elif task.campaign_type in ["timed_post", "channel_exchange"]:
                 await run_timed_post_logic(
                     tenant_id=tenant_id,
                     client=client,
                     target_link=task.target_link,
                     ad_text_custom=task.custom_text,
                     ad_lifespan=task.ad_lifespan,
-                    status_msg=status_msg
+                    status_msg=status_msg,
+                    campaign_type="channel_exchange" if task.campaign_type == "channel_exchange" else "timed_post"
                 )
             elif task.campaign_type in ["bulk", "custom_folder"]:
                 folder_num = None
@@ -6538,8 +6555,8 @@ async def run_web_campaign_task(task_id: int):
                 # For wave/activate_exchange: stay "active" in database
                 if task.campaign_type in ["wave", "wave_folder", "activate_exchange"]:
                     final_status = "active"
-                # For timed_post and single: stay "active" until the cleaner actually deletes the ad
-                elif task.campaign_type in ["timed_post", "single"] and task.ad_lifespan > 0:
+                # For timed_post, single, and channel_exchange: stay "active" until the cleaner actually deletes the ad
+                elif task.campaign_type in ["timed_post", "single", "channel_exchange"] and task.ad_lifespan > 0:
                     final_status = "active"
                 else:
                     final_status = "completed"
@@ -6942,7 +6959,7 @@ async def global_cleaner_worker():
                     active_tasks = (await fin_session.execute(
                         select(WebCampaignTask).where(
                             WebCampaignTask.status == "active",
-                            WebCampaignTask.campaign_type.in_(["timed_post", "single"])
+                            WebCampaignTask.campaign_type.in_(["timed_post", "single", "channel_exchange"])
                         )
                     )).scalars().all()
                     for t in active_tasks:
@@ -6958,6 +6975,8 @@ async def global_cleaner_worker():
                             
                         if t.campaign_type == "single":
                             ad_type = "campaign"
+                        elif t.campaign_type == "channel_exchange":
+                            ad_type = "channel_exchange"
                         else:
                             ad_type = "timed_post"
 
@@ -6973,7 +6992,8 @@ async def global_cleaner_worker():
                             campaign_labels = {
                                 "single": "الحملة الفردية",
                                 "bulk": "حملة المجلد المجمع",
-                                "timed_post": "حملة النشر المؤقتة"
+                                "timed_post": "حملة النشر المؤقتة",
+                                "channel_exchange": "تبادل قناة بقناة (معلنين)"
                             }
                             label = campaign_labels.get(t.campaign_type, "المهمة")
                             completion_text = (

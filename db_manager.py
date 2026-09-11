@@ -234,6 +234,7 @@ class WebCampaignTask(Base):
     ad_lifespan: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     target_link: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     custom_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    destination_channel_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)  # pending, processing, completed, failed
     result_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     target_count: Mapped[Optional[int]] = mapped_column(Integer, default=0, nullable=True)
@@ -298,6 +299,9 @@ class ExchangeRequest(Base):
     # Request explanatory message
     message: Mapped[str] = mapped_column(Text, nullable=False)
     
+    # Ad lifespan in minutes (default 1440 = 24h, 0 = permanent)
+    ad_lifespan: Mapped[int] = mapped_column(Integer, default=1440, nullable=False)
+    
     # Lifecycle: pending, accepted, rejected, expired, cancelled
     status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -334,6 +338,9 @@ class ExchangeAgreement(Base):
     recipient_channel_title: Mapped[str] = mapped_column(String(255), nullable=False)
     recipient_channel_link: Mapped[str] = mapped_column(String(500), nullable=False)
     
+    # Ad lifespan in minutes (agreed)
+    ad_lifespan: Mapped[int] = mapped_column(Integer, default=1440, nullable=False)
+
     # Status: accepted, scheduled, executing, completed, partial_failed, failed
     status: Mapped[str] = mapped_column(String(50), default="accepted", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -382,6 +389,9 @@ async def init_db() -> None:
                 await conn.execute(text("ALTER TABLE web_campaign_tasks ADD COLUMN IF NOT EXISTS completed_count INTEGER DEFAULT 0;"))
                 await conn.execute(text("ALTER TABLE web_campaign_tasks ADD COLUMN IF NOT EXISTS failed_count INTEGER DEFAULT 0;"))
                 await conn.execute(text("ALTER TABLE web_campaign_tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP WITH TIME ZONE;"))
+                await conn.execute(text("ALTER TABLE web_campaign_tasks ADD COLUMN IF NOT EXISTS destination_channel_id BIGINT;"))
+                await conn.execute(text("ALTER TABLE exchange_requests ADD COLUMN IF NOT EXISTS ad_lifespan INTEGER DEFAULT 1440;"))
+                await conn.execute(text("ALTER TABLE exchange_agreements ADD COLUMN IF NOT EXISTS ad_lifespan INTEGER DEFAULT 1440;"))
             except Exception as me:
                 logger.warning(f"Schema migration check notice: {me}")
         logger.info("Database initialized successfully.")

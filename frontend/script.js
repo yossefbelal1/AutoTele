@@ -5533,6 +5533,9 @@ function renderExchangeRequestCard(req, isCompact = false) {
     ? `<span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); font-size: 11px;">🔄 تبادل إعلاني</span>`
     : `<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 11px;">📢 طلب نشر حملة</span>`;
 
+  const lifespanLabel = escapeHtml(req.ad_lifespan_label || "24 ساعة");
+  const lifespanBadge = `<span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 11px;">⏱️ ${lifespanLabel}</span>`;
+
   const senderName = escapeHtml(req.requester_name || req.sender_name || req.sender_email || `معلن #${req.requester_id || req.sender_user_id || ""}`);
   const statusBadge = getExchangeStatusBadge(req.status);
   const timeStr = formatExchangeTime(req.created_at);
@@ -5582,8 +5585,9 @@ function renderExchangeRequestCard(req, isCompact = false) {
   return `
     <div class="exchange-card" id="exchange-req-card-${req.id}">
       <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
           ${typeBadge}
+          ${lifespanBadge}
           <strong style="color: #fff; font-size: 13.5px;">من: ${senderName}</strong>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
@@ -5664,6 +5668,9 @@ function renderSentList() {
       ? `<span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); font-size: 11px;">🔄 تبادل إعلاني</span>`
       : `<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 11px;">📢 طلب نشر حملة</span>`;
 
+    const lifespanLabel = escapeHtml(req.ad_lifespan_label || "24 ساعة");
+    const lifespanBadge = `<span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 11px;">⏱️ ${lifespanLabel}</span>`;
+
     const targetName = escapeHtml(req.recipient_name || req.target_name || req.target_email || `معلن #${req.recipient_id || req.target_user_id || ""}`);
     const statusBadge = getExchangeStatusBadge(req.status);
     const timeStr = formatExchangeTime(req.created_at);
@@ -5692,8 +5699,9 @@ function renderSentList() {
     return `
       <div class="exchange-card">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
-          <div style="display: flex; align-items: center; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
             ${typeBadge}
+            ${lifespanBadge}
             <strong style="color: #fff; font-size: 13.5px;">إلى: ${targetName}</strong>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
@@ -5782,11 +5790,64 @@ function renderAgreementCard(ag) {
         <div><b>الشريك:</b> <span style="color: #fff;">${escapeHtml(ag.peer_name || "معلن")}</span></div>
         <div><b>قناتك:</b> <span style="color: #10b981;">${escapeHtml(ag.my_channel || "--")}</span></div>
         <div><b>قناة الشريك:</b> <span style="color: #38bdf8;">${escapeHtml(ag.peer_channel || "--")}</span></div>
+        <div><b>⏱️ مدة بقاء الإعلان:</b> <span style="color: #c084fc; font-weight: 600;">${escapeHtml(ag.ad_lifespan_label || "24 ساعة")}</span></div>
         ${ag.peer_link ? `<div><b>رابط النشر:</b> <a href="${escapeHtml(ag.peer_link)}" target="_blank" style="color: #f59e0b; text-decoration: underline;">فتح الرابط</a></div>` : ""}
       </div>
     </div>
   `;
 }
+
+window.selectExchangeLifespan = function(mins) {
+  const inputHidden = document.getElementById("input-exchange-lifespan");
+  const badge = document.getElementById("exchange-lifespan-badge");
+  const customBox = document.getElementById("exchange-custom-lifespan-box");
+  const customInput = document.getElementById("input-exchange-custom-lifespan");
+  const chips = document.querySelectorAll(".exchange-lifespan-chip");
+
+  chips.forEach(c => {
+    const val = c.getAttribute("data-mins");
+    if (String(val) === String(mins)) c.classList.add("active");
+    else c.classList.remove("active");
+  });
+
+  const labelsMap = {
+    60: "1 ساعة (60د)",
+    180: "3 ساعات (180د)",
+    360: "6 ساعات (360د)",
+    720: "12 ساعة (720د)",
+    1440: "24 ساعة (يوم كامل) ⭐",
+    2880: "48 ساعة (يومان)",
+    0: "تثبيت دائم (بدون حذف) ♾️"
+  };
+
+  if (mins === "custom") {
+    if (customBox) customBox.classList.remove("hidden");
+    if (customInput) customInput.focus();
+    const currCustom = parseInt(customInput?.value, 10);
+    if (currCustom && currCustom > 0) {
+      if (inputHidden) inputHidden.value = currCustom;
+      if (badge) badge.textContent = `مخصص: ${currCustom} دقيقة`;
+    } else {
+      if (inputHidden) inputHidden.value = "1440";
+      if (badge) badge.textContent = "مدة مخصصة بالدقائق";
+    }
+  } else {
+    if (customBox) customBox.classList.add("hidden");
+    const num = parseInt(mins, 10);
+    if (inputHidden) inputHidden.value = num;
+    if (badge) badge.textContent = labelsMap[num] || `${num} دقيقة`;
+  }
+};
+
+window.onCustomLifespanInput = function(val) {
+  const inputHidden = document.getElementById("input-exchange-lifespan");
+  const badge = document.getElementById("exchange-lifespan-badge");
+  const num = parseInt(val, 10);
+  if (!isNaN(num) && num >= 0) {
+    if (inputHidden) inputHidden.value = num;
+    if (badge) badge.textContent = num === 0 ? "تثبيت دائم (بدون حذف) ♾️" : `مخصص: ${num} دقيقة`;
+  }
+};
 
 // Modal Handlers
 window.openNewExchangeModal = async function() {
@@ -5798,6 +5859,7 @@ window.openNewExchangeModal = async function() {
   if (form) form.reset();
   toggleExchangeFormType("exchange");
   toggleCampaignTargetMode("channel");
+  selectExchangeLifespan(1440);
 
   const errEl = document.getElementById("exchange-form-error");
   if (errEl) { errEl.style.display = "none"; errEl.textContent = ""; }
@@ -5952,10 +6014,13 @@ window.submitNewExchangeRequest = async function(e) {
     return;
   }
 
+  const lifespanVal = parseInt(document.getElementById("input-exchange-lifespan")?.value || "1440", 10);
+
   const payload = {
     recipient_user_id: targetUserId,
     target_user_id: targetUserId,
     request_type: requestType,
+    ad_lifespan: isNaN(lifespanVal) ? 1440 : lifespanVal,
     message: proposalMsg || (requestType === "exchange" ? "طلب تبادل إعلاني متبادل" : "طلب نشر حملة إعلانية"),
     proposal_message: proposalMsg || (requestType === "exchange" ? "طلب تبادل إعلاني متبادل" : "طلب نشر حملة إعلانية")
   };
@@ -6044,6 +6109,11 @@ window.openAcceptExchangeModal = async function(requestId, type) {
   if (senderEl) senderEl.textContent = req.requester_name || req.sender_name || req.sender_email || `معلن #${req.requester_id || req.sender_user_id || ""}`;
   if (typeEl) {
     typeEl.textContent = type === "exchange" ? "تبادل إعلاني 🔄" : "طلب نشر حملة 📢";
+  }
+
+  const durationEl = document.getElementById("accept-summary-duration");
+  if (durationEl) {
+    durationEl.textContent = req.ad_lifespan_label || "24 ساعة (يوم كامل)";
   }
 
   if (targetValEl) {

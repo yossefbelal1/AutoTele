@@ -1853,6 +1853,7 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
             "single": "حملة فردية (ويب)",
             "bulk": "حملة مجلد مجمع (ويب)",
             "timed_post": "نشر مؤقت (ويب)",
+            "channel_exchange": "تبادل قناة بقناة (معلنين)",
             "clear": "مسح سريع (ويب)",
             "deep_clear": "مسح عميق (ويب)",
             "update": "تحديث المحرك (ويب)",
@@ -1917,15 +1918,15 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
             # For active timed_post, single, and bulk tasks, fetch the real expires_at from ActiveAd
             expires_at_str = None
             ad_lifespan_minutes = task.ad_lifespan or 0
-            if task.status == "active" and task.campaign_type in ["timed_post", "single", "bulk"]:
+            if task.status == "active" and task.campaign_type in ["timed_post", "single", "bulk", "channel_exchange"]:
                 try:
                     from db_manager import ActiveAd
-                    ad_type = "campaign" if task.campaign_type == "single" else ("bulk" if task.campaign_type == "bulk" else "timed_post")
+                    ad_type = "campaign" if task.campaign_type == "single" else ("bulk" if task.campaign_type == "bulk" else ("channel_exchange" if task.campaign_type == "channel_exchange" else "timed_post"))
                     active_ad = (await session.execute(
                         select(ActiveAd)
                         .where(
                             ActiveAd.telegram_account_id == tg_account.id,
-                            ActiveAd.campaign_type == ad_type
+                            ActiveAd.campaign_type.in_([ad_type, "timed_post"])
                         )
                         .order_by(ActiveAd.expires_at.desc())
                     )).scalars().first()
@@ -4643,6 +4644,29 @@ async def clear_all_notifications(current_user_id: int = Depends(get_current_use
 # ADVERTISER EXCHANGE & CAMPAIGN REQUESTS API
 # ==============================================================================
 
+def format_ad_lifespan_arabic(minutes: int) -> str:
+    if not minutes or minutes <= 0:
+        return "تثبيت دائم"
+    if minutes == 60:
+        return "ساعة واحدة"
+    if minutes == 120:
+        return "ساعتان"
+    if minutes == 180:
+        return "3 ساعات"
+    if minutes == 360:
+        return "6 ساعات"
+    if minutes == 720:
+        return "12 ساعة"
+    if minutes == 1440:
+        return "24 ساعة (يوم كامل)"
+    if minutes == 2880:
+        return "48 ساعة (يومان)"
+    if minutes % 1440 == 0:
+        return f"{minutes // 1440} أيام"
+    if minutes % 60 == 0:
+        return f"{minutes // 60} ساعة"
+    return f"{minutes} دقيقة"
+
 class CreateExchangeReq(BaseModel):
     recipient_user_id: Optional[int] = None
     target_user_id: Optional[int] = None
@@ -4653,6 +4677,7 @@ class CreateExchangeReq(BaseModel):
     proposed_channel_name: Optional[str] = None
     campaign_url: Optional[str] = None
     campaign_target_link: Optional[str] = None
+    ad_lifespan: Optional[int] = Field(1440, ge=0, le=10080)
     message: Optional[str] = Field(None, min_length=5)
     proposal_message: Optional[str] = Field(None, min_length=5)
 
@@ -4880,6 +4905,9 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
                 raise HTTPException(status_code=400, detail="يرجى اختيار إحدى قنواتك لاستخدام رابط تتبعها التلقائي أو إدخال رابط الحملة يدوياً.")
 
         msg_body = (req.message or req.proposal_message or ("طلب تبادل إعلاني" if req.request_type == "exchange" else "طلب نشر حملة إعلانية")).strip()
+        ad_lifespan_val = req.ad_lifespan if req.ad_lifespan is not None else 1440
+        if ad_lifespan_val < 0 or ad_lifespan_val > 10080:
+            ad_lifespan_val = 1440
 
         # Create ExchangeRequest
         new_req = ExchangeRequest(
@@ -4891,6 +4919,7 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
             requester_channel_username=requester_channel_username,
             requester_channel_link=requester_channel_link,
             campaign_url=campaign_url,
+            ad_lifespan=ad_lifespan_val,
             message=msg_body,
             status="pending",
             expires_at=now + timedelta(hours=48)
@@ -4953,6 +4982,7 @@ async def get_incoming_exchange_requests(status: Optional[str] = None, current_u
         for req_obj, sender in results:
             rem_sec = max(0, int((req_obj.expires_at - now).total_seconds())) if req_obj.expires_at else 0
             hours_left = round(rem_sec / 3600, 1)
+            life_val = getattr(req_obj, "ad_lifespan", 1440) or 1440
             requests_data.append({
                 "id": req_obj.id,
                 "request_type": req_obj.request_type,
@@ -4963,6 +4993,8 @@ async def get_incoming_exchange_requests(status: Optional[str] = None, current_u
                 "requester_channel_username": req_obj.requester_channel_username,
                 "requester_channel_link": req_obj.requester_channel_link,
                 "campaign_url": req_obj.campaign_url,
+                "ad_lifespan": life_val,
+                "ad_lifespan_label": format_ad_lifespan_arabic(life_val),
                 "message": req_obj.message,
                 "status": req_obj.status,
                 "hours_remaining": hours_left,
@@ -5004,6 +5036,7 @@ async def get_sent_exchange_requests(status: Optional[str] = None, current_user_
         for req_obj, recipient in results:
             rem_sec = max(0, int((req_obj.expires_at - now).total_seconds())) if req_obj.expires_at else 0
             hours_left = round(rem_sec / 3600, 1)
+            life_val = getattr(req_obj, "ad_lifespan", 1440) or 1440
             requests_data.append({
                 "id": req_obj.id,
                 "request_type": req_obj.request_type,
@@ -5013,6 +5046,8 @@ async def get_sent_exchange_requests(status: Optional[str] = None, current_user_
                 "requester_channel_title": req_obj.requester_channel_title,
                 "requester_channel_link": req_obj.requester_channel_link,
                 "campaign_url": req_obj.campaign_url,
+                "ad_lifespan": life_val,
+                "ad_lifespan_label": format_ad_lifespan_arabic(life_val),
                 "message": req_obj.message,
                 "status": req_obj.status,
                 "hours_remaining": hours_left,
@@ -5090,6 +5125,7 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
             # Transition Request Status Atomically
             req_obj.status = "accepted"
             req_obj.responded_at = now
+            agreed_lifespan = getattr(req_obj, "ad_lifespan", 1440) or 1440
             
             # Create Agreement
             agreement = ExchangeAgreement(
@@ -5102,20 +5138,22 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
                 recipient_channel_id=req.recipient_channel_id,
                 recipient_channel_title=b_title,
                 recipient_channel_link=b_link,
+                ad_lifespan=agreed_lifespan,
                 status="scheduled"
             )
             session.add(agreement)
             await session.flush()
             
-            # Create Execution Tasks on existing campaign infrastructure (.حملة)
-            # 1. A's account posts ad for B's channel
+            # Create Execution Tasks strictly on target channels (1-to-1 Exchange)
+            # 1. A's account posts ad for B's channel strictly into A's channel
             task_a = WebCampaignTask(
                 telegram_account_id=requester_acc.id,
-                campaign_type="single",
+                campaign_type="channel_exchange",
+                destination_channel_id=req_obj.requester_channel_id,
                 delay_start=0,
                 delay_between_channels=0,
-                ad_lifespan=60,
-                target_link=b_link,
+                ad_lifespan=agreed_lifespan,
+                target_link=f"{b_link}|{req_obj.requester_channel_id}",
                 status="pending"
             )
             session.add(task_a)
@@ -5133,14 +5171,15 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
             )
             session.add(exec_a)
             
-            # 2. B's account posts ad for A's channel
+            # 2. B's account posts ad for A's channel strictly into B's channel
             task_b = WebCampaignTask(
                 telegram_account_id=recipient_acc.id,
-                campaign_type="single",
+                campaign_type="channel_exchange",
+                destination_channel_id=req.recipient_channel_id,
                 delay_start=0,
                 delay_between_channels=0,
-                ad_lifespan=60,
-                target_link=req_obj.requester_channel_link,
+                ad_lifespan=agreed_lifespan,
+                target_link=f"{req_obj.requester_channel_link}|{req.recipient_channel_id}",
                 status="pending"
             )
             session.add(task_b)
@@ -5160,11 +5199,12 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
             
             # Notifications
             recipient_name = recipient_user.full_name or recipient_user.email.split("@")[0]
+            life_lbl = format_ad_lifespan_arabic(agreed_lifespan)
             notif_a = AccountNotification(
                 user_id=req_obj.requester_user_id,
                 notification_type="exchange_request_accepted",
                 title="تم قبول طلب التبادل بنجاح! 🔄",
-                message=f"وافق المعلن ({recipient_name}) على طلب التبادل بقناته ({b_title}). جاري النشر المتبادل فوراً.",
+                message=f"وافق المعلن ({recipient_name}) على طلب التبادل بقناته ({b_title}) لمدة {life_lbl}. جاري النشر المتبادل فوراً.",
                 target_url="/app/exchange/active"
             )
             session.add(notif_a)
@@ -5173,7 +5213,7 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
                 user_id=current_user_id,
                 notification_type="exchange_started",
                 title="بدء تنفيذ اتفاق التبادل 🚀",
-                message=f"تم اعتماد التبادل مع ({req_obj.requester_channel_title}). جاري نشر الرابط المتبادل عبر المحرك.",
+                message=f"تم اعتماد التبادل مع ({req_obj.requester_channel_title}) لمدة {life_lbl}. جاري نشر الرابط المتبادل في قناتك المحددة.",
                 target_url="/app/exchange/active"
             )
             session.add(notif_b)
@@ -5181,21 +5221,35 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
             
             return {
                 "status": "success",
-                "message": "تم قبول طلب التبادل واعتماد الاتفاقية، وبدأ التنفيذ المتبادل سحابياً.",
+                "message": f"تم قبول طلب التبادل واعتماد الاتفاقية بنجاح لمدة {life_lbl}، وبدأ التنفيذ الحصري في القناتين.",
                 "agreement_id": agreement.id
             }
             
         elif req_obj.request_type == "campaign":
-            # Campaign Request: B only accepts, system runs existing .حملة with A's URL on B's channels
+            # Campaign Request: B only accepts, system runs campaign with A's URL on B's campaign channels
             req_obj.status = "accepted"
             req_obj.responded_at = now
+            agreed_lifespan = getattr(req_obj, "ad_lifespan", 1440) or 1440
+            life_lbl = format_ad_lifespan_arabic(agreed_lifespan)
+
+            # Check if recipient has a campaign folder
+            raw_campaign = await redis_client.get(f"tenant:{recipient_acc.id}:campaign")
+            has_campaign_folder = False
+            if raw_campaign:
+                try:
+                    c_list = json.loads(raw_campaign)
+                    has_campaign_folder = bool(c_list and len(c_list) > 0)
+                except Exception:
+                    pass
+
+            camp_task_type = "bulk" if has_campaign_folder else "single"
             
             task_camp = WebCampaignTask(
                 telegram_account_id=recipient_acc.id,
-                campaign_type="single",
+                campaign_type=camp_task_type,
                 delay_start=0,
                 delay_between_channels=0,
-                ad_lifespan=60,
+                ad_lifespan=agreed_lifespan,
                 target_link=req_obj.campaign_url,
                 status="pending"
             )
@@ -5325,6 +5379,7 @@ async def get_exchange_agreements(current_user_id: int = Depends(get_current_use
             my_channel = ag.requester_channel_title if is_requester else ag.recipient_channel_title
             peer_channel = ag.recipient_channel_title if is_requester else ag.requester_channel_title
             peer_link = ag.recipient_channel_link if is_requester else ag.requester_channel_link
+            life_val = getattr(ag, "ad_lifespan", 1440) or 1440
             
             out.append({
                 "id": ag.id,
@@ -5333,6 +5388,8 @@ async def get_exchange_agreements(current_user_id: int = Depends(get_current_use
                 "my_channel": my_channel,
                 "peer_channel": peer_channel,
                 "peer_link": peer_link,
+                "ad_lifespan": life_val,
+                "ad_lifespan_label": format_ad_lifespan_arabic(life_val),
                 "status": ag.status,
                 "created_at": ag.created_at.strftime("%Y-%m-%d %H:%M") if ag.created_at else None,
                 "completed_at": ag.completed_at.strftime("%Y-%m-%d %H:%M") if ag.completed_at else None

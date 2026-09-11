@@ -4392,6 +4392,33 @@ body.drawer-open {
   font-weight: 700 !important;
 }
 
+.exchange-lifespan-chip {
+  background: rgba(15, 23, 42, 0.6) !important;
+  color: #94a3b8 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 8px !important;
+  padding: 7px 10px !important;
+  font-size: 12px !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  text-align: center;
+  font-weight: 600;
+}
+
+.exchange-lifespan-chip:hover {
+  background: rgba(30, 41, 59, 0.8) !important;
+  border-color: rgba(56, 189, 248, 0.4) !important;
+  color: #fff !important;
+}
+
+.exchange-lifespan-chip.active {
+  background: rgba(56, 189, 248, 0.15) !important;
+  color: #38bdf8 !important;
+  border-color: #38bdf8 !important;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.25) !important;
+  font-weight: 700 !important;
+}
+
 /* --- Reports & Activity Branches Bar (Inside Account Hub) --- */
 .reports-branches-bar {
   display: flex;
