@@ -5216,6 +5216,19 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
         )
         session.add(notif)
         await session.commit()
+
+        # Send instant interactive mobile notification via status bot
+        try:
+            import json as _json
+            from cache_manager import redis_client
+            payload = {
+                "user_id": recipient.id,
+                "exchange_request_id": new_req.id,
+                "message_text": notif_msg
+            }
+            await redis_client.publish("saas_user_notifications", _json.dumps(payload, ensure_ascii=False))
+        except Exception as pe:
+            logger.debug(f"Failed to publish exchange notification to redis: {pe}")
         
         return {
             "status": "success",
@@ -5576,6 +5589,17 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
             )
             session.add(notif_b)
             await session.commit()
+
+            try:
+                import json as _json
+                from cache_manager import redis_client
+                payload = {
+                    "user_id": req_obj.requester_user_id,
+                    "message_text": f"🎉 **وافق المعلن ({recipient_name}) على طلب التبادل بقناته ({b_title})!**\n⏱ **المدة**: {life_lbl}\n🚀 بدأ النشر المتبادل فوراً بنجاح."
+                }
+                await redis_client.publish("saas_user_notifications", _json.dumps(payload, ensure_ascii=False))
+            except Exception as pe:
+                logger.debug(f"Failed to publish exchange accept alert to redis: {pe}")
             
             return {
                 "status": "success",
@@ -5637,6 +5661,17 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
             )
             session.add(notif_b)
             await session.commit()
+
+            try:
+                import json as _json
+                from cache_manager import redis_client
+                payload = {
+                    "user_id": req_obj.requester_user_id,
+                    "message_text": f"🎉 **وافق المعلن ({recipient_name}) على تنفيذ ونشر حملتك #{req_obj.id}!**\n⏱ **المدة**: {life_lbl}\n🚀 بدأ النشر في جميع قنواته الآن بنجاح."
+                }
+                await redis_client.publish("saas_user_notifications", _json.dumps(payload, ensure_ascii=False))
+            except Exception as pe:
+                logger.debug(f"Failed to publish campaign accept alert to redis: {pe}")
             
             return {
                 "status": "success",
@@ -5678,6 +5713,17 @@ async def reject_exchange_request(request_id: int, req: Optional[RejectExchangeR
             )
             session.add(notif)
             await session.commit()
+
+            try:
+                import json as _json
+                from cache_manager import redis_client
+                payload = {
+                    "user_id": req_obj.requester_user_id,
+                    "message_text": f"❌ **اعتذر المعلن ({recipient_name}) عن قبول طلب {req_label} #{req_obj.id}.**"
+                }
+                await redis_client.publish("saas_user_notifications", _json.dumps(payload, ensure_ascii=False))
+            except Exception as pe:
+                logger.debug(f"Failed to publish reject alert to redis: {pe}")
             
         return {"status": "success", "message": "تم رفض الطلب بنجاح."}
 

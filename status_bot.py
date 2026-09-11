@@ -19,6 +19,10 @@ from db_manager import (
     TelegramAccount, 
     ActiveAd, 
     WebCampaignTask,
+    ExchangeRequest,
+    ExchangeAgreement,
+    ExchangeExecution,
+    AccountNotification,
     select, 
     update
 )
@@ -30,8 +34,31 @@ logger = logging.getLogger(__name__)
 status_bot_client: Optional[Client] = None
 status_bot_username: str = "AutoTeleStatusBot"
 
+def format_ad_lifespan_arabic(minutes: int) -> str:
+    if minutes < 60:
+        return f"{minutes} دقيقة"
+    elif minutes == 60:
+        return "ساعة واحدة"
+    elif minutes == 120:
+        return "ساعتان"
+    elif minutes < 1440:
+        hours = minutes // 60
+        rem = minutes % 60
+        rem_str = f" و{rem} دقيقة" if rem else ""
+        return f"{hours} ساعات{rem_str}"
+    elif minutes == 1440:
+        return "يوم كامل (24 ساعة)"
+    else:
+        days = minutes // 1440
+        rem_h = (minutes % 1440) // 60
+        h_str = f" و{rem_h} ساعة" if rem_h else ""
+        return f"{days} أيام{h_str}"
+
 def get_main_menu_keyboard(is_admin: bool = False) -> InlineKeyboardMarkup:
     buttons = [
+        [
+            InlineKeyboardButton("📥 طلبات التبادل الواردة 🔄", callback_data="btn_incoming_exchanges")
+        ],
         [
             InlineKeyboardButton("👤 حالة حساباتي", callback_data="btn_accounts_status"),
             InlineKeyboardButton("📊 إحصائيات الحملات", callback_data="btn_campaign_stats")
@@ -48,6 +75,34 @@ def get_main_menu_keyboard(is_admin: bool = False) -> InlineKeyboardMarkup:
         ]
     ]
     return InlineKeyboardMarkup(buttons)
+
+def get_exchange_request_keyboard(request_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ قبول ونشر الآن", callback_data=f"ex_acc:{request_id}"),
+            InlineKeyboardButton("❌ رفض الطلب", callback_data=f"ex_rej:{request_id}")
+        ],
+        [
+            InlineKeyboardButton("⏱ تعديل المدة والقبول", callback_data=f"ex_life_menu:{request_id}")
+        ]
+    ])
+
+def get_exchange_lifespan_keyboard(request_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("15 دقيقة", callback_data=f"ex_acc_life:{request_id}:15"),
+            InlineKeyboardButton("30 دقيقة", callback_data=f"ex_acc_life:{request_id}:30"),
+            InlineKeyboardButton("ساعة واحدة", callback_data=f"ex_acc_life:{request_id}:60")
+        ],
+        [
+            InlineKeyboardButton("ساعتين", callback_data=f"ex_acc_life:{request_id}:120"),
+            InlineKeyboardButton("6 ساعات", callback_data=f"ex_acc_life:{request_id}:360"),
+            InlineKeyboardButton("24 ساعة", callback_data=f"ex_acc_life:{request_id}:1440")
+        ],
+        [
+            InlineKeyboardButton("🔙 إلغاء والعودة", callback_data=f"ex_back:{request_id}")
+        ]
+    ])
 
 def get_quick_control_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
@@ -116,6 +171,297 @@ async def create_wizard_campaign_task(user_id: int, command: str, data: dict) ->
     except Exception as e:
         logger.error(f"Error creating wizard campaign task for user {user_id}: {e}")
         return None
+
+async def execute_bot_exchange_accept(user_id: int, request_id: int, lifespan_override: Optional[int] = None) -> tuple[bool, str]:
+    now = datetime.now(timezone.utc)
+    try:
+        async with AsyncSessionLocal() as session:
+            req_obj = (await session.execute(
+                select(ExchangeRequest).where(ExchangeRequest.id == request_id)
+            )).scalar_one_or_none()
+            
+            if not req_obj:
+                return False, "❌ الطلب غير موجود."
+            if req_obj.recipient_user_id != user_id:
+                return False, "⛔ ليس لديك صلاحية للرد على هذا الطلب."
+            if req_obj.status != "pending":
+                return False, f"⚠️ هذا الطلب تمت معالجته مسبقاً ({req_obj.status})."
+            if req_obj.expires_at and req_obj.expires_at <= now:
+                req_obj.status = "expired"
+                await session.commit()
+                return False, "⌛ عذراً، هذا الطلب منتهي الصلاحية."
+                
+            recipient_user = (await session.execute(
+                select(User).where(User.id == user_id)
+            )).scalar_one_or_none()
+            if not recipient_user:
+                return False, "❌ لم يتم العثور على حساب المستخدم."
+                
+            sub_end = recipient_user.subscription_end
+            if sub_end.tzinfo is None:
+                sub_end = sub_end.replace(tzinfo=timezone.utc)
+            if recipient_user.subscription_status != "active" or sub_end <= now:
+                return False, "❌ عذراً، باقة اشتراكك منتهية حالياً ولا يمكنك قبول الطلبات."
+                
+            recipient_acc = (await session.execute(
+                select(TelegramAccount).where(
+                    TelegramAccount.user_id == user_id,
+                    TelegramAccount.status == "active"
+                )
+            )).scalars().first()
+            if not recipient_acc:
+                return False, "❌ ليس لديك حساب تليجرام نشط في النظام لتنفيذ النشر."
+                
+            if lifespan_override and lifespan_override > 0:
+                req_obj.ad_lifespan = lifespan_override
+                
+            agreed_lifespan = req_obj.ad_lifespan or 30
+            life_lbl = format_ad_lifespan_arabic(agreed_lifespan)
+            recipient_name = recipient_user.full_name or recipient_user.email.split("@")[0]
+            
+            if req_obj.request_type == "campaign":
+                req_obj.status = "accepted"
+                req_obj.responded_at = now
+                
+                task_camp = WebCampaignTask(
+                    telegram_account_id=recipient_acc.id,
+                    campaign_type="single",
+                    delay_start=0,
+                    delay_between_channels=0,
+                    ad_lifespan=agreed_lifespan,
+                    target_link=req_obj.campaign_url,
+                    status="pending"
+                )
+                session.add(task_camp)
+                await session.flush()
+                
+                exec_camp = ExchangeExecution(
+                    request_id=req_obj.id,
+                    agreement_id=None,
+                    execution_type="campaign_request",
+                    executor_user_id=user_id,
+                    telegram_account_id=recipient_acc.id,
+                    target_link=req_obj.campaign_url,
+                    web_task_id=task_camp.id,
+                    status="pending"
+                )
+                session.add(exec_camp)
+                
+                notif_a = AccountNotification(
+                    user_id=req_obj.requester_user_id,
+                    notification_type="campaign_request_accepted",
+                    title="تم قبول طلب الحملة الترويجية! 📢",
+                    message=f"وافق المعلن ({recipient_name}) على طلب نشر حملتك لمدة {life_lbl}. جاري النشر الآن عبر البوت.",
+                    target_url="/app/exchange/incoming"
+                )
+                session.add(notif_a)
+                
+                notif_b = AccountNotification(
+                    user_id=user_id,
+                    notification_type="campaign_started",
+                    title="بدء تنفيذ حملة ترويجية 🚀",
+                    message=f"تم قبول نشر حملة ({req_obj.requester_channel_title}) لمدة {life_lbl}. جاري النشر في قنواتك.",
+                    target_url="/app/exchange/incoming"
+                )
+                session.add(notif_b)
+                await session.commit()
+                
+                requester_user = (await session.execute(
+                    select(User).where(User.id == req_obj.requester_user_id)
+                )).scalar_one_or_none()
+                if requester_user and requester_user.status_bot_chat_id and status_bot_client and status_bot_client.is_connected:
+                    try:
+                        await status_bot_client.send_message(
+                            chat_id=requester_user.status_bot_chat_id,
+                            text=f"🎉 **قام المعلن ({recipient_name}) بقبول طلب نشر حملتك #{req_obj.id}!**\n⏱ **مدة النشر**: {life_lbl}\n🚀 جاري النشر في جميع قنواته الآن."
+                        )
+                    except Exception as ne:
+                        logger.error(f"Failed to notify requester {requester_user.id}: {ne}")
+                        
+                return True, f"✅ تم قبول طلب الحملة بنجاح لمدة {life_lbl}، وجاري النشر في قنواتك فوراً!"
+                
+            elif req_obj.request_type == "exchange":
+                sender_acc = (await session.execute(
+                    select(TelegramAccount).where(
+                        TelegramAccount.user_id == req_obj.requester_user_id,
+                        TelegramAccount.status == "active"
+                    )
+                )).scalars().first()
+                if not sender_acc:
+                    return False, "❌ حساب المعلن المرسل غير نشط حالياً."
+                    
+                from cache_manager import get_channels_cache
+                recip_channels = await get_channels_cache(recipient_acc.id)
+                eligible_b = [c for c in (recip_channels or []) if c.get("can_send", True)]
+                if not eligible_b:
+                    return False, "❌ تعذر إيجاد قنوات متاحة للنشر في حسابك."
+                    
+                first_b_cid = eligible_b[0]["id"]
+                first_b_title = eligible_b[0].get("title", "قناة المعلن")
+                first_b_link = eligible_b[0].get("invite_link", "")
+                if not first_b_link:
+                    u_name = eligible_b[0].get("username")
+                    first_b_link = f"https://t.me/{u_name}" if u_name else f"https://t.me/c/{str(first_b_cid)[4:]}"
+                    
+                req_obj.status = "accepted"
+                req_obj.responded_at = now
+                
+                agreement = ExchangeAgreement(
+                    request_id=req_obj.id,
+                    requester_user_id=req_obj.requester_user_id,
+                    recipient_user_id=user_id,
+                    requester_telegram_account_id=sender_acc.id,
+                    recipient_telegram_account_id=recipient_acc.id,
+                    requester_channel_id=req_obj.requester_channel_id or 0,
+                    requester_channel_title=req_obj.requester_channel_title,
+                    recipient_channel_id=first_b_cid,
+                    recipient_channel_title=first_b_title,
+                    agreed_lifespan=agreed_lifespan,
+                    status="active",
+                    started_at=now
+                )
+                session.add(agreement)
+                await session.flush()
+                
+                a_hosts = req_obj.requester_host_channels or str(req_obj.requester_channel_id or "")
+                task_a = WebCampaignTask(
+                    telegram_account_id=sender_acc.id,
+                    campaign_type="channel_exchange",
+                    destination_channel_id=req_obj.requester_channel_id,
+                    delay_start=0,
+                    delay_between_channels=0,
+                    ad_lifespan=agreed_lifespan,
+                    target_link=f"{first_b_link}|{a_hosts}",
+                    status="pending"
+                )
+                session.add(task_a)
+                await session.flush()
+                
+                exec_a = ExchangeExecution(
+                    request_id=req_obj.id,
+                    agreement_id=agreement.id,
+                    execution_type="exchange_requester_side",
+                    executor_user_id=req_obj.requester_user_id,
+                    telegram_account_id=sender_acc.id,
+                    target_link=first_b_link,
+                    web_task_id=task_a.id,
+                    status="pending"
+                )
+                session.add(exec_a)
+                
+                b_hosts = str(first_b_cid)
+                task_b = WebCampaignTask(
+                    telegram_account_id=recipient_acc.id,
+                    campaign_type="channel_exchange",
+                    destination_channel_id=first_b_cid,
+                    delay_start=0,
+                    delay_between_channels=0,
+                    ad_lifespan=agreed_lifespan,
+                    target_link=f"{req_obj.requester_channel_link}|{b_hosts}",
+                    status="pending"
+                )
+                session.add(task_b)
+                await session.flush()
+                
+                exec_b = ExchangeExecution(
+                    request_id=req_obj.id,
+                    agreement_id=agreement.id,
+                    execution_type="exchange_recipient_side",
+                    executor_user_id=user_id,
+                    telegram_account_id=recipient_acc.id,
+                    target_link=req_obj.requester_channel_link,
+                    web_task_id=task_b.id,
+                    status="pending"
+                )
+                session.add(exec_b)
+                
+                notif_a = AccountNotification(
+                    user_id=req_obj.requester_user_id,
+                    notification_type="exchange_request_accepted",
+                    title="تم قبول طلب التبادل بنجاح! 🔄",
+                    message=f"وافق المعلن ({recipient_name}) على طلب التبادل بقناته ({first_b_title}) لمدة {life_lbl}. جاري النشر المتبادل فوراً.",
+                    target_url="/app/exchange/active"
+                )
+                session.add(notif_a)
+                
+                notif_b = AccountNotification(
+                    user_id=user_id,
+                    notification_type="exchange_started",
+                    title="بدء تنفيذ اتفاق التبادل 🚀",
+                    message=f"تم اعتماد التبادل مع ({req_obj.requester_channel_title}) لمدة {life_lbl}. جاري نشر الرابط المتبادل في قناتك.",
+                    target_url="/app/exchange/active"
+                )
+                session.add(notif_b)
+                await session.commit()
+                
+                requester_user = (await session.execute(
+                    select(User).where(User.id == req_obj.requester_user_id)
+                )).scalar_one_or_none()
+                if requester_user and requester_user.status_bot_chat_id and status_bot_client and status_bot_client.is_connected:
+                    try:
+                        await status_bot_client.send_message(
+                            chat_id=requester_user.status_bot_chat_id,
+                            text=f"🎉 **قام المعلن ({recipient_name}) بقبول طلب التبادل الإعلاني #{req_obj.id}!**\n⏱ **مدة النشر**: {life_lbl}\n🚀 بدأ النشر المتبادل في القناتين بنجاح."
+                        )
+                    except Exception as ne:
+                        logger.error(f"Failed to notify requester {requester_user.id}: {ne}")
+                        
+                return True, f"✅ تم قبول التبادل واعتماده بنجاح لمدة {life_lbl}، وبدأ النشر المتبادل فوراً!"
+                
+            return False, "نوع طلب غير معروف."
+    except Exception as ex_err:
+        logger.error(f"Error in execute_bot_exchange_accept: {ex_err}")
+        return False, f"❌ حدث خطأ أثناء قبول الطلب: {str(ex_err)}"
+
+async def execute_bot_exchange_reject(user_id: int, request_id: int) -> tuple[bool, str]:
+    now = datetime.now(timezone.utc)
+    try:
+        async with AsyncSessionLocal() as session:
+            req_obj = (await session.execute(
+                select(ExchangeRequest).where(ExchangeRequest.id == request_id)
+            )).scalar_one_or_none()
+            
+            if not req_obj:
+                return False, "❌ الطلب غير موجود."
+            if req_obj.recipient_user_id != user_id:
+                return False, "⛔ ليس لديك صلاحية للرد على هذا الطلب."
+            if req_obj.status != "pending":
+                return False, f"⚠️ هذا الطلب تمت معالجته مسبقاً ({req_obj.status})."
+                
+            req_obj.status = "rejected"
+            req_obj.responded_at = now
+            
+            recipient_user = (await session.execute(
+                select(User).where(User.id == user_id)
+            )).scalar_one_or_none()
+            recipient_name = recipient_user.full_name or recipient_user.email.split("@")[0] if recipient_user else "المعلن"
+            
+            notif_a = AccountNotification(
+                user_id=req_obj.requester_user_id,
+                notification_type="exchange_request_rejected",
+                title="تم رفض طلب التبادل",
+                message=f"اعتذر المعلن ({recipient_name}) عن قبول طلب التبادل/الحملة.",
+                target_url="/app/exchange/incoming"
+            )
+            session.add(notif_a)
+            await session.commit()
+            
+            requester_user = (await session.execute(
+                select(User).where(User.id == req_obj.requester_user_id)
+            )).scalar_one_or_none()
+            if requester_user and requester_user.status_bot_chat_id and status_bot_client and status_bot_client.is_connected:
+                try:
+                    await status_bot_client.send_message(
+                        chat_id=requester_user.status_bot_chat_id,
+                        text=f"❌ **اعتذر المعلن ({recipient_name}) عن قبول طلبك #{req_obj.id}.**"
+                    )
+                except Exception as ne:
+                    logger.error(f"Failed to notify requester {requester_user.id}: {ne}")
+                    
+            return True, "❌ تم رفض الطلب بنجاح."
+    except Exception as ex_err:
+        logger.error(f"Error in execute_bot_exchange_reject: {ex_err}")
+        return False, f"❌ حدث خطأ أثناء رفض الطلب: {str(ex_err)}"
 
 async def start_status_bot():
     global status_bot_client, status_bot_username
@@ -232,6 +578,140 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
             "📱 **القائمة الرئيسية لمساعد أوتو-تيلي:**",
             reply_markup=get_main_menu_keyboard(user.is_admin)
         )
+        await callback_query.answer()
+
+    elif data == "btn_incoming_exchanges":
+        now = datetime.now(timezone.utc)
+        async with AsyncSessionLocal() as session:
+            stmt = (
+                select(ExchangeRequest)
+                .where(
+                    ExchangeRequest.recipient_user_id == user.id,
+                    ExchangeRequest.status == "pending",
+                    ExchangeRequest.expires_at > now
+                )
+                .order_by(ExchangeRequest.created_at.desc())
+            )
+            incoming = (await session.execute(stmt)).scalars().all()
+            
+            if not incoming:
+                text = (
+                    "📥 **طلبات التبادل الواردة:**\n\n"
+                    "✨ لا توجد لديك أي طلبات تبادل أو نشر حملات معلقة حالياً.\n\n"
+                    "💡 سيصلك إشعار فوري هنا على الموبايل بمجرد إرسال أي معلن طلباً جديداً إليك مع أزرار القبول والرفض المباشرة!"
+                )
+                await callback_query.message.edit_text(
+                    text,
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 عودة للقائمة الرئيسية", callback_data="btn_main_menu")]])
+                )
+                await callback_query.answer()
+            else:
+                req_item = incoming[0]
+                requester = (await session.execute(select(User).where(User.id == req_item.requester_user_id))).scalar_one_or_none()
+                sender_name = requester.full_name or requester.email.split("@")[0] if requester else "معلن"
+                req_type_lbl = "🔄 تبادل إعلاني" if req_item.request_type == "exchange" else "📢 نشر حملة ترويجية"
+                duration_lbl = format_ad_lifespan_arabic(req_item.ad_lifespan or 30)
+                ch_links = req_item.campaign_url or req_item.requester_channel_link or req_item.requester_channel_title or "غير محدد"
+                remaining_note = f" (يوجد {len(incoming)} طلبات معلقة)" if len(incoming) > 1 else ""
+                
+                text = (
+                    f"📥 **طلب وارد معلق #{req_item.id}**{remaining_note}:\n\n"
+                    f"👤 **المرسل**: {sender_name}\n"
+                    f"📌 **النوع**: {req_type_lbl}\n"
+                    f"⏱ **المدة**: {duration_lbl}\n"
+                    f"🔗 **الروابط/القنوات المستهدفة**:\n`{ch_links}`\n\n"
+                    f"💬 **الرسالة**: _{req_item.message or 'لا توجد رسالة'}_\n"
+                    "━━━━━━━━━━━━━━━━━━━\n"
+                    "👇 **اختر الإجراء المناسب بضغطة زر**:"
+                )
+                
+                buttons = [
+                    [
+                        InlineKeyboardButton("✅ قبول ونشر الآن", callback_data=f"ex_acc:{req_item.id}"),
+                        InlineKeyboardButton("❌ رفض الطلب", callback_data=f"ex_rej:{req_item.id}")
+                    ],
+                    [
+                        InlineKeyboardButton("⏱ تعديل المدة والقبول", callback_data=f"ex_life_menu:{req_item.id}")
+                    ],
+                    [
+                        InlineKeyboardButton("🔙 عودة للقائمة الرئيسية", callback_data="btn_main_menu")
+                    ]
+                ]
+                await callback_query.message.edit_text(
+                    text,
+                    reply_markup=InlineKeyboardMarkup(buttons)
+                )
+                await callback_query.answer()
+
+    elif data.startswith("ex_acc:"):
+        req_id = int(data.split(":", 1)[1])
+        success, msg = await execute_bot_exchange_accept(user.id, req_id)
+        if success:
+            await callback_query.answer("✅ تم قبول الطلب وبدء النشر!", show_alert=True)
+            await callback_query.message.edit_text(
+                f"{msg}\n\n🚀 تم إطلاق النشر في قنواتك، وتم إرسال تنبيه تأكيد للمعلن المرسل.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 عودة للقائمة الرئيسية", callback_data="btn_main_menu")]])
+            )
+        else:
+            await callback_query.answer(msg, show_alert=True)
+
+    elif data.startswith("ex_rej:"):
+        req_id = int(data.split(":", 1)[1])
+        success, msg = await execute_bot_exchange_reject(user.id, req_id)
+        if success:
+            await callback_query.answer("❌ تم رفض الطلب.", show_alert=True)
+            await callback_query.message.edit_text(
+                "❌ **تم رفض طلب التبادل بنجاح.**",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 عودة للقائمة الرئيسية", callback_data="btn_main_menu")]])
+            )
+        else:
+            await callback_query.answer(msg, show_alert=True)
+
+    elif data.startswith("ex_life_menu:"):
+        req_id = int(data.split(":", 1)[1])
+        await callback_query.message.edit_text(
+            f"⏱ **اختر مدة النشر المطلوبة للموافقة على الطلب #{req_id}:**\n\n"
+            "بمجرد اختيار المدة سيتم اعتماد الطلب وإطلاق النشر فوراً بتلك المدة:",
+            reply_markup=get_exchange_lifespan_keyboard(req_id)
+        )
+        await callback_query.answer()
+
+    elif data.startswith("ex_acc_life:"):
+        parts = data.split(":")
+        req_id = int(parts[1])
+        lifespan = int(parts[2])
+        success, msg = await execute_bot_exchange_accept(user.id, req_id, lifespan_override=lifespan)
+        if success:
+            await callback_query.answer("✅ تم قبول الطلب بالمدة الجديدة!", show_alert=True)
+            await callback_query.message.edit_text(
+                f"{msg}\n\n🚀 تم إطلاق الحملة بالمدة المختارة في قنواتك بنجاح.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 عودة للقائمة الرئيسية", callback_data="btn_main_menu")]])
+            )
+        else:
+            await callback_query.answer(msg, show_alert=True)
+
+    elif data.startswith("ex_back:"):
+        req_id = int(data.split(":", 1)[1])
+        async with AsyncSessionLocal() as session:
+            req_item = (await session.execute(select(ExchangeRequest).where(ExchangeRequest.id == req_id))).scalar_one_or_none()
+            if req_item and req_item.status == "pending":
+                requester = (await session.execute(select(User).where(User.id == req_item.requester_user_id))).scalar_one_or_none()
+                sender_name = requester.full_name or requester.email.split("@")[0] if requester else "معلن"
+                req_type_lbl = "🔄 تبادل إعلاني" if req_item.request_type == "exchange" else "📢 نشر حملة ترويجية"
+                duration_lbl = format_ad_lifespan_arabic(req_item.ad_lifespan or 30)
+                ch_links = req_item.campaign_url or req_item.requester_channel_link or req_item.requester_channel_title or "غير محدد"
+                text = (
+                    f"🔔 **طلب {req_type_lbl} #{req_item.id}:**\n\n"
+                    f"👤 **المرسل**: {sender_name}\n"
+                    f"⏱ **المدة**: {duration_lbl}\n"
+                    f"🔗 **الروابط/القنوات المستهدفة**:\n`{ch_links}`\n\n"
+                    f"💬 **الرسالة**: _{req_item.message or 'لا توجد رسالة'}_\n"
+                    "━━━━━━━━━━━━━━━━━━━\n"
+                    "👇 **اختر الإجراء المناسب بضغطة زر**:"
+                )
+                await callback_query.message.edit_text(text, reply_markup=get_exchange_request_keyboard(req_id))
+            else:
+                await callback_query.message.edit_text("📱 القائمة الرئيسية:", reply_markup=get_main_menu_keyboard(user.is_admin))
         await callback_query.answer()
 
     elif data == "btn_accounts_status":
@@ -921,3 +1401,52 @@ async def notify_user_by_id(
                             logger.error(f"Status bot failed to send message to user {user.id}: {se}")
     except Exception as e:
         logger.error(f"Error in notify_user_by_id for user {user_id}: {e}")
+
+async def notify_exchange_request_to_recipient(request_id: int) -> bool:
+    if not status_bot_client or not status_bot_client.is_connected:
+        return False
+    try:
+        async with AsyncSessionLocal() as session:
+            req_obj = (await session.execute(
+                select(ExchangeRequest).where(ExchangeRequest.id == request_id)
+            )).scalar_one_or_none()
+            if not req_obj or req_obj.status != "pending":
+                return False
+                
+            recipient = (await session.execute(
+                select(User).where(User.id == req_obj.recipient_user_id)
+            )).scalar_one_or_none()
+            if not recipient or not recipient.status_bot_chat_id:
+                return False
+                
+            requester = (await session.execute(
+                select(User).where(User.id == req_obj.requester_user_id)
+            )).scalar_one_or_none()
+            sender_name = requester.full_name or requester.email.split("@")[0] if requester else "معلن"
+            
+            req_type_lbl = "🔄 تبادل إعلاني" if req_obj.request_type == "exchange" else "📢 نشر حملة ترويجية"
+            duration_lbl = format_ad_lifespan_arabic(req_obj.ad_lifespan or 30)
+            
+            channels_text = req_obj.campaign_url or req_obj.requester_channel_link or req_obj.requester_channel_title or "غير محدد"
+            msg_snippet = req_obj.message or "لا توجد رسالة مرفقة"
+            
+            text = (
+                f"🔔 **وصلك طلب {req_type_lbl} جديد!**\n\n"
+                f"👤 **المرسل**: {sender_name}\n"
+                f"⏱ **المدة المقترحة**: {duration_lbl}\n"
+                f"🔗 **الروابط والقنوات المستهدفة**:\n`{channels_text}`\n\n"
+                f"💬 **الرسالة**: _{msg_snippet}_\n"
+                "━━━━━━━━━━━━━━━━━━━\n"
+                "👇 **اختر الإجراء المناسب بضغطة زر**:"
+            )
+            
+            await status_bot_client.send_message(
+                chat_id=recipient.status_bot_chat_id,
+                text=text,
+                reply_markup=get_exchange_request_keyboard(request_id)
+            )
+            logger.info(f"Successfully dispatched Telegram interactive exchange request #{request_id} to user {recipient.id}")
+            return True
+    except Exception as e:
+        logger.error(f"Error in notify_exchange_request_to_recipient for request {request_id}: {e}")
+        return False

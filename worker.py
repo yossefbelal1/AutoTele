@@ -4605,6 +4605,19 @@ async def start_tenant_worker(account: TelegramAccount):
                     db_acc.status = "active"
                     await db_sess.commit()
                     logger.info(f"Self-healed database status to 'active' for tenant {tenant_id}.")
+                
+                # Auto-link user's status_bot_chat_id if not linked yet
+                if db_acc:
+                    db_user = (await db_sess.execute(select(User).where(User.id == db_acc.user_id))).scalar_one_or_none()
+                    if db_user and not db_user.status_bot_chat_id:
+                        try:
+                            me = await client.get_me()
+                            if me and me.id:
+                                db_user.status_bot_chat_id = me.id
+                                await db_sess.commit()
+                                logger.info(f"Auto-linked status_bot_chat_id={me.id} for user {db_user.id} ({db_user.email})")
+                        except Exception as me_err:
+                            logger.debug(f"Could not fetch me.id for auto-link: {me_err}")
         except Exception as dbe:
             logger.debug(f"Could not update status to active for tenant {tenant_id}: {dbe}")
         
@@ -7062,14 +7075,16 @@ async def dispatch_worker_broadcast(
             fail_count = 0
             for user in users:
                 try:
-                    success, reason = await send_telegram_alert(
+                    # 1. Send to user's Telegram Saved Messages
+                    await send_telegram_alert(
                         user.id, 
                         text, 
                         session, 
                         media_type=media_type, 
                         media_path_or_url=media_path
                     )
-                    if not success:
+                    # 2. ALSO send directly to user via central Status Bot chat
+                    try:
                         from status_bot import notify_user_by_id
                         await notify_user_by_id(
                             user.id, 
@@ -7077,6 +7092,8 @@ async def dispatch_worker_broadcast(
                             media_type=media_type, 
                             media_path_or_url=media_path
                         )
+                    except Exception as be:
+                        logger.debug(f"Status bot broadcast error for user {user.id}: {be}")
                     sent_count += 1
                 except Exception as e:
                     logger.error(f"Failed to send admin broadcast to user {user.id}: {e}")
@@ -7255,6 +7272,17 @@ async def redis_pubsub_listener():
                 elif channel == "saas_user_notifications":
                     user_id = data.get("user_id")
                     message_text = data.get("message_text")
+                    exchange_request_id = data.get("exchange_request_id")
+                    
+                    if exchange_request_id:
+                        async def run_exchange_alert():
+                            try:
+                                from status_bot import notify_exchange_request_to_recipient
+                                await notify_exchange_request_to_recipient(exchange_request_id)
+                            except Exception as ex_err:
+                                logger.error(f"Error dispatching exchange request to status bot: {ex_err}")
+                        asyncio.create_task(run_exchange_alert())
+                        
                     if user_id and message_text:
                         async def run_alert():
                             async with AsyncSessionLocal() as session:

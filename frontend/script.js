@@ -844,6 +844,16 @@ async function syncDashboardData() {
       }
     }
 
+    // Status Bot linked indicator & activation banner
+    const botBanner = document.getElementById("status-bot-activation-banner");
+    if (botBanner) {
+      if (response.status_bot_linked) {
+        botBanner.classList.add("hidden");
+      } else {
+        botBanner.classList.remove("hidden");
+      }
+    }
+
     // 3. Central countdown circular SVG ring calculation
     const remainingDays = response.remaining_days || 0;
     const remainingDaysEl = document.getElementById("remaining-days-count");
@@ -3029,23 +3039,30 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Telegram Status Bot Link button click event
+  const handleOpenBotLink = async () => {
+    const newWindow = window.open("", "_blank");
+    try {
+      const response = await apiRequest("/user/status-bot-link");
+      if (response && response.link) {
+        newWindow.location.href = response.link;
+      } else {
+        newWindow.close();
+        showToast("❌ فشل توليد رابط الربط، يرجى المحاولة لاحقاً.", "error");
+      }
+    } catch (err) {
+      newWindow.close();
+      console.error("Link status bot failed:", err);
+    }
+  };
+
   const btnLinkStatusBot = document.getElementById("btn-link-status-bot");
   if (btnLinkStatusBot) {
-    btnLinkStatusBot.addEventListener("click", async () => {
-      const newWindow = window.open("", "_blank");
-      try {
-        const response = await apiRequest("/user/status-bot-link");
-        if (response && response.link) {
-          newWindow.location.href = response.link;
-        } else {
-          newWindow.close();
-          showToast("❌ فشل توليد رابط الربط، يرجى المحاولة لاحقاً.", "error");
-        }
-      } catch (err) {
-        newWindow.close();
-        console.error("Link status bot failed:", err);
-      }
-    });
+    btnLinkStatusBot.addEventListener("click", handleOpenBotLink);
+  }
+
+  const btnBannerLinkBot = document.getElementById("btn-banner-link-bot");
+  if (btnBannerLinkBot) {
+    btnBannerLinkBot.addEventListener("click", handleOpenBotLink);
   }
 
   // Web Campaign Clear and Deep Clear action buttons
