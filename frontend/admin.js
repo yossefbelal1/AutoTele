@@ -61,7 +61,9 @@ async function adminApiRequest(endpoint, options = {}) {
   if (token) {
     options.headers["Authorization"] = `Bearer ${token}`;
   }
-  if (!options.headers["Content-Type"]) {
+  if (options.body instanceof FormData) {
+    delete options.headers["Content-Type"];
+  } else if (!options.headers["Content-Type"]) {
     options.headers["Content-Type"] = "application/json";
   }
 
@@ -309,6 +311,7 @@ function switchTab(tabId) {
     loadAdminUsers();
   } else if (tabId === "tab-broadcast") {
     document.getElementById("broadcast-message").value = "";
+    if (typeof removeBroadcastMedia === "function") removeBroadcastMedia();
   } else if (tabId === "tab-logs") {
     loadLogTenants().then(() => startLogStream());
   } else if (tabId === "tab-health") {
@@ -1722,11 +1725,139 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+// ==========================================
+// BROADCAST MEDIA HANDLERS
+// ==========================================
+let broadcastSelectedFile = null;
+let broadcastMediaThumbUrl = null;
+
+function removeBroadcastMedia(e) {
+  if (e) e.stopPropagation();
+  broadcastSelectedFile = null;
+  const fileInput = document.getElementById("broadcast-media-file");
+  if (fileInput) fileInput.value = "";
+  
+  if (broadcastMediaThumbUrl) {
+    URL.revokeObjectURL(broadcastMediaThumbUrl);
+    broadcastMediaThumbUrl = null;
+  }
+  
+  const previewContainer = document.getElementById("broadcast-media-preview-container");
+  const uploadBox = document.getElementById("broadcast-upload-box");
+  const thumbDiv = document.getElementById("broadcast-media-thumb");
+  if (previewContainer) previewContainer.classList.add("hidden");
+  if (uploadBox) uploadBox.classList.remove("hidden");
+  if (thumbDiv) thumbDiv.innerHTML = "";
+}
+window.removeBroadcastMedia = removeBroadcastMedia;
+
+function handleBroadcastFileSelect(file) {
+  if (!file) return;
+  
+  const maxSize = 50 * 1024 * 1024; // 50 MB
+  if (file.size > maxSize) {
+    showToast("حجم الملف كبير جداً! الحد الأقصى المسموح به هو 50 ميجابايت.", "error");
+    return;
+  }
+  
+  const isImage = file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif)$/i.test(file.name);
+  const isVideo = file.type.startsWith("video/") || /\.(mp4|mov|avi|mkv|webm)$/i.test(file.name);
+  
+  if (!isImage && !isVideo) {
+    showToast("نوع الملف غير مدعوم. يرجى اختيار ملف صورة أو فيديو صالح.", "error");
+    return;
+  }
+  
+  broadcastSelectedFile = file;
+  
+  if (broadcastMediaThumbUrl) {
+    URL.revokeObjectURL(broadcastMediaThumbUrl);
+  }
+  broadcastMediaThumbUrl = URL.createObjectURL(file);
+  
+  const uploadBox = document.getElementById("broadcast-upload-box");
+  const previewContainer = document.getElementById("broadcast-media-preview-container");
+  const thumbDiv = document.getElementById("broadcast-media-thumb");
+  const filenameDiv = document.getElementById("broadcast-media-filename");
+  const filesizeDiv = document.getElementById("broadcast-media-filesize");
+  
+  if (thumbDiv) {
+    if (isImage) {
+      thumbDiv.innerHTML = `<img src="${broadcastMediaThumbUrl}" alt="Preview" style="width: 100%; height: 100%; object-fit: cover;">`;
+    } else {
+      thumbDiv.innerHTML = `<video src="${broadcastMediaThumbUrl}" muted style="width: 100%; height: 100%; object-fit: cover;"></video>`;
+    }
+  }
+  
+  if (filenameDiv) filenameDiv.textContent = file.name;
+  if (filesizeDiv) {
+    const sizeMb = (file.size / (1024 * 1024)).toFixed(2);
+    filesizeDiv.textContent = `${sizeMb} MB | ${isImage ? "صورة 📷" : "فيديو 🎥"}`;
+  }
+  
+  if (uploadBox) uploadBox.classList.add("hidden");
+  if (previewContainer) previewContainer.classList.remove("hidden");
+}
+
+function setupBroadcastMediaHandlers() {
+  const fileInput = document.getElementById("broadcast-media-file");
+  const uploadBox = document.getElementById("broadcast-upload-box");
+  const msgTextarea = document.getElementById("broadcast-message");
+  const charCounter = document.getElementById("broadcast-char-counter");
+  
+  if (fileInput) {
+    fileInput.addEventListener("change", (e) => {
+      if (e.target.files && e.target.files.length > 0) {
+        handleBroadcastFileSelect(e.target.files[0]);
+      }
+    });
+  }
+  
+  if (uploadBox) {
+    uploadBox.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      uploadBox.style.borderColor = "#38bdf8";
+      uploadBox.style.backgroundColor = "rgba(56, 189, 248, 0.1)";
+    });
+    
+    uploadBox.addEventListener("dragleave", (e) => {
+      e.preventDefault();
+      uploadBox.style.borderColor = "rgba(255, 255, 255, 0.15)";
+      uploadBox.style.backgroundColor = "rgba(0, 0, 0, 0.15)";
+    });
+    
+    uploadBox.addEventListener("drop", (e) => {
+      e.preventDefault();
+      uploadBox.style.borderColor = "rgba(255, 255, 255, 0.15)";
+      uploadBox.style.backgroundColor = "rgba(0, 0, 0, 0.15)";
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        handleBroadcastFileSelect(e.dataTransfer.files[0]);
+      }
+    });
+  }
+  
+  if (msgTextarea && charCounter) {
+    msgTextarea.addEventListener("input", () => {
+      const len = msgTextarea.value.length;
+      if (len > 1024) {
+        charCounter.textContent = `${len} حرف (تنبيه: سيتجاوز كابشن الميديا وسيرسل كرسالة متابعة)`;
+        charCounter.style.color = "#f59e0b";
+      } else {
+        charCounter.textContent = `${len} حرف (الحد الأقصى للكابشن: 1024)`;
+        charCounter.style.color = "#94a3b8";
+      }
+    });
+  }
+}
+
 async function handleAdminBroadcast(e) {
   e.preventDefault();
-  const msgText = document.getElementById("broadcast-message").value;
-  if (!msgText.trim()) {
-    showToast("يرجى كتابة نص الرسالة أولاً.", "error");
+  const msgText = document.getElementById("broadcast-message").value.trim();
+  const urlInput = document.getElementById("broadcast-media-url");
+  const mediaUrl = urlInput ? urlInput.value.trim() : "";
+  
+  if (!msgText && !broadcastSelectedFile && !mediaUrl) {
+    showToast("يرجى كتابة نص للرسالة أو إرفاق وسائط (صورة/فيديو) أولاً.", "error");
     return;
   }
   
@@ -1734,21 +1865,44 @@ async function handleAdminBroadcast(e) {
   const targetVal = targetSelect ? targetSelect.value : "all";
   const targetText = targetSelect && targetVal !== "all" ? targetSelect.options[targetSelect.selectedIndex].text : "كافة المشتركين";
   
-  if (!confirm(`هل أنت متأكد من رغبتك في إرسال هذه الرسالة إلى (${targetText})؟`)) return;
+  let mediaDesc = "";
+  if (broadcastSelectedFile) {
+    mediaDesc = broadcastSelectedFile.type.startsWith("video/") || /\.(mp4|mov|webm)$/i.test(broadcastSelectedFile.name) ? " مع فيديو 🎥" : " مع صورة 📷";
+  } else if (mediaUrl) {
+    mediaDesc = " مع رابط وسائط 🔗";
+  }
+  
+  if (!confirm(`هل أنت متأكد من رغبتك في إرسال هذا البث${mediaDesc} إلى (${targetText})؟`)) return;
   
   setButtonLoading("btn-send-broadcast", true);
   try {
-    const payload = {
-      message_text: msgText,
-      target_user_id: targetVal === "all" ? null : parseInt(targetVal)
-    };
+    const formData = new FormData();
+    formData.append("message_text", msgText);
+    if (targetVal !== "all") {
+      formData.append("target_user_id", targetVal);
+    }
+    if (broadcastSelectedFile) {
+      formData.append("media_file", broadcastSelectedFile);
+      const isVideo = broadcastSelectedFile.type.startsWith("video/") || /\.(mp4|mov|webm)$/i.test(broadcastSelectedFile.name);
+      formData.append("media_type", isVideo ? "video" : "photo");
+    } else if (mediaUrl) {
+      formData.append("media_url", mediaUrl);
+    }
+    
     const res = await adminApiRequest("/admin/broadcast", {
       method: "POST",
-      body: JSON.stringify(payload)
+      body: formData
     });
     if (res.status === "success") {
-      showToast(res.message || "تم إرسال الرسالة بنجاح!", "success");
+      showToast(res.message || "تم إرسال البث بنجاح!", "success");
       document.getElementById("broadcast-message").value = "";
+      if (urlInput) urlInput.value = "";
+      removeBroadcastMedia();
+      const charCounter = document.getElementById("broadcast-char-counter");
+      if (charCounter) {
+        charCounter.textContent = "0 حرف (الحد الأقصى للكابشن: 1024)";
+        charCounter.style.color = "#94a3b8";
+      }
     }
   } catch (error) {
     console.error("Broadcast failed:", error);
@@ -1762,6 +1916,7 @@ async function handleAdminBroadcast(e) {
   document.getElementById("admin-edit-form").addEventListener("submit", handleAdminEditSave);
   document.getElementById("btn-close-admin-modal").addEventListener("click", closeAdminEditModal);
   document.getElementById("admin-broadcast-form").addEventListener("submit", handleAdminBroadcast);
+  setupBroadcastMediaHandlers();
 
   // Live Log Stream Handlers
   const btnToggleStream = document.getElementById("btn-toggle-log-stream");

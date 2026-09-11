@@ -9,7 +9,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, List
 from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, Request
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr, Field
@@ -4336,34 +4336,180 @@ async def admin_send_notice(target_user_id: int, req: SendNoticeReq, background_
         return {"status": "success", "message": "تم إرسال الإشعار والتنبيه للعميل بنجاح"}
 
 class BroadcastReq(BaseModel):
-    message_text: str
+    message_text: str = ""
     target_user_id: Optional[int] = None
+    media_type: Optional[str] = None
+    media_url: Optional[str] = None
+    media_base64: Optional[str] = None
+    media_filename: Optional[str] = None
 
-async def dispatch_admin_broadcast(text: str, target_user_id: Optional[int] = None):
-    logger.info(f"Starting admin broadcast via Redis (target_user_id={target_user_id}): {text[:50]}...")
+async def dispatch_admin_broadcast(
+    text: str, 
+    target_user_id: Optional[int] = None,
+    media_type: Optional[str] = None,
+    media_id: Optional[str] = None,
+    media_url: Optional[str] = None,
+    media_filename: Optional[str] = None
+):
+    logger.info(f"Starting admin broadcast via Redis (target_user_id={target_user_id}, media_type={media_type}): {text[:50]}...")
     try:
         import json as _json
-        payload = {"message_text": text}
-        if target_user_id:
-            payload["target_user_id"] = target_user_id
+        payload = {
+            "message_text": text,
+            "target_user_id": target_user_id,
+            "media_type": media_type,
+            "media_id": media_id,
+            "media_url": media_url,
+            "media_filename": media_filename
+        }
         num_subs = await redis_client.publish(
             "saas_admin_broadcast",
             _json.dumps(payload)
         )
         logger.info(f"Broadcast message successfully published to saas_admin_broadcast. Subscribers: {num_subs}")
+
+        # Also create AccountNotification in database for dashboard bell
+        try:
+            async with AsyncSessionLocal() as session:
+                if target_user_id:
+                    users = (await session.execute(select(User).where(User.id == target_user_id))).scalars().all()
+                else:
+                    users = (await session.execute(select(User))).scalars().all()
+
+                media_link = media_url or (f"/api/broadcast/media/{media_id}" if media_id else None)
+                for u in users:
+                    notif = AccountNotification(
+                        user_id=u.id,
+                        notification_type="system_alert",
+                        title="📢 تحديث وإشعار عام من الإدارة",
+                        message=text or ("مرفق جديد من إدارة المنصة" if media_type else "إشعار عام"),
+                        target_url=media_link,
+                        actor_name="إدارة المنصة 🛡️"
+                    )
+                    session.add(notif)
+                await session.commit()
+                logger.info(f"Created AccountNotification for {len(users)} users.")
+        except Exception as dbe:
+            logger.error(f"Failed to record broadcast AccountNotification in DB: {dbe}")
+
         return True
     except Exception as e:
         logger.error(f"Failed to publish broadcast message to Redis: {e}")
         return False
 
+@app.get("/broadcast/media/{media_id}")
+@app.get("/api/broadcast/media/{media_id}")
+async def get_broadcast_media(media_id: str):
+    media_bytes = await redis_client.get(f"broadcast_media:{media_id}")
+    if not media_bytes:
+        raise HTTPException(status_code=404, detail="المرفق غير موجود أو انتهت صلاحيته")
+
+    media_type_raw = await redis_client.get(f"broadcast_media_type:{media_id}")
+    media_type_str = media_type_raw.decode("utf-8") if isinstance(media_type_raw, bytes) else str(media_type_raw or "")
+
+    content_type = "video/mp4" if media_type_str == "video" else "image/jpeg"
+    return Response(content=media_bytes, media_type=content_type)
+
 @app.post("/admin/broadcast")
-async def admin_broadcast(req: BroadcastReq, background_tasks: BackgroundTasks, admin_user: User = Depends(check_admin_user)):
-    if not req.message_text.strip():
-        raise HTTPException(status_code=400, detail="لا يمكن إرسال رسالة فارغة")
-    
-    background_tasks.add_task(dispatch_admin_broadcast, req.message_text.strip(), req.target_user_id)
-    dest_msg = f"للمستخدم المحدد (ID: {req.target_user_id})" if req.target_user_id else "لجميع المشتركين"
-    return {"status": "success", "message": f"جاري إرسال الرسالة {dest_msg} في الخلفية بنجاح!"}
+async def admin_broadcast(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    admin_user: User = Depends(check_admin_user)
+):
+    import base64
+    import uuid
+
+    content_type = request.headers.get("content-type", "")
+    message_text = ""
+    target_user_id = None
+    media_type = None
+    media_url = None
+    media_id = None
+    media_filename = None
+    media_bytes = None
+
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="تنسيق JSON غير صالح")
+        message_text = str(body.get("message_text") or "").strip()
+        t_id = body.get("target_user_id")
+        target_user_id = int(t_id) if t_id not in (None, "", "all") else None
+        media_type = body.get("media_type")
+        media_url = body.get("media_url")
+        media_filename = body.get("media_filename")
+        media_b64 = body.get("media_base64")
+        if media_b64:
+            try:
+                if "," in media_b64:
+                    media_b64 = media_b64.split(",", 1)[1]
+                media_bytes = base64.b64decode(media_b64)
+            except Exception as b64e:
+                raise HTTPException(status_code=400, detail=f"بيانات الملف المشفرة base64 غير صالحة: {b64e}")
+    else:
+        # Multipart form data or regular form
+        form = await request.form()
+        message_text = str(form.get("message_text") or "").strip()
+        t_id = form.get("target_user_id")
+        target_user_id = int(t_id) if t_id not in (None, "", "all") else None
+        media_type = form.get("media_type")
+        media_url = form.get("media_url")
+
+        file_obj = form.get("media_file")
+        if file_obj and hasattr(file_obj, "read"):
+            media_bytes = await file_obj.read()
+            media_filename = getattr(file_obj, "filename", "media_file")
+            file_mime = getattr(file_obj, "content_type", "") or ""
+            if not media_type:
+                if file_mime.startswith("image/") or any(media_filename.lower().endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp", ".gif"]):
+                    media_type = "photo"
+                elif file_mime.startswith("video/") or any(media_filename.lower().endswith(ext) for ext in [".mp4", ".mov", ".avi", ".mkv", ".webm"]):
+                    media_type = "video"
+
+    # Validate that either message_text or media is provided
+    if not message_text and not media_bytes and not media_url:
+        raise HTTPException(status_code=400, detail="يرجى كتابة نص للرسالة أو إرفاق وسائط (صورة/فيديو)")
+
+    # Validate media file size (max 50 MB)
+    if media_bytes:
+        if len(media_bytes) > 50 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="حجم الملف يتجاوز الحد الأقصى المسموح (50 ميجابايت)")
+
+        if not media_type:
+            media_type = "photo"
+
+        media_id = uuid.uuid4().hex
+        try:
+            await redis_client.set(f"broadcast_media:{media_id}", media_bytes, ex=7200)
+            if media_filename:
+                await redis_client.set(f"broadcast_media_filename:{media_id}", media_filename, ex=7200)
+            if media_type:
+                await redis_client.set(f"broadcast_media_type:{media_id}", media_type, ex=7200)
+        except Exception as re:
+            logger.error(f"Failed to cache broadcast media in Redis: {re}")
+            raise HTTPException(status_code=500, detail=f"فشل حفظ المرفق مؤقتاً في السيرفر: {re}")
+
+    if media_url and not media_type:
+        lower_url = media_url.lower()
+        if any(lower_url.endswith(ext) for ext in [".mp4", ".mov", ".avi", ".webm"]):
+            media_type = "video"
+        else:
+            media_type = "photo"
+
+    background_tasks.add_task(
+        dispatch_admin_broadcast,
+        text=message_text,
+        target_user_id=target_user_id,
+        media_type=media_type,
+        media_id=media_id,
+        media_url=media_url,
+        media_filename=media_filename
+    )
+
+    dest_msg = f"للمستخدم المحدد (ID: {target_user_id})" if target_user_id else "لجميع المشتركين"
+    media_desc = f" متضمناً ({'صورة' if media_type == 'photo' else 'فيديو'})" if media_type else ""
+    return {"status": "success", "message": f"جاري إطلاق البث{media_desc} {dest_msg} في الخلفية بنجاح!"}
 
 @app.get("/admin/logs/stream")
 async def live_logs_stream(tenant_id: Optional[int] = None, admin_user: User = Depends(check_admin_user)):

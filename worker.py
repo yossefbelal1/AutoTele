@@ -7017,30 +7017,79 @@ async def global_cleaner_worker():
         await asyncio.sleep(15)
 
 
-async def dispatch_worker_broadcast(text: str, target_user_id: Optional[int] = None):
-    logger.info(f"Starting admin broadcast (target_user_id={target_user_id}): {text[:50]}...")
+async def dispatch_worker_broadcast(
+    text: str, 
+    target_user_id: Optional[int] = None,
+    media_type: Optional[str] = None,
+    media_id: Optional[str] = None,
+    media_url: Optional[str] = None,
+    media_filename: Optional[str] = None
+):
+    logger.info(f"Starting admin broadcast (target_user_id={target_user_id}, media_type={media_type}, media_id={media_id}): {text[:50]}...")
 
-    async with AsyncSessionLocal() as session:
-        if target_user_id:
-            users = (await session.execute(select(User).where(User.id == target_user_id))).scalars().all()
-        else:
-            users = (await session.execute(select(User))).scalars().all()
-        
-        sent_count = 0
-        fail_count = 0
-        for user in users:
+    local_temp_path = None
+    try:
+        from cache_manager import redis_client
+        if media_id:
+            media_bytes = await redis_client.get(f"broadcast_media:{media_id}")
+            if media_bytes:
+                ext = ""
+                if media_filename and "." in media_filename:
+                    ext = os.path.splitext(media_filename)[1]
+                if not ext:
+                    ext = ".mp4" if media_type == "video" else ".jpg"
+
+                import tempfile
+                temp_dir = tempfile.gettempdir()
+                local_temp_path = os.path.join(temp_dir, f"broadcast_{media_id}{ext}")
+                try:
+                    with open(local_temp_path, "wb") as f:
+                        f.write(media_bytes)
+                    logger.info(f"Cached broadcast media to local temp file: {local_temp_path} ({len(media_bytes)} bytes)")
+                except Exception as fe:
+                    logger.error(f"Failed to write local temp media file {local_temp_path}: {fe}")
+                    local_temp_path = None
+
+        media_path = local_temp_path or media_url
+
+        async with AsyncSessionLocal() as session:
+            if target_user_id:
+                users = (await session.execute(select(User).where(User.id == target_user_id))).scalars().all()
+            else:
+                users = (await session.execute(select(User))).scalars().all()
+
+            sent_count = 0
+            fail_count = 0
+            for user in users:
+                try:
+                    success, reason = await send_telegram_alert(
+                        user.id, 
+                        text, 
+                        session, 
+                        media_type=media_type, 
+                        media_path_or_url=media_path
+                    )
+                    if not success:
+                        from status_bot import notify_user_by_id
+                        await notify_user_by_id(
+                            user.id, 
+                            text, 
+                            media_type=media_type, 
+                            media_path_or_url=media_path
+                        )
+                    sent_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to send admin broadcast to user {user.id}: {e}")
+                    fail_count += 1
+
+            logger.info(f"Admin broadcast completed: processed {sent_count} users, failed for {fail_count} users.")
+    finally:
+        if local_temp_path and os.path.exists(local_temp_path):
             try:
-                success, reason = await send_telegram_alert(user.id, text, session)
-                if not success:
-                    # Fallback to status bot directly if Saved Messages alert failed (e.g. no active account)
-                    from status_bot import notify_user_by_id
-                    await notify_user_by_id(user.id, text)
-                sent_count += 1
-            except Exception as e:
-                logger.error(f"Failed to send admin broadcast to user {user.id}: {e}")
-                fail_count += 1
-                
-        logger.info(f"Admin broadcast completed: processed {sent_count} users, failed for {fail_count} users.")
+                os.remove(local_temp_path)
+                logger.info(f"Cleaned up local temp broadcast media file: {local_temp_path}")
+            except Exception as ce:
+                logger.warning(f"Failed to remove temp broadcast media file: {ce}")
 
 async def redis_pubsub_listener():
     from cache_manager import redis_client
@@ -7109,8 +7158,19 @@ async def redis_pubsub_listener():
                 elif channel == "saas_admin_broadcast":
                     message_text = data.get("message_text")
                     target_user_id = data.get("target_user_id")
-                    if message_text:
-                        asyncio.create_task(dispatch_worker_broadcast(message_text, target_user_id))
+                    media_type = data.get("media_type")
+                    media_id = data.get("media_id")
+                    media_url = data.get("media_url")
+                    media_filename = data.get("media_filename")
+                    if message_text or media_id or media_url:
+                        asyncio.create_task(dispatch_worker_broadcast(
+                            text=message_text or "",
+                            target_user_id=target_user_id,
+                            media_type=media_type,
+                            media_id=media_id,
+                            media_url=media_url,
+                            media_filename=media_filename
+                        ))
                         
                 elif channel == "saas_tenant_commands":
                     tenant_id = data.get("tenant_id")
@@ -7213,7 +7273,13 @@ async def redis_pubsub_listener():
         pass
 
 
-async def send_telegram_alert(user_id: int, message_text: str, session: AsyncSession) -> tuple[bool, str]:
+async def send_telegram_alert(
+    user_id: int, 
+    message_text: str, 
+    session: AsyncSession,
+    media_type: Optional[str] = None,
+    media_path_or_url: Optional[str] = None
+) -> tuple[bool, str]:
     stmt = select(TelegramAccount).where(TelegramAccount.user_id == user_id, TelegramAccount.status == "active")
     acc = (await session.execute(stmt)).scalars().first()
     if not acc:
@@ -7248,10 +7314,37 @@ async def send_telegram_alert(user_id: int, message_text: str, session: AsyncSes
             await client.start()
             temp_started = True
             
-        await client.send_message("me", message_text, disable_web_page_preview=True)
+        caption = message_text or ""
+        followup_text = None
+        if media_type and media_path_or_url:
+            if len(caption) > 1024:
+                followup_text = caption
+                caption = caption[:1020] + "..."
+            try:
+                if media_type == "photo":
+                    await client.send_photo("me", photo=media_path_or_url, caption=caption)
+                elif media_type == "video":
+                    await client.send_video("me", video=media_path_or_url, caption=caption)
+                else:
+                    await client.send_message("me", caption, disable_web_page_preview=True)
+
+                if followup_text:
+                    await client.send_message("me", followup_text, disable_web_page_preview=True)
+                logger.info(f"Successfully sent Telegram media alert ({media_type}) to user {user_id} Saved Messages")
+            except Exception as me:
+                logger.error(f"Failed to send media ({media_type}) to user {user_id} Saved Messages: {me}. Falling back to text.")
+                if message_text:
+                    try:
+                        await client.send_message("me", message_text, disable_web_page_preview=True)
+                    except Exception as te:
+                        logger.error(f"Text fallback to Saved Messages also failed for user {user_id}: {te}")
+        else:
+            if message_text:
+                await client.send_message("me", message_text, disable_web_page_preview=True)
+
         try:
             from status_bot import notify_user_by_id
-            await notify_user_by_id(user_id, message_text)
+            await notify_user_by_id(user_id, message_text, media_type=media_type, media_path_or_url=media_path_or_url)
         except Exception as sbe:
             logger.error(f"Status bot alert failed: {sbe}")
         return True, "تم إرسال التنبيه إلى الرسائل المحفوظة وبوت المساعد بنجاح."

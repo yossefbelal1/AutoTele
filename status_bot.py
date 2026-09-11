@@ -873,8 +873,12 @@ async def notify_user_by_tenant_id(tenant_id: int, text: str):
     except Exception as e:
         logger.error(f"Error in notify_user_by_tenant_id for tenant {tenant_id}: {e}")
 
-async def notify_user_by_id(user_id: int, text: str):
-
+async def notify_user_by_id(
+    user_id: int, 
+    text: str, 
+    media_type: Optional[str] = None, 
+    media_path_or_url: Optional[str] = None
+):
     if not status_bot_client or not status_bot_client.is_connected:
         return
     try:
@@ -883,10 +887,37 @@ async def notify_user_by_id(user_id: int, text: str):
                 select(User).where(User.id == user_id)
             )).scalar_one_or_none()
             if user and user.status_bot_chat_id:
-                try:
-                    await status_bot_client.send_message(chat_id=user.status_bot_chat_id, text=text)
-                    logger.info(f"Successfully sent Telegram status bot alert to user {user.id}")
-                except RPCError as se:
-                    logger.error(f"Status bot failed to send message to user {user.id}: {se}")
+                caption = text or ""
+                followup_text = None
+                if media_type and media_path_or_url:
+                    if len(caption) > 1024:
+                        followup_text = caption
+                        caption = caption[:1020] + "..."
+                    try:
+                        if media_type == "photo":
+                            await status_bot_client.send_photo(chat_id=user.status_bot_chat_id, photo=media_path_or_url, caption=caption)
+                        elif media_type == "video":
+                            await status_bot_client.send_video(chat_id=user.status_bot_chat_id, video=media_path_or_url, caption=caption)
+                        else:
+                            await status_bot_client.send_message(chat_id=user.status_bot_chat_id, text=caption)
+                        
+                        if followup_text:
+                            await status_bot_client.send_message(chat_id=user.status_bot_chat_id, text=followup_text)
+                            
+                        logger.info(f"Successfully sent Telegram status bot media alert ({media_type}) to user {user.id}")
+                    except Exception as me:
+                        logger.error(f"Status bot failed to send media ({media_type}) to user {user.id}: {me}. Falling back to text message.")
+                        if text:
+                            try:
+                                await status_bot_client.send_message(chat_id=user.status_bot_chat_id, text=text)
+                            except Exception as te:
+                                logger.error(f"Status bot text fallback also failed for user {user.id}: {te}")
+                else:
+                    if text:
+                        try:
+                            await status_bot_client.send_message(chat_id=user.status_bot_chat_id, text=text)
+                            logger.info(f"Successfully sent Telegram status bot alert to user {user.id}")
+                        except RPCError as se:
+                            logger.error(f"Status bot failed to send message to user {user.id}: {se}")
     except Exception as e:
         logger.error(f"Error in notify_user_by_id for user {user_id}: {e}")

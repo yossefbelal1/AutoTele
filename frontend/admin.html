@@ -527,7 +527,7 @@
         <section id="tab-broadcast" class="tab-panel hidden">
           <div class="panel-header">
             <h1 class="panel-title">بث رسالة جماعية للمشتركين</h1>
-            <p class="panel-subtitle">أرسل رسالة تحذيرية أو إشعار تحديث إلى شات الرسائل المحفوظة لكافة حسابات المشتركين النشطة</p>
+            <p class="panel-subtitle">أرسل رسالة تحذيرية أو إشعار تحديث بالصور والفيديو إلى شات الرسائل المحفوظة وبوت المساعد ولوحة التحكم</p>
           </div>
 
           <div class="card" style="max-width: 800px;">
@@ -539,9 +539,55 @@
                   <option value="all">📢 إرسال إلى جميع المشتركين (All Users)</option>
                 </select>
               </div>
+
+              <!-- Media Attachment Section -->
               <div class="input-group" style="margin-bottom: 20px;">
-                <label for="broadcast-message" style="margin-bottom: 8px; display: block; font-weight: 600;">نص الرسالة (يدعم ماركداون تليجرام):</label>
-                <textarea id="broadcast-message" rows="8" required placeholder="مثال:&#10;⚠️ **تنبيه هام:**&#10;سيتم إيقاف الخدمة لإجراء صيانة دورية لمدة ساعتين تبدأ من الساعة 10:00 مساءً بتوقيت مصر." style="width: 100%; border: 1px solid rgba(255, 255, 255, 0.08); background-color: rgba(0, 0, 0, 0.2); color: #fff; padding: 12px; border-radius: 8px; font-family: inherit; font-size: 14px; line-height: 1.6; resize: vertical; box-sizing: border-box;"></textarea>
+                <label style="margin-bottom: 8px; display: block; font-weight: 600;">
+                  مرفق وسائط (صورة أو فيديو) - <span style="font-size: 12px; color: #94a3b8; font-weight: normal;">اختياري (حد أقصى 50 ميجابايت)</span>:
+                </label>
+
+                <!-- Hidden native file input -->
+                <input type="file" id="broadcast-media-file" accept="image/*,video/*" style="display: none;">
+
+                <!-- Dropzone / Buttons -->
+                <div id="broadcast-upload-box" style="border: 2px dashed rgba(255, 255, 255, 0.15); border-radius: 12px; padding: 20px; text-align: center; background: rgba(0, 0, 0, 0.15); cursor: pointer; transition: all 0.2s;">
+                  <div style="font-size: 32px; margin-bottom: 8px;">📷 🎥</div>
+                  <p style="margin: 0 0 6px 0; font-weight: 600; font-size: 14px; color: #38bdf8;">اضغط هنا لاختيار صورة أو فيديو أو اسحبه إلى هنا</p>
+                  <span style="font-size: 12px; color: #94a3b8;">يدعم: JPG, PNG, WEBP, MP4, MOV, WEBM</span>
+                </div>
+
+                <!-- Media Preview Card (Hidden by default) -->
+                <div id="broadcast-media-preview-container" class="hidden" style="margin-top: 12px; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 10px; padding: 12px; display: flex; align-items: center; justify-content: space-between; gap: 14px;">
+                  <div style="display: flex; align-items: center; gap: 12px; overflow: hidden;">
+                    <div id="broadcast-media-thumb" style="width: 60px; height: 60px; border-radius: 8px; overflow: hidden; background: #000; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                      <!-- Image or video thumbnail inserted dynamically -->
+                    </div>
+                    <div style="overflow: hidden;">
+                      <div id="broadcast-media-filename" style="font-weight: 600; font-size: 13px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px;">ملف وسائط</div>
+                      <div id="broadcast-media-filesize" style="font-size: 11px; color: #94a3b8; margin-top: 2px;">0 MB</div>
+                    </div>
+                  </div>
+                  <button type="button" id="btn-remove-broadcast-media" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px; border-color: #ef4444; color: #ef4444; flex-shrink: 0;">
+                    ❌ إزالة المرفق
+                  </button>
+                </div>
+
+                <!-- Direct Media URL input (optional fallback) -->
+                <div style="margin-top: 10px;">
+                  <details style="font-size: 12px; color: #94a3b8;">
+                    <summary style="cursor: pointer; user-select: none; color: #64748b; font-weight: 500;">🔗 أو ضع رابط مباشر للوسائط (Direct URL)</summary>
+                    <input type="url" id="broadcast-media-url" placeholder="https://example.com/image.jpg أو https://example.com/video.mp4" style="margin-top: 8px; width: 100%; border: 1px solid rgba(255, 255, 255, 0.08); background-color: #17212b; color: #fff; padding: 10px; border-radius: 8px; font-family: inherit; font-size: 13px; box-sizing: border-box;">
+                  </details>
+                </div>
+              </div>
+
+              <!-- Message / Caption Textarea -->
+              <div class="input-group" style="margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <label for="broadcast-message" style="font-weight: 600; margin: 0;">نص الرسالة / الكابشن (يدعم ماركداون تليجرام):</label>
+                  <span id="broadcast-char-counter" style="font-size: 11px; color: #94a3b8;">0 حرف (الحد الأقصى للكابشن: 1024)</span>
+                </div>
+                <textarea id="broadcast-message" rows="7" placeholder="مثال:&#10;🎉 **تحديث جديد ومميزات حصرية!**&#10;تمت إضافة ميزة التبادل الإعلاني وقنوات المجلد التلقائي بنجاح.&#10;شاهد الفيديو التوضيحي أعلاه 👆" style="width: 100%; border: 1px solid rgba(255, 255, 255, 0.08); background-color: rgba(0, 0, 0, 0.2); color: #fff; padding: 12px; border-radius: 8px; font-family: inherit; font-size: 14px; line-height: 1.6; resize: vertical; box-sizing: border-box;"></textarea>
               </div>
 
               <button type="submit" id="btn-send-broadcast" class="btn btn-primary" style="background: linear-gradient(135deg, #e11d48 0%, #be123c 100%); box-shadow: 0 4px 12px rgba(225, 29, 72, 0.25);">
@@ -1133,6 +1179,6 @@
   </div>
 
   <!-- JavaScript Admin Script -->
-  <script src="/admin.js?v=4.0.2"></script>
+  <script src="/admin.js?v=4.3.0"></script>
 </body>
 </html>
