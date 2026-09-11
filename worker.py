@@ -4637,7 +4637,7 @@ async def start_tenant_worker(account: TelegramAccount):
                             WebCampaignTask.telegram_account_id == tenant_id,
                             WebCampaignTask.status.in_(["pending", "processing"])
                         )
-                    )).scalar_one_or_none()
+                    )).scalars().first()
                     if has_db_task:
                         logger.info(f"Tenant {tenant_id} has active DB campaign task {has_db_task}, skipping duplicate Redis resumption.")
                         return
