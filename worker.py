@@ -7098,32 +7098,46 @@ async def dispatch_worker_broadcast(
             sent_count = 0
             fail_count = 0
             for user in users:
+                user_delivered = False
+
+                # 1. Send directly to user via central Status Bot chat (@AutoTeleStatusBot)
                 try:
-                    # 1. Send to user's Telegram Saved Messages
-                    await send_telegram_alert(
+                    from status_bot import notify_user_by_id
+                    bot_delivered = await notify_user_by_id(
+                        user.id, 
+                        text, 
+                        media_type=media_type, 
+                        media_path_or_url=media_path
+                    )
+                    if bot_delivered:
+                        user_delivered = True
+                        logger.info(f"Broadcast delivered to status bot chat for user {user.id}")
+                except Exception as be:
+                    logger.warning(f"Status bot broadcast error for user {user.id}: {be}")
+
+                # 2. Send to user's Telegram Saved Messages
+                try:
+                    alert_delivered, alert_msg = await send_telegram_alert(
                         user.id, 
                         text, 
                         session, 
                         media_type=media_type, 
                         media_path_or_url=media_path
                     )
-                    # 2. ALSO send directly to user via central Status Bot chat
-                    try:
-                        from status_bot import notify_user_by_id
-                        await notify_user_by_id(
-                            user.id, 
-                            text, 
-                            media_type=media_type, 
-                            media_path_or_url=media_path
-                        )
-                    except Exception as be:
-                        logger.debug(f"Status bot broadcast error for user {user.id}: {be}")
+                    if alert_delivered:
+                        user_delivered = True
+                        logger.info(f"Broadcast delivered to Saved Messages for user {user.id}")
+                    else:
+                        logger.info(f"Saved Messages alert for user {user.id}: {alert_msg}")
+                except Exception as se:
+                    logger.warning(f"Saved messages broadcast error for user {user.id}: {se}")
+
+                if user_delivered:
                     sent_count += 1
-                except Exception as e:
-                    logger.error(f"Failed to send admin broadcast to user {user.id}: {e}")
+                else:
                     fail_count += 1
 
-            logger.info(f"Admin broadcast completed: processed {sent_count} users, failed for {fail_count} users.")
+            logger.info(f"Admin broadcast completed: delivered to {sent_count} users, failed for {fail_count} users.")
     finally:
         if local_temp_path and os.path.exists(local_temp_path):
             try:
@@ -7220,7 +7234,10 @@ async def redis_pubsub_listener():
                 elif channel == "saas_tenant_commands":
                     tenant_id = data.get("tenant_id")
                     command = data.get("command")
-                    if command == "cancel_single_job":
+                    if command == "refresh_campaign_channels":
+                        logger.info(f"Received refresh_campaign_channels command for tenant {tenant_id}")
+                        asyncio.create_task(refresh_tenant_campaign_channels(tenant_id))
+                    elif command == "cancel_single_job":
                         task_id = data.get("task_id")
                         logger.info(f"Received cancel_single_job command for tenant {tenant_id}, task {task_id}")
                         jobs = scheduled_jobs.get(tenant_id, [])
@@ -7673,55 +7690,6 @@ async def refresh_tenant_campaign_channels(tenant_id: int) -> bool:
     except Exception as e:
         logger.error(f"Error in refresh_tenant_campaign_channels for tenant {tenant_id}: {e}")
         return False
-
-
-async def redis_pubsub_listener():
-    """
-    Subscribes to Redis pubsub commands ('saas_tenant_commands') sent by main_api.
-    """
-    logger.info("Starting Redis PubSub command listener...")
-    from cache_manager import redis_client
-    import json
-
-    while global_worker_running:
-        pubsub = None
-        try:
-            pubsub = redis_client.pubsub()
-            await pubsub.subscribe("saas_tenant_commands")
-            logger.info("Subscribed to 'saas_tenant_commands' Redis channel.")
-
-            while global_worker_running:
-                try:
-                    message = await asyncio.wait_for(pubsub.get_message(ignore_subscribe_messages=True), timeout=2.0)
-                    if message and message.get("type") == "message":
-                        data_val = message.get("data")
-                        if data_val:
-                            payload = json.loads(data_val) if isinstance(data_val, str) else json.loads(data_val.decode("utf-8"))
-                            tenant_id = payload.get("tenant_id")
-                            cmd = payload.get("command")
-                            logger.info(f"[Redis Command] Received '{cmd}' for tenant {tenant_id}")
-
-                            if cmd == "cancel_jobs":
-                                if tenant_id in active_running_tasks:
-                                    for t in list(active_running_tasks[tenant_id]):
-                                        if not t.done():
-                                            t.cancel()
-                            elif cmd == "refresh_campaign_channels":
-                                asyncio.create_task(refresh_tenant_campaign_channels(tenant_id))
-                except asyncio.TimeoutError:
-                    continue
-                except Exception as loop_err:
-                    logger.error(f"Error in Redis PubSub message handler: {loop_err}")
-                    await asyncio.sleep(1)
-        except Exception as e:
-            logger.error(f"Redis PubSub listener error: {e}")
-            await asyncio.sleep(5)
-        finally:
-            if pubsub:
-                try:
-                    await pubsub.close()
-                except Exception:
-                    pass
 
 
 async def start_global_engine():
