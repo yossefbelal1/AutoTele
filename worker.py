@@ -5134,7 +5134,8 @@ async def run_wave_execution(
             f"• تم النشر في `{published_count}` من `{total_channels}` قناة بنجاح.\n"
             f"• أزواج التبادل المكتملة بنجاح: `{total_pairs}` من `{total_pairs}`.\n\n"
             f"📊 **نشاط الحساب:**\n"
-            f"• إجمالي الإعلانات النشطة حالياً بالقنوات: `{live_active_ads}` إعلان.\n"
+            f"• إجمالي الإعلانات التي تم نشرها في هذه الدورة: `{published_count}` إعلان.\n"
+            f"• إجمالي الإعلانات الحية بالقنوات وقت النشر: `{live_active_ads}` إعلان.\n"
             f"• الموجة القادمة ستنطلق تلقائياً بعد الفاصل المحدد."
         )
         await edit_or_reply(status_msg, complete_text)
@@ -6966,24 +6967,22 @@ async def global_cleaner_worker():
                     active_tasks = (await fin_session.execute(
                         select(WebCampaignTask).where(
                             WebCampaignTask.status == "active",
-                            WebCampaignTask.campaign_type.in_(["timed_post", "single", "channel_exchange"])
+                            WebCampaignTask.campaign_type.in_(["timed_post", "single", "channel_exchange", "bulk"])
                         )
                     )).scalars().all()
                     for t in active_tasks:
                         t_id = t.telegram_account_id
                         
-                        # Fix: Do not auto-complete if the task is actively running in memory
-                        if t_id in active_running_tasks:
-                            continue
-                            
-                        # Fix: Do not auto-complete if task was created very recently (within 2 minutes)
-                        if (datetime.now(timezone.utc) - t.created_at).total_seconds() < 120:
+                        # Only skip if task was created less than 30 seconds ago
+                        if (datetime.now(timezone.utc) - t.created_at).total_seconds() < 30:
                             continue
                             
                         if t.campaign_type == "single":
                             ad_type = "campaign"
                         elif t.campaign_type == "channel_exchange":
                             ad_type = "channel_exchange"
+                        elif t.campaign_type == "bulk":
+                            ad_type = "bulk"
                         else:
                             ad_type = "timed_post"
 

@@ -1895,7 +1895,14 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
                 session.add(task)
                 await session.commit()
 
-            details = f"الحالة: {task.status}"
+            status_ar_map = {
+                "active": "نشط",
+                "pending": "قيد الانتظار",
+                "processing": "جاري التنفيذ",
+                "completed": "مكتمل",
+                "failed": "فشل"
+            }
+            details = f"الحالة: {status_ar_map.get(task.status, task.status)}"
             if task.campaign_type in ["wave", "wave_folder", "activate_exchange"] and state_val == "active" and task.status == "active":
                 # Try to get last wave time from Redis
                 last_wave_raw = await redis_client.get(f"tenant:{tg_account.id}:last_wave_time")
@@ -1928,11 +1935,11 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
                 if task.delay_between_channels > 0:
                     details += f" | الفاصل: {task.delay_between_channels} دقيقة"
                 if task.ad_lifespan > 0:
-                    details += f" | مدة الاعلان: {task.ad_lifespan} دقيقة"
+                    details += f" | مدة بقاء الإعلان: {task.ad_lifespan} دقيقة"
                 if task.target_link:
                     details += f" | القناة: {task.target_link}"
 
-            # For active timed_post, single, and bulk tasks, fetch the real expires_at from ActiveAd
+            # For active timed_post, single, bulk, and channel_exchange tasks, fetch the real expires_at from ActiveAd
             expires_at_str = None
             ad_lifespan_minutes = task.ad_lifespan or 0
             if task.status == "active" and task.campaign_type in ["timed_post", "single", "bulk", "channel_exchange"]:
@@ -1947,24 +1954,68 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
                         )
                         .order_by(ActiveAd.expires_at.desc())
                     )).scalars().first()
+                    now_utc = datetime.now(timezone.utc)
                     if active_ad:
                         exp = active_ad.expires_at
                         if exp.tzinfo is None:
                             exp = exp.replace(tzinfo=timezone.utc)
-                        expires_at_str = exp.isoformat()
-                        # Also derive lifespan from expires_at if not set
-                        if ad_lifespan_minutes == 0:
-                            posted_at = exp - timedelta(minutes=task.ad_lifespan or 0)
-                            ad_lifespan_minutes = task.ad_lifespan
-                except Exception:
-                    pass
+                        if exp <= now_utc:
+                            # Ad has expired - auto-complete task now
+                            task.status = "completed"
+                            done_time = now_utc.strftime("%H:%M")
+                            campaign_labels = {"single": "الحملة الفردية", "bulk": "حملة المجلد المجمع", "timed_post": "حملة النشر المؤقتة", "channel_exchange": "تبادل قناة بقناة"}
+                            label = campaign_labels.get(task.campaign_type, "المهمة")
+                            task.result_summary = (
+                                f"✅ **اكتملت {label} بالكامل**\n"
+                                f"📌 تم النشر ثم الحذف التلقائي للإعلان بنجاح.\n"
+                                f"🕐 وقت الانتهاء: {done_time}"
+                            )
+                            session.add(task)
+                            await session.commit()
+                            expires_at_str = None
+                        else:
+                            expires_at_str = exp.isoformat()
+                            if ad_lifespan_minutes == 0:
+                                ad_lifespan_minutes = task.ad_lifespan
+                    else:
+                        # No active ads found for this task in DB - ads were deleted or expired
+                        task.status = "completed"
+                        done_time = now_utc.strftime("%H:%M")
+                        campaign_labels = {"single": "الحملة الفردية", "bulk": "حملة المجلد المجمع", "timed_post": "حملة النشر المؤقتة", "channel_exchange": "تبادل قناة بقناة"}
+                        label = campaign_labels.get(task.campaign_type, "المهمة")
+                        task.result_summary = (
+                            f"✅ **اكتملت {label} بالكامل**\n"
+                            f"📌 تم النشر ثم الحذف التلقائي للإعلان بنجاح.\n"
+                            f"🕐 وقت الانتهاء: {done_time}"
+                        )
+                        session.add(task)
+                        await session.commit()
+                except Exception as ex_err:
+                    logger.error(f"Error handling expiry for task {task.id}: {ex_err}")
+
+            # Synchronize wave result summary with live active ads count so there's zero contradiction
+            display_summary = task.result_summary
+            if task.campaign_type in ["wave", "wave_folder", "activate_exchange"] and display_summary:
+                import re
+                if live_active_ads_count == 0:
+                    display_summary = re.sub(
+                        r"•\s*إجمالي الإعلانات النشطة حالياً بالقنوات:\s*`?\d+`?\s*إعلان\.?",
+                        "• حالة إعلانات هذه الدورة: انتهت مدتها وتم مسحها تلقائياً (0 إعلان نشط حالياً).",
+                        display_summary
+                    )
+                else:
+                    display_summary = re.sub(
+                        r"•\s*إجمالي الإعلانات النشطة حالياً بالقنوات:\s*`?\d+`?\s*إعلان\.?",
+                        f"• إجمالي الإعلانات النشطة حالياً بالقنوات: `{live_active_ads_count}` إعلان.",
+                        display_summary
+                    )
                 
             all_jobs.append({
                 "id": f"web_{task.id}",
                 "is_web": True,
                 "task_id": task.id,
                 "status": task.status,
-                "result_summary": task.result_summary,
+                "result_summary": display_summary,
                 "campaign_type": task.campaign_type,
                 "type": campaign_type_names.get(task.campaign_type, task.campaign_type),
                 "start_time": scheduled_time_str,

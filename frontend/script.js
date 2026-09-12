@@ -2682,10 +2682,16 @@ async function loadScheduledJobs() {
               </div>
             `;
           }
-          const summaryBox = job.result_summary ? `
+          let sanitizedSummary = job.result_summary || "";
+          if (liveAds === 0 && sanitizedSummary) {
+            sanitizedSummary = sanitizedSummary.replace(/•\s*إجمالي الإعلانات النشطة حالياً بالقنوات:\s*`?\d+`?\s*إعلان\.?/g, "• حالة إعلانات هذه الدورة: انتهت مدتها وتم مسحها تلقائياً (0 إعلان نشط حالياً).");
+          } else if (liveAds > 0 && sanitizedSummary) {
+            sanitizedSummary = sanitizedSummary.replace(/•\s*إجمالي الإعلانات النشطة حالياً بالقنوات:\s*`?\d+`?\s*إعلان\.?/g, `• إجمالي الإعلانات النشطة حالياً بالقنوات: \`${liveAds}\` إعلان.`);
+          }
+          const summaryBox = sanitizedSummary ? `
             <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.05); padding: 12px; border-radius: 8px; margin-top: 8px; color: #cbd5e1; font-size: 12px; line-height: 1.6; white-space: pre-wrap; direction: rtl; text-align: right;">
               <div style="font-weight: 600; color: #94a3b8; margin-bottom: 6px;">📊 تقرير آخر دورة نُشرت:</div>
-              ${formatTelegramText(job.result_summary)}
+              ${formatTelegramText(sanitizedSummary)}
             </div>
           ` : '';
           progressHtml = liveAdsNotice + summaryBox;
@@ -2813,6 +2819,7 @@ async function loadScheduledJobs() {
           if (allDone) {
             clearInterval(window._jobCountdownInterval);
             window._jobCountdownInterval = null;
+            setTimeout(() => { loadScheduledJobs(); }, 3000);
           }
         }, 1000);
       }
