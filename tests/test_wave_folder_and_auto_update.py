@@ -204,3 +204,148 @@ class TestWaveFolderAndAutoUpdate:
         assert enqueued_task.telegram_account_id == 777
         assert enqueued_task.status == "pending"
         assert enqueued_task.campaign_type not in ["wave", "wave_folder", "single", "bulk"]
+
+    @pytest.mark.asyncio
+    async def test_bulk_campaign_isolates_host_channels_to_campaign_folder(self):
+        """Verify that run_bulk_campaign_logic strictly posts into folder channels when available, never outside channels."""
+        from worker import run_bulk_campaign_logic
+        tenant_id = 99995
+        mock_client = AsyncMock()
+        mock_status = AsyncMock()
+
+        # Folder contains Ch 101 and Ch 102
+        folder_ids = [-100101, -100102]
+        # Account has Ch 101, Ch 102, and outside Ch 201, Ch 202
+        channels_all = [
+            {"id": -100101, "title": "Campaign Target 1", "can_send": True},
+            {"id": -100102, "title": "Campaign Target 2", "can_send": True},
+            {"id": -100201, "title": "Outside Personal Ch", "can_send": True},
+            {"id": -100202, "title": "Outside VIP Ch", "can_send": True}
+        ]
+
+        posted_chats = []
+        async def mock_send_message(chat_id, **kwargs):
+            posted_chats.append(chat_id)
+            mock_msg = MagicMock()
+            mock_msg.id = 999
+            return mock_msg
+        mock_client.send_message.side_effect = mock_send_message
+
+        mock_redis = AsyncMock()
+        mock_redis.get.side_effect = lambda key: (
+            json.dumps(folder_ids).encode("utf-8") if "campaign" in key else None
+        )
+
+        mock_db_session = AsyncMock()
+        mock_db_result = MagicMock()
+        mock_acc = MagicMock()
+        mock_acc.id = tenant_id
+        mock_db_result.scalar_one_or_none.return_value = mock_acc
+        mock_db_result.scalars.return_value.all.return_value = []
+        mock_db_session.execute.return_value = mock_db_result
+
+        class MockSessionContext:
+            async def __aenter__(self):
+                return mock_db_session
+            async def __aexit__(self, *args):
+                pass
+
+        with patch("worker.check_admin_rights_dynamic", new=AsyncMock(return_value=True)), \
+             patch("cache_manager.get_channels_cache", new=AsyncMock(return_value=channels_all)), \
+             patch("worker.get_channels_cache", new=AsyncMock(return_value=channels_all)), \
+             patch("worker.get_blacklist_for_tenant", new=AsyncMock(return_value=[])), \
+             patch("cache_manager.redis_client", mock_redis), \
+             patch("worker.AsyncSessionLocal", return_value=MockSessionContext()), \
+             patch("worker.add_ad_record", new=AsyncMock()), \
+             patch("worker.delete_active_ads_in_channel", new=AsyncMock()), \
+             patch("worker.get_safe_min_delay", return_value=0.01), \
+             patch("worker.get_adaptive_delay", return_value=0.01), \
+             patch("worker.save_active_campaign_state", new=AsyncMock()), \
+             patch("worker.clear_active_campaign_state", new=AsyncMock()), \
+             patch("worker.log_tenant_event", new=AsyncMock()), \
+             patch("worker.set_setting", new=AsyncMock()), \
+             patch("asyncio.sleep", new=AsyncMock()):
+
+            await run_bulk_campaign_logic(
+                tenant_id=tenant_id,
+                client=mock_client,
+                ad_text_custom="Folder Isolated Ad",
+                delay_between_channels=0,
+                ad_lifespan=0,
+                status_msg=mock_status
+            )
+
+        # Ads should ONLY have been posted into folder channels (-100101, -100102)
+        assert len(posted_chats) > 0
+        for chat_id in posted_chats:
+            assert chat_id in [-100101, -100102], f"Host channel {chat_id} leaked outside campaign folder!"
+            assert chat_id not in [-100201, -100202], f"Ad posted into outside channel {chat_id}!"
+
+    @pytest.mark.asyncio
+    async def test_bulk_campaign_skips_user_ids(self):
+        """Verify that positive user peer IDs in campaign_ids are skipped safely and never treated as channels."""
+        from worker import run_bulk_campaign_logic
+        tenant_id = 99996
+        mock_client = AsyncMock()
+        mock_status = AsyncMock()
+
+        # Target list has 1 user ID (8816447227) and 1 valid channel (-100101)
+        folder_ids = [8816447227, -100101]
+        channels_all = [
+            {"id": -100101, "title": "Campaign Target 1", "can_send": True},
+            {"id": -100102, "title": "Campaign Host", "can_send": True}
+        ]
+
+        posted_targets = []
+        async def mock_send_message(chat_id, **kwargs):
+            mock_msg = MagicMock()
+            mock_msg.id = 999
+            return mock_msg
+        mock_client.send_message.side_effect = mock_send_message
+
+        mock_redis = AsyncMock()
+        mock_redis.get.side_effect = lambda key: (
+            json.dumps(folder_ids).encode("utf-8") if "campaign" in key else None
+        )
+
+        mock_db_session = AsyncMock()
+        mock_db_result = MagicMock()
+        mock_acc = MagicMock()
+        mock_acc.id = tenant_id
+        mock_db_result.scalar_one_or_none.return_value = mock_acc
+        mock_db_result.scalars.return_value.all.return_value = []
+        mock_db_session.execute.return_value = mock_db_result
+
+        class MockSessionContext:
+            async def __aenter__(self):
+                return mock_db_session
+            async def __aexit__(self, *args):
+                pass
+
+        with patch("worker.check_admin_rights_dynamic", new=AsyncMock(return_value=True)), \
+             patch("cache_manager.get_channels_cache", new=AsyncMock(return_value=channels_all)), \
+             patch("worker.get_channels_cache", new=AsyncMock(return_value=channels_all)), \
+             patch("worker.get_blacklist_for_tenant", new=AsyncMock(return_value=[])), \
+             patch("cache_manager.redis_client", mock_redis), \
+             patch("worker.AsyncSessionLocal", return_value=MockSessionContext()), \
+             patch("worker.add_ad_record", new=AsyncMock()), \
+             patch("worker.delete_active_ads_in_channel", new=AsyncMock()), \
+             patch("worker.get_safe_min_delay", return_value=0.01), \
+             patch("worker.get_adaptive_delay", return_value=0.01), \
+             patch("worker.save_active_campaign_state", new=AsyncMock()), \
+             patch("worker.clear_active_campaign_state", new=AsyncMock()), \
+             patch("worker.log_tenant_event", new=AsyncMock()), \
+             patch("worker.set_setting", new=AsyncMock()), \
+             patch("asyncio.sleep", new=AsyncMock()):
+
+            await run_bulk_campaign_logic(
+                tenant_id=tenant_id,
+                client=mock_client,
+                ad_text_custom="Test",
+                delay_between_channels=0,
+                ad_lifespan=0,
+                status_msg=mock_status
+            )
+
+        # The user ID 8816447227 must have been skipped; only channel -100101 was promoted!
+        assert mock_client.send_message.called

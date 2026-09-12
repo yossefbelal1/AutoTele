@@ -1326,45 +1326,8 @@ async def _crawl_and_cache_tenant_channels_inner(tenant_id: int, client: Client,
         for df in dialog_filters:
             if isinstance(df, (types.DialogFilter, types.DialogFilterChatlist)):
                 title = df.title.strip().lower()
-                ids = []
-                # 1. Parse explicitly included peers
-                for peer in df.include_peers:
-                    cid = getattr(peer, "channel_id", None)
-                    if cid is not None:
-                        ids.append(-(1000000000000 + cid))
-                    elif isinstance(peer, types.InputPeerChat):
-                        ids.append(-peer.chat_id)
-                    elif isinstance(peer, types.InputPeerUser):
-                        ids.append(peer.user_id)
-                
-                # 2. Parse explicitly excluded peers
-                exclude_ids = []
-                if hasattr(df, "exclude_peers") and df.exclude_peers:
-                    for peer in df.exclude_peers:
-                        cid = getattr(peer, "channel_id", None)
-                        if cid is not None:
-                            exclude_ids.append(-(1000000000000 + cid))
-                        elif isinstance(peer, types.InputPeerChat):
-                            exclude_ids.append(-peer.chat_id)
-                        elif isinstance(peer, types.InputPeerUser):
-                            exclude_ids.append(peer.user_id)
-                
-                # 3. Handle category flags (groups / broadcasts)
-                if getattr(df, "groups", False):
-                    for ch in scraped_channels:
-                        if ch.get("is_group", False) and ch["id"] not in ids and ch["id"] not in exclude_ids:
-                            ids.append(ch["id"])
-                            
-                if getattr(df, "broadcasts", False):
-                    for ch in scraped_channels:
-                        if ch.get("is_broadcast", False) and ch["id"] not in ids and ch["id"] not in exclude_ids:
-                            ids.append(ch["id"])
-                            
-                # 4. Filter out any exclusions from include_peers
-                if exclude_ids:
-                    ids = [i for i in ids if i not in exclude_ids]
-                
                 title_clean = title.replace(" ", "_").replace("-", "_")
+                
                 is_no_post = False
                 keywords_no_post = ["no_post", "nopost", "dont_post", "dontpost", "exclude", "except", "استثناء", "لا_تنشر", "بدون_نشر", "لا تنشر", "بدون نشر"]
                 if any(kw in title_clean for kw in keywords_no_post) or title in ["استثناءات", "الاستثناءات", "الاستثناء", "no post", "no-post"]:
@@ -1385,6 +1348,47 @@ async def _crawl_and_cache_tenant_channels_inner(tenant_id: int, client: Client,
                 if any(kw in title_clean for kw in keywords_only_post) or title in ["only post", "only-post"]:
                     is_only_post = True
 
+                title_lower = title_clean.lower()
+                match_custom = _re.search(r'(?:my_?channels|mychannels|قنواتي)[\s_-]*(\d*)', title_lower)
+
+                ids = []
+                # 1. Parse explicitly included peers (Channels and Supergroups only; users/bots are never channels)
+                for peer in df.include_peers:
+                    cid = getattr(peer, "channel_id", None)
+                    if cid is not None:
+                        ids.append(-(1000000000000 + cid))
+                    elif isinstance(peer, types.InputPeerChat):
+                        ids.append(-peer.chat_id)
+                
+                # 2. Parse explicitly excluded peers
+                exclude_ids = []
+                if hasattr(df, "exclude_peers") and df.exclude_peers:
+                    for peer in df.exclude_peers:
+                        cid = getattr(peer, "channel_id", None)
+                        if cid is not None:
+                            exclude_ids.append(-(1000000000000 + cid))
+                        elif isinstance(peer, types.InputPeerChat):
+                            exclude_ids.append(-peer.chat_id)
+                
+                # 3. Handle category flags (groups / broadcasts)
+                # IMPORTANT: For campaign folders (حملات / my_channels), if the user explicitly added channels in include_peers,
+                # we MUST NOT pollute the campaign folder with all broadcast channels across their entire account!
+                if getattr(df, "groups", False):
+                    if not (is_campaign or match_custom) or not ids:
+                        for ch in scraped_channels:
+                            if ch.get("is_group", False) and ch["id"] not in ids and ch["id"] not in exclude_ids:
+                                ids.append(ch["id"])
+                            
+                if getattr(df, "broadcasts", False):
+                    if not (is_campaign or match_custom) or not ids:
+                        for ch in scraped_channels:
+                            if ch.get("is_broadcast", False) and ch["id"] not in ids and ch["id"] not in exclude_ids:
+                                ids.append(ch["id"])
+                            
+                # 4. Filter out any exclusions from include_peers
+                if exclude_ids:
+                    ids = [i for i in ids if i not in exclude_ids]
+
                 if is_no_post:
                     no_post_ids = ids
                 elif is_banned:
@@ -1394,8 +1398,6 @@ async def _crawl_and_cache_tenant_channels_inner(tenant_id: int, client: Client,
                 elif is_only_post:
                     only_post_ids = ids
 
-                title_lower = title_clean.lower()
-                match_custom = _re.search(r'(?:my_?channels|mychannels|قنواتي)[\s_-]*(\d*)', title_lower)
                 if match_custom:
                     num_str = match_custom.group(1)
                     folder_num = int(num_str) if num_str else 1
@@ -1425,17 +1427,13 @@ async def _crawl_and_cache_tenant_channels_inner(tenant_id: int, client: Client,
                     f"added={len(added)} removed={len(removed)} key={key}"
                 )
                 
-                # Anti-Shrink Guard: If previous snapshot had >= 10 items and new read shrunk by >= 50%
-                if prev_count >= 10 and new_count < int(prev_count * 0.5):
-                    logger.error(
-                        f"🚨 CRITICAL FOLDER SHRINK DETECTED: tenant={tenant_id} folder={folder_label} "
-                        f"previous={prev_count} new={new_count} removed={len(removed)} "
-                        f"action=UPDATE_REJECTED (Retaining previous snapshot in cache)"
-                    )
-                    await log_tenant_event(
-                        tenant_id, 
-                        f"🛡️ [حماية المجلدات] تم اكتشاف انخفاض مفاجئ في قنوات مجلد '{folder_label}' "
-                        f"(من {prev_count} إلى {new_count} قناة). تم رفض تحديث الكاش وحفظ النسخة الكاملة تلقائياً."
+                # Anti-Shrink Guard: Protect ONLY against catastrophic zeroing (new_count == 0 when prev_count > 0)
+                # caused by transient network disconnects or Telegram API rate limits during crawling.
+                # Legitimate user channel removals (new_count > 0) must be saved immediately to respect user folder changes.
+                if prev_count > 0 and new_count == 0:
+                    logger.warning(
+                        f"🚨 EMPTY FOLDER CRAWL DETECTED (likely transient Telegram API hiccup): tenant={tenant_id} folder={folder_label} "
+                        f"previous={prev_count} new=0 action=RETAIN_PREVIOUS (Retaining previous snapshot in cache)"
                     )
                     return prev_ids
                 
@@ -2356,10 +2354,11 @@ async def run_bulk_campaign_logic(
     
     try:
         from cache_manager import redis_client
-        # Ensure bot_system_state is active so the campaign does not get aborted by stale stopped states
+        # Ensure bot_system_state is active so the campaign state is recognized, and lock mode to campaign
         try:
             async with AsyncSessionLocal() as act_session:
                 await set_setting(act_session, tenant_id, "bot_system_state", "active")
+                await set_setting(act_session, tenant_id, "wave_folder_mode", "campaign")
                 await act_session.commit()
             await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "active", ex=86400)
         except Exception as _act_err:
@@ -2664,6 +2663,13 @@ async def run_bulk_campaign_logic(
                 logger.debug(f"Failed to update target start status: {_pe}")
             
             try:
+                # 1. Skip non-channel IDs (user accounts / bots are never valid targets)
+                if target_id > 0:
+                    logger.warning(f"Tenant {tenant_id}: Skipping non-channel target ID [{target_id}] (User peer).")
+                    target_states[target_id] = "skipped"
+                    await update_status_message(index, "posting")
+                    continue
+
                 is_admin = await check_admin_rights_dynamic(client, target_id, tenant_id, require_posting_rights=False)
                 if not is_admin:
                     await log_tenant_event(tenant_id, f"⚠️ تم تخطي الترويج للقناة ذات المعرف [{target_id}] في حملة المجلد لأنك لست مشرفاً (Admin) فيها.")
@@ -2688,7 +2694,17 @@ async def run_bulk_campaign_logic(
                 no_post_ids = json.loads(raw_no_post) if raw_no_post else []
                 exclude_ids = set(blacklist) | set(banned_ids) | set(no_post_ids) | {target_id}
                 
-                eligible_ch = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True)]
+                # STRICT FOLDER ISOLATION:
+                # If the user's campaign folder contains valid host channels (channels where the bot can post),
+                # strictly restrict ad publishing to the channels of the campaign folder!
+                # Otherwise (e.g. if targets are purely external channels), fall back to account promoter channels.
+                folder_channel_ids = set(campaign_ids)
+                folder_host_channels = [ch for ch in channels if ch["id"] in folder_channel_ids and ch["id"] not in exclude_ids and ch.get("can_send", True)]
+                if len(folder_host_channels) >= 1:
+                    eligible_ch = folder_host_channels
+                else:
+                    eligible_ch = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True)]
+                
                 import random
                 random.shuffle(eligible_ch)
                 total_ch = len(eligible_ch)
@@ -3646,7 +3662,6 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         if delay_start == 0:
             # Create active task in database so it shows up on website
             async with AsyncSessionLocal() as db_session:
-                await set_setting(db_session, tenant_id, "bot_system_state", "active")
                 new_task = WebCampaignTask(
                     telegram_account_id=tenant_id,
                     campaign_type="bulk",
@@ -3661,7 +3676,6 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 db_session.add(new_task)
                 await db_session.commit()
                 web_task_id = new_task.id
-            await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "active", ex=86400)
 
             if status_msg:
                 await edit_or_reply(status_msg, f"🚀 **جاري بدء حملة المجلد المجمعة فوراً...**")
@@ -6469,15 +6483,7 @@ async def run_web_campaign_task(task_id: int):
                 except Exception as se:
                     logger.debug(f"Could not send start status message to Saved Messages: {se}")
             
-            if task.campaign_type in ["wave", "wave_folder", "single", "timed_post", "channel_exchange", "bulk", "custom_folder", "activate_exchange"]:
-                try:
-                    from cache_manager import redis_client
-                    async with AsyncSessionLocal() as act_session:
-                        await set_setting(act_session, tenant_id, "bot_system_state", "active")
-                        await act_session.commit()
-                    await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "active", ex=86400)
-                except Exception as _act_err:
-                    logger.warning(f"Tenant {tenant_id}: Could not activate bot_system_state on task start: {_act_err}")
+
 
             if task.campaign_type in ["wave", "wave_folder", "activate_exchange"]:
                 is_folder_wave = (task.campaign_type == "wave_folder")
