@@ -5516,9 +5516,14 @@ window.loadExchangeOverview = async function(renderPending = true) {
     if (renderPending) {
       const container = document.getElementById("exchange-overview-pending-container");
       if (container) {
-        // Fetch recent incoming directly to ensure real list
         const incData = await apiRequest("/user/exchange/requests/incoming?status=pending", { silent: true });
         const list = Array.isArray(incData) ? incData : (incData?.requests || []);
+        // Cache these incoming requests so they can be accessed from the Overview tab
+        list.forEach(item => {
+          const idx = cachedIncomingRequests.findIndex(r => String(r.id) === String(item.id));
+          if (idx >= 0) cachedIncomingRequests[idx] = item;
+          else cachedIncomingRequests.push(item);
+        });
         if (list.length === 0) {
           container.innerHTML = `<div style="text-align: center; color: #64748b; padding: 24px; font-size: 13px;">لا توجد طلبات واردة جديدة حالياً ✨</div>`;
         } else {
@@ -6244,7 +6249,18 @@ window.openAcceptExchangeModal = async function(requestId, type) {
   const modal = document.getElementById("modal-accept-exchange");
   if (!modal) return;
 
-  const req = cachedIncomingRequests.find(r => r.id === requestId);
+  let req = cachedIncomingRequests.find(r => String(r.id) === String(requestId));
+  if (!req) {
+    try {
+      const incData = await apiRequest("/user/exchange/requests/incoming", { silent: true });
+      const list = Array.isArray(incData) ? incData : (incData?.requests || []);
+      cachedIncomingRequests = list;
+      req = cachedIncomingRequests.find(r => String(r.id) === String(requestId));
+    } catch (fetchErr) {
+      console.warn("Failed to fetch incoming requests on demand:", fetchErr);
+    }
+  }
+
   if (!req) {
     showToast("تعذر العثور على بيانات الطلب", "error");
     return;
