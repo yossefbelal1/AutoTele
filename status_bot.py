@@ -1332,26 +1332,14 @@ async def handle_private_message(client: Client, message: Message):
                 return
 
 async def notify_user_by_tenant_id(tenant_id: int, text: str):
-
-    if not status_bot_client or not status_bot_client.is_connected:
-        return
-    try:
-        async with AsyncSessionLocal() as session:
-            account = (await session.execute(
-                select(TelegramAccount).where(TelegramAccount.id == tenant_id)
-            )).scalar_one_or_none()
-            if account:
-                user = (await session.execute(
-                    select(User).where(User.id == account.user_id)
-                )).scalar_one_or_none()
-                if user and user.status_bot_chat_id:
-                    try:
-                        await status_bot_client.send_message(chat_id=user.status_bot_chat_id, text=text)
-                        logger.info(f"Successfully sent Telegram status bot alert to user {user.id}")
-                    except RPCError as se:
-                        logger.error(f"Status bot failed to send message to user {user.id}: {se}")
-    except Exception as e:
-        logger.error(f"Error in notify_user_by_tenant_id for tenant {tenant_id}: {e}")
+    """
+    Routine campaign execution alerts (e.g. 'تم نشر حملتك الفردية')
+    are suppressed for the status bot per user preference.
+    The bot is reserved exclusively for interactive and critical events
+    (such as Ad Exchange requests between advertisers, broadcasts, and security alerts).
+    """
+    logger.debug(f"Suppressed routine campaign status bot alert for tenant {tenant_id}: {text[:50]}")
+    return
 
 async def notify_user_by_id(
     user_id: int, 

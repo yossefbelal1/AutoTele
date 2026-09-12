@@ -5704,7 +5704,8 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
                 from cache_manager import redis_client
                 payload = {
                     "user_id": req_obj.requester_user_id,
-                    "message_text": f"🎉 **وافق المعلن ({recipient_name}) على طلب التبادل بقناته ({b_title})!**\n⏱ **المدة**: {life_lbl}\n🚀 بدأ النشر المتبادل فوراً بنجاح."
+                    "message_text": f"🎉 **وافق المعلن ({recipient_name}) على طلب التبادل بقناته ({b_title})!**\n⏱ **المدة**: {life_lbl}\n🚀 بدأ النشر المتبادل فوراً بنجاح.",
+                    "is_important": True
                 }
                 await redis_client.publish("saas_user_notifications", _json.dumps(payload, ensure_ascii=False))
             except Exception as pe:
@@ -5776,7 +5777,8 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
                 from cache_manager import redis_client
                 payload = {
                     "user_id": req_obj.requester_user_id,
-                    "message_text": f"🎉 **وافق المعلن ({recipient_name}) على تنفيذ ونشر حملتك #{req_obj.id}!**\n⏱ **المدة**: {life_lbl}\n🚀 بدأ النشر في جميع قنواته الآن بنجاح."
+                    "message_text": f"🎉 **وافق المعلن ({recipient_name}) على تنفيذ ونشر حملتك #{req_obj.id}!**\n⏱ **المدة**: {life_lbl}\n🚀 بدأ النشر في جميع قنواته الآن بنجاح.",
+                    "is_important": True
                 }
                 await redis_client.publish("saas_user_notifications", _json.dumps(payload, ensure_ascii=False))
             except Exception as pe:
@@ -5828,7 +5830,8 @@ async def reject_exchange_request(request_id: int, req: Optional[RejectExchangeR
                 from cache_manager import redis_client
                 payload = {
                     "user_id": req_obj.requester_user_id,
-                    "message_text": f"❌ **اعتذر المعلن ({recipient_name}) عن قبول طلب {req_label} #{req_obj.id}.**"
+                    "message_text": f"❌ **اعتذر المعلن ({recipient_name}) عن قبول طلب {req_label} #{req_obj.id}.**",
+                    "is_important": True
                 }
                 await redis_client.publish("saas_user_notifications", _json.dumps(payload, ensure_ascii=False))
             except Exception as pe:

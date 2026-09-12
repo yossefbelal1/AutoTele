@@ -2321,14 +2321,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
         if count == 0:
             raise Exception("تعذر النشر في أي قناة بنجاح.")
         await log_tenant_event(tenant_id, f"تم نشر الحملة الفردية! تم النشر في {count} من {total} قناة.")
-        try:
-            from status_bot import notify_user_by_tenant_id
-            if ad_lifespan > 0:
-                await notify_user_by_tenant_id(tenant_id, f"📌 **تم نشر حملتك الفردية!**\n\n📌 تم النشر في `{count}` من `{total}` قناة.\n⏳ سيتم حذف الإعلانات بعد `{ad_lifespan}` دقيقة.")
-            else:
-                await notify_user_by_tenant_id(tenant_id, f"✅ **اكتملت حملتك الفردية بنجاح!**\n\n📌 تم النشر في `{count}` من `{total}` قناة.\n🔗 القناة المروجة: {target_link}")
-        except Exception as nfe:
-            logger.error(f"Failed to send bot notification: {nfe}")
+        # Routine campaign publishing notification suppressed for status bot per user preference
     except Exception as e:
         logger.error(f"Error in campaign execution: {e}")
         if status_msg:
@@ -2971,14 +2964,7 @@ async def run_bulk_campaign_logic(
         if count == 0:
             raise Exception("تعذر النشر في أي قناة بنجاح.")
         await log_tenant_event(tenant_id, f"تم نشر حملة المجلد المجمعة! تم نشر {count} إعلان في القنوات المروجة.")
-        try:
-            from status_bot import notify_user_by_tenant_id
-            if ad_lifespan > 0:
-                await notify_user_by_tenant_id(tenant_id, f"📌 **تم نشر حملة المجلد المجمعة بالكامل!**\n\n🗑️ تم مسح كافة الإعلانات تلقائياً بنجاح.")
-            else:
-                await notify_user_by_tenant_id(tenant_id, f"✅ **اكتملت حملة المجلد المجمعة بنجاح!**\n\n📌 تم النشر بنجاح لجميع الأهداف المحددة في مجلد 'حملات'.")
-        except Exception as nfe:
-            logger.error(f"Failed to send bot notification: {nfe}")
+        # Routine bulk campaign publishing notification suppressed for status bot per user preference
         await clear_active_campaign_state(tenant_id)
     except Exception as e:
         await clear_active_campaign_state(tenant_id)
@@ -7333,6 +7319,7 @@ async def redis_pubsub_listener():
                     user_id = data.get("user_id")
                     message_text = data.get("message_text")
                     exchange_request_id = data.get("exchange_request_id")
+                    is_important = data.get("is_important", False)
                     
                     if exchange_request_id:
                         async def run_exchange_alert():
@@ -7344,10 +7331,21 @@ async def redis_pubsub_listener():
                         asyncio.create_task(run_exchange_alert())
                         
                     if user_id and message_text:
+                        # 1. Send strictly to user Saved Messages via Pyrogram
                         async def run_alert():
                             async with AsyncSessionLocal() as session:
-                                await send_telegram_alert(user_id, message_text, session)
+                                await send_telegram_alert(user_id, message_text, session, notify_bot=False)
                         asyncio.create_task(run_alert())
+
+                        # 2. Send to Status Bot ONLY if it is an interactive exchange update (accepted/rejected/cancelled)
+                        if is_important or ("تبادل" in message_text and any(k in message_text for k in ["وافق", "اعتذر", "قبول", "إلغاء"])):
+                            async def run_bot_exchange_status():
+                                try:
+                                    from status_bot import notify_user_by_id
+                                    await notify_user_by_id(user_id, message_text)
+                                except Exception as be:
+                                    logger.error(f"Error notifying exchange update to status bot: {be}")
+                            asyncio.create_task(run_bot_exchange_status())
         except asyncio.CancelledError:
             break
         except Exception as e:
@@ -7367,7 +7365,7 @@ async def send_telegram_alert(
     session: AsyncSession,
     media_type: Optional[str] = None,
     media_path_or_url: Optional[str] = None,
-    notify_bot: bool = True
+    notify_bot: bool = False
 ) -> tuple[bool, str]:
     stmt = select(TelegramAccount).where(TelegramAccount.user_id == user_id, TelegramAccount.status == "active")
     acc = (await session.execute(stmt)).scalars().first()
