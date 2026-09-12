@@ -436,3 +436,92 @@ class TestCampaignChannelsAnalytics:
             assert res["days_added"] == 3
             assert mock_db_sess.commit.called
 
+    @pytest.mark.asyncio
+    async def test_morx_metrics_accuracy_and_links_count(self):
+        """
+        Explicitly tests MORX case:
+        - 32572 members
+        - 2 links (primary: 45 joins, custom: 12 joins -> total: 57)
+        - Baseline drift (e.g. 32431 giving net_member_gain 141) MUST NEVER inflate joined_today
+        - Today's verified joins strictly comes from link tracking (1)
+        """
+        import main_api
+        from db_manager import TelegramAccount, User
+
+        mock_user = User(id=39, email="tamer@test.com")
+        mock_tg_acc = TelegramAccount(id=11, user_id=39, phone="+201207500631", status="active")
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = mock_tg_acc
+        mock_db_sess = AsyncMock()
+        mock_db_sess.execute.return_value = mock_result
+
+        campaign_folder_ids = json.dumps([-1002125984562])
+        today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+
+        cached_channels = [
+            {
+                "id": -1002125984562,
+                "title": "‏MORX",
+                "username": None,
+                "invite_link": "https://t.me/+zaVOobs_MxtiMDVi",
+                "members_count": 32572,
+                "is_creator": False,
+                "is_admin": True,
+                "is_group": False,
+                "is_broadcast": True,
+                "can_send": False,
+                "total_joins": 57,
+                "primary_link_joins": 45,
+                "custom_links_joins": 12,
+                "links_count": 2,
+                "today_link_joins": 1
+            }
+        ]
+
+        redis_data = {
+            "tenant:11:campaign": campaign_folder_ids,
+            # Even if chan_baseline had a 141 drift
+            f"tenant:11:chan_baseline:-1002125984562:{today_str}": "32431",
+            # Link baseline is tracked at 56 (meaning +1 link join today)
+            f"tenant:11:link_baseline:-1002125984562:{today_str}": "56"
+        }
+
+        async def mock_redis_get(key):
+            return redis_data.get(key)
+
+        async def mock_redis_set(key, val, **kwargs):
+            redis_data[key] = str(val)
+            return True
+
+        with patch("main_api.AsyncSessionLocal") as MockSessionLocal, \
+             patch("main_api.verify_active_subscription", AsyncMock()), \
+             patch("main_api.redis_client.get", side_effect=mock_redis_get), \
+             patch("main_api.redis_client.set", side_effect=mock_redis_set), \
+             patch("main_api.get_channels_cache", AsyncMock(return_value=cached_channels)):
+
+            MockSessionLocal.return_value.__aenter__.return_value = mock_db_sess
+
+            result = await main_api.get_campaign_channels_analytics(user_id=39)
+
+            assert result["status"] == "success"
+            summary = result["summary"]
+            channels = result["channels"]
+
+            assert summary["folder_total_link_joins"] == 57
+            assert summary["folder_total_members"] == 32572
+            # joined_today must be 1, NOT 141!
+            assert summary["folder_joined_today"] == 1
+
+            assert len(channels) == 1
+            morx = channels[0]
+            assert morx["channel_id"] == -1002125984562
+            assert morx["total_members"] == 32572
+            assert morx["total_link_joins"] == 57
+            assert morx["links_count"] == 2
+            assert morx["primary_link_joins"] == 45
+            assert morx["custom_links_joins"] == 12
+            assert morx["joined_today"] == 1  # Exactly verified 1 join today, not 141
+            assert morx["net_member_gain"] == 141  # General growth preserved separately
+
+

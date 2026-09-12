@@ -5177,22 +5177,38 @@ async function loadCampaignChannelsAnalytics(isManual = false, scope = null) {
       } else {
         tbody.innerHTML = channels.map(ch => {
           const totalJoins = ch.total_link_joins !== undefined && ch.total_link_joins !== null ? ch.total_link_joins : 0;
+          const linksCount = ch.links_count !== undefined && ch.links_count !== null ? ch.links_count : (totalJoins > 0 ? 1 : 0);
+          
+          let linksCountText = "لا توجد روابط";
+          if (linksCount === 1) {
+            linksCountText = "عبر رابط واحد";
+          } else if (linksCount === 2) {
+            linksCountText = "عبر رابطين";
+          } else if (linksCount >= 3 && linksCount <= 10) {
+            linksCountText = `عبر ${linksCount} روابط`;
+          } else if (linksCount > 10) {
+            linksCountText = `عبر ${linksCount} رابط`;
+          }
+
           const linkJoinsBadge = totalJoins > 0
             ? `<div style="display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px;">
-                 <span style="background: rgba(56,189,248,0.15); color: #38bdf8; font-weight: 700; padding: 2px 8px; border-radius: 12px; font-size: 11.5px; border: 1px solid rgba(56,189,248,0.3);" title="إجمالي الروابط: ${totalJoins.toLocaleString()} (أساسي: ${ch.primary_link_joins || 0} | مخصص: ${ch.custom_links_joins || 0})">
-                   🔗 ${totalJoins.toLocaleString()}
+                 <span style="background: rgba(56,189,248,0.15); color: #38bdf8; font-weight: 700; padding: 2px 8px; border-radius: 12px; font-size: 11.5px; border: 1px solid rgba(56,189,248,0.3);" title="إجمالي المنضمين عبر الروابط: ${totalJoins.toLocaleString()} (رابط أساسي: ${ch.primary_link_joins || 0} عضو | روابط مخصصة: ${ch.custom_links_joins || 0} عضو)">
+                   🔗 ${totalJoins.toLocaleString()} عضو
                  </span>
-                 <span style="font-size: 10px; color: #64748b;">إجمالي الروابط</span>
+                 <span style="font-size: 10px; color: #64748b; font-weight: 500;">${linksCountText}</span>
                </div>`
-            : `<span style="color: #64748b; font-size: 12px;">0</span>`;
+            : `<div style="display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px;">
+                 <span style="color: #64748b; font-size: 12px; font-weight: 600;">0 عضو</span>
+                 <span style="font-size: 10px; color: #475569;">${linksCount > 0 ? linksCountText : "بدون روابط"}</span>
+               </div>`;
 
           const joinedTodayCount = ch.joined_today || 0;
           const joinedBadge = (joinedTodayCount > 0)
             ? `<div style="display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px;">
-                 <span style="background: rgba(16,185,129,0.15); color: #34d399; font-weight: 700; padding: 2px 8px; border-radius: 12px; font-size: 11.5px; border: 1px solid rgba(16,185,129,0.3);" title="انضمام اليوم فقط: +${joinedTodayCount.toLocaleString()}">
+                 <span style="background: rgba(16,185,129,0.15); color: #34d399; font-weight: 700; padding: 2px 8px; border-radius: 12px; font-size: 11.5px; border: 1px solid rgba(16,185,129,0.3);" title="المشتركين الجدد المنضمين اليوم: +${joinedTodayCount.toLocaleString()}">
                    +${joinedTodayCount.toLocaleString()}
                  </span>
-                 <span style="font-size: 10px; color: #10b981; font-weight: 600;">اليوم فقط</span>
+                 <span style="font-size: 10px; color: #10b981; font-weight: 600;">اليوم</span>
                </div>`
             : `<div style="display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px;">
                  <span style="color: #64748b; font-size: 12px; font-weight: 600; padding: 2px 6px;">+0</span>
@@ -5211,6 +5227,11 @@ async function loadCampaignChannelsAnalytics(isManual = false, scope = null) {
             ? `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; font-size: 10px; padding: 1px 6px; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.3); margin-right: 6px; display: inline-block;">📁 مجلد حملات</span>`
             : "";
 
+          const netMemberGain = ch.net_member_gain || 0;
+          const memberGainSubtext = (netMemberGain > 0 && netMemberGain !== joinedTodayCount)
+            ? `<div style="font-size: 10px; color: #94a3b8; font-weight: normal; margin-top: 2px;" title="صافي نمو القناة الكلي اليوم">+${netMemberGain.toLocaleString()} نمو عام</div>`
+            : "";
+
           return `
             <tr style="border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.2s;">
               <td style="padding: 12px 14px;">
@@ -5226,6 +5247,7 @@ async function loadCampaignChannelsAnalytics(isManual = false, scope = null) {
               </td>
               <td style="padding: 12px 14px; color: #e2e8f0; font-weight: 600;">
                 ${(ch.total_members || 0).toLocaleString()}
+                ${memberGainSubtext}
               </td>
               <td style="padding: 12px 14px;">
                 ${linkJoinsBadge}

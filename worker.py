@@ -1173,6 +1173,19 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                             except Exception as ie:
                                 logger.debug(f"Invite links check skipped for chat {chat_id}: {ie}")
 
+                            # Count active links
+                            active_links = set()
+                            if primary_invite_link:
+                                active_links.add(primary_invite_link)
+                            if 'invites' in locals() and invites:
+                                for inv in invites:
+                                    if getattr(inv, "revoked", False) or getattr(inv, "expired", False):
+                                        continue
+                                    lnk = getattr(inv, "link", None)
+                                    if lnk:
+                                        active_links.add(lnk)
+                            links_count = len(active_links)
+
                             # Fallback: if no custom link was chosen, use primary link
                             if not chosen_invite_link:
                                 chosen_invite_link = primary_invite_link
@@ -1181,6 +1194,8 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                             if not chosen_invite_link:
                                 try:
                                     chosen_invite_link = await client.export_chat_invite_link(chat_id)
+                                    if chosen_invite_link:
+                                        links_count = max(links_count, 1)
                                 except Exception:
                                     pass
 
@@ -1212,6 +1227,7 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                                 "can_send": can_send,
                                 "latest_views": views_count,
                                 "avg_views": avg_views,
+                                "links_count": links_count,
                                 "total_joins": total_channel_joins,
                                 "primary_link_joins": primary_link_joins,
                                 "custom_links_joins": custom_links_joins,
@@ -7818,17 +7834,20 @@ async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaig
             try:
                 chat_id = int(cid)
                 peer = await client.resolve_peer(chat_id)
-                full_res = await client.invoke(functions.channels.GetFullChannel(channel=peer), sleep_threshold=2)
+                full_res = await client.invoke(functions.channels.GetFullChannel(channel=peer), sleep_threshold=10)
                 full_chat = getattr(full_res, "full_chat", None)
 
                 primary_link = None
                 primary_joins = 0
                 custom_joins = 0
+                active_links = set()
 
                 exported_inv = getattr(full_chat, "exported_invite", None)
                 if exported_inv:
                     primary_link = getattr(exported_inv, "link", None)
                     primary_joins = getattr(exported_inv, "usage", 0) or 0
+                    if primary_link:
+                        active_links.add(primary_link)
 
                 full_participants = getattr(full_chat, "participants_count", None)
 
@@ -7842,7 +7861,7 @@ async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaig
                             admin_id=types.InputUserSelf(),
                             limit=30
                         ),
-                        sleep_threshold=2
+                        sleep_threshold=10
                     )
                     for inv in getattr(res_inv, "invites", []):
                         if getattr(inv, "revoked", False) or getattr(inv, "expired", False):
@@ -7850,6 +7869,8 @@ async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaig
                         p = getattr(inv, "permanent", False)
                         u = getattr(inv, "usage", 0) or 0
                         inv_lnk = getattr(inv, "link", None)
+                        if inv_lnk:
+                            active_links.add(inv_lnk)
                         if p and not primary_joins:
                             primary_joins = u
                             if not primary_link:
@@ -7868,7 +7889,7 @@ async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaig
                                         limit=50,
                                         link=inv_lnk
                                     ),
-                                    sleep_threshold=2
+                                    sleep_threshold=5
                                 )
                                 for imp in getattr(imp_res, "importers", []):
                                     if getattr(imp, "date", 0) >= today_start_ts:
@@ -7881,6 +7902,7 @@ async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaig
                     logger.debug(f"Custom invites lookup skipped for {chat_id}: {ie}")
 
                 total_joins = primary_joins + custom_joins
+                links_count = len(active_links)
 
                 # Find entry in cached_map
                 ch_entry = cached_map.get(chat_id)
@@ -7895,10 +7917,20 @@ async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaig
                         ch_entry["members_count"] = full_participants
                     if primary_link and not ch_entry.get("invite_link"):
                         ch_entry["invite_link"] = primary_link
+                    ch_entry["links_count"] = links_count
                     ch_entry["primary_link_joins"] = primary_joins
                     ch_entry["custom_links_joins"] = custom_joins
                     ch_entry["total_joins"] = total_joins
                     ch_entry["today_link_joins"] = today_link_joins
+                
+                # Polite delay between channel requests to avoid Telegram flood limits
+                await asyncio.sleep(0.35)
+            except errors.FloodWait as fw:
+                logger.warning(f"Telegram FloodWait {fw.value}s when refreshing channel {cid} for tenant {tenant_id}")
+                if fw.value <= 10:
+                    await asyncio.sleep(fw.value)
+                else:
+                    break
             except Exception as ce:
                 logger.warning(f"Failed to refresh channel {cid} for tenant {tenant_id}: {ce}")
 

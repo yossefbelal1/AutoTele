@@ -1493,6 +1493,7 @@ async def get_campaign_channels_analytics(
             primary_joins = int(ch.get("primary_link_joins") or 0)
             custom_joins = int(ch.get("custom_links_joins") or 0)
             total_link_joins = int(ch.get("total_joins") or (primary_joins + custom_joins))
+            links_count = int(ch.get("links_count") or (1 if total_link_joins > 0 or ch.get("invite_link") else 0))
 
             # 3. Calculate joined_today strictly from daily baselines (only today's new members)
             baseline_key = f"tenant:{acc_id}:chan_baseline:{ch_id}:{today_str}"
@@ -1519,10 +1520,20 @@ async def get_campaign_channels_analytics(
                     link_baseline = int(raw_link_baseline)
                     link_joins_today = max(0, total_link_joins - link_baseline)
 
-                # 3.3 Genuine today's joins: max of net member growth and link joins gained today
-                # plus any verified today_link_joins from Telegram importers if present
+                # 3.3 Genuine today's joins:
+                # For channels with invite links, today's joins are strictly verified from link tracking/importers.
+                # All-time link joins or unrelated member fluctuations can never inflate today's join count.
                 worker_today_joins = int(ch.get("today_link_joins") or 0)
-                joined_today = max(net_member_gain, link_joins_today, worker_today_joins)
+                verified_link_today = max(link_joins_today, worker_today_joins)
+
+                if total_link_joins > 0:
+                    if raw_link_baseline is not None:
+                        joined_today = min(total_link_joins, verified_link_today)
+                    else:
+                        valid_net_gain = net_member_gain if net_member_gain <= total_link_joins else 0
+                        joined_today = min(total_link_joins, max(verified_link_today, valid_net_gain))
+                else:
+                    joined_today = net_member_gain
             except Exception as be:
                 logger.error(f"Error calculating joined_today baseline for channel {ch_id}: {be}")
                 joined_today = 0
@@ -1539,6 +1550,7 @@ async def get_campaign_channels_analytics(
                 "total_members": current_members,
                 "joined_today": joined_today,
                 "total_link_joins": total_link_joins,
+                "links_count": links_count,
                 "primary_link_joins": primary_joins,
                 "custom_links_joins": custom_joins,
                 "link_joins_today": link_joins_today,
