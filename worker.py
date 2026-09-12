@@ -4606,13 +4606,13 @@ async def start_tenant_worker(account: TelegramAccount):
                     await db_sess.commit()
                     logger.info(f"Self-healed database status to 'active' for tenant {tenant_id}.")
                 
-                # Auto-link user's status_bot_chat_id if not linked yet
+                # Auto-link user's status_bot_chat_id if not linked or if ID changed
                 if db_acc:
                     db_user = (await db_sess.execute(select(User).where(User.id == db_acc.user_id))).scalar_one_or_none()
-                    if db_user and not db_user.status_bot_chat_id:
+                    if db_user:
                         try:
                             me = await client.get_me()
-                            if me and me.id:
+                            if me and me.id and (not db_user.status_bot_chat_id or db_user.status_bot_chat_id != me.id):
                                 db_user.status_bot_chat_id = me.id
                                 await db_sess.commit()
                                 logger.info(f"Auto-linked status_bot_chat_id={me.id} for user {db_user.id} ({db_user.email})")
@@ -7122,7 +7122,8 @@ async def dispatch_worker_broadcast(
                         text, 
                         session, 
                         media_type=media_type, 
-                        media_path_or_url=media_path
+                        media_path_or_url=media_path,
+                        notify_bot=False
                     )
                     if alert_delivered:
                         user_delivered = True
@@ -7351,7 +7352,8 @@ async def send_telegram_alert(
     message_text: str, 
     session: AsyncSession,
     media_type: Optional[str] = None,
-    media_path_or_url: Optional[str] = None
+    media_path_or_url: Optional[str] = None,
+    notify_bot: bool = True
 ) -> tuple[bool, str]:
     stmt = select(TelegramAccount).where(TelegramAccount.user_id == user_id, TelegramAccount.status == "active")
     acc = (await session.execute(stmt)).scalars().first()
@@ -7415,11 +7417,12 @@ async def send_telegram_alert(
             if message_text:
                 await client.send_message("me", message_text, disable_web_page_preview=True)
 
-        try:
-            from status_bot import notify_user_by_id
-            await notify_user_by_id(user_id, message_text, media_type=media_type, media_path_or_url=media_path_or_url)
-        except Exception as sbe:
-            logger.error(f"Status bot alert failed: {sbe}")
+        if notify_bot:
+            try:
+                from status_bot import notify_user_by_id
+                await notify_user_by_id(user_id, message_text, media_type=media_type, media_path_or_url=media_path_or_url)
+            except Exception as sbe:
+                logger.error(f"Status bot alert failed: {sbe}")
         return True, "تم إرسال التنبيه إلى الرسائل المحفوظة وبوت المساعد بنجاح."
     except Exception as e:
         logger.error(f"Failed to send Telegram alert to user {user_id}: {e}")
