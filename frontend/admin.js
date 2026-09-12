@@ -996,6 +996,7 @@ function renderFilteredAdminUsers() {
         <div class="action-btn-group" style="justify-content: center; gap: 5px; flex-wrap: wrap;">
           <button type="button" class="btn-table btn-impersonate" style="background: rgba(14, 165, 233, 0.15); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.35); padding: 5px 9px; border-radius: 6px; font-weight: 700; cursor: pointer;" title="دخول إلى حساب العميل" onclick="impersonateUser(${user.id}, '${escapeHtml(rawName)}', '${escapeHtml(user.email)}')">👤 دخول</button>
           <button type="button" class="btn-table btn-diag" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); padding: 5px 9px; border-radius: 6px; font-weight: 700; cursor: pointer;" title="تشخيص وحل المشاكل" onclick="openUserDiagnosticsModal(${user.id})">🔍 تشخيص</button>
+          <button type="button" class="btn-table btn-password" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); padding: 5px 8px; border-radius: 6px; font-weight: 600; cursor: pointer;" title="تعيين كلمة مرور جديدة للعميل ونسخ بيانات الدخول" onclick="openAdminChangePasswordModal(${userJson})">🔑 باسورد</button>
           <button type="button" class="btn-table btn-edit" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 5px 8px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="openAdminEditModal(${userJson})">تعديل</button>
           <button type="button" class="btn-table btn-reboot" style="${rebootBtnStyle} padding: 5px 8px; border-radius: 6px; font-weight: 600;" onclick="${rebootAction}">ريبوت</button>
           <button type="button" class="btn-table btn-delete" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 5px 8px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="deleteUserAccount(${user.id})">حذف</button>
@@ -1066,6 +1067,10 @@ function renderFilteredAdminUsers() {
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <span>تشخيص</span>
           </button>
+          <button type="button" class="btn-card-action btn-card-password" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); font-weight: 700;" onclick="openAdminChangePasswordModal(${userJson})">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m21 3-9.5 9.5"/><path d="m15.5 7.5 3 3"/><path d="M18 5l2 2"/></svg>
+            <span>باسورد</span>
+          </button>
           <button type="button" class="btn-card-action btn-card-edit" onclick="openAdminEditModal(${userJson})">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             <span>تعديل</span>
@@ -1114,6 +1119,10 @@ function openAdminEditModal(user) {
     proxyResEl.classList.add("hidden");
     proxyResEl.innerHTML = "";
   }
+
+  // Reset new password input in edit modal
+  const newPassEl = document.getElementById("edit-user-new-password");
+  if (newPassEl) newPassEl.value = "";
 
   document.getElementById("admin-edit-modal").classList.remove("hidden");
 }
@@ -1195,6 +1204,12 @@ async function handleAdminEditSave(e) {
   const proxyPort = document.getElementById("edit-user-proxy-port").value.trim();
   const proxyUser = document.getElementById("edit-user-proxy-user").value.trim();
   const proxyPass = document.getElementById("edit-user-proxy-pass").value.trim();
+  const newPass = document.getElementById("edit-user-new-password") ? document.getElementById("edit-user-new-password").value.trim() : "";
+
+  if (newPass && newPass.length < 6) {
+    showToast("يجب أن تتكون كلمة المرور الجديدة من 6 أحرف على الأقل", "warning");
+    return;
+  }
 
   setButtonLoading("btn-save-admin-edit", true);
 
@@ -1210,7 +1225,8 @@ async function handleAdminEditSave(e) {
         proxy_host: proxyHost || null,
         proxy_port: proxyPort ? parseInt(proxyPort, 10) : null,
         proxy_username: proxyUser || null,
-        proxy_password: proxyPass || null
+        proxy_password: proxyPass || null,
+        new_password: newPass || null
       })
     });
 
@@ -1245,6 +1261,163 @@ window.deleteUserAccount = async function(userId) {
     loadAdminUsers();
   } catch (error) {
     console.error(error);
+  }
+};
+
+// ==============================================================================
+// 7.35 ADMIN CLIENT PASSWORD & CREDENTIALS CONTROLLERS
+// ==========================================================
+
+function generateSecureRandomPassword() {
+  const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let randomPart = "";
+  for (let i = 0; i < 6; i++) {
+    randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return `Tele#${randomPart}`;
+}
+
+function copyTextToClipboard(text, successToastMsg) {
+  if (!text) return;
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(() => {
+      showToast(successToastMsg || "تم النسخ بنجاح!", "success");
+    }).catch(() => {
+      fallbackCopyText(text, successToastMsg);
+    });
+  } else {
+    fallbackCopyText(text, successToastMsg);
+  }
+}
+window.copyTextToClipboard = copyTextToClipboard;
+
+function fallbackCopyText(text, successToastMsg) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.left = "-9999px";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try {
+    document.execCommand('copy');
+    showToast(successToastMsg || "تم النسخ بنجاح!", "success");
+  } catch (err) {
+    console.error("Fallback copy error:", err);
+    showToast("تعذر النسخ التلقائي، يرجى النسخ يدوياً", "error");
+  }
+  document.body.removeChild(ta);
+}
+
+window.copyClientEmailFromEdit = function() {
+  const email = document.getElementById("edit-user-email")?.value;
+  if (email) {
+    copyTextToClipboard(email, `تم نسخ البريد الإلكتروني للعميل (${email})`);
+  }
+};
+
+window.generateRandomPasswordForEdit = function() {
+  const pwdInput = document.getElementById("edit-user-new-password");
+  if (pwdInput) {
+    const pwd = generateSecureRandomPassword();
+    pwdInput.value = pwd;
+    showToast(`تم توليد كلمة مرور جديدة: ${pwd}`, "info");
+  }
+};
+
+let currentChangePasswordUser = null;
+
+window.openAdminChangePasswordModal = function(user) {
+  currentChangePasswordUser = user;
+  const userIdEl = document.getElementById("pwd-modal-user-id");
+  if (userIdEl) userIdEl.value = user.id;
+
+  const nameEl = document.getElementById("pwd-modal-user-name");
+  if (nameEl) nameEl.textContent = `${user.full_name || user.email.split('@')[0]} (#${user.id})`;
+
+  const emailEl = document.getElementById("pwd-modal-user-email");
+  if (emailEl) emailEl.textContent = user.email;
+
+  const phoneEl = document.getElementById("pwd-modal-user-phone");
+  if (phoneEl) {
+    phoneEl.textContent = (user.phones && user.phones.length > 0) ? user.phones.join(', ') : 'لا يوجد هاتف مربوط';
+  }
+
+  // Generate random password by default to save admin time
+  const passInput = document.getElementById("pwd-modal-new-pass");
+  if (passInput) {
+    passInput.value = generateSecureRandomPassword();
+  }
+
+  document.getElementById("modal-admin-change-password")?.classList.remove("hidden");
+};
+
+window.closeAdminChangePasswordModal = function() {
+  document.getElementById("modal-admin-change-password")?.classList.add("hidden");
+  currentChangePasswordUser = null;
+};
+
+window.copyClientEmailOnly = function() {
+  if (currentChangePasswordUser && currentChangePasswordUser.email) {
+    copyTextToClipboard(currentChangePasswordUser.email, `تم نسخ البريد (${currentChangePasswordUser.email})`);
+  }
+};
+
+window.generateRandomPasswordForModal = function() {
+  const passInput = document.getElementById("pwd-modal-new-pass");
+  if (passInput) {
+    const pwd = generateSecureRandomPassword();
+    passInput.value = pwd;
+    showToast(`تم توليد كلمة مرور جديدة: ${pwd}`, "info");
+  }
+};
+
+window.copyFullCredentialsMessage = function() {
+  if (!currentChangePasswordUser) {
+    showToast("يرجى اختيار عميل أولاً", "warning");
+    return;
+  }
+  const email = currentChangePasswordUser.email;
+  const pass = document.getElementById("pwd-modal-new-pass")?.value || "";
+  if (!pass) {
+    showToast("يرجى إدخال أو توليد كلمة مرور أولاً", "warning");
+    return;
+  }
+  const siteUrl = window.location.origin || "https://autotele.online";
+  const msg = `مرحباً بك، هذه بيانات تسجيل دخولك إلى منصة أوتو-تيلي:\n\n📧 البريد الإلكتروني: ${email}\n🔑 كلمة المرور: ${pass}\n🌐 رابط المنصة:\n${siteUrl}/login.html\n\n💡 نصيحة: يرجى حفظ هذه البيانات، ويمكنك تغيير كلمة المرور في أي وقت من إعدادات حسابك بعد الدخول.`;
+
+  copyTextToClipboard(msg, "تم نسخ رسالة بيانات الدخول كاملة! يمكنك لصقها وإرسالها للعميل فوراً.");
+};
+
+window.handleAdminChangePasswordSubmit = async function(e) {
+  if (e && e.preventDefault) e.preventDefault();
+  const userId = document.getElementById("pwd-modal-user-id")?.value;
+  const newPass = document.getElementById("pwd-modal-new-pass")?.value?.trim();
+
+  if (!userId) {
+    showToast("خطأ: لم يتم تحديد العميل", "error");
+    return;
+  }
+  if (!newPass || newPass.length < 6) {
+    showToast("يجب أن تتكون كلمة المرور من 6 أحرف على الأقل", "error");
+    return;
+  }
+
+  setButtonLoading("btn-submit-change-pwd", true);
+  try {
+    const res = await adminApiRequest(`/admin/users/${userId}/change-password`, {
+      method: "POST",
+      body: JSON.stringify({ new_password: newPass })
+    });
+
+    if (res.status === "success") {
+      showToast(res.message || "تم تغيير كلمة مرور العميل بنجاح!", "success");
+      closeAdminChangePasswordModal();
+    }
+  } catch (err) {
+    console.error("Failed to change user password:", err);
+  } finally {
+    setButtonLoading("btn-submit-change-pwd", false);
   }
 };
 

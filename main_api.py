@@ -2812,6 +2812,9 @@ class AdminVerifyOtpReq(BaseModel):
     challenge_token: str
     otp_code: str
 
+class AdminChangePasswordReq(BaseModel):
+    new_password: str = Field(..., min_length=6, max_length=128)
+
 class ModifySubscriptionReq(BaseModel):
     full_name: Optional[str] = None
     subscription_plan: str
@@ -2822,6 +2825,7 @@ class ModifySubscriptionReq(BaseModel):
     proxy_port: Optional[int] = None
     proxy_username: Optional[str] = None
     proxy_password: Optional[str] = None
+    new_password: Optional[str] = None
 
 async def send_telegram_otp(otp_code: str):
     raw_targets = os.getenv("ADMIN_OTP_PHONES", "+201225721082,+201062576181")
@@ -3876,6 +3880,13 @@ async def modify_subscription(target_user_id: int, req: ModifySubscriptionReq, b
             user.sub_shutdown_executed = False
         if req.is_admin is not None:
             user.is_admin = req.is_admin
+
+        if req.new_password and req.new_password.strip():
+            clean_pwd = req.new_password.strip()
+            if len(clean_pwd) < 6:
+                raise HTTPException(status_code=400, detail="يجب أن تتكون كلمة المرور من 6 أحرف على الأقل")
+            user.password_hash = bcrypt.hashpw(clean_pwd.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            logger.info(f"Admin {admin_user.email} (ID: {admin_user.id}) changed password for user {user.email} (ID: {user.id}) via modify-subscription")
             
         if req.proxy_host is not None:
             user.proxy_host = req.proxy_host.strip() if req.proxy_host.strip() else None
@@ -3929,6 +3940,29 @@ async def modify_subscription(target_user_id: int, req: ModifySubscriptionReq, b
             background_tasks.add_task(send_renewal_alert_task, user.id, plan_label, end_dt.strftime("%Y-%m-%d %H:%M:%S"))
             
         return {"status": "success", "message": "تم تعديل بيانات اشتراك المستخدم بنجاح"}
+
+@app.post("/admin/users/{target_user_id}/change-password")
+async def admin_change_user_password(target_user_id: int, req: AdminChangePasswordReq, admin_user: User = Depends(check_admin_user)):
+    clean_pwd = req.new_password.strip()
+    if len(clean_pwd) < 6:
+        raise HTTPException(status_code=400, detail="يجب أن تتكون كلمة المرور من 6 أحرف على الأقل")
+        
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.id == target_user_id))).scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="المستخدم غير موجود")
+            
+        user.password_hash = bcrypt.hashpw(clean_pwd.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        session.add(user)
+        await session.commit()
+        
+        logger.info(f"Admin {admin_user.email} (ID: {admin_user.id}) changed password for user {user.email} (ID: {user.id})")
+        return {
+            "status": "success",
+            "message": f"تم تغيير كلمة المرور للعميل ({user.email}) بنجاح!",
+            "user_id": user.id,
+            "email": user.email
+        }
 
 @app.post("/admin/users/{target_user_id}/reboot")
 async def reboot_user_service(target_user_id: int, admin_user: User = Depends(check_admin_user)):

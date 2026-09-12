@@ -1031,12 +1031,29 @@
             <input type="text" id="edit-user-fullname" placeholder="أدخل اسم العميل">
           </div>
           <div class="input-group">
-            <label>البريد الإلكتروني للمستخدم:</label>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+              <label style="margin-bottom: 0;">البريد الإلكتروني للمستخدم (Gmail):</label>
+              <button type="button" class="btn btn-sm" onclick="copyClientEmailFromEdit()" style="padding: 2px 8px; font-size: 11px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 4px; cursor: pointer;">
+                📋 نسخ الإيميل
+              </button>
+            </div>
             <input type="text" id="edit-user-email" readonly class="readonly-input">
           </div>
           <div class="input-group">
             <label>أرقام الهواتف المربوطة:</label>
             <input type="text" id="edit-user-phone" readonly class="readonly-input">
+          </div>
+
+          <!-- Quick Reset Password Field inside Edit Modal -->
+          <div class="input-group" style="background: rgba(245, 158, 11, 0.05); border: 1px dashed rgba(245, 158, 11, 0.3); padding: 12px; border-radius: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <label for="edit-user-new-password" style="color: #fbbf24; font-weight: 700; margin-bottom: 0; font-size: 12.5px;">🔑 تعيين كلمة مرور جديدة (اختياري):</label>
+              <button type="button" class="btn btn-sm" onclick="generateRandomPasswordForEdit()" style="padding: 3px 8px; font-size: 11.5px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 4px; cursor: pointer;">
+                🎲 توليد عشوائي
+              </button>
+            </div>
+            <input type="text" id="edit-user-new-password" placeholder="اتركه فارغاً إذا كنت لا ترغب في تغييره" autocomplete="new-password" dir="ltr" style="background: #17212b; color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 8px 12px; font-family: monospace; font-size: 13px;">
+            <span style="font-size: 11px; color: #94a3b8; display: block; margin-top: 4px;">إذا نسي العميل باسورده، يمكنك تعيين باسورد جديد له هنا مباشرة مع حفظ التعديلات.</span>
           </div>
 
           <div class="input-group">
@@ -1103,6 +1120,84 @@
             <span class="btn-text">حفظ التغييرات</span>
             <span class="spinner hidden"></span>
           </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       4.5. MODAL: Admin Fast Client Password Reset & Credentials Retrieval
+       ========================================== -->
+  <div id="modal-admin-change-password" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width: 500px; border: 1px solid rgba(245, 158, 11, 0.3); box-shadow: 0 10px 40px rgba(0,0,0,0.6);">
+      <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 14px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 22px; background: rgba(245, 158, 11, 0.15); padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(245, 158, 11, 0.3);">🔑</span>
+          <div>
+            <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #fff;">تعيين كلمة مرور جديدة للعميل</h3>
+            <div id="pwd-modal-user-subtitle" style="font-size: 12px; color: #94a3b8; margin-top: 2px;">بيانات حساب العميل وإعادة ضبط الرمز</div>
+          </div>
+        </div>
+        <button type="button" class="close-btn" onclick="closeAdminChangePasswordModal()">&times;</button>
+      </div>
+
+      <div class="modal-body" style="padding: 20px;">
+        <form id="form-admin-change-password" onsubmit="handleAdminChangePasswordSubmit(event)">
+          <input type="hidden" id="pwd-modal-user-id">
+
+          <!-- User Info Banner -->
+          <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <span style="font-size: 12px; color: #94a3b8;">الاسم / المعرف:</span>
+              <span id="pwd-modal-user-name" style="font-weight: 700; color: #fff; font-size: 13px;">--</span>
+            </div>
+            
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <span style="font-size: 12px; color: #94a3b8;">البريد المسجل (Gmail):</span>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <code id="pwd-modal-user-email" style="color: #38bdf8; font-weight: 700; font-size: 12.5px; direction: ltr; font-family: monospace;">--</code>
+                <button type="button" class="btn btn-sm" onclick="copyClientEmailOnly()" title="نسخ البريد الإلكتروني" style="padding: 2px 7px; font-size: 11px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 4px; cursor: pointer;">
+                  📋 نسخ
+                </button>
+              </div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-size: 12px; color: #94a3b8;">الهاتف المربوط:</span>
+              <span id="pwd-modal-user-phone" style="font-family: monospace; color: #cbd5e1; font-size: 12px; direction: ltr;">--</span>
+            </div>
+          </div>
+
+          <!-- New Password Input -->
+          <div class="input-group">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <label for="pwd-modal-new-pass" style="margin-bottom: 0; font-weight: 700; color: #fff;">كلمة المرور الجديدة:</label>
+              <button type="button" class="btn btn-sm" onclick="generateRandomPasswordForModal()" style="padding: 3px 8px; font-size: 11.5px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 4px; cursor: pointer;">
+                🎲 توليد باسورد عشوائي
+              </button>
+            </div>
+            <div style="position: relative;">
+              <input type="text" id="pwd-modal-new-pass" required minlength="6" placeholder="أدخل كلمة المرور الجديدة (6 أحرف فأكثر)" autocomplete="new-password" dir="ltr" style="padding-left: 40px; font-family: monospace; font-size: 14px; background: #17212b; color: #fff; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; width: 100%; box-sizing: border-box;">
+              <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 16px; color: #94a3b8;">🔐</span>
+            </div>
+          </div>
+
+          <!-- Quick Copy Credentials for Client -->
+          <div style="margin-top: 15px; margin-bottom: 20px;">
+            <button type="button" class="btn btn-secondary" onclick="copyFullCredentialsMessage()" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(56, 189, 248, 0.1); border: 1px dashed rgba(56, 189, 248, 0.4); color: #38bdf8; padding: 10px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer;">
+              <span>📋 نسخ رسالة بيانات الدخول جاهزة للعميل</span>
+            </button>
+            <span style="font-size: 11px; color: #64748b; display: block; text-align: center; margin-top: 5px;">تنسخ رسالة مرتبة تحتوي على الجيميل والباسورد الجديد ورابط المنصة لإرسالها للعميل فوراً.</span>
+          </div>
+
+          <!-- Action Buttons -->
+          <div style="display: flex; gap: 10px;">
+            <button type="submit" id="btn-submit-change-pwd" class="btn btn-primary" style="flex: 1; background: linear-gradient(135deg, #e11d48, #be123c);">
+              <span class="btn-text">💾 حفظ وتعيين كلمة المرور</span>
+              <span class="spinner hidden"></span>
+            </button>
+            <button type="button" class="btn btn-secondary" onclick="closeAdminChangePasswordModal()" style="padding: 10px 18px;">إلغاء</button>
+          </div>
         </form>
       </div>
     </div>
