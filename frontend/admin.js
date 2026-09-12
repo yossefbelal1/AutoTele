@@ -2052,6 +2052,68 @@ function setupBroadcastMediaHandlers() {
 }
 window.setupBroadcastMediaHandlers = setupBroadcastMediaHandlers;
 
+function uploadBroadcastWithProgress(formData, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const token = localStorage.getItem("admin_token");
+    
+    xhr.open("POST", `${API_BASE_URL}/admin/broadcast`, true);
+    if (token) {
+      xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    }
+
+    if (xhr.upload && typeof onProgress === "function") {
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && event.total > 0) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          onProgress({
+            loaded: event.loaded,
+            total: event.total,
+            percent: percent
+          });
+        }
+      };
+    }
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          resolve(data);
+        } catch (e) {
+          resolve({ status: "success", message: "تم إرسال البث بنجاح!" });
+        }
+      } else if (xhr.status === 401 || xhr.status === 403) {
+        localStorage.removeItem("admin_token");
+        showToast("انتهت صلاحية الجلسة. يرجى تسجيل الدخول مجدداً.", "error");
+        showAuthScreen();
+        reject(new Error("Unauthorized"));
+      } else {
+        let errMsg = "حدث خطأ أثناء معالجة البث على السيرفر.";
+        try {
+          const errData = JSON.parse(xhr.responseText);
+          if (errData.detail) {
+            errMsg = typeof errData.detail === "string" ? errData.detail : JSON.stringify(errData.detail);
+          }
+        } catch (_) {}
+        reject(new Error(errMsg));
+      }
+    };
+
+    xhr.onerror = () => {
+      reject(new Error("فشل الاتصال بالسيرفر أثناء رفع المرفق. يرجى التحقق من اتصال الإنترنت وإعادة المحاولة."));
+    };
+
+    xhr.ontimeout = () => {
+      reject(new Error("انتهت مهلة انتظار رفع الملف على السيرفر (تجاوز 5 دقائق)."));
+    };
+
+    xhr.timeout = 300000; // 5 minutes
+    xhr.send(formData);
+  });
+}
+window.uploadBroadcastWithProgress = uploadBroadcastWithProgress;
+
 async function handleAdminBroadcast(e) {
   e.preventDefault();
   const msgText = (document.getElementById("broadcast-message")?.value || "").trim();
@@ -2103,6 +2165,31 @@ async function handleAdminBroadcast(e) {
   
   if (!confirm(`هل أنت متأكد من رغبتك في إرسال هذا البث${mediaDesc} إلى (${targetText})؟`)) return;
   
+  const progressContainer = document.getElementById("broadcast-upload-progress-container");
+  const progressBar = document.getElementById("broadcast-progress-bar");
+  const progressPercent = document.getElementById("broadcast-progress-percent");
+  const progressDetails = document.getElementById("broadcast-progress-details");
+  const progressStatus = document.getElementById("broadcast-progress-status");
+  const progressTitle = document.getElementById("broadcast-progress-title");
+  const progressIcon = document.getElementById("broadcast-progress-icon");
+
+  if (broadcastSelectedFile && progressContainer) {
+    progressContainer.classList.remove("hidden");
+    if (progressBar) progressBar.style.width = "0%";
+    if (progressPercent) progressPercent.textContent = "0%";
+    if (progressTitle) {
+      progressTitle.textContent = "جاري رفع المرفق إلى السيرفر...";
+      progressTitle.style.color = "#fff";
+    }
+    if (progressIcon) progressIcon.textContent = "📤";
+    if (progressStatus) {
+      progressStatus.textContent = "جاري بدء نقل البيانات...";
+      progressStatus.style.color = "#38bdf8";
+    }
+    const totalMb = (broadcastSelectedFile.size / (1024 * 1024)).toFixed(2);
+    if (progressDetails) progressDetails.textContent = `0 MB من ${totalMb} MB`;
+  }
+
   setButtonLoading("btn-send-broadcast", true);
   try {
     const formData = new FormData();
@@ -2117,17 +2204,41 @@ async function handleAdminBroadcast(e) {
 
     if (broadcastSelectedFile) {
       formData.append("media_file", broadcastSelectedFile);
-      const isVideo = broadcastSelectedFile.type.startsWith("video/") || /\.(mp4|mov|webm)$/i.test(broadcastSelectedFile.name);
+      const isVideo = broadcastSelectedFile.type.startsWith("video/") || /\.(mp4|mov|webm|avi|mkv)$/i.test(broadcastSelectedFile.name);
       formData.append("media_type", isVideo ? "video" : "photo");
     } else if (mediaUrl) {
       formData.append("media_url", mediaUrl);
     }
     
-    const res = await adminApiRequest("/admin/broadcast", {
-      method: "POST",
-      body: formData
-    });
-    if (res.status === "success") {
+    const onProgress = (prog) => {
+      if (!progressContainer) return;
+      const loadedMb = (prog.loaded / (1024 * 1024)).toFixed(2);
+      const totalMb = (prog.total / (1024 * 1024)).toFixed(2);
+      
+      if (progressBar) progressBar.style.width = `${prog.percent}%`;
+      if (progressPercent) progressPercent.textContent = `${prog.percent}%`;
+      if (progressDetails) progressDetails.textContent = `${loadedMb} MB من ${totalMb} MB`;
+      
+      if (prog.percent < 100) {
+        if (progressStatus) progressStatus.textContent = `جاري الرفع الفعلي بسرعة اتصالك... (${prog.percent}%)`;
+      } else {
+        if (progressBar) progressBar.style.width = "100%";
+        if (progressPercent) progressPercent.textContent = "100%";
+        if (progressTitle) {
+          progressTitle.textContent = "اكتمل رفع الملف 100%! 🚀";
+          progressTitle.style.color = "#10b981";
+        }
+        if (progressIcon) progressIcon.textContent = "⚙️";
+        if (progressStatus) {
+          progressStatus.textContent = "جاري إطلاق البث للمشتركين وتسجيل الإشعارات...";
+          progressStatus.style.color = "#10b981";
+        }
+      }
+    };
+
+    const res = await uploadBroadcastWithProgress(formData, onProgress);
+
+    if (res.status === "success" || res.message) {
       showToast(res.message || "تم إرسال البث بنجاح!", "success");
       document.getElementById("broadcast-message").value = "";
       if (urlInput) urlInput.value = "";
@@ -2137,9 +2248,25 @@ async function handleAdminBroadcast(e) {
         charCounter.textContent = "0 حرف (الحد الأقصى للكابشن: 1024)";
         charCounter.style.color = "#94a3b8";
       }
+      if (progressStatus) {
+        progressStatus.textContent = "✅ تم البث والتوزيع بنجاح!";
+        progressStatus.style.color = "#10b981";
+      }
+      setTimeout(() => {
+        if (progressContainer) progressContainer.classList.add("hidden");
+      }, 4000);
     }
   } catch (error) {
     console.error("Broadcast failed:", error);
+    showToast(error.message || "حدث خطأ أثناء إرسال البث", "error");
+    if (progressStatus) {
+      progressStatus.textContent = `❌ ${error.message || "فشل الرفع"}`;
+      progressStatus.style.color = "#ef4444";
+    }
+    if (progressTitle) {
+      progressTitle.textContent = "فشل في إرسال البث";
+      progressTitle.style.color = "#ef4444";
+    }
   } finally {
     setButtonLoading("btn-send-broadcast", false);
   }

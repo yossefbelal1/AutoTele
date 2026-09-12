@@ -655,6 +655,28 @@
                 <textarea id="broadcast-message" rows="7" placeholder="مثال:&#10;🎉 **تحديث جديد ومميزات حصرية!**&#10;تمت إضافة ميزة التبادل الإعلاني وقنوات المجلد التلقائي بنجاح.&#10;شاهد الفيديو التوضيحي أعلاه 👆" style="width: 100%; border: 1px solid rgba(255, 255, 255, 0.08); background-color: rgba(0, 0, 0, 0.2); color: #fff; padding: 12px; border-radius: 8px; font-family: inherit; font-size: 14px; line-height: 1.6; resize: vertical; box-sizing: border-box;"></textarea>
               </div>
 
+                <!-- Real-time Upload Progress Bar Box (Shows during file upload) -->
+                <div id="broadcast-upload-progress-container" class="hidden" style="margin-top: 15px; margin-bottom: 20px; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 12px; padding: 16px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span id="broadcast-progress-icon" style="font-size: 18px;">📤</span>
+                      <span id="broadcast-progress-title" style="font-weight: 700; font-size: 13px; color: #fff;">جاري رفع المرفق إلى السيرفر...</span>
+                    </div>
+                    <span id="broadcast-progress-percent" style="font-weight: 800; font-size: 14px; color: #38bdf8; background: rgba(56, 189, 248, 0.15); padding: 2px 10px; border-radius: 12px; border: 1px solid rgba(56, 189, 248, 0.3);">0%</span>
+                  </div>
+                  
+                  <!-- Progress Bar Track -->
+                  <div style="width: 100%; height: 10px; background: rgba(255, 255, 255, 0.08); border-radius: 5px; overflow: hidden; position: relative; margin: 8px 0;">
+                    <div id="broadcast-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #38bdf8 0%, #0284c7 50%, #10b981 100%); border-radius: 5px; transition: width 0.15s ease-out; box-shadow: 0 0 12px rgba(56, 189, 248, 0.5);"></div>
+                  </div>
+
+                  <!-- Details subtitle (Bytes uploaded / Status) -->
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 12px; color: #94a3b8;">
+                    <span id="broadcast-progress-details">0 MB من 0 MB</span>
+                    <span id="broadcast-progress-status" style="color: #38bdf8; font-weight: 600;">يرجى الانتظار حتى اكتمال النقل...</span>
+                  </div>
+                </div>
+
               <button type="submit" id="btn-send-broadcast" class="btn btn-primary" style="background: linear-gradient(135deg, #e11d48 0%, #be123c 100%); box-shadow: 0 4px 12px rgba(225, 29, 72, 0.25);">
                 <span class="btn-text">إطلاق البث الجماعي 🚀</span>
                 <span class="spinner hidden"></span>
@@ -1244,6 +1266,6 @@
   </div>
 
   <!-- JavaScript Admin Script -->
-  <script src="/admin.js?v=5.1.0"></script>
+  <script src="/admin.js?v=5.2.0"></script>
 </body>
 </html>
