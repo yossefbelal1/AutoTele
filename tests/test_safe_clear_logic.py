@@ -1,10 +1,11 @@
-﻿import asyncio
 import sys
 from unittest.mock import AsyncMock, MagicMock
+import pytest
 
 sys.path.append(".")
 from worker import sweep_single_channel
 
+@pytest.mark.asyncio
 async def test_safe_sweep():
     print("=== Running Safe Clear Sweep Logic Tests ===")
 

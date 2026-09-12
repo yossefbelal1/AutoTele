@@ -373,7 +373,8 @@ class TestAdvertiserExchange:
 
         with patch("main_api.AsyncSessionLocal", return_value=mock_session), \
              patch("main_api.verify_active_subscription", return_value=MagicMock()), \
-             patch("main_api.get_channels_cache", return_value=mock_channels):
+             patch("main_api.get_channels_cache", return_value=mock_channels), \
+             patch("main_api.get_invite_link", AsyncMock(return_value="https://t.me/maysa_chan")):
             mock_session.__aenter__.return_value = mock_session
             
             result = await accept_exchange_request(request_id=501, req=accept_req, current_user_id=2)
@@ -457,7 +458,8 @@ class TestAdvertiserExchange:
 
         with patch("main_api.AsyncSessionLocal", return_value=mock_session), \
              patch("main_api.verify_active_subscription", return_value=MagicMock()), \
-             patch("main_api.get_channels_cache", return_value=mock_channels):
+             patch("main_api.get_channels_cache", return_value=mock_channels), \
+             patch("main_api.get_invite_link", AsyncMock(return_value="https://t.me/chan_c")):
             mock_session.__aenter__.return_value = mock_session
 
             result = await accept_exchange_request(request_id=601, req=accept_req, current_user_id=2)
