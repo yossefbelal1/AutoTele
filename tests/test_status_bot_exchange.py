@@ -121,6 +121,113 @@ class TestStatusBotExchange:
         assert camp_tasks[0].target_link == "https://t.me/testchannel"
 
     @pytest.mark.asyncio
+    async def test_bot_accept_exchange_request_flow(self):
+        """Verify executing bot exchange acceptance creates ExchangeAgreement, two reciprocal WebCampaignTasks and ExchangeExecutions."""
+        now = datetime.now(timezone.utc)
+        req_obj = ExchangeRequest(
+            id=12,
+            requester_user_id=1,
+            recipient_user_id=2,
+            request_type="exchange",
+            requester_channel_id=-100111111,
+            requester_channel_title="قناة المعلن أ",
+            requester_channel_link="https://t.me/channel_a",
+            ad_lifespan=45,
+            status="pending",
+            expires_at=now + timedelta(hours=24)
+        )
+        recipient_user = User(
+            id=2,
+            email="recipient@test.com",
+            full_name="ميساء",
+            subscription_status="active",
+            subscription_end=now + timedelta(days=10)
+        )
+        requester_user = User(
+            id=1,
+            email="requester@test.com",
+            full_name="أحمد",
+            status_bot_chat_id=123456
+        )
+        sender_acc = TelegramAccount(
+            id=10,
+            user_id=1,
+            status="active"
+        )
+        recipient_acc = TelegramAccount(
+            id=20,
+            user_id=2,
+            status="active"
+        )
+
+        mock_session = AsyncMock()
+        mock_session.__aenter__.return_value = mock_session
+        def mock_execute(stmt):
+            mock_res = MagicMock()
+            entity_str = str(stmt)
+            if "exchange_requests" in entity_str:
+                mock_res.scalar_one_or_none.return_value = req_obj
+                mock_res.scalars.return_value.first.return_value = req_obj
+            elif "telegram_accounts" in entity_str:
+                if "user_id = 1" in entity_str or "WHERE telegram_accounts.user_id = :user_id_1" in entity_str or "telegram_accounts.user_id = 1" in entity_str:
+                    mock_res.scalars.return_value.first.return_value = sender_acc
+                    mock_res.scalar_one_or_none.return_value = sender_acc
+                else:
+                    mock_res.scalars.return_value.first.return_value = recipient_acc
+                    mock_res.scalar_one_or_none.return_value = recipient_acc
+            elif "users" in entity_str:
+                if "users.id = 2" in entity_str or "WHERE users.id = :id_1" in entity_str:
+                    mock_res.scalar_one_or_none.return_value = recipient_user
+                else:
+                    mock_res.scalar_one_or_none.return_value = requester_user
+            return mock_res
+
+        mock_session.execute = AsyncMock(side_effect=mock_execute)
+        mock_session.commit = AsyncMock()
+        mock_session.flush = AsyncMock()
+        mock_session.add = MagicMock()
+
+        mock_channels = [
+            {"id": -100222222, "title": "قناة المعلن ب", "can_send": True, "invite_link": "https://t.me/channel_b"}
+        ]
+
+        with patch("status_bot.AsyncSessionLocal", return_value=mock_session), \
+             patch("cache_manager.get_channels_cache", AsyncMock(return_value=mock_channels)), \
+             patch("cache_manager.redis_client.publish", AsyncMock()), \
+             patch("status_bot.status_bot_client", None):
+            success, msg = await execute_bot_exchange_accept(user_id=2, request_id=12)
+
+        assert success is True
+        assert req_obj.status == "accepted"
+        added_objects = [call.args[0] for call in mock_session.add.call_args_list]
+        
+        # Verify ExchangeAgreement
+        agreements = [o for o in added_objects if isinstance(o, ExchangeAgreement)]
+        assert len(agreements) == 1
+        agr = agreements[0]
+        assert agr.request_id == 12
+        assert agr.requester_user_id == 1
+        assert agr.recipient_user_id == 2
+        assert agr.requester_channel_id == -100111111
+        assert agr.recipient_channel_id == -100222222
+        assert agr.requester_channel_link == "https://t.me/channel_a"
+        assert agr.recipient_channel_link == "https://t.me/channel_b"
+        assert agr.ad_lifespan == 45
+        assert agr.status == "scheduled"
+
+        # Verify reciprocal tasks
+        exchange_tasks = [o for o in added_objects if isinstance(o, WebCampaignTask)]
+        assert len(exchange_tasks) == 2
+        assert all(t.campaign_type == "channel_exchange" for t in exchange_tasks)
+        assert all(t.ad_lifespan == 45 for t in exchange_tasks)
+
+        # Verify executions
+        execs = [o for o in added_objects if isinstance(o, ExchangeExecution)]
+        assert len(execs) == 2
+        types = {e.execution_type for e in execs}
+        assert types == {"exchange_requester_side", "exchange_recipient_side"}
+
+    @pytest.mark.asyncio
     async def test_bot_reject_exchange_request_flow(self):
         """Verify executing bot rejection marks request as rejected."""
         now = datetime.now(timezone.utc)

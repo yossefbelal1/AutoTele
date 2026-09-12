@@ -266,6 +266,18 @@ async def execute_bot_exchange_accept(user_id: int, request_id: int, lifespan_ov
                 session.add(notif_b)
                 await session.commit()
                 
+                try:
+                    import json as _json
+                    from cache_manager import redis_client
+                    payload = {
+                        "user_id": req_obj.requester_user_id,
+                        "message_text": f"🎉 **قام المعلن ({recipient_name}) بقبول طلب نشر حملتك #{req_obj.id}!**\n⏱ **مدة النشر**: {life_lbl}\n🚀 جاري النشر في جميع قنواته الآن.",
+                        "is_important": True
+                    }
+                    await redis_client.publish("saas_user_notifications", _json.dumps(payload, ensure_ascii=False))
+                except Exception as pe:
+                    logger.debug(f"Failed to publish campaign accept alert to redis: {pe}")
+
                 requester_user = (await session.execute(
                     select(User).where(User.id == req_obj.requester_user_id)
                 )).scalar_one_or_none()
@@ -290,7 +302,7 @@ async def execute_bot_exchange_accept(user_id: int, request_id: int, lifespan_ov
                 if not sender_acc:
                     return False, "❌ حساب المعلن المرسل غير نشط حالياً."
                     
-                from cache_manager import get_channels_cache
+                from cache_manager import get_channels_cache, get_invite_link
                 recip_channels = await get_channels_cache(recipient_acc.id)
                 eligible_b = [c for c in (recip_channels or []) if c.get("can_send", True)]
                 if not eligible_b:
@@ -300,30 +312,43 @@ async def execute_bot_exchange_accept(user_id: int, request_id: int, lifespan_ov
                 first_b_title = eligible_b[0].get("title", "قناة المعلن")
                 first_b_link = eligible_b[0].get("invite_link", "")
                 if not first_b_link:
+                    try:
+                        first_b_link = await get_invite_link(recipient_acc.id, first_b_cid)
+                    except Exception:
+                        pass
+                if not first_b_link:
                     u_name = eligible_b[0].get("username")
                     first_b_link = f"https://t.me/{u_name}" if u_name else f"https://t.me/c/{str(first_b_cid)[4:]}"
                     
                 req_obj.status = "accepted"
                 req_obj.responded_at = now
                 
+                req_hosts = getattr(req_obj, "requester_host_channels", None)
+                if not isinstance(req_hosts, str) or not req_hosts.strip():
+                    req_hosts = str(req_obj.requester_channel_id) if req_obj.requester_channel_id else str(req_obj.requester_channel_link)
+                a_hosts = req_hosts
+                b_hosts = str(first_b_cid)
+                
+                req_a_link = req_obj.requester_channel_link or req_obj.campaign_url or ""
+                
                 agreement = ExchangeAgreement(
                     request_id=req_obj.id,
                     requester_user_id=req_obj.requester_user_id,
                     recipient_user_id=user_id,
-                    requester_telegram_account_id=sender_acc.id,
-                    recipient_telegram_account_id=recipient_acc.id,
-                    requester_channel_id=req_obj.requester_channel_id or 0,
-                    requester_channel_title=req_obj.requester_channel_title,
+                    requester_channel_id=req_obj.requester_channel_id,
+                    requester_channel_title=req_obj.requester_channel_title or "قنوات المعلن الأول",
+                    requester_channel_link=req_a_link,
+                    requester_host_channels=a_hosts,
                     recipient_channel_id=first_b_cid,
                     recipient_channel_title=first_b_title,
-                    agreed_lifespan=agreed_lifespan,
-                    status="active",
-                    started_at=now
+                    recipient_channel_link=first_b_link,
+                    recipient_host_channels=b_hosts,
+                    ad_lifespan=agreed_lifespan,
+                    status="scheduled"
                 )
                 session.add(agreement)
                 await session.flush()
                 
-                a_hosts = req_obj.requester_host_channels or str(req_obj.requester_channel_id or "")
                 task_a = WebCampaignTask(
                     telegram_account_id=sender_acc.id,
                     campaign_type="channel_exchange",
@@ -349,7 +374,6 @@ async def execute_bot_exchange_accept(user_id: int, request_id: int, lifespan_ov
                 )
                 session.add(exec_a)
                 
-                b_hosts = str(first_b_cid)
                 task_b = WebCampaignTask(
                     telegram_account_id=recipient_acc.id,
                     campaign_type="channel_exchange",
@@ -357,7 +381,7 @@ async def execute_bot_exchange_accept(user_id: int, request_id: int, lifespan_ov
                     delay_start=0,
                     delay_between_channels=0,
                     ad_lifespan=agreed_lifespan,
-                    target_link=f"{req_obj.requester_channel_link}|{b_hosts}",
+                    target_link=f"{req_a_link}|{b_hosts}",
                     status="pending"
                 )
                 session.add(task_b)
@@ -369,7 +393,7 @@ async def execute_bot_exchange_accept(user_id: int, request_id: int, lifespan_ov
                     execution_type="exchange_recipient_side",
                     executor_user_id=user_id,
                     telegram_account_id=recipient_acc.id,
-                    target_link=req_obj.requester_channel_link,
+                    target_link=req_a_link,
                     web_task_id=task_b.id,
                     status="pending"
                 )
@@ -394,6 +418,18 @@ async def execute_bot_exchange_accept(user_id: int, request_id: int, lifespan_ov
                 session.add(notif_b)
                 await session.commit()
                 
+                try:
+                    import json as _json
+                    from cache_manager import redis_client
+                    payload = {
+                        "user_id": req_obj.requester_user_id,
+                        "message_text": f"🎉 **قام المعلن ({recipient_name}) بقبول طلب التبادل الإعلاني #{req_obj.id}!**\n⏱ **مدة النشر**: {life_lbl}\n🚀 بدأ النشر المتبادل في القناتين بنجاح.",
+                        "is_important": True
+                    }
+                    await redis_client.publish("saas_user_notifications", _json.dumps(payload, ensure_ascii=False))
+                except Exception as pe:
+                    logger.debug(f"Failed to publish exchange accept alert to redis: {pe}")
+
                 requester_user = (await session.execute(
                     select(User).where(User.id == req_obj.requester_user_id)
                 )).scalar_one_or_none()
@@ -446,6 +482,18 @@ async def execute_bot_exchange_reject(user_id: int, request_id: int) -> tuple[bo
             session.add(notif_a)
             await session.commit()
             
+            try:
+                import json as _json
+                from cache_manager import redis_client
+                payload = {
+                    "user_id": req_obj.requester_user_id,
+                    "message_text": f"❌ **اعتذر المعلن ({recipient_name}) عن قبول طلبك #{req_obj.id}.**",
+                    "is_important": True
+                }
+                await redis_client.publish("saas_user_notifications", _json.dumps(payload, ensure_ascii=False))
+            except Exception as pe:
+                logger.debug(f"Failed to publish reject alert to redis: {pe}")
+
             requester_user = (await session.execute(
                 select(User).where(User.id == req_obj.requester_user_id)
             )).scalar_one_or_none()
@@ -580,7 +628,13 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
         )
         await callback_query.answer()
 
-    elif data == "btn_incoming_exchanges":
+    elif data == "btn_incoming_exchanges" or data.startswith("btn_incoming_exchanges:"):
+        page_idx = 0
+        if ":" in data:
+            try:
+                page_idx = int(data.split(":", 1)[1])
+            except Exception:
+                page_idx = 0
         now = datetime.now(timezone.utc)
         async with AsyncSessionLocal() as session:
             stmt = (
@@ -606,13 +660,17 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
                 )
                 await callback_query.answer()
             else:
-                req_item = incoming[0]
+                if page_idx >= len(incoming):
+                    page_idx = 0
+                elif page_idx < 0:
+                    page_idx = len(incoming) - 1
+                req_item = incoming[page_idx]
                 requester = (await session.execute(select(User).where(User.id == req_item.requester_user_id))).scalar_one_or_none()
                 sender_name = requester.full_name or requester.email.split("@")[0] if requester else "معلن"
                 req_type_lbl = "🔄 تبادل إعلاني" if req_item.request_type == "exchange" else "📢 نشر حملة ترويجية"
                 duration_lbl = format_ad_lifespan_arabic(req_item.ad_lifespan or 30)
                 ch_links = req_item.campaign_url or req_item.requester_channel_link or req_item.requester_channel_title or "غير محدد"
-                remaining_note = f" (يوجد {len(incoming)} طلبات معلقة)" if len(incoming) > 1 else ""
+                remaining_note = f" (طلب {page_idx + 1} من {len(incoming)})" if len(incoming) > 1 else ""
                 
                 text = (
                     f"📥 **طلب وارد معلق #{req_item.id}**{remaining_note}:\n\n"
@@ -632,11 +690,18 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
                     ],
                     [
                         InlineKeyboardButton("⏱ تعديل المدة والقبول", callback_data=f"ex_life_menu:{req_item.id}")
-                    ],
-                    [
-                        InlineKeyboardButton("🔙 عودة للقائمة الرئيسية", callback_data="btn_main_menu")
                     ]
                 ]
+                if len(incoming) > 1:
+                    nav_row = []
+                    if page_idx > 0:
+                        nav_row.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"btn_incoming_exchanges:{page_idx - 1}"))
+                    if page_idx < len(incoming) - 1:
+                        nav_row.append(InlineKeyboardButton("التالي ➡️", callback_data=f"btn_incoming_exchanges:{page_idx + 1}"))
+                    if nav_row:
+                        buttons.append(nav_row)
+
+                buttons.append([InlineKeyboardButton("🔙 عودة للقائمة الرئيسية", callback_data="btn_main_menu")])
                 await callback_query.message.edit_text(
                     text,
                     reply_markup=InlineKeyboardMarkup(buttons)
