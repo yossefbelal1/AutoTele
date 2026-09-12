@@ -4970,9 +4970,113 @@ async function loadAnalyticsData(isManual = false) {
 window.loadAnalyticsData = loadAnalyticsData;
 
 // ==========================================
-// CAMPAIGN CHANNELS GROWTH ANALYTICS CONTROLLER
+// CAMPAIGN & ALL CHANNELS GROWTH ANALYTICS CONTROLLER
 // ==========================================
-async function loadCampaignChannelsAnalytics(isManual = false) {
+let currentChannelsAnalyticsScope = "campaign";
+
+function switchChannelsAnalyticsScope(scope) {
+  if (!scope) return;
+  currentChannelsAnalyticsScope = scope;
+
+  // Update active state of buttons in scope bar
+  const bar = document.getElementById("channels-analytics-scope-bar");
+  if (bar) {
+    bar.querySelectorAll(".notif-filter-btn").forEach(btn => {
+      btn.classList.remove("active");
+    });
+    const activeBtn = document.getElementById(`scope-btn-${scope}`);
+    if (activeBtn) activeBtn.classList.add("active");
+  }
+
+  // Update header text, badge and metric card labels
+  updateChannelsAnalyticsHeader(scope);
+
+  // Load data for the selected scope
+  loadCampaignChannelsAnalytics(false, scope);
+}
+window.switchChannelsAnalyticsScope = switchChannelsAnalyticsScope;
+
+function updateChannelsAnalyticsHeader(scope) {
+  const iconEl = document.getElementById("channels-analytics-icon");
+  const titleEl = document.getElementById("channels-analytics-title");
+  const badgeEl = document.getElementById("channels-analytics-badge");
+  const subtitleEl = document.getElementById("channels-analytics-subtitle");
+  const countLabelEl = document.getElementById("folder-channels-count-label");
+  const countSublabelEl = document.getElementById("folder-channels-count-sublabel");
+  const membersLabelEl = document.getElementById("folder-total-members-label");
+
+  if (scope === "all") {
+    if (iconEl) iconEl.textContent = "🌐";
+    if (titleEl) titleEl.textContent = "أداء ومعدل نمو كافة القنوات والمجموعات";
+    if (badgeEl) {
+      badgeEl.textContent = "كل قنواتي";
+      badgeEl.style.background = "rgba(56, 189, 248, 0.15)";
+      badgeEl.style.color = "#38bdf8";
+      badgeEl.style.borderColor = "rgba(56, 189, 248, 0.3)";
+    }
+    if (subtitleEl) subtitleEl.textContent = "متابعة فورية لعدد المشتركين الفعلي ومعدل نمو الأعضاء الجدد المنضمين اليوم لجميع قنواتك ومجموعاتك المسجلة";
+    if (countLabelEl) countLabelEl.textContent = "إجمالي القنوات";
+    if (countSublabelEl) countSublabelEl.textContent = "قنوات مسجلة بالحساب";
+    if (membersLabelEl) membersLabelEl.textContent = "إجمالي الأعضاء بكافة القنوات";
+  } else if (scope.startsWith("my_channels_")) {
+    const num = scope.replace("my_channels_", "");
+    if (iconEl) iconEl.textContent = "📁";
+    if (titleEl) titleEl.textContent = `أداء قنوات مجلد "قنواتي ${num}" ومعدل النمو`;
+    if (badgeEl) {
+      badgeEl.textContent = `مجلد قنواتي ${num}`;
+      badgeEl.style.background = "rgba(168, 85, 247, 0.15)";
+      badgeEl.style.color = "#c084fc";
+      badgeEl.style.borderColor = "rgba(168, 85, 247, 0.3)";
+    }
+    if (subtitleEl) subtitleEl.textContent = `متابعة فورية لعدد المشتركين الفعلي ومعدل نمو الأعضاء الجدد المنضمين اليوم لقنوات مجلد قنواتي ${num}`;
+    if (countLabelEl) countLabelEl.textContent = `قنوات مجلد قنواتي ${num}`;
+    if (countSublabelEl) countSublabelEl.textContent = "قنوات تحت المتابعة";
+    if (membersLabelEl) membersLabelEl.textContent = "إجمالي الأعضاء بالمجلد";
+  } else {
+    // "campaign"
+    if (iconEl) iconEl.textContent = "📁";
+    if (titleEl) titleEl.textContent = "أداء قنوات مجلد \"حملات\" ومعدل النمو";
+    if (badgeEl) {
+      badgeEl.textContent = "مجلد حملات فقط";
+      badgeEl.style.background = "rgba(16, 185, 129, 0.15)";
+      badgeEl.style.color = "#34d399";
+      badgeEl.style.borderColor = "rgba(16, 185, 129, 0.3)";
+    }
+    if (subtitleEl) subtitleEl.textContent = "متابعة فورية لعدد المشتركين الفعلي ومعدل نمو الأعضاء الجدد المنضمين اليوم لكل قناة داخل مجلد حملات";
+    if (countLabelEl) countLabelEl.textContent = "قنوات مجلد حملات";
+    if (countSublabelEl) countSublabelEl.textContent = "قنوات تحت المتابعة";
+    if (membersLabelEl) membersLabelEl.textContent = "إجمالي الأعضاء بالمجلد";
+  }
+}
+
+function renderAvailableFolderButtons(availableFolders, activeScope) {
+  const bar = document.getElementById("channels-analytics-scope-bar");
+  if (!bar || !availableFolders || availableFolders.length === 0) return;
+
+  let html = "";
+  availableFolders.forEach(folder => {
+    const fid = folder.id;
+    const fname = folder.name || (fid === "all" ? "كل قنواتي" : "مجلد حملات");
+    const count = folder.count !== undefined ? ` (${folder.count})` : "";
+    const isActive = (fid === activeScope) ? "active" : "";
+    const icon = fid === "all" ? "🌐" : "📁";
+    
+    html += `
+      <button type="button" class="btn btn-sm notif-filter-btn ${isActive}" id="scope-btn-${fid}" onclick="switchChannelsAnalyticsScope('${fid}')" style="padding: 5px 14px; font-size: 12px; border-radius: 16px; display: inline-flex; align-items: center; gap: 5px;">
+        <span>${icon} ${escapeHtml(fname)}${count}</span>
+      </button>
+    `;
+  });
+  bar.innerHTML = html;
+}
+
+async function loadCampaignChannelsAnalytics(isManual = false, scope = null) {
+  if (scope) {
+    currentChannelsAnalyticsScope = scope;
+  }
+  const effectiveScope = currentChannelsAnalyticsScope || "campaign";
+  updateChannelsAnalyticsHeader(effectiveScope);
+
   const refreshBtn = document.getElementById("btn-refresh-campaign-channels");
   const origBtnText = refreshBtn ? refreshBtn.innerHTML : "";
   if (isManual && refreshBtn) {
@@ -4981,14 +5085,20 @@ async function loadCampaignChannelsAnalytics(isManual = false) {
   }
 
   try {
-    const url = isManual ? "/user/analytics/campaign-channels?refresh=true" : "/user/analytics/campaign-channels";
+    const url = isManual 
+      ? `/user/analytics/campaign-channels?scope=${encodeURIComponent(effectiveScope)}&refresh=true` 
+      : `/user/analytics/campaign-channels?scope=${encodeURIComponent(effectiveScope)}`;
     const data = await apiRequest(url);
     if (!data || data.status !== "success") {
-      throw new Error(data?.detail || "فشل جلب أداء قنوات مجلد حملات");
+      throw new Error(data?.detail || "فشل جلب أداء القنوات ومعدل النمو");
     }
 
     const summary = data.summary || {};
     const channels = data.channels || [];
+    const availableFolders = data.available_folders || [];
+
+    // Dynamically render available folder buttons
+    renderAvailableFolderButtons(availableFolders, effectiveScope);
 
     const countEl = document.getElementById("folder-channels-count");
     const membersEl = document.getElementById("folder-total-members");
@@ -4996,19 +5106,34 @@ async function loadCampaignChannelsAnalytics(isManual = false) {
     const joinedEl = document.getElementById("folder-joined-today");
     const tbody = document.getElementById("campaign-channels-table-body");
 
-    if (countEl) countEl.textContent = summary.folder_channels_count || 0;
-    if (membersEl) membersEl.textContent = (summary.folder_total_members || 0).toLocaleString();
-    if (linkJoinsEl) linkJoinsEl.textContent = (summary.folder_total_link_joins || 0).toLocaleString();
-    if (joinedEl) joinedEl.textContent = `+${(summary.folder_joined_today || 0).toLocaleString()}`;
+    const channelCount = summary.folder_channels_count !== undefined ? summary.folder_channels_count : (summary.total_channels_count || 0);
+    const totalMembers = summary.folder_total_members !== undefined ? summary.folder_total_members : (summary.total_members || 0);
+    const totalLinkJoins = summary.folder_total_link_joins !== undefined ? summary.folder_total_link_joins : (summary.total_link_joins || 0);
+    const joinedTodayVal = summary.folder_joined_today !== undefined ? summary.folder_joined_today : (summary.joined_today || 0);
+
+    if (countEl) countEl.textContent = channelCount;
+    if (membersEl) membersEl.textContent = totalMembers.toLocaleString();
+    if (linkJoinsEl) linkJoinsEl.textContent = totalLinkJoins.toLocaleString();
+    if (joinedEl) joinedEl.textContent = `+${joinedTodayVal.toLocaleString()}`;
 
     if (tbody) {
       if (channels.length === 0) {
+        let emptyTitle = "لا توجد قنوات مسجلة داخل مجلد \"حملات\" حتى الآن";
+        let emptySubtitle = "تأكد من إنشاء مجلد باسم \"حملات\" في حساب تليجرام وإضافة القنوات المراد الترويج لها داخله، ثم الضغط على مزامنة القنوات.";
+        if (effectiveScope === "all") {
+          emptyTitle = "لا توجد قنوات مسجلة في الحساب حتى الآن";
+          emptySubtitle = "تأكد من ربط حساب تليجرام وإضافة قنواتك أو الضغط على تحديث القنوات لمزامنتها.";
+        } else if (effectiveScope.startsWith("my_channels_")) {
+          emptyTitle = "لا توجد قنوات مسجلة داخل هذا المجلد حتى الآن";
+          emptySubtitle = "تأكد من وجود المجلد في حساب تليجرام وإضافة القنوات داخله.";
+        }
+
         tbody.innerHTML = `
           <tr>
             <td colspan="6" style="text-align: center; padding: 36px 16px; color: #94a3b8;">
-              <div style="font-size: 24px; margin-bottom: 8px;">📁</div>
-              <p style="margin: 0 0 6px 0; font-weight: 600; color: #cbd5e1;">لا توجد قنوات مسجلة داخل مجلد "حملات" حتى الآن</p>
-              <p style="margin: 0; font-size: 12px; color: #64748b;">تأكد من إنشاء مجلد باسم "حملات" في حساب تليجرام وإضافة القنوات المراد الترويج لها داخله، ثم الضغط على مزامنة القنوات.</p>
+              <div style="font-size: 24px; margin-bottom: 8px;">${effectiveScope === "all" ? "🌐" : "📁"}</div>
+              <p style="margin: 0 0 6px 0; font-weight: 600; color: #cbd5e1;">${emptyTitle}</p>
+              <p style="margin: 0; font-size: 12px; color: #64748b;">${emptySubtitle}</p>
             </td>
           </tr>
         `;
@@ -5044,10 +5169,18 @@ async function loadCampaignChannelsAnalytics(isManual = false) {
           const channelLink = ch.username ? `https://t.me/${ch.username}` : (ch.invite_link || "#");
           const channelIdDisplay = ch.username ? `@${ch.username}` : `ID: ${ch.channel_id}`;
 
+          // If scope is 'all', show badge if channel is inside 'حملات' folder
+          const campaignFolderBadge = (effectiveScope === "all" && ch.is_in_campaign)
+            ? `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; font-size: 10px; padding: 1px 6px; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.3); margin-right: 6px; display: inline-block;">📁 مجلد حملات</span>`
+            : "";
+
           return `
             <tr style="border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.2s;">
               <td style="padding: 12px 14px;">
-                <div style="font-weight: 700; color: #fff; font-size: 13px;">${escapeHtml(ch.title)}</div>
+                <div style="font-weight: 700; color: #fff; font-size: 13px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px;">
+                  <span>${escapeHtml(ch.title)}</span>
+                  ${campaignFolderBadge}
+                </div>
               </td>
               <td style="padding: 12px 14px;">
                 <a href="${escapeHtml(channelLink)}" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; text-decoration: none; font-size: 12px; direction: ltr; display: inline-block;">
@@ -5073,11 +5206,12 @@ async function loadCampaignChannelsAnalytics(isManual = false) {
     }
 
     if (isManual) {
-      showToast("تم تحديث قنوات مجلد حملات ومعدل النمو بنجاح ✅", "success", 2000);
+      const scopeName = effectiveScope === "all" ? "كافة القنوات" : (effectiveScope.startsWith("my_channels_") ? "قنوات المجلد" : "قنوات مجلد حملات");
+      showToast(`تم تحديث بيانات ${scopeName} ومعدل النمو بنجاح ✅`, "success", 2000);
     }
   } catch (err) {
-    console.error("Campaign channels analytics load error:", err);
-    if (isManual) showToast("تعذر جلب بيانات قنوات المجلد: " + err.message, "error");
+    console.error("Channels analytics load error:", err);
+    if (isManual) showToast("تعذر جلب بيانات القنوات: " + err.message, "error");
   } finally {
     if (isManual && refreshBtn) {
       refreshBtn.disabled = false;

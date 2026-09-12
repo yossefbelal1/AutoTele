@@ -95,6 +95,103 @@ class TestCampaignChannelsAnalytics:
             assert summary["folder_joined_today"] == 20
 
     @pytest.mark.asyncio
+    async def test_channels_analytics_all_scope(self):
+        """
+        Tests that /user/analytics/campaign-channels with scope='all' returns all cached channels,
+        computes aggregate metrics, and correctly tags is_in_campaign for campaign channels.
+        """
+        import main_api
+        from db_manager import TelegramAccount, User
+
+        mock_user = User(id=42, email="owner@test.com")
+        mock_tg_acc = TelegramAccount(id=10, user_id=42, phone="+1234567890", status="active")
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = mock_tg_acc
+
+        mock_db_sess = AsyncMock()
+        mock_db_sess.execute.return_value = mock_result
+
+        campaign_folder_ids = json.dumps([-100111, -100222])
+
+        all_cached_channels = [
+            {
+                "id": -100111,
+                "title": "قناة العروض الخاصة",
+                "username": "special_offers",
+                "members_count": 5000,
+                "can_send": True,
+                "is_broadcast": True
+            },
+            {
+                "id": -100222,
+                "title": "قناة التسويق المباشر",
+                "username": "direct_marketing",
+                "members_count": 1250,
+                "can_send": True,
+                "is_broadcast": True
+            },
+            {
+                "id": -100333,
+                "title": "قناة عامة خارج المجلد",
+                "username": "general_out",
+                "members_count": 300,
+                "can_send": False,
+                "is_broadcast": True
+            }
+        ]
+
+        today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        redis_data = {
+            "tenant:10:campaign": campaign_folder_ids,
+            f"tenant:10:chan_baseline:-100111:{today_str}": "4980",
+            f"tenant:10:chan_baseline:-100333:{today_str}": "295",
+        }
+
+        async def mock_redis_get(key):
+            return redis_data.get(key)
+
+        async def mock_redis_set(key, val, **kwargs):
+            redis_data[key] = str(val)
+            return True
+
+        with patch("main_api.AsyncSessionLocal") as MockSessionLocal, \
+             patch("main_api.verify_active_subscription", AsyncMock()), \
+             patch("main_api.redis_client.get", side_effect=mock_redis_get), \
+             patch("main_api.redis_client.set", side_effect=mock_redis_set), \
+             patch("main_api.get_channels_cache", AsyncMock(return_value=all_cached_channels)):
+
+            MockSessionLocal.return_value.__aenter__.return_value = mock_db_sess
+
+            result = await main_api.get_campaign_channels_analytics(scope="all", user_id=42)
+
+            assert result["status"] == "success"
+            assert result["scope"] == "all"
+            summary = result["summary"]
+            channels = result["channels"]
+            available = result["available_folders"]
+
+            # All 3 channels returned
+            assert len(channels) == 3
+            assert summary["folder_channels_count"] == 3
+            assert summary["total_channels_count"] == 3
+            assert summary["folder_total_members"] == 6550
+            assert summary["folder_joined_today"] == 25  # 20 from ch1 + 5 from ch3
+
+            ch1 = next(c for c in channels if c["channel_id"] == -100111)
+            assert ch1["is_in_campaign"] is True
+            assert ch1["joined_today"] == 20
+
+            ch3 = next(c for c in channels if c["channel_id"] == -100333)
+            assert ch3["is_in_campaign"] is False
+            assert ch3["joined_today"] == 5
+
+            # Verify available_folders contains campaign and all
+            avail_ids = [f["id"] for f in available]
+            assert "campaign" in avail_ids
+            assert "all" in avail_ids
+
+    @pytest.mark.asyncio
     async def test_system_failure_notification_deduplication(self):
         """
         Tests that create_system_failure_notification creates an AccountNotification

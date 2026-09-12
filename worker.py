@@ -7300,8 +7300,9 @@ async def redis_pubsub_listener():
                     tenant_id = data.get("tenant_id")
                     command = data.get("command")
                     if command == "refresh_campaign_channels":
-                        logger.info(f"Received refresh_campaign_channels command for tenant {tenant_id}")
-                        asyncio.create_task(refresh_tenant_campaign_channels(tenant_id))
+                        cmd_scope = data.get("scope", "campaign")
+                        logger.info(f"Received refresh_campaign_channels command for tenant {tenant_id}, scope={cmd_scope}")
+                        asyncio.create_task(refresh_tenant_campaign_channels(tenant_id, scope=cmd_scope))
                     elif command == "cancel_single_job":
                         task_id = data.get("task_id")
                         logger.info(f"Received cancel_single_job command for tenant {tenant_id}, task {task_id}")
@@ -7648,9 +7649,9 @@ async def subscription_lifecycle_worker():
         await asyncio.sleep(300)
 
 
-async def refresh_tenant_campaign_channels(tenant_id: int) -> bool:
+async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaign"):
     """
-    Fast refresh specifically for the tenant's 'حملات' campaign folder channels.
+    Live on-demand background refresh for tenant channels based on scope.
     Fetches latest members_count, primary exported invite link joins, and custom invite links joins.
     Updates Redis channel cache and daily baseline.
     """
@@ -7664,18 +7665,29 @@ async def refresh_tenant_campaign_channels(tenant_id: int) -> bool:
     import json
 
     try:
-        raw_campaign = await redis_client.get(f"tenant:{tenant_id}:campaign")
-        if not raw_campaign:
-            logger.info(f"Tenant {tenant_id} has no campaign folder in Redis.")
-            return False
-        campaign_ids = json.loads(raw_campaign)
-        if not campaign_ids:
-            return False
-
         cached_channels = await get_channels_cache(tenant_id)
         cached_map = {ch["id"]: ch for ch in cached_channels if "id" in ch}
 
-        for cid in campaign_ids:
+        target_ids = []
+        if scope == "all":
+            # Refresh all channels, capping at 50 to avoid flood/rate limits
+            target_ids = [ch["id"] for ch in cached_channels if "id" in ch][:50]
+        elif scope.startswith("my_channels_"):
+            c_num = scope.replace("my_channels_", "")
+            raw_custom = await redis_client.get(f"tenant:{tenant_id}:my_channels:{c_num}")
+            target_ids = json.loads(raw_custom) if raw_custom else []
+        else:
+            raw_campaign = await redis_client.get(f"tenant:{tenant_id}:campaign")
+            if not raw_campaign:
+                logger.info(f"Tenant {tenant_id} has no campaign folder in Redis.")
+                return False
+            target_ids = json.loads(raw_campaign) if raw_campaign else []
+
+        if not target_ids:
+            logger.info(f"Tenant {tenant_id} has no target channels for scope={scope}.")
+            return False
+
+        for cid in target_ids:
             try:
                 chat_id = int(cid)
                 peer = await client.resolve_peer(chat_id)
@@ -7761,10 +7773,10 @@ async def refresh_tenant_campaign_channels(tenant_id: int) -> bool:
                     ch_entry["total_joins"] = total_joins
                     ch_entry["today_link_joins"] = today_link_joins
             except Exception as ce:
-                logger.warning(f"Failed to refresh campaign channel {cid} for tenant {tenant_id}: {ce}")
+                logger.warning(f"Failed to refresh channel {cid} for tenant {tenant_id}: {ce}")
 
         await save_channels_cache(tenant_id, list(cached_map.values()))
-        logger.info(f"Refreshed {len(campaign_ids)} campaign channels for tenant {tenant_id} successfully.")
+        logger.info(f"Refreshed {len(target_ids)} channels (scope={scope}) for tenant {tenant_id} successfully.")
         return True
     except Exception as e:
         logger.error(f"Error in refresh_tenant_campaign_channels for tenant {tenant_id}: {e}")

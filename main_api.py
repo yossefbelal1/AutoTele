@@ -1334,21 +1334,38 @@ async def get_user_analytics(user_id: int = Depends(get_current_user)):
         }
 
 @app.get("/user/analytics/campaign-channels")
-async def get_campaign_channels_analytics(refresh: bool = False, user_id: int = Depends(get_current_user)):
+async def get_campaign_channels_analytics(
+    scope: str = "campaign",
+    folder: Optional[str] = None,
+    refresh: bool = False,
+    user_id: int = Depends(get_current_user)
+):
     async with AsyncSessionLocal() as session:
         await verify_active_subscription(user_id, session)
         tg_account = (await session.execute(
             select(TelegramAccount).where(TelegramAccount.user_id == user_id)
         )).scalars().first()
 
+        effective_scope = (folder or scope or "campaign").strip().lower()
+
         if not tg_account:
             return {
                 "status": "success",
+                "scope": effective_scope,
+                "available_folders": [
+                    {"id": "campaign", "name": "مجلد حملات", "count": 0},
+                    {"id": "all", "name": "كل قنواتي", "count": 0}
+                ],
                 "summary": {
+                    "scope": effective_scope,
                     "folder_channels_count": 0,
                     "folder_total_members": 0,
                     "folder_joined_today": 0,
-                    "folder_total_link_joins": 0
+                    "folder_total_link_joins": 0,
+                    "total_channels_count": 0,
+                    "total_members": 0,
+                    "joined_today": 0,
+                    "total_link_joins": 0
                 },
                 "channels": []
             }
@@ -1360,7 +1377,11 @@ async def get_campaign_channels_analytics(refresh: bool = False, user_id: int = 
             try:
                 await redis_client.publish(
                     "saas_tenant_commands",
-                    json.dumps({"tenant_id": acc_id, "command": "refresh_campaign_channels"})
+                    json.dumps({
+                        "tenant_id": acc_id,
+                        "command": "refresh_campaign_channels",
+                        "scope": effective_scope
+                    })
                 )
                 await asyncio.sleep(1.2)
             except Exception as rpe:
@@ -1375,18 +1396,6 @@ async def get_campaign_channels_analytics(refresh: bool = False, user_id: int = 
             except Exception:
                 campaign_ids = []
 
-        if not campaign_ids:
-            return {
-                "status": "success",
-                "summary": {
-                    "folder_channels_count": 0,
-                    "folder_total_members": 0,
-                    "folder_joined_today": 0,
-                    "folder_total_link_joins": 0
-                },
-                "channels": []
-            }
-
         # Normalize campaign_ids set for fast lookup (handles -100 prefix vs raw ID)
         campaign_ids_set = set()
         for cid in campaign_ids:
@@ -1399,14 +1408,54 @@ async def get_campaign_channels_analytics(refresh: bool = False, user_id: int = 
             except Exception:
                 pass
 
-        # 2. Get all cached channels for this tenant
+        # 2. Parse custom folder if requested
+        custom_folder_ids_set = set()
+        if effective_scope.startswith("my_channels_"):
+            c_num = effective_scope.replace("my_channels_", "")
+            raw_custom = await redis_client.get(f"tenant:{acc_id}:my_channels:{c_num}")
+            custom_ids = json.loads(raw_custom) if raw_custom else []
+            for cid in custom_ids:
+                try:
+                    cid_int = int(cid)
+                    custom_folder_ids_set.add(cid_int)
+                    custom_folder_ids_set.add(abs(cid_int))
+                    if str(cid_int).startswith("-100"):
+                        custom_folder_ids_set.add(int(str(cid_int)[4:]))
+                except Exception:
+                    pass
+
+        # 3. Get all cached channels for this tenant
         cached_channels = await get_channels_cache(acc_id)
         today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        # Check early exit if campaign folder specifically requested but has no channels
+        if effective_scope == "campaign" and not campaign_ids:
+            return {
+                "status": "success",
+                "scope": "campaign",
+                "available_folders": [
+                    {"id": "campaign", "name": "مجلد حملات", "count": 0},
+                    {"id": "all", "name": "كل قنواتي", "count": len(cached_channels)}
+                ],
+                "summary": {
+                    "scope": "campaign",
+                    "folder_channels_count": 0,
+                    "folder_total_members": 0,
+                    "folder_joined_today": 0,
+                    "folder_total_link_joins": 0,
+                    "total_channels_count": 0,
+                    "total_members": 0,
+                    "joined_today": 0,
+                    "total_link_joins": 0
+                },
+                "channels": []
+            }
 
         matched_channels = []
         total_folder_members = 0
         total_folder_joined_today = 0
         total_folder_link_joins = 0
+        campaign_channel_count = 0
 
         for ch in cached_channels:
             ch_id = ch.get("id")
@@ -1414,17 +1463,30 @@ async def get_campaign_channels_analytics(refresh: bool = False, user_id: int = 
                 continue
 
             is_in_campaign = False
+            is_in_custom = False
             try:
                 ch_id_int = int(ch_id)
                 if (ch_id_int in campaign_ids_set or 
                     abs(ch_id_int) in campaign_ids_set or 
                     (str(ch_id_int).startswith("-100") and int(str(ch_id_int)[4:]) in campaign_ids_set)):
                     is_in_campaign = True
+
+                if custom_folder_ids_set and (
+                    ch_id_int in custom_folder_ids_set or 
+                    abs(ch_id_int) in custom_folder_ids_set or 
+                    (str(ch_id_int).startswith("-100") and int(str(ch_id_int)[4:]) in custom_folder_ids_set)):
+                    is_in_custom = True
             except Exception:
                 pass
 
-            if not is_in_campaign:
+            if is_in_campaign:
+                campaign_channel_count += 1
+
+            if effective_scope == "campaign" and not is_in_campaign:
                 continue
+            elif effective_scope.startswith("my_channels_") and not is_in_custom:
+                continue
+            # elif effective_scope == "all": include all!
 
             current_members = int(ch.get("members_count") or 0)
             primary_joins = int(ch.get("primary_link_joins") or 0)
@@ -1481,18 +1543,45 @@ async def get_campaign_channels_analytics(refresh: bool = False, user_id: int = 
                 "link_joins_today": link_joins_today,
                 "net_member_gain": net_member_gain,
                 "can_send": ch.get("can_send", True),
-                "is_broadcast": ch.get("is_broadcast", True)
+                "is_broadcast": ch.get("is_broadcast", True),
+                "is_in_campaign": is_in_campaign
             })
 
         matched_channels.sort(key=lambda x: (x["joined_today"], x["total_link_joins"], x["total_members"]), reverse=True)
 
+        available_folders = [
+            {"id": "campaign", "name": "مجلد حملات", "count": campaign_channel_count},
+            {"id": "all", "name": "كل قنواتي", "count": len(cached_channels)}
+        ]
+
+        raw_my_list = await redis_client.get(f"tenant:{acc_id}:my_channels_list")
+        if raw_my_list:
+            try:
+                for c_num in json.loads(raw_my_list):
+                    raw_c_ids = await redis_client.get(f"tenant:{acc_id}:my_channels:{c_num}")
+                    c_count = len(json.loads(raw_c_ids)) if raw_c_ids else 0
+                    available_folders.append({
+                        "id": f"my_channels_{c_num}",
+                        "name": f"قنواتي {c_num}",
+                        "count": c_count
+                    })
+            except Exception:
+                pass
+
         return {
             "status": "success",
+            "scope": effective_scope,
+            "available_folders": available_folders,
             "summary": {
+                "scope": effective_scope,
                 "folder_channels_count": len(matched_channels),
                 "folder_total_members": total_folder_members,
                 "folder_joined_today": total_folder_joined_today,
-                "folder_total_link_joins": total_folder_link_joins
+                "folder_total_link_joins": total_folder_link_joins,
+                "total_channels_count": len(matched_channels),
+                "total_members": total_folder_members,
+                "joined_today": total_folder_joined_today,
+                "total_link_joins": total_folder_link_joins
             },
             "channels": matched_channels
         }

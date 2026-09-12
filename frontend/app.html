@@ -2243,26 +2243,37 @@
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
               <div>
                 <h3 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px;">
-                  <span>📁</span>
-                  <span>أداء قنوات مجلد "حملات" ومعدل النمو</span>
-                  <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 11px; padding: 2px 8px; border-radius: 10px;">مجلد حملات فقط</span>
+                  <span id="channels-analytics-icon">📁</span>
+                  <span id="channels-analytics-title">أداء قنوات مجلد "حملات" ومعدل النمو</span>
+                  <span class="badge" id="channels-analytics-badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 11px; padding: 2px 8px; border-radius: 10px;">مجلد حملات فقط</span>
                 </h3>
-                <p style="margin: 0; font-size: 12.5px; color: #94a3b8;">متابعة فورية لعدد المشتركين الفعلي ومعدل نمو الأعضاء الجدد المنضمين اليوم لكل قناة داخل مجلد حملات</p>
+                <p id="channels-analytics-subtitle" style="margin: 0; font-size: 12.5px; color: #94a3b8;">متابعة فورية لعدد المشتركين الفعلي ومعدل نمو الأعضاء الجدد المنضمين اليوم لكل قناة داخل مجلد حملات</p>
               </div>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="loadCampaignChannelsAnalytics(true)" id="btn-refresh-campaign-channels" style="padding: 6px 12px; font-size: 12px; border-radius: 8px;">
-                <span>🔄 تحديث القنوات</span>
-              </button>
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <!-- Scope Filter Toggle Bar -->
+                <div class="channels-analytics-scope-bar" id="channels-analytics-scope-bar" style="display: inline-flex; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 20px; padding: 3px; gap: 4px;">
+                  <button type="button" class="btn btn-sm notif-filter-btn active" id="scope-btn-campaign" onclick="switchChannelsAnalyticsScope('campaign')" style="padding: 5px 14px; font-size: 12px; border-radius: 16px; display: inline-flex; align-items: center; gap: 5px;">
+                    <span>📁 مجلد حملات</span>
+                  </button>
+                  <button type="button" class="btn btn-sm notif-filter-btn" id="scope-btn-all" onclick="switchChannelsAnalyticsScope('all')" style="padding: 5px 14px; font-size: 12px; border-radius: 16px; display: inline-flex; align-items: center; gap: 5px;">
+                    <span>🌐 كل قنواتي</span>
+                  </button>
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="loadCampaignChannelsAnalytics(true)" id="btn-refresh-campaign-channels" style="padding: 6px 14px; font-size: 12px; border-radius: 8px;">
+                  <span>🔄 تحديث القنوات</span>
+                </button>
+              </div>
             </div>
 
-            <!-- Summary metrics for folder 'حملات' -->
+            <!-- Summary metrics -->
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px;">
               <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 14px;">
-                <div style="font-size: 12px; color: #94a3b8; margin-bottom: 4px;">قنوات مجلد حملات</div>
+                <div style="font-size: 12px; color: #94a3b8; margin-bottom: 4px;" id="folder-channels-count-label">قنوات مجلد حملات</div>
                 <div style="font-size: 22px; font-weight: 800; color: #38bdf8;" id="folder-channels-count">0</div>
-                <div style="font-size: 11px; color: #64748b; margin-top: 4px;">قنوات تحت المتابعة</div>
+                <div style="font-size: 11px; color: #64748b; margin-top: 4px;" id="folder-channels-count-sublabel">قنوات تحت المتابعة</div>
               </div>
               <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 14px;">
-                <div style="font-size: 12px; color: #94a3b8; margin-bottom: 4px;">إجمالي الأعضاء بالمجلد</div>
+                <div style="font-size: 12px; color: #94a3b8; margin-bottom: 4px;" id="folder-total-members-label">إجمالي الأعضاء بالمجلد</div>
                 <div style="font-size: 22px; font-weight: 800; color: #fff;" id="folder-total-members">0</div>
                 <div style="font-size: 11px; color: #64748b; margin-top: 4px;">إجمالي المشتركين الفعلي</div>
               </div>
