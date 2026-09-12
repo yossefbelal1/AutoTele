@@ -1840,17 +1840,7 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
         
         all_jobs = []
         
-        # 1. Telegram-scheduled jobs from Redis
-        from cache_manager import redis_client, get_invite_link
-        import json
-        raw_jobs = await redis_client.get(f"tenant:{tg_account.id}:scheduled_jobs")
-        if raw_jobs:
-            try:
-                all_jobs.extend(json.loads(raw_jobs))
-            except Exception:
-                pass
-                
-        # 2. Web-scheduled jobs from PostgreSQL
+        # 1. Web-scheduled jobs from PostgreSQL
         from db_manager import WebCampaignTask, ActiveAd
         from sqlalchemy import func
         from datetime import datetime, timezone, timedelta
@@ -1860,6 +1850,21 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
             (WebCampaignTask.status.in_(["pending", "processing", "active"])) | (WebCampaignTask.created_at >= recent_cutoff)
         ).order_by(WebCampaignTask.created_at.desc())
         web_tasks = (await session.execute(stmt_web)).scalars().all()
+        web_task_ids = {t.id for t in web_tasks}
+
+        # 2. Telegram-scheduled jobs from Redis (deduplicated against WebCampaignTask)
+        from cache_manager import redis_client, get_invite_link
+        import json
+        raw_jobs = await redis_client.get(f"tenant:{tg_account.id}:scheduled_jobs")
+        if raw_jobs:
+            try:
+                for rj in json.loads(raw_jobs):
+                    if rj.get("id") not in web_task_ids:
+                        if not rj.get("status"):
+                            rj["status"] = "processing"
+                        all_jobs.append(rj)
+            except Exception:
+                pass
 
         live_active_ads_count = (await session.execute(
             select(func.count(ActiveAd.id)).where(ActiveAd.telegram_account_id == tg_account.id)
