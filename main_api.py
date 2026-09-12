@@ -309,6 +309,7 @@ class CampaignSubmitReq(BaseModel):
     delay_start: int
     delay_between_channels: int
     ad_lifespan: int
+    duration_minutes: Optional[int] = 0
     target_link: Optional[str] = None
     custom_text: Optional[str] = None
 
@@ -1769,6 +1770,7 @@ async def campaign_submit(req: CampaignSubmitReq, user_id: int = Depends(get_cur
             delay_start=req.delay_start,
             delay_between_channels=req.delay_between_channels,
             ad_lifespan=req.ad_lifespan,
+            duration_minutes=req.duration_minutes or 0,
             target_link=req.target_link,
             custom_text=req.custom_text,
             status="pending"
@@ -1851,6 +1853,9 @@ async def stop_everything(user_id: int = Depends(get_current_user)):
         await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
         await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "stopped", ex=86400)
         await redis_client.delete(f"tenant:{tenant_id}:last_wave_time")
+        await redis_client.delete(f"tenant:{tenant_id}:wave_end_time")
+        await redis_client.delete(f"tenant:{tenant_id}:wave_task_id")
+        await redis_client.delete(f"tenant:{tenant_id}:wave_duration_minutes")
         await redis_client.delete(f"tenant:{tenant_id}:active_campaign_state")
         await redis_client.delete(f"tenant:{tenant_id}:scheduled_jobs")
         await redis_client.delete(f"tenant:{tenant_id}:last_processed_bulk_target")
@@ -1983,6 +1988,52 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
             state_stmt = select(Setting.value).where(Setting.telegram_account_id == tg_account.id, Setting.key == "bot_system_state")
             state_val = (await session.execute(state_stmt)).scalar() or "stopped"
 
+            # Check wave duration expiry
+            wave_expires_at_str = None
+            remaining_duration_seconds = 0
+            task_duration_mins = getattr(task, "duration_minutes", 0) or 0
+            
+            if task.campaign_type in ["wave", "wave_folder", "activate_exchange"]:
+                raw_end = await redis_client.get(f"tenant:{tg_account.id}:wave_end_time")
+                if raw_end:
+                    try:
+                        end_ts = float(raw_end.decode("utf-8") if isinstance(raw_end, bytes) else raw_end)
+                        import time
+                        now_ts = time.time()
+                        if now_ts >= end_ts and task.status in ["active", "processing"]:
+                            # Expired! Auto-complete
+                            task.status = "completed"
+                            now_utc = datetime.now(timezone.utc)
+                            mins_text = f"{task_duration_mins} دقيقة" if task_duration_mins > 0 else "المدة المحددة"
+                            task.result_summary = (
+                                f"✅ **اكتملت حملة التبادل العشوائي**\n"
+                                f"⏱️ انتهت مدة التشغيل المحددة ({mins_text}) وتم إيقاف الحملة تلقائياً بنجاح.\n"
+                                f"🕐 وقت الانتهاء: {now_utc.strftime('%H:%M')}"
+                            )
+                            task.completed_at = now_utc
+                            session.add(task)
+                            await session.commit()
+                            
+                            # Stop bot state
+                            await redis_client.set(f"tenant:{tg_account.id}:setting:bot_system_state", "stopped")
+                            from db_manager import Setting
+                            from sqlalchemy import update
+                            await session.execute(
+                                update(Setting)
+                                .where(Setting.telegram_account_id == tg_account.id, Setting.key == "bot_system_state")
+                                .values(value="stopped")
+                            )
+                            await session.commit()
+                            await redis_client.delete(f"tenant:{tg_account.id}:wave_end_time")
+                            await redis_client.delete(f"tenant:{tg_account.id}:wave_task_id")
+                            await redis_client.delete(f"tenant:{tg_account.id}:wave_duration_minutes")
+                            state_val = "stopped"
+                        elif now_ts < end_ts:
+                            remaining_duration_seconds = max(0, int(end_ts - now_ts))
+                            wave_expires_at_str = datetime.fromtimestamp(end_ts, tz=timezone.utc).isoformat()
+                    except Exception as wex:
+                        logger.error(f"Error checking wave_end_time in get_user_scheduled_jobs: {wex}")
+
             # Auto-complete wave task if bot is stopped
             if task.campaign_type in ["wave", "wave_folder", "activate_exchange"] and state_val in ["stopped", "paused"] and task.status == "active":
                 task.status = "completed"
@@ -2023,6 +2074,16 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
                         details = f"التبادل التلقائي نشط | الفاصل: {wave_interval // 60} دقيقة"
                 else:
                     details = "التبادل التلقائي نشط | جاري إطلاق الموجة الأولى..."
+
+                if remaining_duration_seconds > 0:
+                    rem_h = remaining_duration_seconds // 3600
+                    rem_m = (remaining_duration_seconds % 3600) // 60
+                    if rem_h > 0:
+                        details += f" | متبقي للحملة: {rem_h}س و {rem_m}د"
+                    else:
+                        details += f" | متبقي للحملة: {rem_m} دقيقة"
+                elif task_duration_mins > 0:
+                    details += f" | مدة الحملة: {task_duration_mins} دقيقة"
             else:
                 if task.delay_start > 0:
                     details += f" | تأخير البدء: {task.delay_start} دقيقة"
@@ -2030,6 +2091,8 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
                     details += f" | الفاصل: {task.delay_between_channels} دقيقة"
                 if task.ad_lifespan > 0:
                     details += f" | مدة بقاء الإعلان: {task.ad_lifespan} دقيقة"
+                if task_duration_mins > 0:
+                    details += f" | مدة الحملة: {task_duration_mins} دقيقة"
                 if task.target_link:
                     details += f" | القناة: {task.target_link}"
 
@@ -2125,6 +2188,9 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
                 "start_time": scheduled_time_str,
                 "details": details,
                 "expires_at": expires_at_str,
+                "duration_minutes": task_duration_mins,
+                "wave_expires_at": wave_expires_at_str,
+                "remaining_duration_seconds": remaining_duration_seconds,
                 "delay_start": task.delay_start,
                 "delay_between_channels": task.delay_between_channels,
                 "ad_lifespan": task.ad_lifespan or ad_lifespan_minutes,

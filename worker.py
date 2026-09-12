@@ -4020,6 +4020,8 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                     info.append(f"   ⏳ الفاصل بين القنوات: `{t.delay_between_channels}` د")
                 if t.ad_lifespan > 0:
                     info.append(f"   🗑️ مدة بقاء الإعلان: `{t.ad_lifespan}` د")
+                if getattr(t, "duration_minutes", 0) and t.duration_minutes > 0:
+                    info.append(f"   ⌛ مدة تشغيل الحملة: `{t.duration_minutes}` د")
                 if t.target_link:
                     info.append(f"   🎯 الهدف: `{t.target_link}`")
                 lines.append("\n".join(info))
@@ -4510,6 +4512,19 @@ async def supervisor_loop():
                         async with AsyncSessionLocal() as chk_sess:
                             bot_state = await get_setting(chk_sess, acc_id, "bot_system_state")
                         if bot_state == "active":
+                            from cache_manager import redis_client
+                            import time
+                            wave_end_time = await redis_client.get(f"tenant:{acc_id}:wave_end_time")
+                            if wave_end_time:
+                                try:
+                                    end_ts = float(wave_end_time.decode("utf-8") if isinstance(wave_end_time, bytes) else wave_end_time)
+                                    if time.time() >= end_ts:
+                                        logger.info(f"Supervisor: Tenant {acc_id} wave campaign duration expired ({end_ts}). Stopping.")
+                                        await stop_wave_campaign_on_timeout(acc_id)
+                                        continue
+                                except Exception as spe:
+                                    logger.error(f"Supervisor parsing wave_end_time error: {spe}")
+
                             w_task = running_tasks.get(acc_id)
                             if not w_task or w_task.done():
                                 logger.warning(f"Supervisor: wave_publisher_worker for tenant {acc_id} was not running (done/missing). Reviving now!")
@@ -5292,6 +5307,88 @@ async def trigger_manual_wave(tenant_id: int, status_msg: Optional[Message] = No
             if status_msg:
                 await edit_or_reply(status_msg, f"❌ **فشل النشر التبادلي بسبب خطأ: {e}**")
 
+async def stop_wave_campaign_on_timeout(tenant_id: int):
+    """
+    Stops the active wave campaign when its scheduled duration expires.
+    Sets bot_system_state to 'stopped', marks active WebCampaignTasks as completed,
+    clears Redis timer keys, cancels the publisher task, and notifies the user.
+    """
+    logger.info(f"Tenant {tenant_id}: Stopping wave campaign due to duration expiration.")
+    from cache_manager import redis_client
+    import time
+    
+    # 1. Update Redis & PostgreSQL bot_system_state to 'stopped'
+    try:
+        await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "stopped")
+    except Exception as re:
+        logger.error(f"Error setting bot_system_state to stopped in Redis for tenant {tenant_id}: {re}")
+
+    now_utc = datetime.now(timezone.utc)
+    done_time = now_utc.strftime("%H:%M")
+    
+    try:
+        from db_manager import Setting, WebCampaignTask
+        async with AsyncSessionLocal() as session:
+            await set_setting(session, tenant_id, "bot_system_state", "stopped")
+            
+            # 2. Mark active wave campaign tasks as completed
+            stmt = select(WebCampaignTask).where(
+                WebCampaignTask.telegram_account_id == tenant_id,
+                WebCampaignTask.campaign_type.in_(["wave", "wave_folder", "activate_exchange"]),
+                WebCampaignTask.status.in_(["active", "processing", "pending"])
+            )
+            wave_tasks = (await session.execute(stmt)).scalars().all()
+            for t in wave_tasks:
+                t.status = "completed"
+                t.completed_at = now_utc
+                mins_text = f"{t.duration_minutes} دقيقة" if (t.duration_minutes and t.duration_minutes > 0) else "المدة المحددة"
+                t.result_summary = (
+                    f"✅ **اكتملت حملة التبادل العشوائي**\n"
+                    f"⏱️ انتهت مدة التشغيل المحددة ({mins_text}) وتم إيقاف الحملة تلقائياً بنجاح.\n"
+                    f"🕐 وقت الانتهاء: {done_time}"
+                )
+                session.add(t)
+            await session.commit()
+    except Exception as dbe:
+        logger.error(f"Error updating DB on wave timeout for tenant {tenant_id}: {dbe}")
+
+    # 3. Clean up Redis timer keys
+    try:
+        await redis_client.delete(f"tenant:{tenant_id}:wave_end_time")
+        await redis_client.delete(f"tenant:{tenant_id}:wave_task_id")
+        await redis_client.delete(f"tenant:{tenant_id}:wave_duration_minutes")
+    except Exception as ce:
+        logger.error(f"Error deleting wave keys from Redis for tenant {tenant_id}: {ce}")
+
+    # 4. Remove wave from scheduled_jobs
+    if tenant_id in scheduled_jobs:
+        scheduled_jobs[tenant_id] = [j for j in scheduled_jobs[tenant_id] if j.get("type") not in ["wave", "wave_folder", "activate_exchange"]]
+        asyncio.create_task(save_scheduled_jobs(tenant_id))
+
+    # 5. Log tenant event
+    try:
+        await log_tenant_event(tenant_id, "⏱️ انتهت مدة حملة التبادل العشوائي وتم إيقاف النشر التلقائي بنجاح.")
+    except Exception:
+        pass
+
+    # 6. Notify user via Telegram Saved Messages
+    client = running_clients.get(tenant_id)
+    if client and client.is_connected:
+        try:
+            await client.send_message(
+                "me",
+                "⏱️ **انتهت مدة حملة التبادل العشوائي**\n\n"
+                "✅ تم إيقاف النشر التبادلي التلقائي بنجاح بعد اكتمال المدة الزمنية المحددة للحملة.\n"
+                "📌 الإعلانات المنشورة حالياً بالقنوات ستبقى حتى انتهاء عمر الإعلان ثم تُحذف تلقائياً."
+            )
+        except Exception as se:
+            logger.debug(f"Could not send wave completion notice to Saved Messages: {se}")
+
+    # 7. Cancel running wave task if still in running_tasks
+    w_task = running_tasks.pop(tenant_id, None)
+    if w_task and not w_task.done() and asyncio.current_task() != w_task:
+        w_task.cancel()
+
 async def wave_publisher_worker(tenant_id: int):
     while global_worker_running:
         try:
@@ -5301,6 +5398,19 @@ async def wave_publisher_worker(tenant_id: int):
             from cache_manager import redis_client
             import random
             import pytz
+            import time
+
+            # Check if wave campaign has a scheduled duration limit that expired
+            wave_end_time = await redis_client.get(f"tenant:{tenant_id}:wave_end_time")
+            if wave_end_time:
+                try:
+                    end_ts = float(wave_end_time.decode("utf-8") if isinstance(wave_end_time, bytes) else wave_end_time)
+                    if time.time() >= end_ts:
+                        logger.info(f"Wave campaign for tenant {tenant_id} reached its scheduled duration limit ({end_ts}). Stopping.")
+                        await stop_wave_campaign_on_timeout(tenant_id)
+                        break
+                except Exception as exp_err:
+                    logger.error(f"Error parsing wave_end_time for tenant {tenant_id}: {exp_err}")
             
             global_pause = await redis_client.get(f"tenant:{tenant_id}:campaign_global_pause")
             if global_pause:
@@ -6326,6 +6436,9 @@ async def run_stop_everything_logic(tenant_id: int, client: Client, reply_to_mes
             await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
             await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "stopped", ex=86400)
             await redis_client.delete(f"tenant:{tenant_id}:last_wave_time")
+            await redis_client.delete(f"tenant:{tenant_id}:wave_end_time")
+            await redis_client.delete(f"tenant:{tenant_id}:wave_task_id")
+            await redis_client.delete(f"tenant:{tenant_id}:wave_duration_minutes")
         except Exception as pe:
             logger.error(f"Failed to set pause flags in Redis in stop_everything: {pe}")
 
@@ -6533,8 +6646,22 @@ async def run_web_campaign_task(task_id: int):
                 try:
                     from cache_manager import redis_client
                     await redis_client.delete(f"tenant:{tenant_id}:campaign_global_pause")
-                except Exception:
-                    pass
+
+                    # Handle execution duration limit for wave campaign
+                    import time
+                    duration_mins = getattr(task, "duration_minutes", 0) or 0
+                    if duration_mins > 0:
+                        end_ts = time.time() + (duration_mins * 60)
+                        await redis_client.set(f"tenant:{tenant_id}:wave_end_time", str(end_ts), ex=(duration_mins * 60 + 86400))
+                        await redis_client.set(f"tenant:{tenant_id}:wave_task_id", str(task_id), ex=(duration_mins * 60 + 86400))
+                        await redis_client.set(f"tenant:{tenant_id}:wave_duration_minutes", str(duration_mins), ex=(duration_mins * 60 + 86400))
+                        logger.info(f"Tenant {tenant_id}: Wave campaign {task_id} set to run for {duration_mins} mins (until ts {end_ts})")
+                    else:
+                        await redis_client.delete(f"tenant:{tenant_id}:wave_end_time")
+                        await redis_client.delete(f"tenant:{tenant_id}:wave_task_id")
+                        await redis_client.delete(f"tenant:{tenant_id}:wave_duration_minutes")
+                except Exception as w_err:
+                    logger.error(f"Error configuring wave duration in Redis for tenant {tenant_id}: {w_err}")
                 async with AsyncSessionLocal() as db_session:
                     await set_setting(db_session, tenant_id, "bot_system_state", "active")
                     await set_setting(db_session, tenant_id, "wave_folder_mode", "campaign" if is_folder_wave else "all")

@@ -240,6 +240,7 @@ class WebCampaignTask(Base):
     target_count: Mapped[Optional[int]] = mapped_column(Integer, default=0, nullable=True)
     completed_count: Mapped[Optional[int]] = mapped_column(Integer, default=0, nullable=True)
     failed_count: Mapped[Optional[int]] = mapped_column(Integer, default=0, nullable=True)
+    duration_minutes: Mapped[Optional[int]] = mapped_column(Integer, default=0, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -393,6 +394,7 @@ async def init_db() -> None:
                 await conn.execute(text("ALTER TABLE web_campaign_tasks ADD COLUMN IF NOT EXISTS failed_count INTEGER DEFAULT 0;"))
                 await conn.execute(text("ALTER TABLE web_campaign_tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP WITH TIME ZONE;"))
                 await conn.execute(text("ALTER TABLE web_campaign_tasks ADD COLUMN IF NOT EXISTS destination_channel_id BIGINT;"))
+                await conn.execute(text("ALTER TABLE web_campaign_tasks ADD COLUMN IF NOT EXISTS duration_minutes INTEGER DEFAULT 0;"))
                 await conn.execute(text("ALTER TABLE web_campaign_tasks ALTER COLUMN target_link TYPE TEXT;"))
                 await conn.execute(text("ALTER TABLE exchange_requests ADD COLUMN IF NOT EXISTS ad_lifespan INTEGER DEFAULT 30;"))
                 await conn.execute(text("ALTER TABLE exchange_requests ALTER COLUMN requester_channel_link TYPE TEXT;"))

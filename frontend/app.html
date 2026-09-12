@@ -738,8 +738,32 @@
                   </select>
                 </div>
 
+                <!-- 4B. Campaign Execution Duration (for wave campaigns) -->
+                <div id="group-campaign-duration" class="form-group" style="display: none;">
+                  <label for="web-campaign-duration" class="form-label" style="display: block; color: #38bdf8; font-size: 13px; margin-bottom: 8px; font-weight: 600;">
+                    ⏱️ مدة تشغيل حملة التبادل (تتوقف الحملة تلقائياً بعدها)
+                  </label>
+                  <select id="web-campaign-duration" class="form-control" style="background: #0f172a; color: #fff; border: 1px solid #0284c7; padding: 12px; border-radius: 8px; width: 100%; font-size: 14px; outline: none; transition: border-color 0.2s;">
+                    <option value="30">30 دقيقة</option>
+                    <option value="60">ساعة واحدة</option>
+                    <option value="120" selected>ساعتان (افتراضي وموصى به)</option>
+                    <option value="180">3 ساعات</option>
+                    <option value="240">4 ساعات</option>
+                    <option value="360">6 ساعات</option>
+                    <option value="480">8 ساعات</option>
+                    <option value="720">12 ساعة</option>
+                    <option value="1440">24 ساعة (يوم كامل)</option>
+                    <option value="2880">48 ساعة (يومان)</option>
+                    <option value="4320">72 ساعة (3 أيام)</option>
+                    <option value="0">♾️ تشغيل مستمر دون توقف تلقائي</option>
+                  </select>
+                  <small style="display: block; color: #94a3b8; font-size: 11.5px; margin-top: 6px; line-height: 1.5;">
+                    💡 سيقوم النظام بتشغيل جولات التبادل تلقائياً وبانتظام، وعند انتهاء هذه المدة سيتوقف التبادل ذاتياً ويكتمل الطلب دون الحاجة لإيقافه يدوياً.
+                  </small>
+                </div>
+
                 <!-- 5. Conditional fields -->
-                                <!-- Dedicated Bulk Extra Link Field -->
+                <!-- Dedicated Bulk Extra Link Field -->
                 <div id="group-bulk-extra-link" class="form-group" style="display: none;">
                   <label for="web-bulk-extra-link" class="form-label" style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px; font-weight: 600;">
                     🎯 رابط إضافي مروج مع كل قناة (اختياري - مثل رابط مجلد مجمع أو قناة ثانية)

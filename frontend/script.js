@@ -2366,6 +2366,10 @@ async function handleWebCampaignSubmit(e) {
   const delayStart = parseInt(document.getElementById("web-delay-start").value) || 0;
   const delayBetween = parseInt(document.getElementById("web-delay-between").value) || 0;
   const adLifespan = parseInt(document.getElementById("web-ad-lifespan").value) || 0;
+  const durationInput = document.getElementById("web-campaign-duration");
+  const durationMinutes = (durationInput && (campaignType === "wave" || campaignType === "wave_folder")) 
+    ? (parseInt(durationInput.value, 10) || 0) 
+    : 0;
   const customTextInput = document.getElementById("web-custom-text");
 
   let targetLink = "";
@@ -2407,6 +2411,7 @@ async function handleWebCampaignSubmit(e) {
         delay_start: delayStart,
         delay_between_channels: delayBetween,
         ad_lifespan: adLifespan,
+        duration_minutes: durationMinutes,
         target_link: targetLink || null,
         custom_text: customText || null
       })
@@ -2671,6 +2676,31 @@ async function loadScheduledJobs() {
 
         if (isWave && job.status === "active") {
           const liveAds = (typeof job.current_active_ads_count === "number") ? job.current_active_ads_count : 0;
+          let waveDurationBanner = "";
+          if (job.wave_expires_at && job.remaining_duration_seconds > 0) {
+            const remSec = job.remaining_duration_seconds;
+            const remHours = Math.floor(remSec / 3600);
+            const remMins = Math.floor((remSec % 3600) / 60);
+            const remSeconds = remSec % 60;
+            const timeDisplay = remHours > 0 ? `${remHours}س و ${remMins}د` : `${remMins}د و ${remSeconds}ث`;
+            const cardId = `wave-duration-timer-${job.task_id}`;
+            waveDurationBanner = `
+              <div id="${cardId}" style="margin-top: 8px; padding: 10px 14px; background: rgba(14, 165, 233, 0.1); border: 1px solid rgba(14, 165, 233, 0.35); border-radius: 8px; color: #38bdf8; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; direction: rtl;">
+                <span style="display: flex; align-items: center; gap: 8px;">
+                  <span>⏱️ المدة الإجمالية المتبقية للحملة:</span>
+                  <b id="${cardId}-txt" style="color: #fff; font-size: 14px; font-family: monospace; background: rgba(0,0,0,0.3); padding: 2px 8px; border-radius: 6px;">${timeDisplay}</b>
+                </span>
+                <span style="font-size: 11px; color: #94a3b8; font-weight: normal;">(المجدولة: ${job.duration_minutes || 120} دقيقة)</span>
+              </div>
+            `;
+          } else if (job.duration_minutes === 0) {
+            waveDurationBanner = `
+              <div style="margin-top: 8px; padding: 8px 12px; background: rgba(148, 163, 184, 0.08); border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 8px; color: #94a3b8; font-size: 12px; display: flex; align-items: center; gap: 6px; direction: rtl;">
+                <span>♾️ تشغيل مستمر دون توقف تلقائي</span>
+              </div>
+            `;
+          }
+
           let liveAdsNotice = "";
           if (liveAds > 0) {
             liveAdsNotice = `
@@ -2697,7 +2727,7 @@ async function loadScheduledJobs() {
               ${formatTelegramText(sanitizedSummary)}
             </div>
           ` : '';
-          progressHtml = liveAdsNotice + summaryBox;
+          progressHtml = waveDurationBanner + liveAdsNotice + summaryBox;
         } else if (job.status === "active" && job.expires_at) {
           const expiresMs   = new Date(job.expires_at).getTime();
           const lifespanMs  = (job.ad_lifespan || 15) * 60 * 1000;
@@ -3218,6 +3248,13 @@ document.addEventListener("DOMContentLoaded", () => {
       resetTargetLinkInputs();
       resetChannelPicker();
       const selectedType = campaignTypeSelect.value;
+      const groupCampaignDuration = document.getElementById("group-campaign-duration");
+      if (selectedType === "wave" || selectedType === "wave_folder") {
+        if (groupCampaignDuration) groupCampaignDuration.style.display = "block";
+      } else {
+        if (groupCampaignDuration) groupCampaignDuration.style.display = "none";
+      }
+
       if (selectedType === "single") {
         groupTargetLink.style.display = "block";
         const groupBulkExtra = document.getElementById("group-bulk-extra-link");
