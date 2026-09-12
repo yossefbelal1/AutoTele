@@ -283,6 +283,43 @@ class AdminBroadcastUnitTests(unittest.TestCase):
 
         self.loop.run_until_complete(run())
 
+    def test_admin_broadcast_deduplication(self):
+        """Verify duplicate broadcast submission within window is safely deduplicated."""
+        from main_api import admin_broadcast, User
+        from fastapi import BackgroundTasks
+
+        async def run():
+            with patch("main_api.redis_client") as mock_redis, \
+                 patch("main_api.AsyncSessionLocal") as mock_session_cls:
+
+                admin = MagicMock(spec=User)
+                admin.id = 1
+                admin.is_admin = True
+
+                req = MagicMock()
+                req.headers = {"content-type": "application/json"}
+                req.json = AsyncMock(return_value={
+                    "message_text": "Deduplication test message",
+                    "target_group": "all"
+                })
+
+                # First call: redis.set nx=True returns True (new key)
+                mock_redis.set = AsyncMock(return_value=True)
+                bg_tasks_1 = BackgroundTasks()
+                res1 = await admin_broadcast(req, bg_tasks_1, admin)
+                self.assertEqual(res1["status"], "success")
+                self.assertEqual(len(bg_tasks_1.tasks), 1)
+
+                # Second call immediately after: redis.set nx=True returns False (already set)
+                mock_redis.set = AsyncMock(return_value=False)
+                bg_tasks_2 = BackgroundTasks()
+                res2 = await admin_broadcast(req, bg_tasks_2, admin)
+                self.assertEqual(res2["status"], "success")
+                # Deduplication should prevent queuing a second background task
+                self.assertEqual(len(bg_tasks_2.tasks), 0)
+
+        self.loop.run_until_complete(run())
+
 if __name__ == "__main__":
     unittest.main()
 

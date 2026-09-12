@@ -4582,6 +4582,19 @@ async def admin_broadcast(
         else:
             media_type = "photo"
 
+    # Deduplicate rapid submissions (e.g. double-click or multiple listeners) within 10 seconds
+    import hashlib
+    dedup_content = f"{admin_user.id}:{message_text}:{target_user_id}:{target_user_ids}:{target_group}:{media_type}:{media_url}:{media_filename or (media_id if disk_media_path else '')}"
+    dedup_hash = hashlib.sha256(dedup_content.encode("utf-8")).hexdigest()
+    dedup_key = f"broadcast_dedup:{admin_user.id}:{dedup_hash}"
+    try:
+        is_new = await redis_client.set(dedup_key, "1", nx=True, ex=10)
+        if not is_new:
+            logger.warning(f"Duplicate broadcast request detected for admin {admin_user.id} within 10s - ignoring duplicate.")
+            return {"status": "success", "message": "تم استلام البث بالفعل وجاري تنفيذه في الخلفية."}
+    except Exception as d_err:
+        logger.warning(f"Broadcast dedup Redis check failed: {d_err}")
+
     background_tasks.add_task(
         dispatch_admin_broadcast,
         text=message_text,

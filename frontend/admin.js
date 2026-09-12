@@ -2114,14 +2114,23 @@ function uploadBroadcastWithProgress(formData, onProgress) {
 }
 window.uploadBroadcastWithProgress = uploadBroadcastWithProgress;
 
+let isBroadcasting = false;
+
 async function handleAdminBroadcast(e) {
   e.preventDefault();
+  if (isBroadcasting) {
+    console.warn("⚠️ Broadcast submission already in progress, ignoring duplicate trigger.");
+    return;
+  }
+  isBroadcasting = true;
+
   const msgText = (document.getElementById("broadcast-message")?.value || "").trim();
   const urlInput = document.getElementById("broadcast-media-url");
   const mediaUrl = urlInput ? urlInput.value.trim() : "";
   
   if (!msgText && !broadcastSelectedFile && !mediaUrl) {
     showToast("يرجى كتابة نص للرسالة أو إرفاق وسائط (صورة/فيديو) أولاً.", "error");
+    isBroadcasting = false;
     return;
   }
   
@@ -2269,6 +2278,7 @@ async function handleAdminBroadcast(e) {
     }
   } finally {
     setButtonLoading("btn-send-broadcast", false);
+    isBroadcasting = false;
   }
 }
 window.handleAdminBroadcast = handleAdminBroadcast;
@@ -2316,8 +2326,6 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("admin-login-form").addEventListener("submit", handleAdminLogin);
   document.getElementById("admin-edit-form").addEventListener("submit", handleAdminEditSave);
   document.getElementById("btn-close-admin-modal").addEventListener("click", closeAdminEditModal);
-  document.getElementById("admin-broadcast-form").addEventListener("submit", handleAdminBroadcast);
-  setupBroadcastMediaHandlers();
 
   // Live Log Stream Handlers
   const btnToggleStream = document.getElementById("btn-toggle-log-stream");

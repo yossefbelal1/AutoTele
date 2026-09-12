@@ -7221,6 +7221,20 @@ async def redis_pubsub_listener():
                     media_url = data.get("media_url")
                     media_filename = data.get("media_filename")
                     if message_text or media_id or media_url:
+                        # Extra defense: Deduplicate in worker in case of network replay or multiple publishers
+                        import hashlib
+                        w_dedup_raw = f"{message_text}:{target_user_id}:{target_user_ids}:{target_group}:{media_id}:{media_url}:{media_filename}"
+                        w_dedup_hash = hashlib.sha256(w_dedup_raw.encode("utf-8")).hexdigest()
+                        w_dedup_key = f"worker_broadcast_dedup:{w_dedup_hash}"
+                        try:
+                            from cache_manager import redis_client
+                            is_new_w = await redis_client.set(w_dedup_key, "1", nx=True, ex=10)
+                            if not is_new_w:
+                                logger.warning(f"Worker received duplicate broadcast payload within 10s - skipping duplicate execution.")
+                                continue
+                        except Exception as w_err:
+                            logger.warning(f"Worker broadcast dedup check failed: {w_err}")
+
                         asyncio.create_task(dispatch_worker_broadcast(
                             text=message_text or "",
                             target_user_id=target_user_id,
