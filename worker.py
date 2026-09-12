@@ -4483,7 +4483,7 @@ async def create_system_failure_notification(
 
         # 1. Deduplication Cooldown via Redis
         sig = f"{tenant_id}:{notif_type}:{title}"
-        sig_hash = hashlib.md5(sig.encode()).hexdigest()
+        sig_hash = hashlib.sha256(sig.encode()).hexdigest()
         cooldown_key = f"notif_cooldown:{tenant_id}:{sig_hash}"
         
         is_cooldown = await redis_client.get(cooldown_key)

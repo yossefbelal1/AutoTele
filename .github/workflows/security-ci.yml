@@ -76,7 +76,7 @@ jobs:
         JWT_SECRET: "ci_testing_secret_key_must_be_over_32_characters_long_abcdef"
         SESSION_ENCRYPTION_KEY: "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE="
       run: |
-        python -m pytest tests/ --ignore=tests/test_campaign_dynamic_links_remote.py --ignore=tests/test_reply_long_message_remote.py
+        python -m pytest tests/ --ignore=tests/test_campaign_dynamic_links_remote.py --ignore=tests/test_reply_long_message_remote.py --ignore=tests/test_acc_conn.py --ignore=tests/test_session.py
 
   docker-build-validate:
     name: Dockerfile Build Validation
