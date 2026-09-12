@@ -717,15 +717,28 @@ def format_user_template(template: str, title: str, link: str, extra_link: Optio
 
 web_task_progress_msgs = {}
 
-async def update_task_progress_in_db(task_id: int, text: str):
+async def update_task_progress_in_db(
+    task_id: int, 
+    text: str, 
+    completed_count: Optional[int] = None, 
+    target_count: Optional[int] = None, 
+    status: Optional[str] = None
+):
     try:
         async with AsyncSessionLocal() as session:
             from db_manager import WebCampaignTask
             from sqlalchemy import update
+            vals = {"result_summary": text}
+            if completed_count is not None:
+                vals["completed_count"] = completed_count
+            if target_count is not None:
+                vals["target_count"] = target_count
+            if status is not None:
+                vals["status"] = status
             await session.execute(
                 update(WebCampaignTask)
                 .where(WebCampaignTask.id == task_id)
-                .values(result_summary=text)
+                .values(**vals)
             )
             await session.commit()
     except Exception as e:
@@ -2387,6 +2400,17 @@ async def run_bulk_campaign_logic(
                 if status_msg:
                     await safe_edit_message(status_msg, f"❌ **فشل حملة الفولدر: لم يتم العثور على أي قنوات في مجلد '{folder_label}'.**")
                 await log_tenant_event(tenant_id, f"فشل حملة الفولدر: مجلد '{folder_label}' فارغ في الكاش.")
+                if web_task_id:
+                    try:
+                        async with AsyncSessionLocal() as session:
+                            await session.execute(
+                                update(WebCampaignTask)
+                                .where(WebCampaignTask.id == web_task_id)
+                                .values(status="failed", result_summary=f"❌ فشل حملة الفولدر: لم يتم العثور على أي قنوات في مجلد '{folder_label}'.")
+                            )
+                            await session.commit()
+                    except Exception:
+                        pass
                 return
 
         from cache_manager import get_channels_cache
@@ -2575,7 +2599,13 @@ async def run_bulk_campaign_logic(
                         f"📋 **مخطط سير الحملة (Checklist):**\n"
                         f"{checklist_str}"
                     )
-                    await update_task_progress_in_db(web_task_id, report)
+                    await update_task_progress_in_db(
+                        web_task_id, 
+                        report,
+                        completed_count=done_targets,
+                        target_count=total_targets,
+                        status="completed" if target_posting_status == "completed" else "processing"
+                    )
                 return
                 
             if target_posting_status == "completed":
@@ -2615,7 +2645,13 @@ async def run_bulk_campaign_logic(
                 logger.error(f"Failed to update status message: {e}")
                 
             if web_task_id:
-                await update_task_progress_in_db(web_task_id, report)
+                await update_task_progress_in_db(
+                    web_task_id, 
+                    report,
+                    completed_count=done_targets,
+                    target_count=total_targets,
+                    status="completed" if target_posting_status == "completed" else "processing"
+                )
 
         status_msg_chat_id = status_msg.chat.id if status_msg else None
         status_msg_id = status_msg.id if status_msg else None
@@ -2962,7 +2998,8 @@ async def run_bulk_campaign_logic(
             try:
                 async with AsyncSessionLocal() as session:
                     from datetime import datetime as _dt
-                    done_time = _dt.now(timezone.utc).strftime("%H:%M")
+                    now_utc_done = _dt.now(timezone.utc)
+                    done_time = now_utc_done.strftime("%H:%M")
                     completion_text = (
                         f"✅ **اكتملت حملة المجلد المجمعة بالكامل**\n"
                         f"📌 تم النشر ثم الحذف التلقائي للإعلانات بنجاح.\n"
@@ -2971,7 +3008,13 @@ async def run_bulk_campaign_logic(
                     await session.execute(
                         update(WebCampaignTask)
                         .where(WebCampaignTask.id == web_task_id)
-                        .values(status="completed", result_summary=completion_text)
+                        .values(
+                            status="completed", 
+                            result_summary=completion_text,
+                            completed_count=total_targets,
+                            target_count=total_targets,
+                            completed_at=now_utc_done
+                        )
                     )
                     await session.commit()
             except Exception as e:
@@ -6542,6 +6585,20 @@ async def run_web_campaign_task(task_id: int):
                 elif task.campaign_type == "bulk" and task.target_link:
                     extra_link = task.target_link
 
+                # Check if task was in-progress and can be resumed
+                resume_idx = 0
+                if task.completed_count and task.completed_count > 0:
+                    resume_idx = task.completed_count
+                else:
+                    try:
+                        from cache_manager import redis_client
+                        raw_state = await redis_client.get(f"tenant:{tenant_id}:active_campaign_state")
+                        if raw_state:
+                            s_data = json.loads(raw_state)
+                            resume_idx = s_data.get("current_target_index", 0)
+                    except Exception:
+                        pass
+
                 await run_bulk_campaign_logic(
                     tenant_id=tenant_id,
                     client=client,
@@ -6549,6 +6606,7 @@ async def run_web_campaign_task(task_id: int):
                     delay_between_channels=task.delay_between_channels,
                     ad_lifespan=task.ad_lifespan,
                     status_msg=status_msg,
+                    resume_index=resume_idx,
                     folder_number=folder_num,
                     web_task_id=task_id,
                     extra_target_link=extra_link
@@ -6572,6 +6630,9 @@ async def run_web_campaign_task(task_id: int):
                 # For timed_post, single, and channel_exchange: stay "active" until the cleaner actually deletes the ad
                 elif task.campaign_type in ["timed_post", "single", "channel_exchange"] and task.ad_lifespan > 0:
                     final_status = "active"
+                elif task.campaign_type in ["bulk", "custom_folder"]:
+                    cur_status = (await write_session.execute(select(WebCampaignTask.status).where(WebCampaignTask.id == task_id))).scalar_one_or_none()
+                    final_status = cur_status or "completed"
                 else:
                     final_status = "completed"
                 await write_session.execute(
@@ -6973,7 +7034,7 @@ async def global_cleaner_worker():
                     active_tasks = (await fin_session.execute(
                         select(WebCampaignTask).where(
                             WebCampaignTask.status == "active",
-                            WebCampaignTask.campaign_type.in_(["timed_post", "single", "channel_exchange", "bulk"])
+                            WebCampaignTask.campaign_type.in_(["timed_post", "single", "channel_exchange"])
                         )
                     )).scalars().all()
                     for t in active_tasks:
@@ -6987,8 +7048,6 @@ async def global_cleaner_worker():
                             ad_type = "campaign"
                         elif t.campaign_type == "channel_exchange":
                             ad_type = "channel_exchange"
-                        elif t.campaign_type == "bulk":
-                            ad_type = "bulk"
                         else:
                             ad_type = "timed_post"
 

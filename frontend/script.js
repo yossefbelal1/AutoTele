@@ -2642,7 +2642,10 @@ async function loadScheduledJobs() {
         let statusBadge = "";
         let cardStyle = "";
         
-        if (job.status === "processing") {
+        if (isTaskStillRunning(job)) {
+          statusBadge = `<span class="pulse-text-animation" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.5); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">⏳ جاري الانتظار بين الأهداف...</span>`;
+          cardStyle = "background: rgba(245, 158, 11, 0.04); border: 1px solid rgba(245, 158, 11, 0.35); box-shadow: 0 4px 20px rgba(245, 158, 11, 0.08);";
+        } else if (job.status === "processing") {
           statusBadge = `<span class="pulse-text-animation" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">🔄 جاري التنفيذ...</span>`;
           cardStyle = "background: rgba(59, 130, 246, 0.04); border: 1px solid rgba(59, 130, 246, 0.35); box-shadow: 0 4px 20px rgba(59, 130, 246, 0.1);";
         } else if (job.status === "active") {
@@ -2747,7 +2750,7 @@ async function loadScheduledJobs() {
             <div style="color: #94a3b8; font-size: 12px; line-height: 1.5; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 8px;">${escapeHtml(job.details)}</div>
             ${progressHtml}
             <div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 8px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px;">
-              ${job.is_web && (job.status === "pending" || job.status === "processing" || job.status === "active") ? `
+              ${job.is_web && (job.status === "pending" || job.status === "processing" || job.status === "active" || isTaskStillRunning(job)) ? `
                 <button type="button" class="btn-job-action btn-job-edit" onclick='openEditJobModal(${JSON.stringify(job).replace(/'/g, "&#39;")})' style="background: rgba(59, 130, 246, 0.12); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.2s;">
                   ✏️ تعديل
                 </button>
@@ -2766,9 +2769,15 @@ async function loadScheduledJobs() {
 
       const sortByTimeDesc = (a, b) => new Date(b.start_time) - new Date(a.start_time);
 
-      const activeJobs = jobs.filter(j => j.status === "processing" || j.status === "active").sort(sortByTimeDesc);
-      const scheduledJobs = jobs.filter(j => j.status === "pending").sort(sortByTimeDesc);
-      const finishedJobs = jobs.filter(j => j.status === "completed" || j.status === "failed").sort(sortByTimeDesc);
+      const isTaskStillRunning = (j) => {
+        if (!j || !j.result_summary) return false;
+        const text = j.result_summary;
+        return (text.includes("جاري الانتظار بين الأهداف") || text.includes("جاري تشغيل النشر") || text.includes("جاري النشر للهدف")) && !text.includes("اكتملت") && !text.includes("اكتمل النشر") && !text.includes("تم إلغاء");
+      };
+
+      const activeJobs = jobs.filter(j => j.status === "processing" || j.status === "active" || (j.status === "completed" && isTaskStillRunning(j))).sort(sortByTimeDesc);
+      const scheduledJobs = jobs.filter(j => j.status === "pending" && !isTaskStillRunning(j)).sort(sortByTimeDesc);
+      const finishedJobs = jobs.filter(j => (j.status === "completed" || j.status === "failed") && !isTaskStillRunning(j)).sort(sortByTimeDesc);
 
       // 1. Render Active Tasks
       if (activeJobs.length === 0) {

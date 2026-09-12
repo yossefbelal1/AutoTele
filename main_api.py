@@ -1939,13 +1939,14 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
                 if task.target_link:
                     details += f" | القناة: {task.target_link}"
 
-            # For active timed_post, single, bulk, and channel_exchange tasks, fetch the real expires_at from ActiveAd
+            # For active timed_post, single, and channel_exchange tasks, fetch the real expires_at from ActiveAd
+            # Note: 'bulk' is multi-target and must NEVER be auto-completed based on single ad expiry!
             expires_at_str = None
             ad_lifespan_minutes = task.ad_lifespan or 0
-            if task.status == "active" and task.campaign_type in ["timed_post", "single", "bulk", "channel_exchange"]:
+            if task.status == "active" and task.campaign_type in ["timed_post", "single", "channel_exchange"]:
                 try:
                     from db_manager import ActiveAd
-                    ad_type = "campaign" if task.campaign_type == "single" else ("bulk" if task.campaign_type == "bulk" else ("channel_exchange" if task.campaign_type == "channel_exchange" else "timed_post"))
+                    ad_type = "campaign" if task.campaign_type == "single" else ("channel_exchange" if task.campaign_type == "channel_exchange" else "timed_post")
                     active_ad = (await session.execute(
                         select(ActiveAd)
                         .where(
@@ -1963,7 +1964,7 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
                             # Ad has expired - auto-complete task now
                             task.status = "completed"
                             done_time = now_utc.strftime("%H:%M")
-                            campaign_labels = {"single": "الحملة الفردية", "bulk": "حملة المجلد المجمع", "timed_post": "حملة النشر المؤقتة", "channel_exchange": "تبادل قناة بقناة"}
+                            campaign_labels = {"single": "الحملة الفردية", "timed_post": "حملة النشر المؤقتة", "channel_exchange": "تبادل قناة بقناة"}
                             label = campaign_labels.get(task.campaign_type, "المهمة")
                             task.result_summary = (
                                 f"✅ **اكتملت {label} بالكامل**\n"
@@ -1981,7 +1982,7 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
                         # No active ads found for this task in DB - ads were deleted or expired
                         task.status = "completed"
                         done_time = now_utc.strftime("%H:%M")
-                        campaign_labels = {"single": "الحملة الفردية", "bulk": "حملة المجلد المجمع", "timed_post": "حملة النشر المؤقتة", "channel_exchange": "تبادل قناة بقناة"}
+                        campaign_labels = {"single": "الحملة الفردية", "timed_post": "حملة النشر المؤقتة", "channel_exchange": "تبادل قناة بقناة"}
                         label = campaign_labels.get(task.campaign_type, "المهمة")
                         task.result_summary = (
                             f"✅ **اكتملت {label} بالكامل**\n"
@@ -2009,12 +2010,21 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
                         f"• إجمالي الإعلانات النشطة حالياً بالقنوات: `{live_active_ads_count}` إعلان.",
                         display_summary
                     )
+
+            # Live status resolution / consistency check:
+            # If a task has status "completed" but its result_summary explicitly shows ongoing execution
+            # (e.g. waiting between targets or currently posting) and does not state it finished, reflect it as processing.
+            effective_status = task.status
+            if display_summary and effective_status == "completed":
+                is_still_running = any(p in display_summary for p in ["جاري الانتظار بين الأهداف", "جاري تشغيل النشر", "جاري النشر للهدف"]) and not any(dp in display_summary for dp in ["اكتملت", "اكتمل النشر", "تم إلغاء"])
+                if is_still_running:
+                    effective_status = "processing"
                 
             all_jobs.append({
                 "id": f"web_{task.id}",
                 "is_web": True,
                 "task_id": task.id,
-                "status": task.status,
+                "status": effective_status,
                 "result_summary": display_summary,
                 "campaign_type": task.campaign_type,
                 "type": campaign_type_names.get(task.campaign_type, task.campaign_type),

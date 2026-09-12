@@ -286,3 +286,91 @@ class TestCampaignTimelineAndChecklist:
 
             assert recorded_settings.get("bot_system_state") == "active"
             mock_redis.set.assert_any_call(f"tenant:{tenant_id}:setting:bot_system_state", "active", ex=86400)
+
+
+class TestBulkTaskStatusAndLifecycle:
+
+    @pytest.mark.asyncio
+    async def test_update_task_progress_in_db_updates_counts_and_status(self):
+        """Verify that update_task_progress_in_db updates result_summary, completed_count, target_count, and status."""
+        from worker import update_task_progress_in_db
+        mock_session = AsyncMock()
+        
+        with patch("worker.AsyncSessionLocal") as mock_session_cls:
+            mock_session_cls.return_value.__aenter__.return_value = mock_session
+            
+            await update_task_progress_in_db(
+                task_id=999,
+                text="Progress text",
+                completed_count=4,
+                target_count=47,
+                status="processing"
+            )
+            
+            assert mock_session.execute.called
+            assert mock_session.commit.called
+
+    @pytest.mark.asyncio
+    async def test_api_effective_status_marks_ongoing_bulk_as_processing(self):
+        """Verify that get_user_scheduled_jobs evaluates effective_status as processing if progress is ongoing."""
+        from main_api import get_user_scheduled_jobs
+        
+        mock_user = 10
+        mock_session = AsyncMock()
+        mock_account = MagicMock(id=5, user_id=10, status="active")
+        
+        # Task in DB has status="completed", but summary shows target 4 of 47 waiting
+        task_mock = MagicMock()
+        task_mock.id = 3266
+        task_mock.telegram_account_id = 5
+        task_mock.campaign_type = "bulk"
+        task_mock.status = "completed"
+        task_mock.delay_start = 0
+        task_mock.delay_between_channels = 60
+        task_mock.ad_lifespan = 20
+        task_mock.target_link = None
+        task_mock.custom_text = None
+        task_mock.created_at = datetime.now(timezone.utc) - timedelta(hours=2)
+        task_mock.result_summary = (
+            "⏳ **لوحة متابعة حملة المجلد المجمعة (.حملات)**\n"
+            "📊 **الحالة العامة:** ⏳ **جاري الانتظار بين الأهداف...**\n"
+            "📊 **التقدم الحالي:** تم إنجاز `4` من `47` هدف (فوركس العرب) — `9%`\n"
+            "⏱️ **الوقت المتبقي للهدف التالي:** `31:21`"
+        )
+        
+        async def mock_execute(stmt):
+            m = MagicMock()
+            s_str = str(stmt).lower()
+            if "telegram_accounts.user_id" in s_str:
+                m.scalars.return_value.first.return_value = mock_account
+                return m
+            elif "settings.key" in s_str:
+                m.scalar.return_value = "active"
+                return m
+            elif "web_campaign_tasks.telegram_account_id" in s_str:
+                m.scalars.return_value.all.return_value = [task_mock]
+                return m
+            elif "count(active_ads.id)" in s_str or "count(" in s_str:
+                m.scalar.return_value = 0
+                return m
+            m.scalars.return_value.all.return_value = []
+            m.scalars.return_value.first.return_value = None
+            m.scalar.return_value = None
+            return m
+
+        mock_session.execute = mock_execute
+
+        with patch("main_api.AsyncSessionLocal") as mock_session_cls, \
+             patch("main_api.verify_active_subscription", new=AsyncMock()), \
+             patch("cache_manager.redis_client", new=AsyncMock()) as mock_redis:
+            mock_session_cls.return_value.__aenter__.return_value = mock_session
+            mock_redis.get = AsyncMock(return_value=None)
+            
+            res = await get_user_scheduled_jobs(user_id=mock_user)
+            assert res["status"] == "success"
+            jobs = res["jobs"]
+            assert len(jobs) == 1
+            job = jobs[0]
+            # Must be reported as processing, NOT completed!
+            assert job["status"] == "processing"
+            assert "`4` من `47`" in job["result_summary"]
