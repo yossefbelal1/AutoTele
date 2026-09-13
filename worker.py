@@ -1343,30 +1343,66 @@ async def _crawl_and_cache_tenant_channels_inner(tenant_id: int, client: Client,
     except Exception as e:
         logger.error(f"Failed to crawl channels for tenant {tenant_id}: {e}")
         
+    folder_data = await sync_tenant_dialog_filters(tenant_id, client, scraped_channels)
+    no_post_ids = folder_data.get("no_post_ids", [])
+    banned_ids = folder_data.get("banned_ids", [])
+    campaign_ids = folder_data.get("campaign_ids", [])
+    only_post_ids = folder_data.get("only_post_ids", [])
+    
+    # Calculate average quality score for broadcast channels
+    broadcast_scores = [ch["quality_score"] for ch in scraped_channels if ch.get("is_broadcast", False)]
+    avg_quality = int(sum(broadcast_scores) / len(broadcast_scores)) if broadcast_scores else 0
+
+    return {
+        "total_channels": len(scraped_channels),
+        "no_post_count": len(no_post_ids),
+        "banned_count": len(banned_ids),
+        "campaign_count": len(campaign_ids),
+        "only_post_count": len(only_post_ids),
+        "avg_quality_score": avg_quality
+    }
+
+async def sync_tenant_dialog_filters(tenant_id: int, client: Client, scraped_channels: Optional[list] = None) -> dict:
+    """
+    High-speed, live synchronization of Telegram Dialog Filters (Folders).
+    Detects folders: 'حملات' (Campaigns), 'استثناءات' (No_Post), 'حظر' (Banned), 'فقط نشر' (Only_Post), and 'قنواتي X' (My_channels).
+    Crucially parses BOTH include_peers AND pinned_peers so pinned channels in folders are NEVER dropped.
+    Saves to Redis with Forensic Audit logging and empty-crawl anti-shrink protection.
+    """
+    from pyrogram.raw import functions, types
+    from cache_manager import redis_client, get_channels_cache
+    import re as _re
+    import json
+
+    if scraped_channels is None:
+        try:
+            scraped_channels = await get_channels_cache(tenant_id)
+        except Exception:
+            scraped_channels = []
+
     no_post_ids = []
     banned_ids = []
     campaign_ids = []
     only_post_ids = []
     custom_my_channels = {}
+
     try:
-        from pyrogram.raw import functions, types
-        from cache_manager import redis_client
         dialog_filters = await client.invoke(functions.messages.GetDialogFilters())
         for df in dialog_filters:
             if isinstance(df, (types.DialogFilter, types.DialogFilterChatlist)):
                 title = df.title.strip().lower()
                 title_clean = title.replace(" ", "_").replace("-", "_")
-                
+
                 is_no_post = False
                 keywords_no_post = ["no_post", "nopost", "dont_post", "dontpost", "exclude", "except", "استثناء", "لا_تنشر", "بدون_نشر", "لا تنشر", "بدون نشر"]
                 if any(kw in title_clean for kw in keywords_no_post) or title in ["استثناءات", "الاستثناءات", "الاستثناء", "no post", "no-post"]:
                     is_no_post = True
-                
+
                 is_banned = False
                 keywords_banned = ["banned", "banned_channels", "حظر", "محظور", "محظورة", "المحظورات"]
                 if any(kw in title_clean for kw in keywords_banned) or title in ["حظر قنوات", "قنوات محظورة"]:
                     is_banned = True
-                    
+
                 is_campaign = False
                 keywords_campaign = ["campaign", "campaigns", "حملة", "حملات", "النشر", "قنوات_النشر"]
                 if any(kw in title_clean for kw in keywords_campaign) or title in ["قنوات النشر", "حملة نشر"]:
@@ -1381,14 +1417,15 @@ async def _crawl_and_cache_tenant_channels_inner(tenant_id: int, client: Client,
                 match_custom = _re.search(r'(?:my_?channels|mychannels|قنواتي)[\s_-]*(\d*)', title_lower)
 
                 ids = []
-                # 1. Parse explicitly included peers (Channels and Supergroups only; users/bots are never channels)
-                for peer in df.include_peers:
+                # 1. Parse BOTH explicitly included AND pinned peers (Channels and Supergroups only)
+                all_included_peers = list(getattr(df, "include_peers", [])) + list(getattr(df, "pinned_peers", []))
+                for peer in all_included_peers:
                     cid = getattr(peer, "channel_id", None)
                     if cid is not None:
                         ids.append(-(1000000000000 + cid))
                     elif isinstance(peer, types.InputPeerChat):
                         ids.append(-peer.chat_id)
-                
+
                 # 2. Parse explicitly excluded peers
                 exclude_ids = []
                 if hasattr(df, "exclude_peers") and df.exclude_peers:
@@ -1398,45 +1435,47 @@ async def _crawl_and_cache_tenant_channels_inner(tenant_id: int, client: Client,
                             exclude_ids.append(-(1000000000000 + cid))
                         elif isinstance(peer, types.InputPeerChat):
                             exclude_ids.append(-peer.chat_id)
-                
+
                 # 3. Handle category flags (groups / broadcasts)
-                # IMPORTANT: For campaign folders (حملات / my_channels), if the user explicitly added channels in include_peers,
-                # we MUST NOT pollute the campaign folder with all broadcast channels across their entire account!
                 if getattr(df, "groups", False):
                     if not (is_campaign or match_custom) or not ids:
                         for ch in scraped_channels:
                             if ch.get("is_group", False) and ch["id"] not in ids and ch["id"] not in exclude_ids:
                                 ids.append(ch["id"])
-                            
+
                 if getattr(df, "broadcasts", False):
                     if not (is_campaign or match_custom) or not ids:
                         for ch in scraped_channels:
                             if ch.get("is_broadcast", False) and ch["id"] not in ids and ch["id"] not in exclude_ids:
                                 ids.append(ch["id"])
-                            
+
                 # 4. Filter out any exclusions from include_peers
                 if exclude_ids:
                     ids = [i for i in ids if i not in exclude_ids]
 
                 if is_no_post:
-                    no_post_ids = ids
+                    no_post_ids.extend(ids)
                 elif is_banned:
-                    banned_ids = ids
+                    banned_ids.extend(ids)
                 elif is_campaign:
-                    campaign_ids = ids
+                    campaign_ids.extend(ids)
                 elif is_only_post:
-                    only_post_ids = ids
+                    only_post_ids.extend(ids)
 
                 if match_custom:
                     num_str = match_custom.group(1)
                     folder_num = int(num_str) if num_str else 1
-                    custom_my_channels[folder_num] = list(set(ids))
-                    
+                    if folder_num not in custom_my_channels:
+                        custom_my_channels[folder_num] = []
+                    custom_my_channels[folder_num].extend(ids)
+
         # Uniquify to avoid duplicate stats or lists
         no_post_ids = list(set(no_post_ids))
         banned_ids = list(set(banned_ids))
         campaign_ids = list(set(campaign_ids))
         only_post_ids = list(set(only_post_ids))
+        for k in list(custom_my_channels.keys()):
+            custom_my_channels[k] = list(set(custom_my_channels[k]))
 
         # Forensic Audit & Anti-Shrink Snapshot Guard for Campaign and Custom Folders
         async def safe_cache_folder(key: str, new_ids: list, folder_label: str) -> list:
@@ -1445,27 +1484,25 @@ async def _crawl_and_cache_tenant_channels_inner(tenant_id: int, client: Client,
                 prev_ids = json.loads(raw_prev) if raw_prev else []
                 prev_count = len(prev_ids)
                 new_count = len(new_ids)
-                
+
                 added = list(set(new_ids) - set(prev_ids))
                 removed = list(set(prev_ids) - set(new_ids))
-                
-                # Structured Forensic Logging
-                logger.info(
-                    f"[FOLDER_AUDIT] tenant={tenant_id} folder={folder_label} "
-                    f"previous_count={prev_count} new_count={new_count} "
-                    f"added={len(added)} removed={len(removed)} key={key}"
-                )
-                
-                # Anti-Shrink Guard: Protect ONLY against catastrophic zeroing (new_count == 0 when prev_count > 0)
-                # caused by transient network disconnects or Telegram API rate limits during crawling.
-                # Legitimate user channel removals (new_count > 0) must be saved immediately to respect user folder changes.
+
+                if added or removed:
+                    logger.info(
+                        f"[FOLDER_AUDIT] tenant={tenant_id} folder={folder_label} "
+                        f"previous_count={prev_count} new_count={new_count} "
+                        f"added={len(added)} removed={len(removed)} key={key}"
+                    )
+
+                # Anti-Shrink Guard: Protect against transient Telegram API hiccups returning 0
                 if prev_count > 0 and new_count == 0:
                     logger.warning(
-                        f"🚨 EMPTY FOLDER CRAWL DETECTED (likely transient Telegram API hiccup): tenant={tenant_id} folder={folder_label} "
+                        f"🚨 EMPTY FOLDER CRAWL DETECTED (transient Telegram API hiccup): tenant={tenant_id} folder={folder_label} "
                         f"previous={prev_count} new=0 action=RETAIN_PREVIOUS (Retaining previous snapshot in cache)"
                     )
                     return prev_ids
-                
+
                 await redis_client.set(key, json.dumps(new_ids))
                 return new_ids
             except Exception as se:
@@ -1477,28 +1514,30 @@ async def _crawl_and_cache_tenant_channels_inner(tenant_id: int, client: Client,
         await redis_client.set(f"tenant:{tenant_id}:no_post", json.dumps(no_post_ids))
         await redis_client.set(f"tenant:{tenant_id}:banned", json.dumps(banned_ids))
         await redis_client.set(f"tenant:{tenant_id}:only_post", json.dumps(only_post_ids))
-        
+
         custom_folder_numbers = sorted(list(custom_my_channels.keys()))
         for folder_num, ch_ids in custom_my_channels.items():
             await safe_cache_folder(f"tenant:{tenant_id}:my_channels:{folder_num}", ch_ids, f"My_channels{folder_num}")
         await redis_client.set(f"tenant:{tenant_id}:my_channels_list", json.dumps(custom_folder_numbers))
-        
+
         logger.info(f"Folders synced for tenant {tenant_id}: No_Post={len(no_post_ids)} | BANNED={len(banned_ids)} | CAMPAIGN={len(campaign_ids)} | ONLY_POST={len(only_post_ids)} | MY_CHANNELS={custom_folder_numbers}")
+
+        return {
+            "campaign_ids": campaign_ids,
+            "no_post_ids": no_post_ids,
+            "banned_ids": banned_ids,
+            "only_post_ids": only_post_ids,
+            "custom_folder_numbers": custom_folder_numbers
+        }
     except Exception as e:
         logger.error(f"Failed to sync folders for tenant {tenant_id}: {e}")
-        
-    # Calculate average quality score for broadcast channels
-    broadcast_scores = [ch["quality_score"] for ch in scraped_channels if ch.get("is_broadcast", False)]
-    avg_quality = int(sum(broadcast_scores) / len(broadcast_scores)) if broadcast_scores else 0
-
-    return {
-        "total_channels": len(scraped_channels),
-        "no_post_count": len(no_post_ids),
-        "banned_count": len(banned_ids),
-        "campaign_count": len(campaign_ids),
-        "only_post_count": len(only_post_ids),
-        "avg_quality_score": avg_quality
-    }
+        return {
+            "campaign_ids": [],
+            "no_post_ids": [],
+            "banned_ids": [],
+            "only_post_ids": [],
+            "custom_folder_numbers": []
+        }
 
 async def run_first_crawl_onboarding(tenant_id: int, client: Client):
     from cache_manager import redis_client
@@ -7809,6 +7848,12 @@ async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaig
 
     try:
         cached_channels = await get_channels_cache(tenant_id)
+        # Always sync latest dialog filters live from Telegram so folder IDs are up-to-date
+        try:
+            await sync_tenant_dialog_filters(tenant_id, client, cached_channels)
+        except Exception as sfe:
+            logger.warning(f"Dialog filter sync during refresh failed for tenant {tenant_id}: {sfe}")
+
         cached_map = {ch["id"]: ch for ch in cached_channels if "id" in ch}
 
         target_ids = []
@@ -7912,7 +7957,29 @@ async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaig
                             ch_entry = cached_map[k]
                             break
 
-                if ch_entry:
+                if not ch_entry:
+                    chat_obj = full_res.chats[0] if getattr(full_res, "chats", None) else None
+                    title = getattr(chat_obj, "title", f"Channel {chat_id}") if chat_obj else f"Channel {chat_id}"
+                    username = getattr(chat_obj, "username", None) if chat_obj else None
+                    is_broadcast = getattr(chat_obj, "broadcast", True) if chat_obj else True
+
+                    ch_entry = {
+                        "id": chat_id,
+                        "title": title,
+                        "username": username,
+                        "members_count": full_participants or getattr(chat_obj, "participants_count", 0) or 0,
+                        "is_broadcast": is_broadcast,
+                        "is_group": not is_broadcast,
+                        "invite_link": primary_link,
+                        "links_count": links_count,
+                        "primary_link_joins": primary_joins,
+                        "custom_links_joins": custom_joins,
+                        "total_joins": total_joins,
+                        "today_link_joins": today_link_joins,
+                        "quality_score": 50,
+                    }
+                    cached_map[chat_id] = ch_entry
+                else:
                     if full_participants:
                         ch_entry["members_count"] = full_participants
                     if primary_link and not ch_entry.get("invite_link"):
@@ -7942,6 +8009,32 @@ async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaig
         return False
 
 
+async def dialog_filters_sync_worker():
+    """
+    Periodic background worker that runs every 60 seconds to synchronize
+    Telegram Dialog Filters (Folders) for all active tenant sessions in running_clients.
+    Ensures that when a user adds, removes, or pins channels in their folders on Telegram,
+    it is automatically reflected in Redis without requiring a full channel crawl.
+    """
+    logger.info("[DIALOG_FILTERS_WORKER] Started dialog filters sync worker loop.")
+    await asyncio.sleep(20)  # Initial delay on worker startup
+    while global_worker_running:
+        try:
+            active_tenants = list(running_clients.keys())
+            for tid in active_tenants:
+                client = running_clients.get(tid)
+                if client and getattr(client, "is_connected", False):
+                    try:
+                        await sync_tenant_dialog_filters(tid, client)
+                    except Exception as err:
+                        logger.debug(f"[DIALOG_FILTERS_WORKER] Error syncing filters for tenant {tid}: {err}")
+                    await asyncio.sleep(2)  # Avoid spamming across accounts
+        except Exception as e:
+            logger.error(f"[DIALOG_FILTERS_WORKER] Unexpected error in sync worker: {e}")
+
+        await asyncio.sleep(60)
+
+
 async def start_global_engine():
     global global_worker_running
     global_worker_running = True
@@ -7960,6 +8053,7 @@ async def start_global_engine():
         asyncio.create_task(poll_web_campaign_tasks()),
         asyncio.create_task(redis_pubsub_listener()),
         asyncio.create_task(subscription_lifecycle_worker()),
+        asyncio.create_task(dialog_filters_sync_worker()),
         return_exceptions=True
     )
 

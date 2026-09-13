@@ -1560,11 +1560,39 @@ async def get_campaign_channels_analytics(
                 "is_in_campaign": is_in_campaign
             })
 
+        # Ensure any channels present in the campaign folder ID list are represented even if full crawl hasn't indexed them yet
+        if effective_scope == "campaign":
+            matched_cids = {m["channel_id"] for m in matched_channels}
+            for cid in campaign_ids:
+                try:
+                    cid_int = int(cid)
+                except Exception:
+                    cid_int = cid
+                if cid not in matched_cids and cid_int not in matched_cids:
+                    campaign_channel_count += 1
+                    matched_channels.append({
+                        "channel_id": cid_int,
+                        "title": f"قناة {cid_int}",
+                        "username": None,
+                        "invite_link": None,
+                        "total_members": 0,
+                        "joined_today": 0,
+                        "total_link_joins": 0,
+                        "links_count": 0,
+                        "primary_link_joins": 0,
+                        "custom_links_joins": 0,
+                        "link_joins_today": 0,
+                        "net_member_gain": 0,
+                        "can_send": True,
+                        "is_broadcast": True,
+                        "is_in_campaign": True
+                    })
+
         matched_channels.sort(key=lambda x: (x["joined_today"], x["total_link_joins"], x["total_members"]), reverse=True)
 
         available_folders = [
-            {"id": "campaign", "name": "مجلد حملات", "count": campaign_channel_count},
-            {"id": "all", "name": "كل قنواتي", "count": len(cached_channels)}
+            {"id": "campaign", "name": "مجلد حملات", "count": max(campaign_channel_count, len(campaign_ids))},
+            {"id": "all", "name": "كل قنواتي", "count": max(len(cached_channels), len(matched_channels))}
         ]
 
         raw_my_list = await redis_client.get(f"tenant:{acc_id}:my_channels_list")
