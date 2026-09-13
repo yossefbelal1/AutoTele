@@ -481,8 +481,8 @@ class TestCampaignChannelsAnalytics:
 
         redis_data = {
             "tenant:11:campaign": campaign_folder_ids,
-            # Even if chan_baseline had a 141 drift
-            f"tenant:11:chan_baseline:-1002125984562:{today_str}": "32431",
+            # Baseline tracked at 32571 (meaning +1 new member today)
+            f"tenant:11:chan_baseline:-1002125984562:{today_str}": "32571",
             # Link baseline is tracked at 56 (meaning +1 link join today)
             f"tenant:11:link_baseline:-1002125984562:{today_str}": "56"
         }
@@ -510,7 +510,7 @@ class TestCampaignChannelsAnalytics:
 
             assert summary["folder_total_link_joins"] == 57
             assert summary["folder_total_members"] == 32572
-            # joined_today must be 1, NOT 141!
+            # Total genuine new members joined today = 1
             assert summary["folder_joined_today"] == 1
 
             assert len(channels) == 1
@@ -521,7 +521,117 @@ class TestCampaignChannelsAnalytics:
             assert morx["links_count"] == 2
             assert morx["primary_link_joins"] == 45
             assert morx["custom_links_joins"] == 12
-            assert morx["joined_today"] == 1  # Exactly verified 1 join today, not 141
-            assert morx["net_member_gain"] == 141  # General growth preserved separately
+            assert morx["joined_today"] == 1
+            assert morx["net_member_gain"] == 1
+
+    @pytest.mark.asyncio
+    async def test_accurate_joined_today_with_link_and_organic_growth(self):
+        """
+        Tests that:
+        1. Biella Trade has 116 total link joins (from before), but gained 7 new members today -> joined_today must be 7!
+        2. Arab ICT gained 4 new members today -> joined_today must be 4!
+        3. Doctor Gold gained 1 link join today -> joined_today must be 1!
+        4. When a channel is checked for the first time today, it inherits yesterday's baseline if available.
+        5. Total folder_joined_today == 12 (7 + 4 + 1).
+        """
+        import main_api
+        from datetime import datetime, timezone, timedelta
+        from db_manager import TelegramAccount, User
+
+        mock_user = User(id=39, email="tamer@test.com")
+        mock_tg_acc = TelegramAccount(id=11, user_id=39, phone="+201207500631", status="active")
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = mock_tg_acc
+        mock_db_sess = AsyncMock()
+        mock_db_sess.execute.return_value = mock_result
+
+        campaign_folder_ids = json.dumps([-1002058504282, -1001222348201, -1003999757764])
+        today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        yesterday_str = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y-%m-%d')
+
+        cached_channels = [
+            {
+                "id": -1002058504282,
+                "title": "BIELLA TRADE",
+                "members_count": 3523,
+                "total_joins": 116,
+                "primary_link_joins": 116,
+                "custom_links_joins": 0,
+                "links_count": 1,
+                "today_link_joins": 0
+            },
+            {
+                "id": -1001222348201,
+                "title": "ARAB ICT",
+                "members_count": 6744,
+                "total_joins": 74,
+                "primary_link_joins": 74,
+                "custom_links_joins": 0,
+                "links_count": 1,
+                "today_link_joins": 0
+            },
+            {
+                "id": -1003999757764,
+                "title": "DOCTOR GOLD",
+                "members_count": 898,
+                "total_joins": 64,
+                "primary_link_joins": 64,
+                "custom_links_joins": 0,
+                "links_count": 1,
+                "today_link_joins": 1
+            }
+        ]
+
+        redis_data = {
+            "tenant:11:campaign": campaign_folder_ids,
+            # Biella Trade had baseline 3516 (gained 7)
+            f"tenant:11:chan_baseline:-1002058504282:{today_str}": "3516",
+            f"tenant:11:link_baseline:-1002058504282:{today_str}": "116",
+
+            # Arab ICT had NO baseline today yet, but had yesterday baseline 6740 (gained 4)
+            f"tenant:11:chan_baseline:-1001222348201:{yesterday_str}": "6740",
+            f"tenant:11:link_baseline:-1001222348201:{yesterday_str}": "74",
+
+            # Doctor Gold had baseline 897 (gained 1 member + 1 link join)
+            f"tenant:11:chan_baseline:-1003999757764:{today_str}": "897",
+            f"tenant:11:link_baseline:-1003999757764:{today_str}": "63"
+        }
+
+        async def mock_redis_get(key):
+            return redis_data.get(key)
+
+        async def mock_redis_set(key, val, **kwargs):
+            redis_data[key] = str(val)
+            return True
+
+        with patch("main_api.AsyncSessionLocal") as MockSessionLocal, \
+             patch("main_api.verify_active_subscription", AsyncMock()), \
+             patch("main_api.redis_client.get", side_effect=mock_redis_get), \
+             patch("main_api.redis_client.set", side_effect=mock_redis_set), \
+             patch("main_api.get_channels_cache", AsyncMock(return_value=cached_channels)):
+
+            MockSessionLocal.return_value.__aenter__.return_value = mock_db_sess
+
+            result = await main_api.get_campaign_channels_analytics(user_id=39)
+
+            assert result["status"] == "success"
+            summary = result["summary"]
+            channels = result["channels"]
+
+            # All 12 new members who joined today must be counted in total!
+            assert summary["folder_joined_today"] == 12
+
+            biella = next(c for c in channels if c["channel_id"] == -1002058504282)
+            assert biella["joined_today"] == 7
+            assert biella["net_member_gain"] == 7
+
+            arab = next(c for c in channels if c["channel_id"] == -1001222348201)
+            assert arab["joined_today"] == 4
+            assert arab["net_member_gain"] == 4
+
+            doc = next(c for c in channels if c["channel_id"] == -1003999757764)
+            assert doc["joined_today"] == 1
+            assert doc["link_joins_today"] == 1
 
 

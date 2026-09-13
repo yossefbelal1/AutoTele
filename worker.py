@@ -7926,8 +7926,13 @@ async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaig
 
                 full_participants = getattr(full_chat, "participants_count", None)
 
-                today_start_ts = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+                today_start_dt = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                today_start_ts = today_start_dt.timestamp()
                 today_link_joins = 0
+
+                links_to_check = set()
+                if primary_link and primary_joins > 0:
+                    links_to_check.add(primary_link)
 
                 try:
                     res_inv = await client.invoke(
@@ -7946,35 +7951,51 @@ async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaig
                         inv_lnk = getattr(inv, "link", None)
                         if inv_lnk:
                             active_links.add(inv_lnk)
+                            if u > 0:
+                                links_to_check.add(inv_lnk)
                         if p and not primary_joins:
                             primary_joins = u
                             if not primary_link:
                                 primary_link = inv_lnk
                         elif not p:
                             custom_joins += u
-
-                        # Query importers who joined today if link has usage
-                        if inv_lnk and u > 0:
-                            try:
-                                imp_res = await client.invoke(
-                                    functions.messages.GetChatInviteImporters(
-                                        peer=peer,
-                                        offset_date=0,
-                                        offset_user=types.InputUserEmpty(),
-                                        limit=50,
-                                        link=inv_lnk
-                                    ),
-                                    sleep_threshold=5
-                                )
-                                for imp in getattr(imp_res, "importers", []):
-                                    if getattr(imp, "date", 0) >= today_start_ts:
-                                        today_link_joins += 1
-                                    else:
-                                        break
-                            except Exception as im_err:
-                                logger.debug(f"Importers check skipped for {inv_lnk}: {im_err}")
                 except Exception as ie:
                     logger.debug(f"Custom invites lookup skipped for {chat_id}: {ie}")
+
+                # Query importers who joined today across active links with usage
+                checked_user_ids = set()
+                for lnk in links_to_check:
+                    try:
+                        imp_res = await client.invoke(
+                            functions.messages.GetChatInviteImporters(
+                                peer=peer,
+                                offset_date=None,
+                                offset_user=types.InputUserEmpty(),
+                                limit=50,
+                                link=lnk
+                            ),
+                            sleep_threshold=5
+                        )
+                        for imp in getattr(imp_res, "importers", []):
+                            imp_u = getattr(imp, "user_id", None)
+                            imp_date = getattr(imp, "date", None)
+                            if isinstance(imp_date, datetime):
+                                imp_ts = imp_date.timestamp()
+                            elif isinstance(imp_date, (int, float)):
+                                imp_ts = float(imp_date)
+                            else:
+                                imp_ts = 0
+
+                            if imp_ts >= today_start_ts:
+                                if imp_u and imp_u not in checked_user_ids:
+                                    checked_user_ids.add(imp_u)
+                                    today_link_joins += 1
+                                elif not imp_u:
+                                    today_link_joins += 1
+                            else:
+                                break
+                    except Exception as im_err:
+                        logger.debug(f"Importers check skipped for {lnk}: {im_err}")
 
                 total_joins = primary_joins + custom_joins
                 links_count = len(active_links)

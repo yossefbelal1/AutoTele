@@ -1498,6 +1498,7 @@ async def get_campaign_channels_analytics(
             # 3. Calculate joined_today strictly from daily baselines (only today's new members)
             baseline_key = f"tenant:{acc_id}:chan_baseline:{ch_id}:{today_str}"
             link_baseline_key = f"tenant:{acc_id}:link_baseline:{ch_id}:{today_str}"
+            yesterday_str = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
             joined_today = 0
             link_joins_today = 0
             net_member_gain = 0
@@ -1505,8 +1506,15 @@ async def get_campaign_channels_analytics(
                 # 3.1 Calculate Net Member Gain today
                 raw_baseline = await redis_client.get(baseline_key)
                 if raw_baseline is None:
-                    await redis_client.set(baseline_key, str(current_members), ex=86400 * 7)
-                    net_member_gain = 0
+                    # Carry forward yesterday's closing baseline if available
+                    yesterday_baseline = await redis_client.get(f"tenant:{acc_id}:chan_baseline:{ch_id}:{yesterday_str}")
+                    if yesterday_baseline is not None:
+                        baseline = int(yesterday_baseline)
+                        await redis_client.set(baseline_key, str(baseline), ex=86400 * 7)
+                        net_member_gain = max(0, current_members - baseline)
+                    else:
+                        await redis_client.set(baseline_key, str(current_members), ex=86400 * 7)
+                        net_member_gain = 0
                 else:
                     baseline = int(raw_baseline)
                     net_member_gain = max(0, current_members - baseline)
@@ -1514,26 +1522,31 @@ async def get_campaign_channels_analytics(
                 # 3.2 Calculate Link Joins today (delta since start of today)
                 raw_link_baseline = await redis_client.get(link_baseline_key)
                 if raw_link_baseline is None:
-                    await redis_client.set(link_baseline_key, str(total_link_joins), ex=86400 * 7)
-                    link_joins_today = 0
+                    yesterday_link_baseline = await redis_client.get(f"tenant:{acc_id}:link_baseline:{ch_id}:{yesterday_str}")
+                    if yesterday_link_baseline is not None:
+                        link_baseline = int(yesterday_link_baseline)
+                        await redis_client.set(link_baseline_key, str(link_baseline), ex=86400 * 7)
+                        link_joins_today = max(0, total_link_joins - link_baseline)
+                    else:
+                        await redis_client.set(link_baseline_key, str(total_link_joins), ex=86400 * 7)
+                        link_joins_today = 0
                 else:
                     link_baseline = int(raw_link_baseline)
+                    if total_link_joins < link_baseline:
+                        # Link count was revised (e.g. revoked or expired links)
+                        link_baseline = total_link_joins
+                        await redis_client.set(link_baseline_key, str(total_link_joins), ex=86400 * 7)
                     link_joins_today = max(0, total_link_joins - link_baseline)
 
                 # 3.3 Genuine today's joins:
-                # For channels with invite links, today's joins are strictly verified from link tracking/importers.
-                # All-time link joins or unrelated member fluctuations can never inflate today's join count.
+                # New members can join via links or directly (via public username, forwards, search).
+                # Take the maximum of verified link joins and net member growth so no new members are missed.
                 worker_today_joins = int(ch.get("today_link_joins") or 0)
                 verified_link_today = max(link_joins_today, worker_today_joins)
 
-                if total_link_joins > 0:
-                    if raw_link_baseline is not None:
-                        joined_today = min(total_link_joins, verified_link_today)
-                    else:
-                        valid_net_gain = net_member_gain if net_member_gain <= total_link_joins else 0
-                        joined_today = min(total_link_joins, max(verified_link_today, valid_net_gain))
-                else:
-                    joined_today = net_member_gain
+                joined_today = max(net_member_gain, verified_link_today)
+                if current_members > 0:
+                    joined_today = min(current_members, joined_today)
             except Exception as be:
                 logger.error(f"Error calculating joined_today baseline for channel {ch_id}: {be}")
                 joined_today = 0
