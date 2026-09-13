@@ -1600,16 +1600,18 @@ async def run_first_crawl_onboarding(tenant_id: int, client: Client):
                 "━━━━━━━━━━━━━━━━━━━\n\n"
                 "• `.اوامر` : لعرض جميع أوامر البوت.\n"
                 "مثال: `.اوامر`\n\n"
-                "• `.يلا` : لبدء تشغيل التبادل التلقائي للأمواج.\n"
+                "• `.يلا` : لبدء تشغيل التبادل التلقائي الشامل لكافة القنوات.\n"
                 "مثال: `.يلا 0 15 10` (البدء فوراً، موجة كل 15 دقيقة، بقاء الإعلان 10 دقائق)\n\n"
+                "• `.تبادل_حملات` : لبدء التبادل التلقائي حصرياً داخل مجلد 'حملات' فقط.\n"
+                "مثال: `.تبادل_حملات 0 15 10` (البدء فوراً داخل مجلد حملات، موجة كل 15 دقيقة، بقاء 10 دقائق)\n\n"
                 "• `.بريك` : لإيقاف النشر التلقائي مؤقتاً.\n"
                 "مثال: `.بريك`\n\n"
                 "• `.كمل` : لاستئناف التبادل التلقائي بعد الإيقاف.\n"
                 "مثال: `.كمل`\n\n"
                 "• `.حملة` : لإطلاق حملة إعلانية مخصصة لقناة معينة.\n"
                 "مثال: `.حملة 0 2 15 @username` (البدء فوراً، تكرار موجتين، البقاء 15 دقيقة للقناة المحددة)\n\n"
-                "• `.حملات` : لإطلاق حملات مجمعة لمجلد أهداف معين.\n"
-                "مثال: `.حملات 0 2 15 Campaign` (جلب أهداف الحملة من مجلد Campaign في تيليجرام)\n\n"
+                "• `.حملات` : لإطلاق حملات مجمعة بالتناوب لكافة قنوات مجلد 'حملات'.\n"
+                "مثال: `.حملات 0 40 30` (البدء فوراً، نشر لقناة جديدة كل 40 دقيقة، وبقاء الإعلان 30 دقيقة)\n\n"
                 "• `.مسح` : لحذف الإعلانات النشطة الحالية من القنوات.\n"
                 "مثال: `.مسح`\n\n"
                 "• `.تحديث` : لتحديث ومزامنة قنوات التبادل والكاش فوراً.\n"
@@ -2422,11 +2424,10 @@ async def run_bulk_campaign_logic(
     
     try:
         from cache_manager import redis_client
-        # Ensure bot_system_state is active so the campaign state is recognized, and lock mode to campaign
+        # Ensure bot_system_state is active so the campaign state is recognized
         try:
             async with AsyncSessionLocal() as act_session:
                 await set_setting(act_session, tenant_id, "bot_system_state", "active")
-                await set_setting(act_session, tenant_id, "wave_folder_mode", "campaign")
                 await act_session.commit()
             await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "active", ex=86400)
         except Exception as _act_err:
@@ -3226,10 +3227,12 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             
         cmd_clean = _re.sub(r'[\u200e\u200f\u202a-\u202e\ufeff]', '', cmd_part[1:]).strip().lower()
 
-        # Check for enable/disable sticker commands (typo-tolerant)
+        # Check for enable/disable sticker commands & campaign command disambiguation
         is_enable_sticker = False
         is_disable_sticker = False
-        
+        is_wave_folder = False
+        is_bulk_campaign = False
+
         # 1. Direct compound command names
         if cmd_clean in [
             "تفعيل_استيكر", "تفعيل_الاستيكر", "تفعيل_ستيكر", "تفعيل_الستيكر", "تنشيط_استيكر", "تنشيط_الاستيكر", "تشغيل_استيكر", "تشغيل_الاستيكر",
@@ -3243,9 +3246,16 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             "disable_sticker", "disable-sticker", "sticker_off", "sticker-off", "sticker_disable", "sticker-disable"
         ]:
             is_disable_sticker = True
+        elif cmd_clean in [
+            "تبادل_حملات", "تبادل-حملات", "يلا_حملات", "يلا-حملات",
+            "تبادل_مجلد", "تبادل-مجلد", "يلا_مجلد", "يلا-مجلد",
+            "حملات_تبادل", "حملات-تبادل", "wave_folder", "wave-folder",
+            "تبادل_فولدر", "تبادل-فولدر", "تبادل_حملة", "تبادل_حمله", "يلا_فولدر"
+        ]:
+            is_wave_folder = True
         # 2. Multi-word commands
         elif len(parts) > 1:
-            arg_clean = parts[1].lower().strip()
+            arg_clean = _re.sub(r'[\u200e\u200f\u202a-\u202e\ufeff]', '', parts[1]).strip().lower()
             if cmd_clean in ["تفعيل", "تنشيط", "تشغيل", "enable", "on", "active"] and arg_clean in ["استيكر", "ستيكر", "الاستيكر", "الستيكر", "sticker"]:
                 is_enable_sticker = True
             elif cmd_clean in ["تعطيل", "ايقاف", "إيقاف", "الغاء", "إلغاء", "disable", "off", "stop"] and arg_clean in ["استيكر", "ستيكر", "الاستيكر", "الستيكر", "sticker"]:
@@ -3254,13 +3264,22 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 is_enable_sticker = True
             elif cmd_clean in ["استيكر", "ستيكر", "sticker"] and arg_clean in ["تعطيل", "ايقاف", "إيقاف", "الغاء", "إلغاء", "disable", "off", "stop"]:
                 is_disable_sticker = True
-            
+            elif cmd_clean in ["تبادل", "يلا", "start", "run", "شغل", "بدء"] and arg_clean in ["حملات", "حملة", "حمله", "الحملات", "مجلد", "فولدر", "campaign", "campaigns", "folder"]:
+                is_wave_folder = True
+                parts = [parts[0]] + parts[2:]
+            elif cmd_clean in ["حملات", "الحملات", "فولدر", "مجلد"] and arg_clean in ["تبادل", "يلا", "wave", "exchange"]:
+                is_wave_folder = True
+                parts = [parts[0]] + parts[2:]
+            elif cmd_clean in ["حملات", "الحملات"] and arg_clean in ["مجمعة", "مجمعه", "مجمع", "نشر", "bulk", "انشر"]:
+                is_bulk_campaign = True
+                parts = [parts[0]] + parts[2:]
+
         try:
             if is_enable_sticker:
                 await handle_تفعيل_استيكر(message, True)
             elif is_disable_sticker:
                 await handle_تفعيل_استيكر(message, False)
-            elif cmd_clean in ["تبادل_حملات", "يلا_حملات", "تبادل_مجلد", "حملات_تبادل"]:
+            elif is_wave_folder:
                 await handle_يلا_حملات(message, normalized_text, parts)
             elif cmd_clean in ["يلا", "ابدء", "ابدا", "ابدأ", "تشغيل", "شغل", "yalla", "start", "run", "تبادل", "بدء", "بداء", "ابدا_النشر", "ابداء_النشر", "تشغيل_البوت", "شغل_البوت", "نشر", "يلاا", "يللا", "يلاه", "يلااا"]:
                 await handle_يلا(message, normalized_text, parts)
@@ -3270,10 +3289,10 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 await handle_كمل(message)
             elif cmd_clean in ["حملة", "حمله", "حمله_فردية", "حملة_فردية", "اعلان", "إعلان", "ad", "campaign", "single", "أعلان", "حمله_فرديه", "انشر_حملة", "انشر_حمله"]:
                 await handle_حملة(message, normalized_text)
+            elif is_bulk_campaign or cmd_clean in ["حملات", "الحملات", "حملات_مجمعة", "حملات_مجمعه", "bulk", "campaigns", "folders", "انشر_حملات", "فولدرات"]:
+                await handle_حملات(message, normalized_text, parts)
             elif cmd_clean in ["مجلد", "فولدر", "حملة_مجلد", "حمله_مجلد", "my_channels", "mychannels", "قنواتي_مجلد"] or _re.match(r'^(?:مجلد|فولدر|my_?channels|قنواتي)\d*$', cmd_clean):
                 await handle_حملات_مجلد(message, normalized_text, parts)
-            elif cmd_clean in ["حملات", "الحملات", "حملات_مجمعة", "حملات_مجمعه", "bulk", "campaigns", "folders", "انشر_حملات", "فولدرات"]:
-                await handle_حملات(message, normalized_text, parts)
             elif cmd_clean in ["بنج", "حالة", "حاله", "الوضع", "الاحصائيات", "الإحصائيات", "ping", "status", "info", "الحاله", "الاحصائيات_اليومية", "الاحصائيات_اليوميه", "بنجج", "بنججج", "بنق", "بنجي", "بنك"]:
                 await handle_بنج(message)
             elif cmd_clean in ["المهام", "الجدول", "المجدول", "الانتظار", "طابور", "مهام", "جدول", "jobs", "tasks", "queue", "scheduled", "قائمة_المهام", "قايمه_المهام", "المهام_المجدولة", "المهام_المجدوله"]:
@@ -3359,7 +3378,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 if not w_task or w_task.done():
                     running_tasks[tenant_id] = asyncio.create_task(wave_publisher_worker(tenant_id))
 
-                status_msg = await message.reply_text("⏳ **جاري بدء النشر التبادلي التلقائي (داخل مجلد حملات فقط 📁)...**")
+                status_msg = await message.reply_text("🔄 **جاري بدء النشر التبادلي التلقائي (.تبادل_حملات) داخل مجلد حملات فقط 📁...**")
                 last_wave_time[tenant_id] = datetime.now(timezone.utc)
                 try:
                     from cache_manager import redis_client
@@ -3385,7 +3404,8 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                     task_id = new_task.id
                 
                 await message.reply_text(
-                    f"⏳ **تم جدولة تشغيل التبادل العشوائي لمجلد حملات (معرف: db-{task_id}):**\n"
+                    f"⏳ **تم جدولة التبادل التلقائي لمجلد حملات (.تبادل_حملات) (معرف: db-{task_id}):**\n"
+                    f"• نوع المهمة: تبادل عشوائي بين قنوات مجلد حملات فقط 📁\n"
                     f"• البدء بعد: `{delay_start}` دقيقة\n"
                     f"• الفاصل الزمني بين الأمواج: `{wave_interval // 60}` دقيقة\n"
                     f"• عمر الإعلان: `{ad_lifespan // 60}` دقيقة"
@@ -3661,7 +3681,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         link_pattern = r'(?:https?://[^\s]+|t\.me/[^\s]+|@[\w\_]+)'
         links = re.findall(link_pattern, lines[0])
         
-        full_html = message.text.html if message.text else (message.caption.html if message.caption else "")
+        full_html = getattr(message.text, "html", str(message.text)) if message.text else (getattr(message.caption, "html", str(message.caption)) if message.caption else "")
         html_lines = full_html.split('\n') if full_html else []
         
         ad_text_lines = []
@@ -3752,7 +3772,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 await edit_or_reply(status_msg, "❌ **فشل حملة الفولدر: لم يتم العثور على أي قنوات في مجلد 'حملات' حتى بعد التحديث التلقائي.**")
                 return
             
-        full_html = message.text.html if message.text else (message.caption.html if message.caption else "")
+        full_html = getattr(message.text, "html", str(message.text)) if message.text else (getattr(message.caption, "html", str(message.caption)) if message.caption else "")
         html_lines = full_html.split('\n') if full_html else []
         ad_text_lines = html_lines[1:] if len(html_lines) > 1 else []
         ad_text_custom = "\n".join(ad_text_lines).strip()
@@ -3769,16 +3789,16 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                     ad_lifespan=ad_lifespan,
                     custom_text=ad_text_custom,
                     status="active",
-                    result_summary="🚀 جاري بدء حملة المجلد المجمعة..."
+                    result_summary="🚀 جاري بدء حملة المجلد المجمعة (.حملات)..."
                 )
                 db_session.add(new_task)
                 await db_session.commit()
                 web_task_id = new_task.id
 
             if status_msg:
-                await edit_or_reply(status_msg, f"🚀 **جاري بدء حملة المجلد المجمعة فوراً...**")
+                await edit_or_reply(status_msg, f"🚀 **جاري بدء حملة المجلد المجمعة (.حملات) فوراً...**")
             else:
-                status_msg = await message.reply_text(f"🚀 **جاري بدء حملة المجلد المجمعة فوراً...**")
+                status_msg = await message.reply_text(f"🚀 **جاري بدء حملة المجلد المجمعة (.حملات) فوراً...**")
             create_safe_task(run_bulk_campaign_logic(tenant_id, client, ad_text_custom, delay_between_channels, ad_lifespan, status_msg, web_task_id=web_task_id, extra_target_link=extra_target_link))
         else:
             async with AsyncSessionLocal() as db_session:
@@ -3794,11 +3814,11 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 )
                 db_session.add(new_task)
                 await db_session.commit()
-                await log_tenant_event(tenant_id, f"📅 تم جدولة حملة مجلد مجمعة لتبدأ بعد {delay_start} دقيقة.")
+                await log_tenant_event(tenant_id, f"📅 تم جدولة حملة مجلد مجمعة (.حملات) لتبدأ بعد {delay_start} دقيقة.")
                 if status_msg:
-                    await edit_or_reply(status_msg, f"📅 **تم جدولة حملة المجلد المجمعة بنجاح!**\n\n• ستنطلق الحملة تلقائياً بعد `{delay_start}` دقيقة.")
+                    await edit_or_reply(status_msg, f"📅 **تم جدولة حملة المجلد المجمعة (.حملات) بنجاح!**\n\n• ستنطلق الحملة تلقائياً بعد `{delay_start}` دقيقة.")
                 else:
-                    await message.reply_text(f"📅 **تم جدولة حملة المجلد المجمعة بنجاح!**\n\n• ستنطلق الحملة تلقائياً بعد `{delay_start}` دقيقة.")
+                    await message.reply_text(f"📅 **تم جدولة حملة المجلد المجمعة (.حملات) بنجاح!**\n\n• ستنطلق الحملة تلقائياً بعد `{delay_start}` دقيقة.")
 
     async def handle_حملات_مجلد(message: Message, text: str, parts: List[str]):
         folder_num = 1
@@ -4204,27 +4224,37 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
 
     async def handle_اوامر(message: Message):
         text = (
-            "📖 **قائمة أوامر البوت المتاحة** (مرتبة من الأكثر إلى الأقل استخداماً):\n\n"
-            "• `.يلا` : لبدء تشغيل النشر التلقائي (التبادل) للأمواج.\n\n"
-            "• `.تبادل_حملات` : لبدء التبادل العشوائي للقنوات داخل مجلد 'حملات' فقط.\n\n"
-            "• `.بريك` : لإيقاف النشر التلقائي مؤقتاً.\n\n"
-            "• `.حملة` : لإطلاق حملة إعلانية مخصصة لقناة معينة.\n\n"
-            "• `.حملات` : لإطلاق حملات مجمعة للمجلدات.\n\n"
+            "📖 **قائمة أوامر البوت المتاحة للتحكم السحابي:**\n\n"
+            "🔄 **أوامر التبادل التلقائي للأمواج:**\n"
+            "• `.يلا` : لبدء التبادل التلقائي الشامل لجميع قنوات الحساب.\n"
+            "  ← مثال: `.يلا 0 15 10`\n\n"
+            "• `.تبادل_حملات` : لبدء التبادل التلقائي حصرياً بين قنوات مجلد 'حملات' فقط.\n"
+            "  ← مثال: `.تبادل_حملات 0 15 10` (أو `.تبادل حملات`)\n\n"
+            "• `.بريك` : لإيقاف النشر والتبادل التلقائي مؤقتاً.\n\n"
+            "• `.كمل` : لاستئناف النشر التلقائي فوراً بعد الإيقاف.\n\n"
+            "📢 **أوامر الحملات المجدولة والإعلانات:**\n"
+            "• `.حملات` : لإطلاق حملة مجمعة بالتناوب لكافة قنوات مجلد 'حملات'.\n"
+            "  ← مثال: `.حملات 0 40 30` (أو `.حملات مجمعة`)\n\n"
+            "• `.حملة` : لإطلاق حملة إعلانية مخصصة لقناة معينة.\n"
+            "  ← مثال: `.حملة 0 45 @channel`\n\n"
+            "• `.تثبيت` : لتثبيت منشور ترويجي مؤقت داخل قناة النشر.\n\n"
+            "🔍 **أوامر الفحص والمتابعة:**\n"
             "• `.بنج` : لعرض حالة البوت ومعدل النجاح والإحصائيات اليومية.\n\n"
             "• `.تحديث` : لتحديث ومزامنة قنوات التبادل والكاش فوراً.\n\n"
-            "• `.مسح` : لحذف الإعلانات النشطة الحالية من القنوات.\n\n"
             "• `.المهام` : لعرض قائمة المهام والحملات المجدولة بالانتظار.\n\n"
+            "• `.جدول_حملات` : لعرض أهداف ومجلدات الحملات النشطة.\n\n"
+            "• `.ادمن` : لعرض القنوات والجروبات التي تمتلك فيها صلاحية مشرف.\n\n"
+            "• `.اولويات` : لعرض قائمة ترتيب وتفاعل القنوات.\n\n"
+            "• `.لوجز` : لجلب ملف السجلات الحية لعمليات البوت.\n\n"
+            "🧹 **أوامر التنظيف والحذف:**\n"
+            "• `.مسح` : لحذف الإعلانات النشطة الحالية من القنوات.\n\n"
             "• `.مسح_المهام` : لإلغاء وحذف كافة المهام المجدولة بالكامل.\n\n"
             "• `.تنظيف` : لحذف رسائل الأوامر وتقارير البوت لتنظيف المحادثة.\n\n"
             "• `.مسح_عميق` : لمسح إعلانات القنوات وتصفير البوت تماماً.\n\n"
-            "• `.ادمن` : لعرض القنوات والجروبات التي تمتلك فيها صلاحية مشرف.\n\n"
-            "• `.جدول_حملات` : لعرض أهداف ومجلدات الحملات النشطة.\n\n"
-            "• `.اولويات` : لعرض قائمة ترتيب وتفاعل القنوات.\n\n"
+            "⚙️ **أوامر الصيغ والملصقات:**\n"
             "• `.صيغة` : لإضافة صيغة نصية جديدة لمكتبة إعلاناتك.\n\n"
             "• `.حذف_صيغة` : لحذف صيغة محددة من مكتبة الإعلانات.\n\n"
-            "• `.تثبيت` : لتثبيت منشور ترويجي داخل قناة النشر.\n\n"
-            "• `.تفعيل_استيكر` / `.تعطيل_استيكر` : لتشغيل أو إيقاف الملصق الترويجي المرفق.\n\n"
-            "• `.لوجز` : لجلب ملف السجلات الحية لعمليات البوت."
+            "• `.تفعيل_استيكر` / `.تعطيل_استيكر` : لتشغيل أو إيقاف الملصق الترويجي المرفق."
         )
         await message.reply_text(text)
 
