@@ -2253,16 +2253,17 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                 cid = ch["id"]
                 try:
                     ch_title = ch.get("title") or target_title
+                    promoted_title = target_title if target_title else ch_title
                     ch_members = ch.get("members_count") or ch.get("participants_count") or 0
                     is_rotate_mode = (not ad_text_custom) or (ad_text_custom.strip() in ["__ROTATE__", "__ROTATE_ALL__"]) or ad_text_custom.strip().startswith("[تدوير")
                     if is_rotate_mode:
                         async with AsyncSessionLocal() as db_session:
                             ad_text = await get_formatted_ad_message(
-                                db_session, tenant_id, ch_title, target_link,
+                                db_session, tenant_id, promoted_title, target_link,
                                 members_count=ch_members, template_index=ch_idx
                             )
                     else:
-                        ad_text = format_user_template(ad_text_custom, ch_title, target_link, members_count=ch_members)
+                        ad_text = format_user_template(ad_text_custom, promoted_title, target_link, members_count=ch_members)
                         
                     # Proxy checking before request
                     async with AsyncSessionLocal() as db_session:
@@ -2381,16 +2382,17 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                 cid = ch["id"]
                 try:
                     ch_title = ch.get("title") or target_title
+                    promoted_title = target_title if target_title else ch_title
                     ch_members = ch.get("members_count") or ch.get("participants_count") or 0
                     is_rotate_mode = (not ad_text_custom) or (ad_text_custom.strip() in ["__ROTATE__", "__ROTATE_ALL__"]) or ad_text_custom.strip().startswith("[تدوير")
                     if is_rotate_mode:
                         async with AsyncSessionLocal() as db_session:
                             ad_text = await get_formatted_ad_message(
-                                db_session, tenant_id, ch_title, target_link,
+                                db_session, tenant_id, promoted_title, target_link,
                                 members_count=ch_members, template_index=idx
                             )
                     else:
-                        ad_text = format_user_template(ad_text_custom, ch_title, target_link, members_count=ch_members)
+                        ad_text = format_user_template(ad_text_custom, promoted_title, target_link, members_count=ch_members)
                         
                     # Proxy checking before request
                     async with AsyncSessionLocal() as db_session:
