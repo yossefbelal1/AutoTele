@@ -1711,10 +1711,89 @@ async def add_template(req: TemplateCreateReq, user_id: int = Depends(get_curren
         if not acc:
             raise HTTPException(status_code=400, detail="يرجى ربط حساب تليجرام أولاً لحفظ الصيغة باسم حسابك")
 
-        new_tmpl = AdTemplate(telegram_account_id=acc.id, template_text=req.template_text.strip())
-        session.add(new_tmpl)
+        parsed_templates = smart_split_ad_templates(req.template_text)
+        if not parsed_templates:
+            raise HTTPException(status_code=400, detail="لم يتم العثور على صيغة إعلانية صالحة للحفظ")
+
+        for tmpl_text in parsed_templates:
+            session.add(AdTemplate(telegram_account_id=acc.id, template_text=tmpl_text))
+            
         await session.commit()
+        if len(parsed_templates) > 1:
+            return {
+                "status": "success", 
+                "count": len(parsed_templates),
+                "message": f"تم بنجاح اكتشاف وتفكيك {len(parsed_templates)} صيغة إعلانية منفصلة وتثبيتها في مكتبتك الدائمة! 🚀"
+            }
         return {"status": "success", "message": "تم إضافة الصيغة وتثبيتها بنجاح في مكتبتك الدائمة"}
+
+def smart_split_ad_templates(raw_text: str) -> List[str]:
+    import re
+    raw_text = raw_text.strip()
+    if not raw_text:
+        return []
+
+    # Strategy 1: Numbered headers (**1**, **2**, 1., 1-, [1], # 1, etc.)
+    num_header_pattern = r'(?:^|\n+)\s*(?:\*\*\d+[\.\-\)]?\*\*|\d+[\.\-\)]|\[\d+\]|#+\s*\d+)\s*\n+'
+    matches = list(re.finditer(num_header_pattern, raw_text))
+    if len(matches) >= 2:
+        templates = []
+        for i in range(len(matches)):
+            start = matches[i].end()
+            end = matches[i+1].start() if i + 1 < len(matches) else len(raw_text)
+            chunk = raw_text[start:end].strip()
+            chunk = re.sub(r'\n+[-=_*]{3,}\s*$', '', chunk).strip()
+            if len(chunk) >= 5:
+                if "{link}" not in chunk.lower() and "[link]" not in chunk.lower():
+                    chunk += "\n\n[LINK]"
+                templates.append(chunk)
+        if len(templates) >= 2:
+            return templates
+
+    # Strategy 2: If multiple [LINK] or {link} markers exist in the text, split by [LINK]
+    link_matches = list(re.finditer(r'(\[LINK\]|\{link\}|\[link\]|\{LINK\})', raw_text, re.IGNORECASE))
+    if len(link_matches) >= 2:
+        templates = []
+        last_end = 0
+        for i, lm in enumerate(link_matches):
+            end_pos = lm.end()
+            chunk = raw_text[last_end:end_pos].strip()
+            last_end = end_pos
+            if i == 0:
+                sub_match = re.search(r'(?:^|\n+)\s*(?:\*\*\d+[\.\-\)]?\*\*|\d+[\.\-\)]|\[\d+\]|[-=_*]{3,})\s*\n+', chunk)
+                if sub_match:
+                    chunk = chunk[sub_match.end():].strip()
+            else:
+                chunk = re.sub(r'^(?:\s*[-=_*]{3,}|\s*\*\*\d+[\.\-\)]?\*\*|\s*\d+[\.\-\)]|\s*\[\d+\])+\s*', '', chunk).strip()
+            
+            if len(chunk) >= 5:
+                templates.append(chunk)
+        if len(templates) >= 2:
+            return templates
+
+    # Strategy 3: Check for multiple separator lines (---, ===, ***)
+    sep_pattern = r'\n+[-=_*]{3,}\s*\n+'
+    parts = [p.strip() for p in re.split(sep_pattern, raw_text) if len(p.strip()) >= 5]
+    if len(parts) >= 2:
+        if "{link}" not in parts[0].lower() and "[link]" not in parts[0].lower() and ("إليك" in parts[0] or "فهمتك" in parts[0]):
+            parts.pop(0)
+        templates = []
+        for p in parts:
+            cleaned = re.sub(r'^\s*(?:\*\*\d+[\.\-\)]?\*\*|\d+[\.\-\)]|\[\d+\])\s*', '', p).strip()
+            if len(cleaned) >= 5:
+                if "{link}" not in cleaned.lower() and "[link]" not in cleaned.lower():
+                    cleaned += "\n\n[LINK]"
+                templates.append(cleaned)
+        if len(templates) >= 2:
+            return templates
+
+    # Strategy 4: Fallback - single template
+    single = raw_text.strip()
+    if len(single) < 5:
+        return []
+    if "{link}" not in single.lower() and "[link]" not in single.lower():
+        single += "\n\n[LINK]"
+    return [single]
 
 @app.post("/templates/bulk")
 async def add_templates_bulk(req: TemplateBulkCreateReq, user_id: int = Depends(get_current_user)):
@@ -1744,14 +1823,10 @@ async def add_templates_bulk(req: TemplateBulkCreateReq, user_id: int = Depends(
         for raw_t in req.templates:
             if not isinstance(raw_t, str):
                 continue
-            cleaned = raw_t.strip()
-            if len(cleaned) < 5:
-                continue
-            lower_c = cleaned.lower()
-            if "{link}" not in lower_c and "[link]" not in lower_c:
-                cleaned += "\n\n[LINK]"
-            session.add(AdTemplate(telegram_account_id=acc.id, template_text=cleaned))
-            added_count += 1
+            split_items = smart_split_ad_templates(raw_t)
+            for item in split_items:
+                session.add(AdTemplate(telegram_account_id=acc.id, template_text=item))
+                added_count += 1
             
         if added_count == 0:
             raise HTTPException(status_code=400, detail="لم يتم العثور على أي نصوص إعلانية صالحة للحفظ")
@@ -1762,6 +1837,7 @@ async def add_templates_bulk(req: TemplateBulkCreateReq, user_id: int = Depends(
             "count": added_count,
             "message": f"تمت إضافة {added_count} صيغة إعلانية بنجاح إلى مكتبتك الدائمة! 🚀"
         }
+
 
 @app.get("/templates")
 async def get_templates(telegram_account_id: Optional[int] = None, user_id: int = Depends(get_current_user)):

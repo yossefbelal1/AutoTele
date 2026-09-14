@@ -2573,27 +2573,96 @@ window.insertPlaceholder = function(placeholder, textareaId) {
   insertTextAtCursor(textareaId, placeholder);
 };
 
-// Bulk Import & Auto-Splitter (Idea 1)
+// Bulk Import & Auto-Splitter (Idea 1 - Enhanced Multi-Strategy)
 window.parseBulkTemplates = function(rawText) {
   if (!rawText || typeof rawText !== "string") return [];
-  let segments = [];
-  
-  // 1. Check for separator lines (---, ===, ***)
-  if (/^---+$|^===+$|^\*\*\*+$/m.test(rawText)) {
-    segments = rawText.split(/^---+$|^===+$|^\*\*\*+$/m);
-  } 
-  // 2. Check for numbered blocks (e.g. "1. ", "2. ", "[1]", "(1)")
-  else if (/^\s*(?:\d+[\.\-\)]|\[\d+\])\s+/m.test(rawText)) {
-    segments = rawText.split(/^\s*(?:\d+[\.\-\)]|\[\d+\])\s+/m);
-  } 
-  // 3. Fallback: split by 2 or more consecutive newlines
-  else {
-    segments = rawText.split(/\n\s*\n+/);
+  rawText = rawText.trim();
+  if (!rawText) return [];
+
+  // Strategy 1: Numbered headers (**1**, **2**, 1., 1-, [1], # 1, etc.)
+  const numHeaderRegex = /(?:^|\n+)\s*(?:\*\*\d+[\.\-\)]?\*\*|\d+[\.\-\)]|\[\d+\]|#+\s*\d+)\s*\n+/g;
+  let match;
+  const matches = [];
+  while ((match = numHeaderRegex.exec(rawText)) !== null) {
+    matches.push({ index: match.index, length: match[0].length });
   }
 
-  return segments
-    .map(s => s.trim())
-    .filter(s => s.length >= 5);
+  if (matches.length >= 2) {
+    const templates = [];
+    for (let i = 0; i < matches.length; i++) {
+      const start = matches[i].index + matches[i].length;
+      const end = (i + 1 < matches.length) ? matches[i + 1].index : rawText.length;
+      let chunk = rawText.substring(start, end).trim();
+      chunk = chunk.replace(/\n+[-=_*]{3,}\s*$/, "").trim();
+      if (chunk.length >= 5) {
+        if (!chunk.toLowerCase().includes("{link}") && !chunk.toLowerCase().includes("[link]")) {
+          chunk += "\n\n[LINK]";
+        }
+        templates.push(chunk);
+      }
+    }
+    if (templates.length >= 2) return templates;
+  }
+
+  // Strategy 2: If multiple [LINK] or {link} markers exist, split by [LINK]
+  const linkRegex = /(\[LINK\]|\{link\}|\[link\]|\{LINK\})/gi;
+  let lMatch;
+  const linkMatches = [];
+  while ((lMatch = linkRegex.exec(rawText)) !== null) {
+    linkMatches.push({ index: lMatch.index, length: lMatch[0].length });
+  }
+
+  if (linkMatches.length >= 2) {
+    const templates = [];
+    let lastEnd = 0;
+    for (let i = 0; i < linkMatches.length; i++) {
+      const endPos = linkMatches[i].index + linkMatches[i].length;
+      let chunk = rawText.substring(lastEnd, endPos).trim();
+      lastEnd = endPos;
+      if (i === 0) {
+        const subM = chunk.match(/(?:^|\n+)\s*(?:\*\*\d+[\.\-\)]?\*\*|\d+[\.\-\)]|\[\d+\]|[-=_*]{3,})\s*\n+/);
+        if (subM) {
+          chunk = chunk.substring(subM.index + subM[0].length).trim();
+        }
+      } else {
+        chunk = chunk.replace(/^(?:\s*[-=_*]{3,}|\s*\*\*\d+[\.\-\)]?\*\*|\s*\d+[\.\-\)]|\s*\[\d+\])+\s*/, "").trim();
+      }
+      if (chunk.length >= 5) {
+        templates.push(chunk);
+      }
+    }
+    if (templates.length >= 2) return templates;
+  }
+
+  // Strategy 3: Check for multiple separator lines (---, ===, ***)
+  const sepRegex = /\n+[-=_*]{3,}\s*\n+/;
+  if (sepRegex.test(rawText)) {
+    let parts = rawText.split(sepRegex).map(p => p.trim()).filter(p => p.length >= 5);
+    if (parts.length >= 2) {
+      if (!parts[0].toLowerCase().includes("{link}") && !parts[0].toLowerCase().includes("[link]") && 
+          (parts[0].includes("إليك") || parts[0].includes("فهمتك"))) {
+        parts.shift();
+      }
+      const templates = parts.map(p => {
+        let cleaned = p.replace(/^\s*(?:\*\*\d+[\.\-\)]?\*\*|\d+[\.\-\)]|\[\d+\])\s*/, "").trim();
+        if (!cleaned.toLowerCase().includes("{link}") && !cleaned.toLowerCase().includes("[link]")) {
+          cleaned += "\n\n[LINK]";
+        }
+        return cleaned;
+      }).filter(p => p.length >= 5);
+      if (templates.length >= 2) return templates;
+    }
+  }
+
+  // Fallback single
+  let single = rawText.trim();
+  if (single.length >= 5) {
+    if (!single.toLowerCase().includes("{link}") && !single.toLowerCase().includes("[link]")) {
+      single += "\n\n[LINK]";
+    }
+    return [single];
+  }
+  return [];
 };
 
 window.updateBulkTemplateCounter = function() {
@@ -2656,6 +2725,32 @@ async function handleTemplateAdd(e) {
   }
 
   const templateText = document.getElementById("template-text").value;
+  const detected = parseBulkTemplates(templateText);
+
+  // If user pasted multiple templates into the single template input, auto-import them as bulk!
+  if (detected.length > 1) {
+    setButtonLoading("btn-add-template", true);
+    try {
+      const data = await apiRequest("/templates/bulk", {
+        method: "POST",
+        body: JSON.stringify({
+          telegram_account_id: currentTelegramAccountId,
+          templates: detected
+        })
+      });
+      if (data.status === "success") {
+        showToast(data.message || `تم اكتشاف وتفكيك ${data.count} صيغة إعلانية بنجاح وتثبيتها في مكتبتك! 🚀`, "success");
+        document.getElementById("template-add-form").reset();
+        loadTemplatesList();
+        populateCampaignTemplatePicker();
+      }
+    } catch (error) {
+      console.error("Auto Bulk Add Template Error:", error);
+    } finally {
+      setButtonLoading("btn-add-template", false);
+    }
+    return;
+  }
 
   setButtonLoading("btn-add-template", true);
 
