@@ -691,23 +691,100 @@ def normalize_digits(text: str) -> str:
         text = text.replace(p, e)
     return text
 
-def format_user_template(template: str, title: str, link: str, extra_link: Optional[str] = None) -> str:
+def format_user_template(
+    template: str, 
+    title: str, 
+    link: str, 
+    extra_link: Optional[str] = None,
+    members_count: Optional[int] = None
+) -> str:
     import html as _html
-    safe_title = _html.escape(title)
-    safe_link = _html.escape(link)
+    from datetime import datetime, timezone
+    import re
+
+    safe_title = _html.escape(title) if title else ""
+    safe_link = _html.escape(link) if link else ""
     safe_extra = _html.escape(extra_link) if extra_link else ""
 
     # Combined link string with both links stacked directly one after the other
     combined_link = f"{safe_link}\n{safe_extra}" if safe_extra else safe_link
 
-    res = template.replace("{title}", safe_title).replace("{link}", combined_link)
-    res = res.replace("{TITLE}", safe_title).replace("{LINK}", combined_link)
-    res = res.replace("[title]", safe_title).replace("[link]", combined_link)
-    res = res.replace("[TITLE]", safe_title).replace("[LINK]", combined_link)
+    # Formatted members count
+    if members_count and members_count > 0:
+        formatted_members = f"{members_count:,}"
+    else:
+        formatted_members = "1,000+"
 
+    # Current UTC date
+    now_utc = datetime.now(timezone.utc)
+    date_str = now_utc.strftime("%Y-%m-%d")
+
+    # Current day of week in Arabic
+    days_ar = {
+        0: "الإثنين",
+        1: "الثلاثاء",
+        2: "الأربعاء",
+        3: "الخميس",
+        4: "الجمعة",
+        5: "السبت",
+        6: "الأحد"
+    }
+    day_str = days_ar.get(now_utc.weekday(), "اليوم")
+
+    res = template
+    # Replace channel name placeholders
+    res = res.replace("{title}", safe_title).replace("[title]", safe_title)
+    res = res.replace("{TITLE}", safe_title).replace("[TITLE]", safe_title)
+    res = res.replace("{channel_name}", safe_title).replace("[channel_name]", safe_title)
+    res = res.replace("{CHANNEL_NAME}", safe_title).replace("[CHANNEL_NAME]", safe_title)
+    res = res.replace("{channel}", safe_title).replace("[channel]", safe_title)
+    res = res.replace("{CHANNEL}", safe_title).replace("[CHANNEL]", safe_title)
+
+    # Replace members placeholders
+    res = res.replace("{members}", formatted_members).replace("[members]", formatted_members)
+    res = res.replace("{MEMBERS}", formatted_members).replace("[MEMBERS]", formatted_members)
+    res = res.replace("{target_members}", formatted_members).replace("[target_members]", formatted_members)
+    res = res.replace("{TARGET_MEMBERS}", formatted_members).replace("[TARGET_MEMBERS]", formatted_members)
+
+    # Replace date placeholders
+    res = res.replace("{date}", date_str).replace("[date]", date_str)
+    res = res.replace("{DATE}", date_str).replace("[DATE]", date_str)
+
+    # Replace day placeholders
+    res = res.replace("{day}", day_str).replace("[day]", day_str)
+    res = res.replace("{DAY}", day_str).replace("[DAY]", day_str)
+
+    # Replace link placeholders
+    res = res.replace("{link}", combined_link).replace("[link]", combined_link)
+    res = res.replace("{LINK}", combined_link).replace("[LINK]", combined_link)
+
+    # Replace extra link placeholders
     if extra_link:
-        res = res.replace("{extra_link}", safe_extra).replace("{extra_target_link}", safe_extra)
-        res = res.replace("[extra_link]", safe_extra).replace("[extra_target_link]", safe_extra)
+        res = res.replace("{extra_link}", safe_extra).replace("[extra_link]", safe_extra)
+        res = res.replace("{extra_target_link}", safe_extra).replace("[extra_target_link]", safe_extra)
+
+    # Safe markdown conversions:
+    # Bold **text** -> <b>text</b>
+    res = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', res)
+    # Monospace `code` -> <code>code</code>
+    res = re.sub(r'`([^`\n]+)`', r'<code>\1</code>', res)
+    # Blockquotes with >
+    if '\n>' in res or res.startswith('>'):
+        lines = res.split('\n')
+        new_lines = []
+        quote_acc = []
+        for line in lines:
+            if line.startswith('>') or line.startswith('&gt;'):
+                clean_q = line[5:] if line.startswith('&gt; ') else (line[4:] if line.startswith('&gt;') else (line[2:] if line.startswith('> ') else line[1:]))
+                quote_acc.append(clean_q)
+            else:
+                if quote_acc:
+                    new_lines.append(f"<blockquote>{chr(10).join(quote_acc)}</blockquote>")
+                    quote_acc = []
+                new_lines.append(line)
+        if quote_acc:
+            new_lines.append(f"<blockquote>{chr(10).join(quote_acc)}</blockquote>")
+        res = '\n'.join(new_lines)
 
     lower_tmpl = template.lower()
     has_link = ("{link}" in lower_tmpl or "[link]" in lower_tmpl)
@@ -716,6 +793,7 @@ def format_user_template(template: str, title: str, link: str, extra_link: Optio
         res = res + f"\n\n{combined_link}"
 
     return res
+
 
 web_task_progress_msgs = {}
 
@@ -860,21 +938,64 @@ async def reply_long_message(message: Message, text_lines: List[str]):
         except Exception as e:
             logger.error(f"Error sending final chunk in reply_long_message: {e}")
 
-async def get_formatted_ad_message(session, tenant_id: int, target_title: str, target_link: str, extra_link: Optional[str] = None) -> str:
+async def get_formatted_ad_message(
+    session, 
+    tenant_id: int, 
+    target_title: str, 
+    target_link: str, 
+    extra_link: Optional[str] = None,
+    members_count: Optional[int] = None,
+    template_index: Optional[int] = None
+) -> str:
     try:
         db_templates = await get_active_templates_for_tenant(session, telegram_account_id=tenant_id)
         # Give customer templates 100% top priority if defined
-        if db_templates and len(db_templates) > 0:
-            chosen_template = random.choice(db_templates)
+        pool = db_templates if (db_templates and len(db_templates) > 0) else DEFAULT_TEMPLATES
+        if template_index is not None and len(pool) > 0:
+            chosen_template = pool[template_index % len(pool)]
         else:
-            chosen_template = random.choice(DEFAULT_TEMPLATES)
-        return format_user_template(chosen_template, target_title, target_link, extra_link=extra_link)
+            chosen_template = random.choice(pool)
+        return format_user_template(
+            chosen_template, 
+            target_title, 
+            target_link, 
+            extra_link=extra_link,
+            members_count=members_count
+        )
     except Exception as e:
         logger.error(f"Error in templates engine: {e}")
         base_text = f"📢 تابعوا شات {target_title} من هنا:\n{target_link}"
         if extra_link:
             base_text += f"\n{extra_link}"
         return base_text
+
+async def safe_send_ad_message(client: Client, chat_id: int, text: str):
+    """
+    Sends an ad message with ParseMode.HTML.
+    If Telegram raises an entity or parsing error (e.g. malformed tag or entity bounds),
+    falls back safely to sending as plain text to prevent failing the post.
+    """
+    try:
+        return await client.send_message(
+            chat_id=chat_id, 
+            text=text, 
+            disable_web_page_preview=True, 
+            parse_mode=ParseMode.HTML
+        )
+    except Exception as e:
+        err_str = str(e).lower()
+        if any(w in err_str for w in ["entity", "tag", "parse", "can't parse"]):
+            logger.warning(f"HTML parse failed for chat {chat_id}, falling back to plain text: {e}")
+            import re
+            clean_text = re.sub(r'<[^>]+>', '', text)
+            return await client.send_message(
+                chat_id=chat_id, 
+                text=clean_text, 
+                disable_web_page_preview=True, 
+                parse_mode=None
+            )
+        raise
+
 
 # ==========================================
 # ==========================================
@@ -1883,12 +2004,16 @@ async def run_timed_post_logic(
                     # Resolve promo title — cache first, then Telegram API
                     promo_title = await _resolve_link_to_title(client, tenant_id, promo_link)
                         
-                    # Prepare message text
-                    if ad_text_custom:
-                        ad_text = format_user_template(ad_text_custom, promo_title, promo_link)
-                    else:
+                    # Prepare message text with rotation & dynamic placeholders
+                    is_rotate_mode = (not ad_text_custom) or (ad_text_custom.strip() in ["__ROTATE__", "__ROTATE_ALL__"]) or ad_text_custom.strip().startswith("[تدوير")
+                    if is_rotate_mode:
                         async with AsyncSessionLocal() as db_session:
-                            ad_text = await get_formatted_ad_message(db_session, tenant_id, promo_title, promo_link)
+                            ad_text = await get_formatted_ad_message(
+                                db_session, tenant_id, promo_title, promo_link,
+                                template_index=success_count
+                            )
+                    else:
+                        ad_text = format_user_template(ad_text_custom, promo_title, promo_link)
                         
                     # Pre-publish safety cleanup
                     async with AsyncSessionLocal() as clean_session:
@@ -1897,8 +2022,8 @@ async def run_timed_post_logic(
                     # Send custom sticker if enabled
                     sticker_msg_id = await send_sticker_if_needed(client, host_chat_id, tenant_id)
                     
-                    # Send the message to the host channel B (disabling web page previews)
-                    sent_msg = await client.send_message(chat_id=host_chat_id, text=ad_text, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
+                    # Send the message to the host channel B (disabling web page previews, with HTML error safety)
+                    sent_msg = await safe_send_ad_message(client, host_chat_id, ad_text)
                     
                     # Calculate expiry time (if lifespan == 0, ad is permanent: set 100 years ahead)
                     if ad_lifespan > 0:
@@ -2123,16 +2248,21 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
             # Parallel staggered publishing
             await log_tenant_event(tenant_id, f"بدء النشر الفوري المتوازي لـ {total} قناة...")
             
-            async def publish_to_channel(ch):
+            async def publish_to_channel(ch, ch_idx=0):
                 nonlocal count
                 cid = ch["id"]
                 try:
-
-                    if not ad_text_custom:
+                    ch_title = ch.get("title") or target_title
+                    ch_members = ch.get("members_count") or ch.get("participants_count") or 0
+                    is_rotate_mode = (not ad_text_custom) or (ad_text_custom.strip() in ["__ROTATE__", "__ROTATE_ALL__"]) or ad_text_custom.strip().startswith("[تدوير")
+                    if is_rotate_mode:
                         async with AsyncSessionLocal() as db_session:
-                            ad_text = await get_formatted_ad_message(db_session, tenant_id, target_title, target_link)
+                            ad_text = await get_formatted_ad_message(
+                                db_session, tenant_id, ch_title, target_link,
+                                members_count=ch_members, template_index=ch_idx
+                            )
                     else:
-                        ad_text = format_user_template(ad_text_custom, target_title, target_link)
+                        ad_text = format_user_template(ad_text_custom, ch_title, target_link, members_count=ch_members)
                         
                     # Proxy checking before request
                     async with AsyncSessionLocal() as db_session:
@@ -2145,7 +2275,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                         
                     sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
                             
-                    msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
+                    msg = await safe_send_ad_message(client, cid, ad_text)
                     async with AsyncSessionLocal() as db_session:
                         await add_ad_record(
                             db_session,
@@ -2174,7 +2304,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                     logger.warning(f"FloodWait hit during concurrent campaign: waiting {fw.value}s")
                     await asyncio.sleep(fw.value + 1)
                     try:
-                        msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
+                        msg = await safe_send_ad_message(client, cid, ad_text)
                         async with AsyncSessionLocal() as db_session:
                             await add_ad_record(
                                 db_session,
@@ -2196,7 +2326,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                     await asyncio.sleep(sw.value + 1)
                     try:
                         sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
-                        msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
+                        msg = await safe_send_ad_message(client, cid, ad_text)
                         async with AsyncSessionLocal() as db_session:
                             await add_ad_record(
                                 db_session,
@@ -2221,9 +2351,9 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                                 f"• القنوات المستهدفة:\n{target_link}\n"
                                 f"• مدة الاعلان: `{ad_lifespan}` دقيقة."
                             )
-                    except Exception as err:
-                        await log_tenant_event(tenant_id, f"❌ فشل النشر في قناة [{ch.get('title')}] بعد فك وضع البطء: {err}")
-                        await handle_posting_error_and_clean_cache(tenant_id, cid, err)
+                    except Exception as e:
+                        await log_tenant_event(tenant_id, f"❌ فشل النشر في قناة [{ch.get('title')}] في وضع البطء: {e}")
+                        await handle_posting_error_and_clean_cache(tenant_id, cid, e)
                 except Exception as e:
                     logger.error(f"Failed to post campaign concurrently to {ch.get('title')}: {e}")
                     await log_tenant_event(tenant_id, f"❌ فشل النشر في قناة [{ch.get('title')}]: {e}")
@@ -2231,9 +2361,9 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
 
             tasks = []
             for idx, ch in enumerate(eligible_channels):
-                async def staggered_publish(c, delay):
+                async def staggered_publish(c, delay, c_idx):
                     await asyncio.sleep(delay)
-                    await publish_to_channel(c)
+                    await publish_to_channel(c, ch_idx=c_idx)
                 # Enforce safe staggered delay dynamically based on Premium status
                 client = running_clients.get(tenant_id)
                 is_premium = False
@@ -2241,21 +2371,26 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                     is_premium = getattr(client.me, "is_premium", False)
                 step = random.uniform(2.0, 3.5) if is_premium else random.uniform(4.5, 6.0)
                 safe_delay = idx * step
-                tasks.append(staggered_publish(ch, safe_delay))
+                tasks.append(staggered_publish(ch, safe_delay, idx))
                 
             await asyncio.gather(*tasks)
             
         else:
             # Sequential publishing (existing logic)
-            for ch in eligible_channels:
+            for idx, ch in enumerate(eligible_channels):
                 cid = ch["id"]
                 try:
-
-                    if not ad_text_custom:
+                    ch_title = ch.get("title") or target_title
+                    ch_members = ch.get("members_count") or ch.get("participants_count") or 0
+                    is_rotate_mode = (not ad_text_custom) or (ad_text_custom.strip() in ["__ROTATE__", "__ROTATE_ALL__"]) or ad_text_custom.strip().startswith("[تدوير")
+                    if is_rotate_mode:
                         async with AsyncSessionLocal() as db_session:
-                            ad_text = await get_formatted_ad_message(db_session, tenant_id, target_title, target_link)
+                            ad_text = await get_formatted_ad_message(
+                                db_session, tenant_id, ch_title, target_link,
+                                members_count=ch_members, template_index=idx
+                            )
                     else:
-                        ad_text = format_user_template(ad_text_custom, target_title, target_link)
+                        ad_text = format_user_template(ad_text_custom, ch_title, target_link, members_count=ch_members)
                         
                     # Proxy checking before request
                     async with AsyncSessionLocal() as db_session:
@@ -2274,7 +2409,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                             
                         sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
                                 
-                        msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
+                        msg = await safe_send_ad_message(client, cid, ad_text)
                         async with AsyncSessionLocal() as db_session:
                             await add_ad_record(
                                 db_session,
@@ -2823,10 +2958,27 @@ async def run_bulk_campaign_logic(
                                 select(TelegramAccount).where(TelegramAccount.id == tenant_id)
                             )).scalar_one_or_none()
                             
-                            if not ad_text_custom:
-                                ad_body = await get_formatted_ad_message(db_session, tenant_id, target_title, target_link, extra_link=extra_target_link)
+                            ch_title = ch.get("title") or target_title
+                            ch_members = ch.get("members_count") or ch.get("participants_count") or 0
+                            is_rotate_mode = (not ad_text_custom) or (ad_text_custom.strip() in ["__ROTATE__", "__ROTATE_ALL__"]) or ad_text_custom.strip().startswith("[تدوير")
+                            if is_rotate_mode:
+                                ad_body = await get_formatted_ad_message(
+                                    db_session, 
+                                    tenant_id, 
+                                    target_title, 
+                                    target_link, 
+                                    extra_link=extra_target_link,
+                                    members_count=ch_members,
+                                    template_index=ch_idx
+                                )
                             else:
-                                ad_body = format_user_template(ad_text_custom, target_title, target_link, extra_link=extra_target_link)
+                                ad_body = format_user_template(
+                                    ad_text_custom, 
+                                    target_title, 
+                                    target_link, 
+                                    extra_link=extra_target_link,
+                                    members_count=ch_members
+                                )
                         
                         sticker_msg_id = None
                         if tenant_id not in tenant_semaphores:
@@ -2836,7 +2988,8 @@ async def run_bulk_campaign_logic(
                                 await delete_active_ads_in_channel(clean_session, client, tenant_id, cid)
                                 
                             sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
-                            msg = await client.send_message(chat_id=cid, text=ad_body, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
+                            msg = await safe_send_ad_message(client, cid, ad_body)
+
                             async with AsyncSessionLocal() as db_session:
                                 await add_ad_record(
                                     db_session,
@@ -2874,7 +3027,7 @@ async def run_bulk_campaign_logic(
                                 tenant_semaphores[tenant_id] = asyncio.Semaphore(1)
                             async with tenant_semaphores[tenant_id]:
                                 sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
-                                msg = await client.send_message(chat_id=cid, text=ad_body, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
+                                msg = await safe_send_ad_message(client, cid, ad_body)
                                 async with AsyncSessionLocal() as db_session:
                                     await add_ad_record(
                                         db_session,

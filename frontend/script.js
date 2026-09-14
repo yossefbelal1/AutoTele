@@ -2411,6 +2411,11 @@ async function handleWebCampaignSubmit(e) {
   setButtonLoading("btn-submit-web-campaign", true);
 
   try {
+    let effectiveCustomText = customText;
+    if (customText.startsWith("[تدوير") || customText === "__ROTATE__") {
+      effectiveCustomText = "__ROTATE__";
+    }
+
     const data = await apiRequest("/user/campaign-submit", {
       method: "POST",
       body: JSON.stringify({
@@ -2420,15 +2425,15 @@ async function handleWebCampaignSubmit(e) {
         ad_lifespan: adLifespan,
         duration_minutes: durationMinutes,
         target_link: targetLink || null,
-        custom_text: customText || null
+        custom_text: effectiveCustomText || null
       })
     });
 
     if (data.status === "success") {
       showToast(data.message || "تم تقديم طلب الحملة بنجاح!", "success");
       
-      // Auto-save template to permanent library if user checked the box
-      if (customText && document.getElementById("campaign-save-template-check")?.checked) {
+      // Auto-save template to permanent library if user checked the box (and not rotation text)
+      if (customText && effectiveCustomText !== "__ROTATE__" && document.getElementById("campaign-save-template-check")?.checked) {
         try {
           await apiRequest("/templates/add", {
             method: "POST",
@@ -2443,6 +2448,7 @@ async function handleWebCampaignSubmit(e) {
           console.warn("Auto save template error:", tmplErr);
         }
       }
+
 
       document.getElementById("web-campaign-form").reset();
       resetTargetLinkInputs();
@@ -2463,8 +2469,183 @@ async function handleWebCampaignSubmit(e) {
 }
 
 // ==========================================
-// 9. AD FORMAT ENGINE MODULE
+// 9. AD FORMAT ENGINE MODULE (Upgraded with Features 1, 2, 5, 6, 8)
 // ==========================================
+
+// Switch between single template add and bulk import modes
+window.switchTemplateMode = function(mode) {
+  const btnSingle = document.getElementById("tab-btn-single-template");
+  const btnBulk = document.getElementById("tab-btn-bulk-template");
+  const cardSingle = document.getElementById("card-single-template");
+  const cardBulk = document.getElementById("card-bulk-template");
+
+  if (mode === "bulk") {
+    if (cardSingle) cardSingle.classList.add("hidden");
+    if (cardBulk) cardBulk.classList.remove("hidden");
+    if (btnBulk) {
+      btnBulk.style.background = "rgba(34, 197, 94, 0.2)";
+      btnBulk.style.borderColor = "#22c55e";
+      btnBulk.style.color = "#4ade80";
+      btnBulk.style.fontWeight = "700";
+    }
+    if (btnSingle) {
+      btnSingle.style.background = "rgba(30, 41, 59, 0.6)";
+      btnSingle.style.borderColor = "#334155";
+      btnSingle.style.color = "#94a3b8";
+      btnSingle.style.fontWeight = "600";
+    }
+  } else {
+    if (cardBulk) cardBulk.classList.add("hidden");
+    if (cardSingle) cardSingle.classList.remove("hidden");
+    if (btnSingle) {
+      btnSingle.style.background = "rgba(59, 130, 246, 0.2)";
+      btnSingle.style.borderColor = "#3b82f6";
+      btnSingle.style.color = "#60a5fa";
+      btnSingle.style.fontWeight = "700";
+    }
+    if (btnBulk) {
+      btnBulk.style.background = "rgba(30, 41, 59, 0.6)";
+      btnBulk.style.borderColor = "#334155";
+      btnBulk.style.color = "#94a3b8";
+      btnBulk.style.fontWeight = "600";
+    }
+  }
+};
+
+// Marketing Tone Shifter (Idea 5)
+window.applyMarketingTone = function(toneKey) {
+  const textarea = document.getElementById("template-text");
+  if (!textarea) return;
+
+  const toneTemplates = {
+    fomo: "🚨 فرصة أخيرة قبل إغلاق القناة! الرابط متاح لأول 50 عضو فقط وسيتم حذفه تلقائياً ⏳\n\n[CHANNEL_NAME] 🔥\nانضم الآن قبل فوات الأوان 👇\n[LINK]",
+    authority: "💼 نتائج موثوقة بالأدلة والأرقام وشفافية تامة.\n\nقناة [CHANNEL_NAME] الخيار الأول للمهتمين والمحترفين 🎯\n\nانضم وكن جزءاً من نخبة المشتركين 👇\n[LINK]",
+    story: "📖 بدأت الرحلة بفكرة بسيطة، واليوم كبر المجتمع ووصلنا لأكثر من [TARGET_MEMBERS] عضو!\n\nاكتشف ما نقدمه في [CHANNEL_NAME] ولماذا يتابعنا الجميع 🚀\n\nاضغط هنا وشاهد بنفسك 👇\n[LINK]",
+    direct: "🎁 هدية حصرية لجميع متابعينا اليوم في [DAY] [DATE]!\n\nكل المحتوى والفرص الحصرية تجدونها الآن في [CHANNEL_NAME] 💎\n\nرابط الدخول المباشر 👇\n[LINK]"
+  };
+
+  if (toneTemplates[toneKey]) {
+    textarea.value = toneTemplates[toneKey];
+    textarea.dispatchEvent(new Event("input"));
+    textarea.focus();
+    showToast("تم تطبيق النكهة التسويقية بنجاح! 🎨 يمكنك تعديلها أو حفظها الآن.", "info");
+  }
+};
+
+// Cursor insertion helper for formatting, emojis, and placeholders
+window.insertTextAtCursor = function(textareaId, beforeText, afterText = "") {
+  const textarea = document.getElementById(textareaId);
+  if (!textarea) return;
+
+  const startPos = textarea.selectionStart ?? textarea.value.length;
+  const endPos = textarea.selectionEnd ?? textarea.value.length;
+  const selectedText = textarea.value.substring(startPos, endPos);
+  const replacement = beforeText + (selectedText || "") + afterText;
+
+  textarea.value = textarea.value.substring(0, startPos) + replacement + textarea.value.substring(endPos);
+  textarea.dispatchEvent(new Event("input"));
+  textarea.focus();
+  const newCursorPos = startPos + beforeText.length + selectedText.length;
+  textarea.setSelectionRange(newCursorPos, newCursorPos);
+};
+
+// Rich Formatter Toolbar (Idea 8)
+window.formatTemplateText = function(action, textareaId) {
+  if (action === "bold") {
+    insertTextAtCursor(textareaId, "<b>", "</b>");
+  } else if (action === "italic") {
+    insertTextAtCursor(textareaId, "<i>", "</i>");
+  } else if (action === "link") {
+    insertTextAtCursor(textareaId, '<a href="[LINK]">', '</a>');
+  } else if (action === "code") {
+    insertTextAtCursor(textareaId, "<code>", "</code>");
+  } else if (action === "quote") {
+    insertTextAtCursor(textareaId, "<blockquote>", "</blockquote>");
+  }
+};
+
+window.insertEmoji = function(emoji, textareaId) {
+  insertTextAtCursor(textareaId, emoji);
+};
+
+// Smart Dynamic Placeholders Insertion (Idea 6)
+window.insertPlaceholder = function(placeholder, textareaId) {
+  insertTextAtCursor(textareaId, placeholder);
+};
+
+// Bulk Import & Auto-Splitter (Idea 1)
+window.parseBulkTemplates = function(rawText) {
+  if (!rawText || typeof rawText !== "string") return [];
+  let segments = [];
+  
+  // 1. Check for separator lines (---, ===, ***)
+  if (/^---+$|^===+$|^\*\*\*+$/m.test(rawText)) {
+    segments = rawText.split(/^---+$|^===+$|^\*\*\*+$/m);
+  } 
+  // 2. Check for numbered blocks (e.g. "1. ", "2. ", "[1]", "(1)")
+  else if (/^\s*(?:\d+[\.\-\)]|\[\d+\])\s+/m.test(rawText)) {
+    segments = rawText.split(/^\s*(?:\d+[\.\-\)]|\[\d+\])\s+/m);
+  } 
+  // 3. Fallback: split by 2 or more consecutive newlines
+  else {
+    segments = rawText.split(/\n\s*\n+/);
+  }
+
+  return segments
+    .map(s => s.trim())
+    .filter(s => s.length >= 5);
+};
+
+window.updateBulkTemplateCounter = function() {
+  const textarea = document.getElementById("bulk-templates-text");
+  const badge = document.getElementById("bulk-counter-badge");
+  if (!textarea || !badge) return;
+  const templates = parseBulkTemplates(textarea.value);
+  badge.textContent = `تم اكتشاف ${templates.length} صيغ`;
+};
+
+window.handleBulkTemplateAdd = async function(e) {
+  if (e && e.preventDefault) e.preventDefault();
+
+  if (!currentTelegramAccountId) {
+    showToast("يرجى ربط حسابك على تليجرام أولاً من علامة تبويب 'ربط المحرك' قبل إضافة صيغ الإعلانات.", "warning");
+    return;
+  }
+
+  const textarea = document.getElementById("bulk-templates-text");
+  if (!textarea) return;
+  const templates = parseBulkTemplates(textarea.value);
+
+  if (!templates || templates.length === 0) {
+    showToast("يرجى إدخال صيغة إعلانية واحدة على الأقل (كل صيغة يجب ألا تقل عن 5 أحرف).", "warning");
+    return;
+  }
+
+  setButtonLoading("btn-bulk-add-template", true);
+
+  try {
+    const data = await apiRequest("/templates/bulk", {
+      method: "POST",
+      body: JSON.stringify({
+        telegram_account_id: currentTelegramAccountId,
+        templates: templates
+      })
+    });
+
+    if (data.status === "success") {
+      showToast(data.message || `تم استيراد ${data.count} صيغة بنجاح إلى مكتبتك! 🚀`, "success");
+      textarea.value = "";
+      updateBulkTemplateCounter();
+      loadTemplatesList();
+      populateCampaignTemplatePicker();
+    }
+  } catch (error) {
+    console.error("Bulk Add Template Error:", error);
+  } finally {
+    setButtonLoading("btn-bulk-add-template", false);
+  }
+};
+
 async function handleTemplateAdd(e) {
   e.preventDefault();
 
@@ -2475,8 +2656,6 @@ async function handleTemplateAdd(e) {
   }
 
   const templateText = document.getElementById("template-text").value;
-
-
 
   setButtonLoading("btn-add-template", true);
 
@@ -2502,6 +2681,7 @@ async function handleTemplateAdd(e) {
   }
 }
 
+// Smart Auto-Rotation & Picker Population (Idea 2)
 async function populateCampaignTemplatePicker() {
   const select = document.getElementById("campaign-template-select");
   if (!select) return;
@@ -2509,6 +2689,15 @@ async function populateCampaignTemplatePicker() {
     const url = currentTelegramAccountId ? `/templates?telegram_account_id=${currentTelegramAccountId}` : "/templates";
     const templates = await apiRequest(url);
     select.innerHTML = '<option value="">-- اختر من صيغك المحفوظة (أولوية لك) --</option>';
+    
+    // Always provide Smart Dynamic Rotation option
+    const rotateOpt = document.createElement("option");
+    rotateOpt.value = "__ROTATE__";
+    rotateOpt.textContent = "🔄 تدوير عشوائي ذكي بين جميع صيغ المكتبة (حماية الحسابات)";
+    rotateOpt.style.color = "#4ade80";
+    rotateOpt.style.fontWeight = "700";
+    select.appendChild(rotateOpt);
+
     if (templates && Array.isArray(templates) && templates.length > 0) {
       templates.forEach((t, idx) => {
         const opt = document.createElement("option");
@@ -2521,7 +2710,7 @@ async function populateCampaignTemplatePicker() {
       const opt = document.createElement("option");
       opt.value = "";
       opt.disabled = true;
-      opt.textContent = "لا توجد صيغ محفوظة (أضف من إدارة المحرك)";
+      opt.textContent = "لا توجد صيغ محفوظة بعد (أضف من إدارة المحرك)";
       select.appendChild(opt);
     }
   } catch (err) {
@@ -2534,10 +2723,15 @@ window.applySelectedTemplateToCampaign = function(text) {
   if (!text) return;
   const textarea = document.getElementById("web-custom-text");
   if (textarea) {
-    textarea.value = text;
+    if (text === "__ROTATE__") {
+      textarea.value = "[تدوير تلقائي من مكتبة الصيغ: سيتم اختيار صيغة مختلفة عشوائياً لكل قناة لتقليل مخاطر الحظر وضمان تنوع المحتوى]";
+    } else {
+      textarea.value = text;
+    }
     textarea.dispatchEvent(new Event("input"));
   }
 };
+
 
 async function loadTemplatesList() {
   const container = document.getElementById("templates-list-container");

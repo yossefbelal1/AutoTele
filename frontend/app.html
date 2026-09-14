@@ -963,7 +963,7 @@
 
                 <div id="group-custom-text" class="form-group" style="display: none;">
                   <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
-                    <label for="web-custom-text" class="form-label" style="color: #94a3b8; font-size: 13px; font-weight: 600; margin: 0;">نص الإعلان المخصص (يدعم {title} و {link})</label>
+                    <label for="web-custom-text" class="form-label" style="color: #94a3b8; font-size: 13px; font-weight: 600; margin: 0;">نص الإعلان المخصص (يدعم المتغيرات والتدوير)</label>
                     <div style="display: flex; align-items: center; gap: 6px;">
                       <span style="font-size: 12px; color: #38bdf8;">📋</span>
                       <select id="campaign-template-select" onchange="applySelectedTemplateToCampaign(this.value)" style="background: rgba(15,23,42,0.85); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); border-radius: 6px; font-size: 12px; padding: 4px 8px; outline: none; cursor: pointer;">
@@ -971,12 +971,23 @@
                       </select>
                     </div>
                   </div>
-                  <textarea id="web-custom-text" class="form-control" rows="4" placeholder="اكتب إعلانك المخصص هنا أو اختر صيغة من مكتبتك أعلاه..." style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; width: 100%; font-size: 14px; outline: none; resize: vertical; font-family: sans-serif;"></textarea>
+                  <textarea id="web-custom-text" class="form-control" rows="4" placeholder="اكتب إعلانك المخصص هنا أو اختر صيغة أو اختر التدوير الذكي من القائمة أعلاه..." style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; width: 100%; font-size: 14px; outline: none; resize: vertical; font-family: sans-serif;"></textarea>
+                  
+                  <!-- Dynamic Placeholders Quick Insert Chips for Campaign -->
+                  <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;">
+                    <button type="button" onclick="insertPlaceholder('[LINK]', 'web-custom-text')" style="background: rgba(56, 189, 248, 0.08); border: 1px dashed rgba(56, 189, 248, 0.3); color: #38bdf8; font-size: 11px; padding: 3px 8px; border-radius: 5px; cursor: pointer;">+ [LINK]</button>
+                    <button type="button" onclick="insertPlaceholder('[CHANNEL_NAME]', 'web-custom-text')" style="background: rgba(168, 85, 247, 0.08); border: 1px dashed rgba(168, 85, 247, 0.3); color: #c084fc; font-size: 11px; padding: 3px 8px; border-radius: 5px; cursor: pointer;">+ [CHANNEL_NAME]</button>
+                    <button type="button" onclick="insertPlaceholder('[TARGET_MEMBERS]', 'web-custom-text')" style="background: rgba(34, 197, 94, 0.08); border: 1px dashed rgba(34, 197, 94, 0.3); color: #4ade80; font-size: 11px; padding: 3px 8px; border-radius: 5px; cursor: pointer;">+ [TARGET_MEMBERS]</button>
+                    <button type="button" onclick="insertPlaceholder('[DATE]', 'web-custom-text')" style="background: rgba(245, 158, 11, 0.08); border: 1px dashed rgba(245, 158, 11, 0.3); color: #fbbf24; font-size: 11px; padding: 3px 8px; border-radius: 5px; cursor: pointer;">+ [DATE]</button>
+                    <button type="button" onclick="insertPlaceholder('[DAY]', 'web-custom-text')" style="background: rgba(244, 63, 94, 0.08); border: 1px dashed rgba(244, 63, 94, 0.3); color: #fb7185; font-size: 11px; padding: 3px 8px; border-radius: 5px; cursor: pointer;">+ [DAY]</button>
+                  </div>
+
                   <div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;">
                     <input type="checkbox" id="campaign-save-template-check" style="cursor: pointer;">
                     <label for="campaign-save-template-check" style="font-size: 12px; color: #94a3b8; cursor: pointer;">حفظ وتثبيت هذا النص تلقائياً كصيغة دائمة في مكتبتي</label>
                   </div>
                 </div>
+
 
                 <button type="submit" id="btn-submit-web-campaign" class="btn btn-primary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; padding: 14px; border-radius: 8px; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); border: none; cursor: pointer; color: #fff; box-shadow: 0 4px 12px rgba(29, 78, 216, 0.3); transition: all 0.2s;">
                   <span class="btn-text">🚀 إطلاق الحملة السحابية</span>
@@ -1640,42 +1651,165 @@
           <!-- Subtab 3: Ad Templates -->
           <div id="subtab-engine-templates" class="subtab-pane hidden">
             <div id="tab-templates">
-<div class="panel-header">
-            <h1 class="panel-title">مكتبة صيغ الإعلانات المتكاملة</h1>
-            <p class="panel-subtitle">أضف الصيغ والرسائل التسويقية وسيتم تعويض الحقول والروابط ديناميكياً لكل إعلان</p>
-          </div>
+              <div class="panel-header" style="margin-bottom: 20px;">
+                <h1 class="panel-title" style="display: flex; align-items: center; gap: 10px;">
+                  <span>📚</span>
+                  <span>مكتبة صيغ الإعلانات المتكاملة</span>
+                </h1>
+                <p class="panel-subtitle">أضف الصيغ والرسائل التسويقية مع المتغيرات الديناميكية والتدوير الذكي لمكافحة الحظر وحماية القنوات</p>
+              </div>
 
-          <div class="templates-layout">
-            <div class="template-form-card card">
-              <h3 class="card-title">إضافة صيغة إعلان جديدة لمكتبتك</h3>
-              
-              <form id="template-add-form">
-                <div class="input-group">
-                  <label for="template-text">نص صيغة الرسالة الإعلانية</label>
-                  <textarea id="template-text" required placeholder="اكتب صيغة الإعلان الخاصة بك هنا..." rows="8"></textarea>
+              <!-- Mode Switcher Tabs -->
+              <div style="display: flex; gap: 10px; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 12px;">
+                <button type="button" id="tab-btn-single-template" class="btn btn-sm" onclick="switchTemplateMode('single')" style="background: rgba(59, 130, 246, 0.2); border: 1px solid #3b82f6; color: #60a5fa; font-weight: 700; border-radius: 8px; padding: 8px 16px; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                  <span>✏️</span>
+                  <span>صيغة مفردة (مع الأدوات المتقدمة)</span>
+                </button>
+                <button type="button" id="tab-btn-bulk-template" class="btn btn-sm" onclick="switchTemplateMode('bulk')" style="background: rgba(30, 41, 59, 0.6); border: 1px solid #334155; color: #94a3b8; font-weight: 600; border-radius: 8px; padding: 8px 16px; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                  <span>⚡</span>
+                  <span>إضافة مجمّعة ذكية (Bulk Import)</span>
+                </button>
+              </div>
+
+              <div class="templates-layout">
+                <!-- Single Template Card -->
+                <div id="card-single-template" class="template-form-card card" style="background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px;">
+                  <h3 class="card-title" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                    <span style="display: flex; align-items: center; gap: 8px;">
+                      <span>📝</span>
+                      <span>إضافة صيغة إعلان جديدة</span>
+                    </span>
+                    <span style="font-size: 11px; color: #38bdf8; background: rgba(56,189,248,0.1); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(56,189,248,0.2);">أولوية 100% لحسابك</span>
+                  </h3>
+
+                  <!-- Marketing Tone Shifter (Idea 5) -->
+                  <div style="margin-bottom: 14px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 10px 14px;">
+                    <div style="font-size: 12px; color: #94a3b8; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; font-weight: 600;">
+                      <span>🎨</span>
+                      <span>اختر نكهة تسويقية جاهزة (Marketing Tone Shifter):</span>
+                    </div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                      <button type="button" class="tone-btn" onclick="applyMarketingTone('fomo')" style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3); color: #fbbf24; font-size: 12px; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-weight: 600;">⚡ حماسي (FOMO)</button>
+                      <button type="button" class="tone-btn" onclick="applyMarketingTone('authority')" style="background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.3); color: #60a5fa; font-size: 12px; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-weight: 600;">🏆 موثوقية (Authority)</button>
+                      <button type="button" class="tone-btn" onclick="applyMarketingTone('story')" style="background: rgba(168, 85, 247, 0.12); border: 1px solid rgba(168, 85, 247, 0.3); color: #c084fc; font-size: 12px; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-weight: 600;">📖 قصة وتشويق (Story)</button>
+                      <button type="button" class="tone-btn" onclick="applyMarketingTone('direct')" style="background: rgba(34, 197, 94, 0.12); border: 1px solid rgba(34, 197, 94, 0.3); color: #4ade80; font-size: 12px; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-weight: 600;">🎯 مباشر (Direct)</button>
+                    </div>
+                  </div>
+
+                  <!-- Formatter Toolbar (Idea 8) -->
+                  <div style="background: #0f172a; border: 1px solid #1e293b; border-bottom: none; border-radius: 8px 8px 0 0; padding: 8px 12px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;">
+                    <div style="display: flex; align-items: center; gap: 4px;">
+                      <button type="button" onclick="formatTemplateText('bold', 'template-text')" title="خط عريض Bold" style="background: #1e293b; border: 1px solid #334155; color: #fff; width: 28px; height: 28px; border-radius: 5px; font-weight: 800; font-size: 12px; cursor: pointer;">B</button>
+                      <button type="button" onclick="formatTemplateText('italic', 'template-text')" title="خط مائل Italic" style="background: #1e293b; border: 1px solid #334155; color: #fff; width: 28px; height: 28px; border-radius: 5px; font-style: italic; font-size: 12px; cursor: pointer;">I</button>
+                      <button type="button" onclick="formatTemplateText('link', 'template-text')" title="رابط مدمج Inline Link" style="background: #1e293b; border: 1px solid #334155; color: #fff; width: 28px; height: 28px; border-radius: 5px; font-size: 12px; cursor: pointer;">🔗</button>
+                      <button type="button" onclick="formatTemplateText('code', 'template-text')" title="كود أحادي Monospace" style="background: #1e293b; border: 1px solid #334155; color: #fff; width: 28px; height: 28px; border-radius: 5px; font-family: monospace; font-size: 11px; cursor: pointer;">&lt;/&gt;</button>
+                      <button type="button" onclick="formatTemplateText('quote', 'template-text')" title="اقتباس Quote" style="background: #1e293b; border: 1px solid #334155; color: #fff; width: 28px; height: 28px; border-radius: 5px; font-size: 12px; cursor: pointer;">❝</button>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 4px; overflow-x: auto;">
+                      <span style="font-size: 11px; color: #64748b; margin-left: 4px;">أيموجي:</span>
+                      <button type="button" onclick="insertEmoji('🚀', 'template-text')" style="background: transparent; border: none; font-size: 14px; cursor: pointer; padding: 2px 4px;">🚀</button>
+                      <button type="button" onclick="insertEmoji('📈', 'template-text')" style="background: transparent; border: none; font-size: 14px; cursor: pointer; padding: 2px 4px;">📈</button>
+                      <button type="button" onclick="insertEmoji('🚨', 'template-text')" style="background: transparent; border: none; font-size: 14px; cursor: pointer; padding: 2px 4px;">🚨</button>
+                      <button type="button" onclick="insertEmoji('🎁', 'template-text')" style="background: transparent; border: none; font-size: 14px; cursor: pointer; padding: 2px 4px;">🎁</button>
+                      <button type="button" onclick="insertEmoji('👇', 'template-text')" style="background: transparent; border: none; font-size: 14px; cursor: pointer; padding: 2px 4px;">👇</button>
+                      <button type="button" onclick="insertEmoji('⏳', 'template-text')" style="background: transparent; border: none; font-size: 14px; cursor: pointer; padding: 2px 4px;">⏳</button>
+                      <button type="button" onclick="insertEmoji('💎', 'template-text')" style="background: transparent; border: none; font-size: 14px; cursor: pointer; padding: 2px 4px;">💎</button>
+                      <button type="button" onclick="insertEmoji('💰', 'template-text')" style="background: transparent; border: none; font-size: 14px; cursor: pointer; padding: 2px 4px;">💰</button>
+                      <button type="button" onclick="insertEmoji('👑', 'template-text')" style="background: transparent; border: none; font-size: 14px; cursor: pointer; padding: 2px 4px;">👑</button>
+                      <button type="button" onclick="insertEmoji('🔥', 'template-text')" style="background: transparent; border: none; font-size: 14px; cursor: pointer; padding: 2px 4px;">🔥</button>
+                    </div>
+                  </div>
+
+                  <form id="template-add-form">
+                    <div class="input-group" style="margin-bottom: 8px;">
+                      <textarea id="template-text" required placeholder="اكتب صيغة الإعلان الخاصة بك هنا أو اضغط على النكهات التسويقية أعلاه..." rows="8" style="border-radius: 0 0 8px 8px; margin-top: 0; width: 100%; box-sizing: border-box;"></textarea>
+                    </div>
+
+                    <!-- Dynamic Placeholders Chips (Idea 6) -->
+                    <div style="margin-bottom: 16px;">
+                      <div style="font-size: 11.5px; color: #94a3b8; margin-bottom: 6px; display: flex; align-items: center; gap: 5px;">
+                        <span>🏷️</span>
+                        <span>انقر لإدراج متغير ديناميكي حي في نص الإعلان:</span>
+                      </div>
+                      <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                        <button type="button" onclick="insertPlaceholder('[LINK]', 'template-text')" style="background: rgba(56, 189, 248, 0.1); border: 1px dashed rgba(56, 189, 248, 0.4); color: #38bdf8; font-size: 11.5px; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-weight: 600;">[LINK] رابط القناة</button>
+                        <button type="button" onclick="insertPlaceholder('[CHANNEL_NAME]', 'template-text')" style="background: rgba(168, 85, 247, 0.1); border: 1px dashed rgba(168, 85, 247, 0.4); color: #c084fc; font-size: 11.5px; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-weight: 600;">[CHANNEL_NAME] اسم القناة</button>
+                        <button type="button" onclick="insertPlaceholder('[TARGET_MEMBERS]', 'template-text')" style="background: rgba(34, 197, 94, 0.1); border: 1px dashed rgba(34, 197, 94, 0.4); color: #4ade80; font-size: 11.5px; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-weight: 600;">[TARGET_MEMBERS] عدد الأعضاء</button>
+                        <button type="button" onclick="insertPlaceholder('[DATE]', 'template-text')" style="background: rgba(245, 158, 11, 0.1); border: 1px dashed rgba(245, 158, 11, 0.4); color: #fbbf24; font-size: 11.5px; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-weight: 600;">[DATE] تاريخ اليوم</button>
+                        <button type="button" onclick="insertPlaceholder('[DAY]', 'template-text')" style="background: rgba(244, 63, 94, 0.1); border: 1px dashed rgba(244, 63, 94, 0.4); color: #fb7185; font-size: 11.5px; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-weight: 600;">[DAY] اسم اليوم</button>
+                      </div>
+                    </div>
+
+                    <button type="submit" id="btn-add-template" class="btn btn-primary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                      <span class="btn-text">💾 إضافة الصيغة وتثبيتها في مكتبتك</span>
+                      <span class="spinner hidden"></span>
+                    </button>
+                  </form>
                 </div>
 
-                <button type="submit" id="btn-add-template" class="btn btn-primary">
-                  <span class="btn-text">إضافة الصيغة للمكتبة الخارجية</span>
-                  <span class="spinner hidden"></span>
-                </button>
-              </form>
-            </div>
+                <!-- Bulk Template Card (Idea 1) -->
+                <div id="card-bulk-template" class="template-form-card card hidden" style="background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px;">
+                  <h3 class="card-title" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                    <span style="display: flex; align-items: center; gap: 8px;">
+                      <span>⚡</span>
+                      <span>إضافة مجمّعة ذكية (Bulk Import & Auto-Splitter)</span>
+                    </span>
+                    <span id="bulk-counter-badge" style="font-size: 12px; color: #4ade80; background: rgba(34,197,94,0.1); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(34,197,94,0.2); font-weight: 700;">تم اكتشاف 0 صيغ</span>
+                  </h3>
+                  <p style="font-size: 12px; color: #94a3b8; line-height: 1.6; margin-bottom: 12px;">
+                    الصق عدة صيغ إعلانية دفعة واحدة وسيقوم النظام بتفكيكها وفصلها وتنسيقها تلقائياً. يمكنك الفصل بين كل صيغة وأخرى بوضع خط <code>---</code> أو بسطرين فارغين أو بترقيم (1. 2.). وسيتم إلحاق <code>[LINK]</code> تلقائياً إن نسيته!
+                  </p>
 
-            <!-- Templates List Card (Full Width) -->
-            <div class="template-list-card card" style="grid-column: 1 / -1; margin-top: 10px;">
-              <h3 class="card-title" style="display: flex; align-items: center; gap: 8px;">
-                <span>📚</span>
-                <span>الصيغ المضافة حالياً في مكتبتك</span>
-              </h3>
-              <div id="templates-list-container" style="margin-top: 20px;">
-                <p style="color: #94a3b8; font-size: 13px; text-align: center; padding: 20px;">جاري تحميل مكتبة الصيغ الخاصة بك...</p>
+                  <!-- Dynamic Placeholders Chips for Bulk -->
+                  <div style="margin-bottom: 10px;">
+                    <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                      <button type="button" onclick="insertPlaceholder('[LINK]', 'bulk-templates-text')" style="background: rgba(56, 189, 248, 0.1); border: 1px dashed rgba(56, 189, 248, 0.4); color: #38bdf8; font-size: 11px; padding: 3px 8px; border-radius: 5px; cursor: pointer;">[LINK]</button>
+                      <button type="button" onclick="insertPlaceholder('[CHANNEL_NAME]', 'bulk-templates-text')" style="background: rgba(168, 85, 247, 0.1); border: 1px dashed rgba(168, 85, 247, 0.4); color: #c084fc; font-size: 11px; padding: 3px 8px; border-radius: 5px; cursor: pointer;">[CHANNEL_NAME]</button>
+                      <button type="button" onclick="insertPlaceholder('[TARGET_MEMBERS]', 'bulk-templates-text')" style="background: rgba(34, 197, 94, 0.1); border: 1px dashed rgba(34, 197, 94, 0.4); color: #4ade80; font-size: 11px; padding: 3px 8px; border-radius: 5px; cursor: pointer;">[TARGET_MEMBERS]</button>
+                      <button type="button" onclick="insertPlaceholder('[DATE]', 'bulk-templates-text')" style="background: rgba(245, 158, 11, 0.1); border: 1px dashed rgba(245, 158, 11, 0.4); color: #fbbf24; font-size: 11px; padding: 3px 8px; border-radius: 5px; cursor: pointer;">[DATE]</button>
+                      <button type="button" onclick="insertPlaceholder('[DAY]', 'bulk-templates-text')" style="background: rgba(244, 63, 94, 0.1); border: 1px dashed rgba(244, 63, 94, 0.4); color: #fb7185; font-size: 11px; padding: 3px 8px; border-radius: 5px; cursor: pointer;">[DAY]</button>
+                    </div>
+                  </div>
+
+                  <form id="template-bulk-form" onsubmit="handleBulkTemplateAdd(event)">
+                    <div class="input-group" style="margin-bottom: 14px;">
+                      <textarea id="bulk-templates-text" oninput="updateBulkTemplateCounter()" required placeholder="الصق صيغك الإعلانية هنا مفصولة بخط --- أو أسطر فارغة...
+مثال:
+الصيغة الأولى هنا
+[LINK]
+---
+الصيغة الثانية هنا
+[CHANNEL_NAME]
+[LINK]
+---
+الصيغة الثالثة..." rows="10" style="background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; width: 100%; box-sizing: border-box; font-size: 13.5px; font-family: Cairo, sans-serif;"></textarea>
+                    </div>
+
+                    <button type="submit" id="btn-bulk-add-template" class="btn btn-primary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);">
+                      <span class="btn-text">🚀 استيراد وحفظ كافة الصيغ دفعة واحدة</span>
+                      <span class="spinner hidden"></span>
+                    </button>
+                  </form>
+                </div>
+
+                <!-- Templates List Card (Full Width) -->
+                <div class="template-list-card card" style="grid-column: 1 / -1; margin-top: 10px;">
+                  <h3 class="card-title" style="display: flex; align-items: center; justify-content: space-between;">
+                    <span style="display: flex; align-items: center; gap: 8px;">
+                      <span>📚</span>
+                      <span>الصيغ المضافة حالياً في مكتبتك</span>
+                    </span>
+                    <button type="button" onclick="loadTemplatesList()" class="btn btn-sm" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #cbd5e1; font-size: 12px; padding: 4px 10px; border-radius: 6px; cursor: pointer;">🔄 تحديث القائمة</button>
+                  </h3>
+                  <div id="templates-list-container" style="margin-top: 20px;">
+                    <p style="color: #94a3b8; font-size: 13px; text-align: center; padding: 20px;">جاري تحميل مكتبة الصيغ الخاصة بك...</p>
+                  </div>
+                </div>
+
               </div>
             </div>
+          </div>
 
-          </div>
-            </div>
-          </div>
         </section>
 
         

@@ -304,6 +304,10 @@ class TemplateCreateReq(BaseModel):
     telegram_account_id: Optional[int] = None
     template_text: str
 
+class TemplateBulkCreateReq(BaseModel):
+    telegram_account_id: Optional[int] = None
+    templates: List[str]
+
 class CampaignSubmitReq(BaseModel):
     campaign_type: str
     delay_start: int
@@ -1711,6 +1715,53 @@ async def add_template(req: TemplateCreateReq, user_id: int = Depends(get_curren
         session.add(new_tmpl)
         await session.commit()
         return {"status": "success", "message": "تم إضافة الصيغة وتثبيتها بنجاح في مكتبتك الدائمة"}
+
+@app.post("/templates/bulk")
+async def add_templates_bulk(req: TemplateBulkCreateReq, user_id: int = Depends(get_current_user)):
+    if not req.templates or not isinstance(req.templates, list):
+        raise HTTPException(status_code=400, detail="يرجى إرسال قائمة الصيغ المراد إضافتها")
+        
+    async with AsyncSessionLocal() as session:
+        await verify_active_subscription(user_id, session)
+        if req.telegram_account_id:
+            acc = (await session.execute(
+                select(TelegramAccount).where(
+                    TelegramAccount.id == req.telegram_account_id,
+                    TelegramAccount.user_id == user_id
+                )
+            )).scalars().first()
+        else:
+            acc = (await session.execute(
+                select(TelegramAccount).where(
+                    TelegramAccount.user_id == user_id
+                ).order_by(TelegramAccount.status == "active", TelegramAccount.id.desc())
+            )).scalars().first()
+            
+        if not acc:
+            raise HTTPException(status_code=400, detail="يرجى ربط حساب تليجرام أولاً لحفظ الصيغ باسم حسابك")
+            
+        added_count = 0
+        for raw_t in req.templates:
+            if not isinstance(raw_t, str):
+                continue
+            cleaned = raw_t.strip()
+            if len(cleaned) < 5:
+                continue
+            lower_c = cleaned.lower()
+            if "{link}" not in lower_c and "[link]" not in lower_c:
+                cleaned += "\n\n[LINK]"
+            session.add(AdTemplate(telegram_account_id=acc.id, template_text=cleaned))
+            added_count += 1
+            
+        if added_count == 0:
+            raise HTTPException(status_code=400, detail="لم يتم العثور على أي نصوص إعلانية صالحة للحفظ")
+            
+        await session.commit()
+        return {
+            "status": "success",
+            "count": added_count,
+            "message": f"تمت إضافة {added_count} صيغة إعلانية بنجاح إلى مكتبتك الدائمة! 🚀"
+        }
 
 @app.get("/templates")
 async def get_templates(telegram_account_id: Optional[int] = None, user_id: int = Depends(get_current_user)):
