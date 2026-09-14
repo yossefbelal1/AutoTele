@@ -358,7 +358,6 @@ window.switchReportsBranch = function(branchId, pushState = true) {
     if (typeof loadCampaignsHistory === "function") loadCampaignsHistory();
   } else if (validBranch === "branch-analytics") {
     if (typeof loadAnalyticsData === "function") loadAnalyticsData();
-    if (typeof loadCampaignChannelsAnalytics === "function") loadCampaignChannelsAnalytics();
   } else if (validBranch === "branch-notifications") {
     if (typeof loadNotificationsPage === "function") loadNotificationsPage();
     if (typeof loadEventLogs === "function") loadEventLogs();
@@ -5560,8 +5559,8 @@ async function loadAnalyticsData(isManual = false) {
       }
     }
 
-    // Also load campaign folder channels performance
-    loadCampaignChannelsAnalytics(false);
+    // Also load campaign folder channels performance (pass isManual so live refresh propagates)
+    loadCampaignChannelsAnalytics(isManual);
 
     if (isManual) {
       showToast("تم تحديث مؤشرات الأداء والتحليلات بنجاح ✅", "success", 2000);
@@ -5676,6 +5675,9 @@ function renderAvailableFolderButtons(availableFolders, activeScope) {
   bar.innerHTML = html;
 }
 
+let _analyticsAutoRefreshDone = false;
+let _analyticsLastRefreshTs = 0;
+
 async function loadCampaignChannelsAnalytics(isManual = false, scope = null) {
   if (scope) {
     currentChannelsAnalyticsScope = scope;
@@ -5685,9 +5687,18 @@ async function loadCampaignChannelsAnalytics(isManual = false, scope = null) {
 
   const refreshBtn = document.getElementById("btn-refresh-campaign-channels");
   const origBtnText = refreshBtn ? refreshBtn.innerHTML : "";
+  let elapsedTimer = null;
+
   if (isManual && refreshBtn) {
     refreshBtn.disabled = true;
-    refreshBtn.innerHTML = `<span>⏳ جاري الفحص المباشر...</span>`;
+    let elapsedSec = 0;
+    refreshBtn.innerHTML = `<span>⏳ جاري الفحص المباشر من تليجرام... 0 ثوانٍ</span>`;
+    elapsedTimer = setInterval(() => {
+      elapsedSec++;
+      if (refreshBtn) {
+        refreshBtn.innerHTML = `<span>⏳ جاري الفحص المباشر من تليجرام... ${elapsedSec} ثوانٍ</span>`;
+      }
+    }, 1000);
   }
 
   try {
@@ -5833,14 +5844,23 @@ async function loadCampaignChannelsAnalytics(isManual = false, scope = null) {
       }
     }
 
-    if (isManual) {
+    // Handle refresh_pending flag — worker is still running
+    if (isManual && data.refresh_pending) {
+      showToast("⏳ التحديث جارٍ في الخلفية... ستُحدّث الأرقام تلقائياً عند الانتهاء", "info", 4000);
+    } else if (isManual) {
       const scopeName = effectiveScope === "all" ? "كافة القنوات" : (effectiveScope.startsWith("my_channels_") ? "قنوات المجلد" : "قنوات مجلد حملات");
       showToast(`تم تحديث بيانات ${scopeName} ومعدل النمو بنجاح ✅`, "success", 2000);
+    }
+
+    // Update last refresh timestamp for display
+    if (data.last_refresh_ts) {
+      _analyticsLastRefreshTs = data.last_refresh_ts;
     }
   } catch (err) {
     console.error("Channels analytics load error:", err);
     if (isManual) showToast("تعذر جلب بيانات القنوات: " + err.message, "error");
   } finally {
+    if (elapsedTimer) clearInterval(elapsedTimer);
     if (isManual && refreshBtn) {
       refreshBtn.disabled = false;
       refreshBtn.innerHTML = origBtnText;

@@ -1376,10 +1376,13 @@ async def get_campaign_channels_analytics(
             }
 
         acc_id = tg_account.id
+        refresh_pending = False
 
-        # If live refresh requested, publish command to worker and wait briefly
+        # If live refresh requested, publish command to worker and poll for completion
         if refresh:
             try:
+                # Clear any old completion flag before publishing
+                await redis_client.delete(f"tenant:{acc_id}:refresh_completed")
                 await redis_client.publish(
                     "saas_tenant_commands",
                     json.dumps({
@@ -1388,9 +1391,23 @@ async def get_campaign_channels_analytics(
                         "scope": effective_scope
                     })
                 )
-                await asyncio.sleep(1.2)
+                # Poll for worker completion signal (max 25s, 0.5s intervals)
+                max_wait = 25
+                poll_interval = 0.5
+                elapsed = 0.0
+                while elapsed < max_wait:
+                    await asyncio.sleep(poll_interval)
+                    elapsed += poll_interval
+                    completed_ts = await redis_client.get(f"tenant:{acc_id}:refresh_completed")
+                    if completed_ts is not None:
+                        logger.info(f"Refresh completed for tenant {acc_id} after {elapsed:.1f}s")
+                        break
+                else:
+                    # Timed out — worker is still running, return cached data with pending flag
+                    logger.warning(f"Refresh timed out for tenant {acc_id} after {max_wait}s, returning cached data")
+                    refresh_pending = True
             except Exception as rpe:
-                logger.error(f"Failed to publish refresh_campaign_channels for tenant {acc_id}: {rpe}")
+                logger.error(f"Failed to publish/poll refresh_campaign_channels for tenant {acc_id}: {rpe}")
 
         # 1. Fetch channel IDs belonging specifically to the "حملات" folder
         raw_campaign = await redis_client.get(f"tenant:{acc_id}:campaign")
@@ -1629,9 +1646,20 @@ async def get_campaign_channels_analytics(
             except Exception:
                 pass
 
+        # Fetch last refresh timestamp for display
+        last_refresh = None
+        try:
+            raw_last_refresh = await redis_client.get(f"tenant:{acc_id}:last_refresh_ts")
+            if raw_last_refresh:
+                last_refresh = int(raw_last_refresh)
+        except Exception:
+            pass
+
         return {
             "status": "success",
             "scope": effective_scope,
+            "refresh_pending": refresh_pending,
+            "last_refresh_ts": last_refresh,
             "available_folders": available_folders,
             "summary": {
                 "scope": effective_scope,

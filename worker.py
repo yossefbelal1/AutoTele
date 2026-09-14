@@ -7706,8 +7706,10 @@ async def redis_pubsub_listener():
                     command = data.get("command")
                     if command == "refresh_campaign_channels":
                         cmd_scope = data.get("scope", "campaign")
-                        logger.info(f"Received refresh_campaign_channels command for tenant {tenant_id}, scope={cmd_scope}")
-                        asyncio.create_task(refresh_tenant_campaign_channels(tenant_id, scope=cmd_scope))
+                        # Always refresh ALL channels so switching scopes shows fresh data
+                        refresh_scope = "all"
+                        logger.info(f"Received refresh_campaign_channels command for tenant {tenant_id}, requested_scope={cmd_scope}, using refresh_scope={refresh_scope}")
+                        asyncio.create_task(refresh_tenant_campaign_channels(tenant_id, scope=refresh_scope))
                     elif command == "cancel_single_job":
                         task_id = data.get("task_id")
                         logger.info(f"Received cancel_single_job command for tenant {tenant_id}, task {task_id}")
@@ -8081,6 +8083,7 @@ async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaig
 
     from cache_manager import redis_client, get_channels_cache, save_channels_cache
     from pyrogram.raw import functions, types
+    from pyrogram.errors import FloodWait, RPCError
     import json
 
     try:
@@ -8095,8 +8098,29 @@ async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaig
 
         target_ids = []
         if scope == "all":
-            # Refresh all channels, capping at 50 to avoid flood/rate limits
-            target_ids = [ch["id"] for ch in cached_channels if "id" in ch][:50]
+            # Prioritize campaign folder channels first, then all remaining channels
+            raw_camp = await redis_client.get(f"tenant:{tenant_id}:campaign")
+            camp_ids = json.loads(raw_camp) if raw_camp else []
+            camp_ids_set = set()
+            ordered_targets = []
+            for cid in camp_ids:
+                try:
+                    cid_int = int(cid)
+                    camp_ids_set.add(cid_int)
+                    camp_ids_set.add(abs(cid_int))
+                    ordered_targets.append(cid_int)
+                except Exception:
+                    pass
+            for ch in cached_channels:
+                ch_id = ch.get("id")
+                if ch_id is not None:
+                    try:
+                        ch_id_int = int(ch_id)
+                        if ch_id_int not in camp_ids_set and abs(ch_id_int) not in camp_ids_set:
+                            ordered_targets.append(ch_id_int)
+                    except Exception:
+                        pass
+            target_ids = ordered_targets[:80]
         elif scope.startswith("my_channels_"):
             c_num = scope.replace("my_channels_", "")
             raw_custom = await redis_client.get(f"tenant:{tenant_id}:my_channels:{c_num}")
@@ -8250,7 +8274,7 @@ async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaig
                 
                 # Polite delay between channel requests to avoid Telegram flood limits
                 await asyncio.sleep(0.35)
-            except errors.FloodWait as fw:
+            except FloodWait as fw:
                 logger.warning(f"Telegram FloodWait {fw.value}s when refreshing channel {cid} for tenant {tenant_id}")
                 if fw.value <= 10:
                     await asyncio.sleep(fw.value)
@@ -8261,6 +8285,15 @@ async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaig
 
         await save_channels_cache(tenant_id, list(cached_map.values()))
         logger.info(f"Refreshed {len(target_ids)} channels (scope={scope}) for tenant {tenant_id} successfully.")
+        
+        # Signal refresh completion so the API can stop polling
+        try:
+            now_ts = str(int(datetime.now(timezone.utc).timestamp()))
+            await redis_client.set(f"tenant:{tenant_id}:refresh_completed", now_ts, ex=120)
+            await redis_client.set(f"tenant:{tenant_id}:last_refresh_ts", now_ts, ex=86400)
+        except Exception as rflag_err:
+            logger.debug(f"Error setting refresh completion flag for tenant {tenant_id}: {rflag_err}")
+        
         try:
             from cache_manager import publish_tenant_live_event
             await publish_tenant_live_event(tenant_id, {
