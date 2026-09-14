@@ -704,10 +704,25 @@ def format_user_template(
 
     safe_title = _html.escape(title) if title else ""
     safe_link = _html.escape(link) if link else ""
-    safe_extra = _html.escape(extra_link) if extra_link else ""
 
-    # Combined link string with both links stacked directly one after the other
-    combined_link = f"{safe_link}\n{safe_extra}" if safe_extra else safe_link
+    # Process extra links: support multiple links with clean separation by line space (\n\n)
+    extra_items = []
+    if extra_link:
+        for raw_line in str(extra_link).strip().splitlines():
+            line_str = raw_line.strip()
+            if line_str:
+                extra_items.append(_html.escape(line_str))
+
+    # Format multiple extra links with a blank line (سطر مسافة) between each link
+    safe_extra = "\n\n".join(extra_items) if extra_items else ""
+
+    # Combined link string: primary link + blank line (سطر مسافة) + extra links
+    if safe_link and safe_extra:
+        combined_link = f"{safe_link}\n\n{safe_extra}"
+    elif safe_extra:
+        combined_link = safe_extra
+    else:
+        combined_link = safe_link
 
     # Formatted members count
     if members_count and members_count > 0:
@@ -966,7 +981,9 @@ async def get_formatted_ad_message(
         logger.error(f"Error in templates engine: {e}")
         base_text = f"📢 تابعوا شات {target_title} من هنا:\n{target_link}"
         if extra_link:
-            base_text += f"\n{extra_link}"
+            extra_items = [it.strip() for it in str(extra_link).strip().splitlines() if it.strip()]
+            if extra_items:
+                base_text += "\n\n" + "\n\n".join(extra_items)
         return base_text
 
 async def safe_send_ad_message(client: Client, chat_id: int, text: str):
@@ -3925,14 +3942,15 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             )
 
     async def handle_حملات(message: Message, text: str, parts: List[str]):
-        extra_target_link = None
+        extra_target_links = []
         numbers = []
         for p in parts[1:]:
             clean_p = p.strip()
             if clean_p.startswith("http://") or clean_p.startswith("https://") or clean_p.startswith("t.me/") or (clean_p.startswith("@") and len(clean_p) > 1):
-                extra_target_link = clean_p
+                extra_target_links.append(clean_p)
             elif clean_p.isdigit():
                 numbers.append(int(clean_p))
+        extra_target_link = "\n".join(extra_target_links) if extra_target_links else None
         
         delay_start = 0
         delay_between_channels = 60  # default 60 minutes (الموصى به)
@@ -4015,18 +4033,19 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
 
     async def handle_حملات_مجلد(message: Message, text: str, parts: List[str]):
         folder_num = 1
-        extra_target_link = None
+        extra_target_links = []
         numbers = []
         for p in parts[1:]:
             clean_p = p.strip()
             if clean_p.startswith("http://") or clean_p.startswith("https://") or clean_p.startswith("t.me/") or (clean_p.startswith("@") and len(clean_p) > 1):
-                extra_target_link = clean_p
+                extra_target_links.append(clean_p)
             elif clean_p.isdigit():
                 numbers.append(int(clean_p))
             else:
                 match = _re.search(r'(?:my_?channels|mychannels|قنواتي)[\s_-]*(\d+)', clean_p.lower())
                 if match:
                     folder_num = int(match.group(1))
+        extra_target_link = "\n".join(extra_target_links) if extra_target_links else None
 
         delay_start = 0
         delay_between_channels = 60  # default 60 minutes (الموصى به)

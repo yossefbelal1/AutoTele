@@ -2392,6 +2392,14 @@ async function handleWebCampaignSubmit(e) {
       return;
     }
     targetLink = promoLinksClean + "|" + targetLinksClean;
+  } else if (campaignType === "bulk") {
+    // Read extra links from textarea, preserving each link line-by-line
+    const bulkExtraInput = document.getElementById("web-bulk-extra-link");
+    if (bulkExtraInput && bulkExtraInput.value.trim()) {
+      const rawVal = bulkExtraInput.value.trim();
+      const lines = rawVal.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+      targetLink = lines.join("\n");
+    }
   } else {
     // Merge picker selections + manual link inputs
     const pickerLinks = getSelectedChannelLinks();

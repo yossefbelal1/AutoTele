@@ -66,6 +66,34 @@ class TestAdTemplatesAndRotation:
         )
         assert "https://t.me/+my_link" in formatted
 
+    def test_format_user_template_multiple_extra_links(self):
+        """Verify that multiple extra links are supported and separated by line spaces (\\n\\n)."""
+        tmpl = (
+            "انضم الآن لقناتنا [CHANNEL_NAME]:\n"
+            "[LINK]"
+        )
+        extra = (
+            "https://t.me/addlist/bulk_folder_123\n"
+            "https://t.me/+second_channel_456"
+        )
+        formatted = format_user_template(
+            template=tmpl,
+            title="قناة الذهب",
+            link="https://t.me/+main_gold",
+            extra_link=extra
+        )
+
+        assert "https://t.me/+main_gold" in formatted
+        assert "https://t.me/addlist/bulk_folder_123" in formatted
+        assert "https://t.me/+second_channel_456" in formatted
+        # Verify line spacing (blank line / \n\n between each link)
+        expected_links_block = (
+            "https://t.me/+main_gold\n\n"
+            "https://t.me/addlist/bulk_folder_123\n\n"
+            "https://t.me/+second_channel_456"
+        )
+        assert expected_links_block in formatted
+
     @pytest.mark.asyncio
     async def test_get_formatted_ad_message_rotation(self):
         """Verify that template_index enables predictable round-robin rotation across channels."""
