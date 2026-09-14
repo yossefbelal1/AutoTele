@@ -3251,7 +3251,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnStopEverythingWeb = document.getElementById("btn-stop-everything-web");
   if (btnStopEverythingWeb) {
     btnStopEverythingWeb.addEventListener("click", async () => {
-      if (!confirm("🚨 تحذير أمني هام (زر الطوارئ):\n\nهل أنت متأكد من رغبتك في الإيقاف الفوري والشامل؟\nسيتم قتل كافة العمليات وتجميد النشر وإلغاء جميع المهام النشطة والمجدولة فوراً في أجزاء من الثانية.")) {
+      if (!confirm("هل أنت متأكد من إيقاف وتجميد كافة العمليات فوراً؟")) {
         return;
       }
       setButtonLoading("btn-stop-everything-web", true);
