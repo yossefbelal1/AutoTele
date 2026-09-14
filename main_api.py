@@ -1896,7 +1896,7 @@ async def stop_everything(user_id: int = Depends(get_current_user)):
             WebCampaignTask.status.in_(["pending", "processing", "active"])
         ).values(
             status="failed",
-            result_summary="🚨 تم إيقاف وإلغاء المهمة فوراً بناءً على طلب إيقاف كل شيء."
+            result_summary="🛑 تم إيقاف وإلغاء المهمة فوراً عبر زر الطوارئ الشامل (Kill Switch)."
         )
         await session.execute(stmt_tasks)
         await session.commit()
@@ -1920,17 +1920,22 @@ async def stop_everything(user_id: int = Depends(get_current_user)):
         await redis_client.delete(f"tenant:{tenant_id}:scheduled_jobs")
         await redis_client.delete(f"tenant:{tenant_id}:last_processed_bulk_target")
         await redis_client.delete(f"active_campaign:{tenant_id}")
+        await redis_client.delete(f"tenant:{tenant_id}:bulk_next_target_time")
+        await redis_client.delete(f"tenant:{tenant_id}:bulk_active_targets")
+        await redis_client.delete(f"tenant:{tenant_id}:active_job_id")
+        await redis_client.delete(f"tenant:{tenant_id}:live_progress")
         
         # Log event
-        await log_tenant_event_api(tenant_id, "🚨 تم إرسال أمر إيقاف فوري وشامل لجميع العمليات والحملات النشطة والمجدولة من لوحة التحكم.")
+        await log_tenant_event_api(tenant_id, "🛑 تم تفعيل زر الطوارئ الشامل (Kill Switch): إيقاف وإلغاء فوري لكافة المهام والحملات والعمليات النشطة.")
         try:
             from cache_manager import publish_tenant_live_event
-            await publish_tenant_live_event(tenant_id, {"type": "jobs_updated", "status": "stopped"})
-            await publish_tenant_live_event(tenant_id, {"type": "wave_status", "status": "stopped"})
+            await publish_tenant_live_event(tenant_id, {"type": "jobs_updated", "status": "emergency_stopped"})
+            await publish_tenant_live_event(tenant_id, {"type": "wave_status", "status": "emergency_stopped"})
+            await publish_tenant_live_event(tenant_id, {"type": "progress_update", "status": "stopped", "percent": 0, "active": False})
         except Exception:
             pass
             
-        return {"status": "success", "message": "تم إيقاف كل شيء وإلغاء جميع الحملات والمهام الجارية بنجاح!"}
+        return {"status": "success", "message": "تم تفعيل الإيقاف الشامل للطوارئ (Kill Switch) بنجاح وإلغاء كافة العمليات!"}
 
 
 @app.get("/user/logs")

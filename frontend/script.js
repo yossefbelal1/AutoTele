@@ -2848,11 +2848,14 @@ async function loadScheduledJobs() {
       // 1. Render Active Tasks
       if (activeJobs.length === 0) {
         if (activeCardContainer) activeCardContainer.style.display = "none";
+        if (activeListEl) activeListEl.innerHTML = "";
+        window._currentActiveJob = null;
       } else {
         if (activeCardContainer) activeCardContainer.style.display = "block";
         if (activeListEl) {
           activeListEl.innerHTML = activeJobs.map(renderJobItemHtml).join("");
         }
+        window._currentActiveJob = activeJobs[0];
       }
 
       // Live countdown tick — updates every second without re-rendering
@@ -2915,6 +2918,7 @@ async function loadScheduledJobs() {
           finishedListEl.innerHTML = finishedJobs.slice(0, 45).map(renderJobItemHtml).join("");
         }
       }
+      updateCampaignProgressBar(window._currentActiveJob);
     }
   } catch (error) {
     console.error("Error loading scheduled jobs:", error);
@@ -3247,18 +3251,39 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnStopEverythingWeb = document.getElementById("btn-stop-everything-web");
   if (btnStopEverythingWeb) {
     btnStopEverythingWeb.addEventListener("click", async () => {
-      if (!confirm("🚨 تحذير هام جداً: هل أنت متأكد من رغبتك في إيقاف جميع العمليات والحملات والنشر التبادلي النشطة والمجدولة فوراً؟")) {
+      if (!confirm("🚨 تحذير أمني هام (زر الطوارئ):\n\nهل أنت متأكد من رغبتك في الإيقاف الفوري والشامل؟\nسيتم قتل كافة العمليات وتجميد النشر وإلغاء جميع المهام النشطة والمجدولة فوراً في أجزاء من الثانية.")) {
         return;
       }
       setButtonLoading("btn-stop-everything-web", true);
+
+      // 1. Immediate Optimistic UI Kill (Zero Lag)
+      window._currentActiveJob = null;
+      const progressSection = document.getElementById("live-progress-section");
+      if (progressSection) progressSection.classList.add("hidden");
+      const activeCardContainer = document.getElementById("active-tasks-card-container");
+      if (activeCardContainer) activeCardContainer.style.display = "none";
+      const activeListEl = document.getElementById("active-jobs-list");
+      if (activeListEl) activeListEl.innerHTML = "";
+      if (window._jobCountdownInterval) {
+        clearInterval(window._jobCountdownInterval);
+        window._jobCountdownInterval = null;
+      }
+
+      // 2. Visual confirmation in Live Badge
+      const topbarStatus = document.getElementById("topbar-live-status");
+      if (topbarStatus) {
+        topbarStatus.innerHTML = `<span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 8px #ef4444;"></span><span>تم إيقاف الطوارئ 🛑</span>`;
+        topbarStatus.style.background = "rgba(239, 68, 68, 0.12)";
+        topbarStatus.style.color = "#ef4444";
+        topbarStatus.style.borderColor = "rgba(239, 68, 68, 0.35)";
+      }
+
       try {
         const data = await apiRequest("/user/stop-everything", {
           method: "POST"
         });
         if (data.status === "success") {
-          showToast(data.message || "تم إيقاف جميع العمليات بنجاح!", "success");
-          if (typeof triggerImmediatePoll === "function") triggerImmediatePoll();
-          scrollToProgress();
+          showToast(data.message || "🛑 تم تفعيل زر الطوارئ وإيقاف جميع العمليات بنجاح!", "success");
         } else {
           showToast(data.message || "فشل إيقاف العمليات.", "error");
         }
@@ -3267,6 +3292,11 @@ document.addEventListener("DOMContentLoaded", () => {
         showToast("حدث خطأ أثناء الاتصال بالخادم لإيقاف العمليات.", "error");
       } finally {
         setButtonLoading("btn-stop-everything-web", false);
+        await loadScheduledJobs();
+        await loadActiveAds();
+        await loadEventLogs();
+        updateCampaignProgressBar(null);
+        if (typeof triggerImmediatePoll === "function") triggerImmediatePoll();
       }
     });
   }
@@ -4011,12 +4041,36 @@ function handleLiveStreamEvent(payload) {
   if (!payload || !payload.type) return;
   const now = Date.now();
   
+  if (payload.status === "stopped" || payload.status === "emergency_stopped" || payload.action === "cleared") {
+    window._currentActiveJob = null;
+    const progressSection = document.getElementById("live-progress-section");
+    if (progressSection) progressSection.classList.add("hidden");
+    const activeListEl = document.getElementById("active-jobs-list");
+    if (activeListEl) activeListEl.innerHTML = "";
+    const activeCardContainer = document.getElementById("active-job-card");
+    if (activeCardContainer) activeCardContainer.style.display = "none";
+    if (window._jobCountdownInterval) {
+      clearInterval(window._jobCountdownInterval);
+      window._jobCountdownInterval = null;
+    }
+    updateCampaignProgressBar(null);
+    loadScheduledJobs();
+    loadActiveAds();
+    return;
+  }
+
+  if (payload.type === "progress_update") {
+    if (payload.active === false || payload.status === "stopped") {
+      updateCampaignProgressBar(null);
+    }
+    return;
+  }
+
   if (payload.type === "jobs_updated" || payload.type === "wave_status") {
     // Throttle duplicate events within 250ms
     if (now - _lastLiveEventTs > 250) {
       _lastLiveEventTs = now;
       loadScheduledJobs();
-      updateCampaignProgressBar();
     }
   } else if (payload.type === "ads_updated") {
     loadActiveAds();
@@ -4099,97 +4153,92 @@ function startGlobalLiveTicker() {
 // ==========================================
 // LIVE PROGRESS BAR LOGIC
 // ==========================================
-function updateCampaignProgressBar() {
+// ==========================================
+// LIVE PROGRESS BAR LOGIC (BEST PRACTICES)
+// ==========================================
+function updateCampaignProgressBar(job) {
   const progressSection = document.getElementById("live-progress-section");
   const progressText = document.getElementById("live-progress-text");
   const progressFill = document.getElementById("live-progress-fill");
   const nextHint = document.getElementById("live-next-channel-hint");
   const progressTitle = progressSection ? progressSection.querySelector("span[style*='color'] span:last-child") : null;
   
-  const activeList = document.getElementById("active-jobs-list");
-  const scheduledList = document.getElementById("scheduled-jobs-list");
-  if (!progressSection || (!activeList && !scheduledList)) return;
+  if (!progressSection) return;
   
-  const cards = [
-    ...(activeList ? activeList.querySelectorAll("div[style*='padding']") : []),
-    ...(scheduledList ? scheduledList.querySelectorAll("div[style*='padding']") : [])
-  ];
-  let activeTask = null;
+  const activeJob = (job !== undefined) ? job : (window._currentActiveJob || null);
   
-  cards.forEach(card => {
-    if (card.innerHTML.includes("🔄 جاري التنفيذ...") || card.innerHTML.includes("📌 إعلان حي") || card.innerHTML.includes("حملة مجلد") || card.innerHTML.includes("لوحة متابعة") || card.innerHTML.includes("التبادل التلقائي")) {
-      activeTask = card;
-    }
-  });
+  // Strict Kill-Switch Guard: If no active job or task is completed/failed/stopped, HIDE IMMEDIATELY!
+  if (!activeJob || activeJob.status === "completed" || activeJob.status === "failed" || activeJob.status === "cancelled" || activeJob.status === "stopped") {
+    progressSection.classList.add("hidden");
+    return;
+  }
+  
+  // Must be strictly processing or active
+  if (activeJob.status !== "processing" && activeJob.status !== "active") {
+    progressSection.classList.add("hidden");
+    return;
+  }
 
-  if (activeTask) {
-    progressSection.classList.remove("hidden");
-    
-    const typeSpan = activeTask.querySelector("span[style*='font-weight: 700']");
-    const typeText = typeSpan ? typeSpan.textContent.replace("🚀", "").trim() : "المهمة";
-    
-    const summaryDiv = activeTask.querySelector("div[style*='background']");
-    const summaryText = summaryDiv ? summaryDiv.textContent : "";
-    
-    let publishedCount = 0;
-    let totalCount = 100;
-    let pct = 0;
-    let titleStr = `جاري تنفيذ [${typeText}] حالياً...`;
-    let hintStr = "البوت يقوم بتنفيذ الإجراء وتحديث الإحصائيات لحظياً...";
-    
-    if (summaryText) {
-      // 1. Match bulk folder campaign progress: "تم إنجاز 2 من 11 هدف (قناة X) — 18%"
-      const matchBulk = summaryText.match(/(?:تم إنجاز|الهدف|أهداف)\s*`?(\d+)`?\s*من\s*`?(\d+)`?\s*(?:هدف|قناة)?(?:\s*\(([^)]+)\))?(?:.*?`?(\d+)%`?)?/);
-      if (matchBulk) {
-        publishedCount = parseInt(matchBulk[1]);
-        totalCount = parseInt(matchBulk[2]);
-        pct = matchBulk[4] ? parseInt(matchBulk[4]) : Math.round((publishedCount / totalCount) * 100);
-        const curTarget = matchBulk[3] ? ` (${matchBulk[3]})` : "";
-        titleStr = `جاري تنفيذ حملة المجلد المجمعة${curTarget}...`;
-        hintStr = `تم إنجاز ${publishedCount} من أصل ${totalCount} هدف. النشر والحذف التلقائي نشط.`;
+  progressSection.classList.remove("hidden");
+  
+  const typeText = (activeJob.type || "المهمة").replace("🚀", "").trim();
+  const summaryText = activeJob.result_summary || "";
+  
+  let publishedCount = 0;
+  let totalCount = 100;
+  let pct = 0;
+  let titleStr = `جاري تنفيذ [${typeText}] حالياً...`;
+  let hintStr = "البوت يقوم بتنفيذ الإجراء وتحديث الإحصائيات لحظياً...";
+  
+  if (summaryText) {
+    // 1. Match bulk folder campaign progress: "تم إنجاز 2 من 11 هدف (قناة X) — 18%"
+    const matchBulk = summaryText.match(/(?:تم إنجاز|الهدف|أهداف)\s*`?(\d+)`?\s*من\s*`?(\d+)`?\s*(?:هدف|قناة)?(?:\s*\(([^)]+)\))?(?:.*?`?(\d+)%`?)?/);
+    if (matchBulk) {
+      publishedCount = parseInt(matchBulk[1]);
+      totalCount = parseInt(matchBulk[2]);
+      pct = matchBulk[4] ? parseInt(matchBulk[4]) : Math.round((publishedCount / totalCount) * 100);
+      const curTarget = matchBulk[3] ? ` (${matchBulk[3]})` : "";
+      titleStr = `جاري تنفيذ حملة المجلد المجمعة${curTarget}...`;
+      hintStr = `تم إنجاز ${publishedCount} من أصل ${totalCount} هدف. النشر والحذف التلقائي نشط.`;
+    } else {
+      const matchOf = summaryText.match(/(?:النشر بنجاح في|تم النشر في|تم نشر|مكتملة|التقدم الحالي:)\s*`?(\d+)`?\s*من\s*`?(\d+)`?/);
+      if (matchOf) {
+        publishedCount = parseInt(matchOf[1]);
+        totalCount = parseInt(matchOf[2]);
+        pct = Math.round((publishedCount / totalCount) * 100);
+        titleStr = `جاري النشر التبادلي والتلقائي...`;
+        hintStr = `تم النشر بنجاح في ${publishedCount} من أصل ${totalCount} قناة مستهدفة.`;
       } else {
-        const matchOf = summaryText.match(/(?:النشر بنجاح في|تم النشر في|تم نشر|مكتملة|التقدم الحالي:)\s*`?(\d+)`?\s*من\s*`?(\d+)`?/);
-        if (matchOf) {
-          publishedCount = parseInt(matchOf[1]);
-          totalCount = parseInt(matchOf[2]);
-          pct = Math.round((publishedCount / totalCount) * 100);
-          titleStr = `جاري النشر التبادلي والتلقائي...`;
-          hintStr = `تم النشر بنجاح في ${publishedCount} من أصل ${totalCount} قناة مستهدفة.`;
+        const matchCrawl = summaryText.match(/تم فحص\s*`?(\d+)`?\s*قناة/);
+        if (matchCrawl) {
+          publishedCount = parseInt(matchCrawl[1]);
+          totalCount = 19; 
+          pct = Math.min(100, Math.round((publishedCount / totalCount) * 100));
+          titleStr = `جاري فحص وتحديث كاش القنوات والمجلدات...`;
+          hintStr = `تم فحص ومزامنة ${publishedCount} قنوات حتى الآن وتجديد المجموعات.`;
         } else {
-          const matchCrawl = summaryText.match(/تم فحص\s*`?(\d+)`?\s*قناة/);
-          if (matchCrawl) {
-            publishedCount = parseInt(matchCrawl[1]);
-            totalCount = 19; 
+          const matchDelete = summaryText.match(/تم حذف\s*`?(\d+)`?\s*(?:إعلان|رسالة)/);
+          if (matchDelete) {
+            publishedCount = parseInt(matchDelete[1]);
+            totalCount = 12;
             pct = Math.min(100, Math.round((publishedCount / totalCount) * 100));
-            titleStr = `جاري فحص وتحديث كاش القنوات والمجلدات...`;
-            hintStr = `تم فحص ومزامنة ${publishedCount} قنوات حتى الآن وتجديد المجموعات.`;
-          } else {
-            const matchDelete = summaryText.match(/تم حذف\s*`?(\d+)`?\s*(?:إعلان|رسالة)/);
-            if (matchDelete) {
-              publishedCount = parseInt(matchDelete[1]);
-              totalCount = 12;
-              pct = Math.min(100, Math.round((publishedCount / totalCount) * 100));
-              titleStr = `جاري إطلاق مكنسة التنظيف وإلغاء الحملات...`;
-              hintStr = `تم حذف وتطهير ${publishedCount} إعلانات نشطة من القنوات.`;
-            }
+            titleStr = `جاري إطلاق مكنسة التنظيف وإلغاء الحملات...`;
+            hintStr = `تم حذف وتطهير ${publishedCount} إعلانات نشطة من القنوات.`;
           }
         }
       }
     }
-    
-    if (progressTitle) {
-      progressTitle.textContent = titleStr;
-    }
-    
-    pct = Math.max(0, Math.min(100, pct));
-    
-    progressText.textContent = `${pct}% (${publishedCount}/${totalCount})`;
-    progressFill.style.width = `${pct}%`;
-    if (nextHint) {
-      nextHint.textContent = hintStr;
-    }
-  } else {
-    progressSection.classList.add("hidden");
+  }
+  
+  if (progressTitle) {
+    progressTitle.textContent = titleStr;
+  }
+  
+  pct = Math.max(0, Math.min(100, pct));
+  progressText.textContent = `${pct}% (${publishedCount}/${totalCount})`;
+  progressFill.style.width = `${pct}%`;
+  if (nextHint) {
+    nextHint.textContent = hintStr;
   }
 }
 

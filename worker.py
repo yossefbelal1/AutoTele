@@ -7584,6 +7584,13 @@ async def redis_pubsub_listener():
                             await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
                             await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "stopped", ex=86400)
                             await redis_client.delete(f"tenant:{tenant_id}:last_wave_time")
+                            await redis_client.delete(f"tenant:{tenant_id}:wave_end_time")
+                            await redis_client.delete(f"tenant:{tenant_id}:wave_task_id")
+                            await redis_client.delete(f"tenant:{tenant_id}:wave_duration_minutes")
+                            await redis_client.delete(f"tenant:{tenant_id}:bulk_next_target_time")
+                            await redis_client.delete(f"tenant:{tenant_id}:bulk_active_targets")
+                            await redis_client.delete(f"tenant:{tenant_id}:active_job_id")
+                            await redis_client.delete(f"tenant:{tenant_id}:live_progress")
                         except Exception as pe:
                             logger.error(f"Failed to set pause flags in Redis in cancel_jobs: {pe}")
 
@@ -7622,13 +7629,20 @@ async def redis_pubsub_listener():
                                     WebCampaignTask.telegram_account_id == tenant_id,
                                     WebCampaignTask.status.in_(["pending", "processing", "active"])
                                 )
-                                .values(status="failed", result_summary="🚨 تم إيقاف وإلغاء المهمة فوراً بناءً على طلب إيقاف كل شيء.")
+                                .values(status="failed", result_summary="🛑 تم إيقاف وإلغاء المهمة فوراً عبر زر الطوارئ الشامل (Kill Switch).")
                             )
                             await set_setting(session, tenant_id, "bot_system_state", "stopped")
                             await session.commit()
                         
                         # Log cancellation event for the tenant
-                        await log_tenant_event(tenant_id, "🚨 تم إيقاف وإلغاء جميع المهام والحملات التلقائية والويب فوراً بناءً على طلب من لوحة التحكم.")
+                        await log_tenant_event(tenant_id, "🛑 تم تفعيل زر الطوارئ الشامل (Kill Switch): إيقاف وإلغاء فوري لكافة المهام والحملات والعمليات النشطة.")
+                        try:
+                            from cache_manager import publish_tenant_live_event
+                            await publish_tenant_live_event(tenant_id, {"type": "jobs_updated", "status": "emergency_stopped"})
+                            await publish_tenant_live_event(tenant_id, {"type": "wave_status", "status": "emergency_stopped"})
+                            await publish_tenant_live_event(tenant_id, {"type": "progress_update", "status": "stopped", "percent": 0, "active": False})
+                        except Exception as e_pub:
+                            logger.error(f"Error publishing live stop event in cancel_jobs: {e_pub}")
                         
                 elif channel == "saas_user_notifications":
                     user_id = data.get("user_id")
