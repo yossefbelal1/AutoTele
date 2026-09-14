@@ -430,6 +430,11 @@ async def add_ad_record(session: AsyncSession, telegram_account_id: int, chat_id
         log_entry = PublishLog(telegram_account_id=telegram_account_id, chat_id=chat_id, msg_id=msg_id, target_chat_ids=targets, expires_at=expires_at, status="active", sticker_msg_id=sticker_msg_id)
         session.add(log_entry)
         await session.commit()
+        try:
+            from cache_manager import publish_tenant_live_event
+            await publish_tenant_live_event(telegram_account_id, {"type": "ads_updated", "action": "added", "chat_id": chat_id})
+        except Exception:
+            pass
         return True
     except Exception as e:
         await session.rollback(); logger.error(f"Error adding ad: {e}"); return False
@@ -446,6 +451,11 @@ async def remove_ad_record(session: AsyncSession, active_ad_id: int, telegram_ac
         await session.execute(update(PublishLog).where(PublishLog.telegram_account_id == telegram_account_id, PublishLog.chat_id == ad.chat_id, PublishLog.msg_id == ad.msg_id, PublishLog.status == "active").values(status="deleted"))
         await session.delete(ad)
         await session.commit()
+        try:
+            from cache_manager import publish_tenant_live_event
+            await publish_tenant_live_event(telegram_account_id, {"type": "ads_updated", "action": "removed", "ad_id": active_ad_id})
+        except Exception:
+            pass
         return True
     except Exception as e:
         await session.rollback(); return False

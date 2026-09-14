@@ -1830,12 +1830,17 @@ async def campaign_submit(req: CampaignSubmitReq, user_id: int = Depends(get_cur
         )
         session.add(new_task)
         await session.commit()
+        try:
+            from cache_manager import publish_tenant_live_event
+            await publish_tenant_live_event(tg_account.id, {"type": "jobs_updated", "task_id": new_task.id, "status": "pending"})
+        except Exception:
+            pass
         return {"status": "success", "message": "تم تقديم طلب الحملة بنجاح، جاري معالجتها سحابياً..."}
 
 
 async def log_tenant_event_api(tenant_id: int, text: str):
     try:
-        from cache_manager import redis_client, get_invite_link
+        from cache_manager import redis_client, get_invite_link, publish_tenant_live_event
         import datetime
         import json
         key = f"tenant:{tenant_id}:live_logs"
@@ -1847,8 +1852,10 @@ async def log_tenant_event_api(tenant_id: int, text: str):
         await redis_client.lpush(key, json.dumps(log_entry, ensure_ascii=False))
         await redis_client.ltrim(key, 0, 99)
         await redis_client.expire(key, 604800)
+        await publish_tenant_live_event(tenant_id, {"type": "new_log", "log": log_entry})
     except Exception as e:
         logger.error(f"Error in log_tenant_event_api: {e}")
+
 
 
 @app.post("/user/stop-everything")
@@ -1916,6 +1923,12 @@ async def stop_everything(user_id: int = Depends(get_current_user)):
         
         # Log event
         await log_tenant_event_api(tenant_id, "🚨 تم إرسال أمر إيقاف فوري وشامل لجميع العمليات والحملات النشطة والمجدولة من لوحة التحكم.")
+        try:
+            from cache_manager import publish_tenant_live_event
+            await publish_tenant_live_event(tenant_id, {"type": "jobs_updated", "status": "stopped"})
+            await publish_tenant_live_event(tenant_id, {"type": "wave_status", "status": "stopped"})
+        except Exception:
+            pass
             
         return {"status": "success", "message": "تم إيقاف كل شيء وإلغاء جميع الحملات والمهام الجارية بنجاح!"}
 
@@ -2229,6 +2242,23 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
                 is_still_running = any(p in display_summary for p in ["جاري الانتظار بين الأهداف", "جاري تشغيل النشر", "جاري النشر للهدف"]) and not any(dp in display_summary for dp in ["اكتملت", "اكتمل النشر", "تم إلغاء"])
                 if is_still_running:
                     effective_status = "processing"
+
+            bulk_next_target_time_str = None
+            remaining_bulk_seconds = 0
+            if task.campaign_type == "bulk":
+                try:
+                    raw_bulk = await redis_client.get(f"tenant:{tg_account.id}:bulk_next_target_time")
+                    if raw_bulk:
+                        bulk_str = raw_bulk.decode("utf-8") if isinstance(raw_bulk, bytes) else raw_bulk
+                        bulk_dt = datetime.fromisoformat(bulk_str)
+                        if bulk_dt.tzinfo is None:
+                            bulk_dt = bulk_dt.replace(tzinfo=timezone.utc)
+                        rem_bulk = int((bulk_dt - datetime.now(timezone.utc)).total_seconds())
+                        if rem_bulk > 0:
+                            bulk_next_target_time_str = bulk_dt.isoformat()
+                            remaining_bulk_seconds = rem_bulk
+                except Exception:
+                    pass
                 
             all_jobs.append({
                 "id": f"web_{task.id}",
@@ -2244,6 +2274,8 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
                 "duration_minutes": task_duration_mins,
                 "wave_expires_at": wave_expires_at_str,
                 "remaining_duration_seconds": remaining_duration_seconds,
+                "bulk_next_target_time": bulk_next_target_time_str,
+                "remaining_bulk_seconds": remaining_bulk_seconds,
                 "delay_start": task.delay_start,
                 "delay_between_channels": task.delay_between_channels,
                 "ad_lifespan": task.ad_lifespan or ad_lifespan_minutes,
@@ -2289,6 +2321,74 @@ async def get_user_active_ads(user_id: int = Depends(get_current_user)):
         return {"status": "success", "active_ads": ads}
 
 
+@app.get("/user/live-stream")
+async def user_live_stream(user_id: int = Depends(get_current_user)):
+    """
+    بث مباشر فائق السرعة عبر Server-Sent Events (SSE).
+    يستمع لأحداث المستأجر الحية عبر Redis Pub/Sub:
+    - نشر أو حذف الإعلانات (ads_updated)
+    - تحديث خطوات ومراحل المهام (jobs_updated)
+    - تسجيل الأحداث المباشرة (new_log)
+    - حالة التبادل والموجات (wave_status)
+    """
+    async with AsyncSessionLocal() as session:
+        tg_account = (await session.execute(
+            select(TelegramAccount).where(TelegramAccount.user_id == user_id, TelegramAccount.status == "active")
+        )).scalars().first()
+        if not tg_account:
+            raise HTTPException(status_code=400, detail="لا يوجد حساب تيليجرام نشط مرتبط.")
+        tenant_id = tg_account.id
+
+    channel = f"tenant:{tenant_id}:live_events"
+
+    async def event_generator():
+        pubsub = redis_client.pubsub()
+        await pubsub.subscribe(channel)
+        try:
+            # Welcome handshake event
+            init_event = _json.dumps({
+                "type": "connected",
+                "tenant_id": tenant_id,
+                "message": "Live Stream Connected ⚡"
+            }, ensure_ascii=False)
+            yield f"data: {init_event}\n\n"
+            
+            last_ping = time.time()
+            while True:
+                try:
+                    message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                    if message and message["type"] == "message":
+                        raw_data = message["data"]
+                        yield f"data: {raw_data}\n\n"
+                    
+                    # Heartbeat ping every 15s to keep proxy connections alive
+                    now = time.time()
+                    if now - last_ping >= 15.0:
+                        last_ping = now
+                        yield ": ping\n\n"
+                except Exception:
+                    pass
+                await asyncio.sleep(0.05)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            try:
+                await pubsub.unsubscribe(channel)
+                await pubsub.close()
+            except Exception:
+                pass
+
+    return StreamingResponse(
+        event_generator(),
+        headers={
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
 @app.delete("/user/scheduled-jobs/{task_id}")
 async def delete_single_scheduled_job(task_id: int, user_id: int = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
@@ -2314,6 +2414,12 @@ async def delete_single_scheduled_job(task_id: int, user_id: int = Depends(get_c
         task.result_summary = "🚨 تم إلغاء المهمة المجدولة بناءً على طلب من لوحة التحكم."
         await session.commit()
         
+        try:
+            from cache_manager import publish_tenant_live_event
+            await publish_tenant_live_event(tg_account.id, {"type": "jobs_updated", "task_id": task_id, "status": "failed"})
+        except Exception:
+            pass
+
         try:
             from cache_manager import redis_client, get_invite_link
             import json as _json
@@ -2365,6 +2471,12 @@ async def update_single_scheduled_job(task_id: int, req: UpdateScheduledJobReq, 
             
         await session.commit()
         
+        try:
+            from cache_manager import publish_tenant_live_event
+            await publish_tenant_live_event(tg_account.id, {"type": "jobs_updated", "task_id": task_id, "action": "updated"})
+        except Exception:
+            pass
+
         try:
             from cache_manager import redis_client, get_invite_link
             import json as _json
@@ -2429,6 +2541,12 @@ async def clear_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
         )
         await session.commit()
         
+        try:
+            from cache_manager import publish_tenant_live_event
+            await publish_tenant_live_event(tg_account.id, {"type": "jobs_updated", "action": "cleared"})
+        except Exception:
+            pass
+
         return {
             "status": "success", 
             "message": "تم مسح وإفراغ سجل المهام بالكامل بنجاح!"

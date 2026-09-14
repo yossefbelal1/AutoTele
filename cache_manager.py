@@ -193,3 +193,21 @@ async def is_rate_limited(telegram_account_id: int, max_requests: int = 5, windo
     """
     key = f"tenant:{telegram_account_id}:ratelimit"
     return await is_key_rate_limited(key, max_requests, window_seconds)
+
+
+async def publish_tenant_live_event(telegram_account_id: int, event_data: dict) -> bool:
+    """
+    بث حدث لحظي مباشر (Real-Time Live Event) للمستأجر عبر Redis Pub/Sub.
+    تستمع إليها قنوات الـ SSE (Server-Sent Events) لتحديث الواجهة فورياً في أقل من 1ms.
+    """
+    if not telegram_account_id:
+        return False
+    channel = f"tenant:{telegram_account_id}:live_events"
+    try:
+        payload = json.dumps(event_data, ensure_ascii=False)
+        await redis_client.publish(channel, payload)
+        return True
+    except Exception as e:
+        logger.debug(f"Failed to publish live event to {channel}: {e}")
+        return False
+

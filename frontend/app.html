@@ -519,6 +519,11 @@
           </div>
           
           <div class="topbar-right" style="display: flex; align-items: center; gap: 14px;">
+            <div id="topbar-live-status" class="live-status-pill" title="حالة البث المباشر والبيانات اللحظية" style="display: flex; align-items: center; gap: 6px; padding: 5px 12px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 20px; font-size: 12px; color: #60a5fa; font-weight: 600; cursor: default; transition: all 0.3s ease;">
+              <span id="topbar-live-dot" style="width: 7px; height: 7px; border-radius: 50%; background: #3b82f6; display: inline-block; box-shadow: 0 0 8px #3b82f6;"></span>
+              <span id="topbar-live-text">بث حي مباشر ⚡</span>
+            </div>
+
             <div id="topbar-engine-status" class="engine-status-pill" onclick="navigate('/app/health')" title="عرض تقرير صحة الحساب والمحرك السحابي" style="display: flex; align-items: center; gap: 6px; padding: 5px 12px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 20px; font-size: 12px; color: #10b981; font-weight: 600; cursor: pointer; transition: all 0.2s ease;">
               <span id="topbar-engine-dot" style="width: 7px; height: 7px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
               <span id="topbar-engine-text">المحرك السحابي</span>

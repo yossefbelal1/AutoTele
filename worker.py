@@ -579,7 +579,7 @@ async def save_scheduled_jobs(tenant_id: int):
 
 async def log_tenant_event(tenant_id: int, text: str):
     try:
-        from cache_manager import redis_client
+        from cache_manager import redis_client, publish_tenant_live_event
         import datetime
         import json
         key = f"tenant:{tenant_id}:live_logs"
@@ -591,6 +591,7 @@ async def log_tenant_event(tenant_id: int, text: str):
         await redis_client.lpush(key, json.dumps(log_entry, ensure_ascii=False))
         await redis_client.ltrim(key, 0, 99)
         await redis_client.expire(key, 604800) # 7 days
+        await publish_tenant_live_event(tenant_id, {"type": "new_log", "log": log_entry})
     except Exception as e:
         logger.error(f"Error logging tenant event: {e}")
 
@@ -621,6 +622,7 @@ async def clear_active_campaign_state(tenant_id: int):
         from cache_manager import redis_client
         key = f"tenant:{tenant_id}:active_campaign_state"
         await redis_client.delete(key)
+        await redis_client.delete(f"tenant:{tenant_id}:bulk_next_target_time")
     except Exception as e:
         logger.error(f"Error clearing active campaign state for tenant {tenant_id}: {e}")
 
@@ -722,12 +724,14 @@ async def update_task_progress_in_db(
     text: str, 
     completed_count: Optional[int] = None, 
     target_count: Optional[int] = None, 
-    status: Optional[str] = None
+    status: Optional[str] = None,
+    tenant_id: Optional[int] = None
 ):
     try:
         async with AsyncSessionLocal() as session:
             from db_manager import WebCampaignTask
-            from sqlalchemy import update
+            from sqlalchemy import update, select
+            from cache_manager import publish_tenant_live_event
             vals = {"result_summary": text}
             if completed_count is not None:
                 vals["completed_count"] = completed_count
@@ -741,6 +745,20 @@ async def update_task_progress_in_db(
                 .values(**vals)
             )
             await session.commit()
+            
+            # Broadcast live event instantly
+            t_id = tenant_id
+            if not t_id:
+                t_id = (await session.execute(
+                    select(WebCampaignTask.telegram_account_id).where(WebCampaignTask.id == task_id)
+                )).scalar_one_or_none()
+            if t_id:
+                await publish_tenant_live_event(t_id, {
+                    "type": "jobs_updated",
+                    "task_id": task_id,
+                    "status": status,
+                    "summary": text
+                })
     except Exception as e:
         logger.error(f"Failed to update task progress in DB for task {task_id}: {e}")
 
@@ -2660,7 +2678,8 @@ async def run_bulk_campaign_logic(
                         report,
                         completed_count=done_targets,
                         target_count=total_targets,
-                        status="completed" if target_posting_status == "completed" else "processing"
+                        status="completed" if target_posting_status == "completed" else "processing",
+                        tenant_id=tenant_id
                     )
                 return
                 
@@ -2706,7 +2725,8 @@ async def run_bulk_campaign_logic(
                     report,
                     completed_count=done_targets,
                     target_count=total_targets,
-                    status="completed" if target_posting_status == "completed" else "processing"
+                    status="completed" if target_posting_status == "completed" else "processing",
+                    tenant_id=tenant_id
                 )
 
         status_msg_chat_id = status_msg.chat.id if status_msg else None
@@ -2991,12 +3011,20 @@ async def run_bulk_campaign_logic(
                 
                 next_target_start_dt = datetime.now(timezone.utc) + timedelta(minutes=delay_between_channels)
                 next_target_starts[index] = next_target_start_dt
+                try:
+                    await redis_client.set(f"tenant:{tenant_id}:bulk_next_target_time", next_target_start_dt.isoformat())
+                except Exception:
+                    pass
                 while datetime.now(timezone.utc) < next_target_start_dt:
                     if web_task_id:
                         async with AsyncSessionLocal() as chk_sess:
                             chk_status = (await chk_sess.execute(select(WebCampaignTask.status).where(WebCampaignTask.id == web_task_id))).scalar_one_or_none()
                             if chk_status in ("failed", "cancelled"):
                                 logger.info(f"Tenant {tenant_id}: Bulk campaign task {web_task_id} cancelled during sleep (status={chk_status})")
+                                try:
+                                    await redis_client.delete(f"tenant:{tenant_id}:bulk_next_target_time")
+                                except Exception:
+                                    pass
                                 await clear_active_campaign_state(tenant_id)
                                 return
                     await update_status_message(index, "sleeping", next_target_start_dt=next_target_start_dt)
@@ -3005,16 +3033,28 @@ async def run_bulk_campaign_logic(
                         break
                     step = min(15.0, max(1.0, remaining))
                     await asyncio.sleep(step)
+                try:
+                    await redis_client.delete(f"tenant:{tenant_id}:bulk_next_target_time")
+                except Exception:
+                    pass
 
         if ad_lifespan > 0 and count > 0:
             last_idx = total_targets - 1
             final_delete_dt = target_actual_deletes.get(last_idx, datetime.now(timezone.utc) + timedelta(minutes=ad_lifespan))
             await log_tenant_event(tenant_id, f"اكتمل نشر جميع الأهداف. جاري انتظار مسح إعلانات الهدف الأخير ({ad_lifespan} دقيقة)...")
+            try:
+                await redis_client.set(f"tenant:{tenant_id}:bulk_next_target_time", final_delete_dt.isoformat())
+            except Exception:
+                pass
             while datetime.now(timezone.utc) < final_delete_dt:
                 if web_task_id:
                     async with AsyncSessionLocal() as chk_sess:
                         chk_status = (await chk_sess.execute(select(WebCampaignTask.status).where(WebCampaignTask.id == web_task_id))).scalar_one_or_none()
                         if chk_status in ("failed", "cancelled"):
+                            try:
+                                await redis_client.delete(f"tenant:{tenant_id}:bulk_next_target_time")
+                            except Exception:
+                                pass
                             await clear_active_campaign_state(tenant_id)
                             return
                 await update_status_message(last_idx, "waiting_final_clean", next_target_start_dt=final_delete_dt)
@@ -3023,6 +3063,10 @@ async def run_bulk_campaign_logic(
                     break
                 step = min(15.0, max(1.0, remaining))
                 await asyncio.sleep(step)
+            try:
+                await redis_client.delete(f"tenant:{tenant_id}:bulk_next_target_time")
+            except Exception:
+                pass
 
             # Final safety sweep for any remaining expired bulk ads for this tenant
             try:

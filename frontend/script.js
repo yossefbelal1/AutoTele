@@ -153,6 +153,10 @@ async function apiRequest(endpoint, options = {}) {
 // 3. ROUTER / VIEW CONTROLLER
 // ==========================================
 function showAuthScreen() {
+  if (userLiveEventSource) {
+    try { userLiveEventSource.close(); } catch(e) {}
+    userLiveEventSource = null;
+  }
   document.getElementById("dashboard-view").classList.add("hidden");
   document.getElementById("signup-view").classList.add("hidden");
   document.getElementById("auth-view").classList.remove("hidden");
@@ -226,6 +230,9 @@ function showDashboardScreen() {
   // Load scheduled jobs and event logs immediately
   loadScheduledJobs();
   loadEventLogs();
+  loadActiveAds();
+  initUserLiveStream();
+  startGlobalLiveTicker();
 }
 
 // ==========================================
@@ -2601,6 +2608,11 @@ function formatTelegramText(text) {
   html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
   // Replace single asterisks with italic tags
   html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  // Dynamic countdown tag injection for remaining time lines
+  html = html.replace(/(⏱️\s*<strong>الوقت المتبقي(?: للهدف التالي| لمسح الإعلانات الأخيرة)?:<\/strong>\s*)`(\d+):(\d+)`/g, (match, prefix, mins, secs) => {
+    const totalSec = parseInt(mins, 10) * 60 + parseInt(secs, 10);
+    return `${prefix}<code class="live-summary-countdown" data-remain="${totalSec}" style="background: rgba(245, 158, 11, 0.2); padding: 3px 8px; border-radius: 6px; font-family: monospace; font-size: 13px; font-weight: 700; color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4);">${mins}:${secs}</code>`;
+  });
   // Replace code ticks
   html = html.replace(/`(.*?)`/g, '<code style="background: rgba(255,255,255,0.15); padding: 2px 4px; border-radius: 4px; font-family: monospace; font-size: 11.5px; color: #f43f5e;">$1</code>');
   return html;
@@ -2684,8 +2696,9 @@ async function loadScheduledJobs() {
             const remSeconds = remSec % 60;
             const timeDisplay = remHours > 0 ? `${remHours}س و ${remMins}د` : `${remMins}د و ${remSeconds}ث`;
             const cardId = `wave-duration-timer-${job.task_id}`;
+            const waveExpMs = new Date(job.wave_expires_at).getTime();
             waveDurationBanner = `
-              <div id="${cardId}" style="margin-top: 8px; padding: 10px 14px; background: rgba(14, 165, 233, 0.1); border: 1px solid rgba(14, 165, 233, 0.35); border-radius: 8px; color: #38bdf8; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; direction: rtl;">
+              <div id="${cardId}" data-expires-ms="${waveExpMs}" style="margin-top: 8px; padding: 10px 14px; background: rgba(14, 165, 233, 0.1); border: 1px solid rgba(14, 165, 233, 0.35); border-radius: 8px; color: #38bdf8; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; direction: rtl;">
                 <span style="display: flex; align-items: center; gap: 8px;">
                   <span>⏱️ المدة الإجمالية المتبقية للحملة:</span>
                   <b id="${cardId}-txt" style="color: #fff; font-size: 14px; font-family: monospace; background: rgba(0,0,0,0.3); padding: 2px 8px; border-radius: 6px;">${timeDisplay}</b>
@@ -2728,6 +2741,29 @@ async function loadScheduledJobs() {
             </div>
           ` : '';
           progressHtml = waveDurationBanner + liveAdsNotice + summaryBox;
+        } else if (job.campaign_type === "bulk" && (job.status === "processing" || job.status === "active")) {
+          let bulkTimerBanner = "";
+          if (job.bulk_next_target_time && job.remaining_bulk_seconds > 0) {
+            const remSec = job.remaining_bulk_seconds;
+            const remMins = Math.floor(remSec / 60);
+            const remSeconds = remSec % 60;
+            const cardId = `bulk-next-target-${job.task_id}`;
+            const targetMs = new Date(job.bulk_next_target_time).getTime();
+            bulkTimerBanner = `
+              <div id="${cardId}" class="live-bulk-target-banner" data-target-ms="${targetMs}" style="margin-top: 8px; padding: 12px 14px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.35); border-radius: 10px; color: #60a5fa; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; direction: rtl;">
+                <span style="display: flex; align-items: center; gap: 8px;">
+                  <span class="pulse-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #3b82f6; display: inline-block;"></span>
+                  <span>⏱️ الوقت المتبقي لانطلاق الهدف التالي:</span>
+                  <b id="${cardId}-txt" style="color: #fff; font-size: 15px; font-family: monospace; background: rgba(0,0,0,0.3); padding: 2px 8px; border-radius: 6px;">${remMins}:${String(remSeconds).padStart(2, '0')}</b>
+                </span>
+                <span style="font-size: 11px; color: #94a3b8; font-weight: normal;">(الفاصل بين الأهداف: ${job.delay_between_channels || 60} دقيقة)</span>
+              </div>
+            `;
+          }
+          const summaryBox = job.result_summary ? `
+            <div id="job-summary-${job.task_id}" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.05); padding: 12px; border-radius: 8px; margin-top: 8px; color: #e2e8f0; font-family: system-ui, -apple-system, sans-serif; font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; direction: rtl; text-align: right;">${formatTelegramText(job.result_summary)}</div>
+          ` : '';
+          progressHtml = bulkTimerBanner + summaryBox;
         } else if (job.status === "active" && job.expires_at) {
           const expiresMs   = new Date(job.expires_at).getTime();
           const lifespanMs  = (job.ad_lifespan || 15) * 60 * 1000;
@@ -3643,6 +3679,8 @@ document.addEventListener("DOMContentLoaded", () => {
     loadScheduledJobs();
     loadEventLogs();
     loadActiveAds();
+    initUserLiveStream();
+    startGlobalLiveTicker();
   }
 
   // Dynamic live polling
@@ -3673,16 +3711,21 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     
     // Check if there are active tasks on screen to decide polling frequency
-    const jobsList = document.getElementById("scheduled-jobs-list");
-    const hasActiveJobs = jobsList && (
-      jobsList.innerHTML.includes("🔄 جاري التنفيذ...") || 
-      jobsList.innerHTML.includes("⏳ مجدول") ||
-      jobsList.innerHTML.includes("processing") ||
-      jobsList.innerHTML.includes("pending") ||
-      jobsList.innerHTML.includes("active")
+    const activeList = document.getElementById("active-jobs-list");
+    const scheduledList = document.getElementById("scheduled-jobs-list");
+    const combinedHtml = (activeList ? activeList.innerHTML : "") + (scheduledList ? scheduledList.innerHTML : "");
+    const hasActiveJobs = (
+      combinedHtml.includes("🔄 جاري التنفيذ...") || 
+      combinedHtml.includes("⏳ مجدول") ||
+      combinedHtml.includes("processing") ||
+      combinedHtml.includes("pending") ||
+      combinedHtml.includes("active") ||
+      combinedHtml.includes("جاري الانتظار") ||
+      combinedHtml.includes("لوحة متابعة")
     );
     
-    const delay = hasActiveJobs ? 2000 : 5000;
+    // When SSE is connected, polling is a passive safety check (10s), otherwise active 2s fallback
+    const delay = userLiveStreamConnected ? (hasActiveJobs ? 8000 : 15000) : (hasActiveJobs ? 2000 : 5000);
     
     pollingTimer = setTimeout(async () => {
       try {
@@ -3877,6 +3920,183 @@ function scrollToProgress() {
 }
 
 // ==========================================
+// REAL-TIME SSE (SERVER-SENT EVENTS) ENGINE
+// ==========================================
+let userLiveEventSource = null;
+let userLiveStreamConnected = false;
+let userLiveReconnectTimer = null;
+
+function initUserLiveStream() {
+  const token = localStorage.getItem("access_token");
+  if (!token) return;
+  
+  if (userLiveEventSource) {
+    try {
+      userLiveEventSource.close();
+    } catch (e) {}
+    userLiveEventSource = null;
+  }
+  
+  if (userLiveReconnectTimer) {
+    clearTimeout(userLiveReconnectTimer);
+    userLiveReconnectTimer = null;
+  }
+  
+  try {
+    const sseUrl = `/user/live-stream?token=${encodeURIComponent(token)}`;
+    userLiveEventSource = new EventSource(sseUrl);
+    
+    userLiveEventSource.onopen = () => {
+      userLiveStreamConnected = true;
+      updateLiveStreamBadge(true);
+    };
+    
+    userLiveEventSource.onmessage = (event) => {
+      if (!event.data) return;
+      try {
+        const payload = JSON.parse(event.data);
+        handleLiveStreamEvent(payload);
+      } catch (err) {
+        console.debug("SSE JSON parse error:", err);
+      }
+    };
+    
+    userLiveEventSource.onerror = () => {
+      userLiveStreamConnected = false;
+      updateLiveStreamBadge(false);
+      try {
+        if (userLiveEventSource) userLiveEventSource.close();
+      } catch (e) {}
+      userLiveEventSource = null;
+      
+      // Reconnect with 4s delay if user still authenticated
+      if (localStorage.getItem("access_token")) {
+        userLiveReconnectTimer = setTimeout(initUserLiveStream, 4000);
+      }
+    };
+  } catch (err) {
+    console.error("Failed to establish SSE Live Stream:", err);
+  }
+}
+
+function updateLiveStreamBadge(connected) {
+  const dot = document.getElementById("topbar-live-dot");
+  const text = document.getElementById("topbar-live-text");
+  const pill = document.getElementById("topbar-live-status");
+  if (!dot || !text) return;
+  
+  if (connected) {
+    dot.style.background = "#3b82f6";
+    dot.style.boxShadow = "0 0 8px #3b82f6";
+    text.textContent = "بث حي مباشر ⚡";
+    if (pill) {
+      pill.style.borderColor = "rgba(59, 130, 246, 0.35)";
+      pill.style.color = "#60a5fa";
+      pill.title = "البث المباشر نشط: يتم تحديث البيانات فورياً بالملي ثانية";
+    }
+  } else {
+    dot.style.background = "#f59e0b";
+    dot.style.boxShadow = "0 0 6px #f59e0b";
+    text.textContent = "مزامنة احتياطية 🔄";
+    if (pill) {
+      pill.style.borderColor = "rgba(245, 158, 11, 0.3)";
+      pill.style.color = "#fbbf24";
+      pill.title = "جاري استعادة الاتصال بالبث المباشر (وضع التحديث الاحتياطي نشط)";
+    }
+  }
+}
+
+let _lastLiveEventTs = 0;
+function handleLiveStreamEvent(payload) {
+  if (!payload || !payload.type) return;
+  const now = Date.now();
+  
+  if (payload.type === "jobs_updated" || payload.type === "wave_status") {
+    // Throttle duplicate events within 250ms
+    if (now - _lastLiveEventTs > 250) {
+      _lastLiveEventTs = now;
+      loadScheduledJobs();
+      updateCampaignProgressBar();
+    }
+  } else if (payload.type === "ads_updated") {
+    loadActiveAds();
+    loadScheduledJobs();
+  } else if (payload.type === "new_log") {
+    loadEventLogs();
+  }
+}
+
+// ==========================================
+// 1-SECOND GLOBAL LIVE TICKER ENGINE
+// ==========================================
+function startGlobalLiveTicker() {
+  if (window._globalLiveTickerRunning) return;
+  window._globalLiveTickerRunning = true;
+  
+  setInterval(() => {
+    // 1. Tick active ads
+    try {
+      tickActiveAdsCountdowns();
+    } catch (e) {}
+
+    // 2. Tick bulk next-target banners
+    document.querySelectorAll(".live-bulk-target-banner").forEach(banner => {
+      const targetMs = parseInt(banner.getAttribute("data-target-ms"), 10);
+      if (!targetMs) return;
+      const now = Date.now();
+      const remainSec = Math.max(0, Math.floor((targetMs - now) / 1000));
+      const remMins = Math.floor(remainSec / 60);
+      const remSecs = remainSec % 60;
+      const txtEl = banner.querySelector("b[id$='-txt']");
+      if (txtEl) {
+        if (remainSec > 0) {
+          txtEl.textContent = `${remMins}:${String(remSecs).padStart(2, '0')}`;
+        } else {
+          txtEl.textContent = "⚡ جاري إطلاق الهدف التالي...";
+        }
+      }
+      if (remainSec === 0 && !banner.getAttribute("data-expired")) {
+        banner.setAttribute("data-expired", "1");
+        setTimeout(loadScheduledJobs, 1500);
+      }
+    });
+
+    // 3. Tick checklist remaining time in summary (.live-summary-countdown)
+    document.querySelectorAll(".live-summary-countdown").forEach(el => {
+      let remain = parseInt(el.getAttribute("data-remain"), 10);
+      if (isNaN(remain)) return;
+      if (remain > 0) {
+        remain -= 1;
+        el.setAttribute("data-remain", remain);
+        const m = Math.floor(remain / 60);
+        const s = remain % 60;
+        el.textContent = `${m}:${String(s).padStart(2, '0')}`;
+      } else if (remain === 0) {
+        el.textContent = "⚡ جاري الانتقال...";
+        el.setAttribute("data-remain", -1);
+        setTimeout(loadScheduledJobs, 2000);
+      }
+    });
+
+    // 4. Tick wave duration timers
+    document.querySelectorAll("div[id^='wave-duration-timer-']").forEach(container => {
+      const txtEl = container.querySelector("b[id$='-txt']");
+      if (!txtEl || !container.hasAttribute("data-expires-ms")) return;
+      const expMs = parseInt(container.getAttribute("data-expires-ms"), 10);
+      const remainSec = Math.max(0, Math.floor((expMs - Date.now()) / 1000));
+      const h = Math.floor(remainSec / 3600);
+      const m = Math.floor((remainSec % 3600) / 60);
+      const s = remainSec % 60;
+      if (remainSec > 0) {
+        txtEl.textContent = h > 0 ? `${h}س و ${m}د و ${s}ث` : `${m}د و ${s}ث`;
+      } else {
+        txtEl.textContent = "انتهت الحملة 🏁";
+      }
+    });
+  }, 1000);
+}
+
+// ==========================================
 // LIVE PROGRESS BAR LOGIC
 // ==========================================
 function updateCampaignProgressBar() {
@@ -3886,10 +4106,14 @@ function updateCampaignProgressBar() {
   const nextHint = document.getElementById("live-next-channel-hint");
   const progressTitle = progressSection ? progressSection.querySelector("span[style*='color'] span:last-child") : null;
   
-  const jobsList = document.getElementById("scheduled-jobs-list");
-  if (!jobsList || !progressSection) return;
+  const activeList = document.getElementById("active-jobs-list");
+  const scheduledList = document.getElementById("scheduled-jobs-list");
+  if (!progressSection || (!activeList && !scheduledList)) return;
   
-  const cards = jobsList.querySelectorAll("div[style*='padding']");
+  const cards = [
+    ...(activeList ? activeList.querySelectorAll("div[style*='padding']") : []),
+    ...(scheduledList ? scheduledList.querySelectorAll("div[style*='padding']") : [])
+  ];
   let activeTask = null;
   
   cards.forEach(card => {
