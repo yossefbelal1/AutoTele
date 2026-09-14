@@ -3780,8 +3780,8 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 numbers.append(int(clean_p))
         
         delay_start = 0
-        delay_between_channels = 15  # default 15 minutes
-        ad_lifespan = 10  # default 10 minutes
+        delay_between_channels = 60  # default 60 minutes (الموصى به)
+        ad_lifespan = 15  # default 15 minutes
         
         if len(numbers) >= 3:
             delay_start = numbers[0]
@@ -3874,8 +3874,8 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                     folder_num = int(match.group(1))
 
         delay_start = 0
-        delay_between_channels = 15
-        ad_lifespan = 10
+        delay_between_channels = 60  # default 60 minutes (الموصى به)
+        ad_lifespan = 15  # default 15 minutes
 
         if len(numbers) >= 4:
             folder_num = numbers[0]
