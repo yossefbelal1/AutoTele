@@ -206,14 +206,14 @@ class TestWaveFolderAndAutoUpdate:
         assert enqueued_task.campaign_type not in ["wave", "wave_folder", "single", "bulk"]
 
     @pytest.mark.asyncio
-    async def test_bulk_campaign_isolates_host_channels_to_campaign_folder(self):
-        """Verify that run_bulk_campaign_logic strictly posts into folder channels when available, never outside channels."""
+    async def test_bulk_campaign_posts_across_all_tenant_channels(self):
+        """Verify that run_bulk_campaign_logic (.حملات) promotes each folder target channel across ALL tenant channels."""
         from worker import run_bulk_campaign_logic
         tenant_id = 99995
         mock_client = AsyncMock()
         mock_status = AsyncMock()
 
-        # Folder contains Ch 101 and Ch 102
+        # Folder contains Target Ch 101 and Ch 102
         folder_ids = [-100101, -100102]
         # Account has Ch 101, Ch 102, and outside Ch 201, Ch 202
         channels_all = [
@@ -269,17 +269,16 @@ class TestWaveFolderAndAutoUpdate:
             await run_bulk_campaign_logic(
                 tenant_id=tenant_id,
                 client=mock_client,
-                ad_text_custom="Folder Isolated Ad",
+                ad_text_custom="Bulk Ad Across All Channels",
                 delay_between_channels=0,
                 ad_lifespan=0,
                 status_msg=mock_status
             )
 
-        # Ads should ONLY have been posted into folder channels (-100101, -100102)
+        # Ads should be posted across ALL tenant channels (including outside channels -100201, -100202)
         assert len(posted_chats) > 0
-        for chat_id in posted_chats:
-            assert chat_id in [-100101, -100102], f"Host channel {chat_id} leaked outside campaign folder!"
-            assert chat_id not in [-100201, -100202], f"Ad posted into outside channel {chat_id}!"
+        assert -100201 in posted_chats, "Bulk campaign must post into tenant outside channel -100201!"
+        assert -100202 in posted_chats, "Bulk campaign must post into tenant outside channel -100202!"
 
     @pytest.mark.asyncio
     async def test_bulk_campaign_skips_user_ids(self):

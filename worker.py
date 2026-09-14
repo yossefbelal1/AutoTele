@@ -2806,16 +2806,10 @@ async def run_bulk_campaign_logic(
                 no_post_ids = json.loads(raw_no_post) if raw_no_post else []
                 exclude_ids = set(blacklist) | set(banned_ids) | set(no_post_ids) | {target_id}
                 
-                # STRICT FOLDER ISOLATION:
-                # If the user's campaign folder contains valid host channels (channels where the bot can post),
-                # strictly restrict ad publishing to the channels of the campaign folder!
-                # Otherwise (e.g. if targets are purely external channels), fall back to account promoter channels.
-                folder_channel_ids = set(campaign_ids)
-                folder_host_channels = [ch for ch in channels if ch["id"] in folder_channel_ids and ch["id"] not in exclude_ids and ch.get("can_send", True)]
-                if len(folder_host_channels) >= 1:
-                    eligible_ch = folder_host_channels
-                else:
-                    eligible_ch = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True)]
+                # In bulk campaign (.حملات), each target channel from the campaign folder is promoted
+                # across ALL the tenant's channels where posting rights exist (can_send=True),
+                # excluding the target channel itself and any blacklisted/banned/no_post channels.
+                eligible_ch = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True)]
                 
                 import random
                 random.shuffle(eligible_ch)
