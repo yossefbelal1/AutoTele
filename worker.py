@@ -8106,6 +8106,15 @@ async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaig
 
         await save_channels_cache(tenant_id, list(cached_map.values()))
         logger.info(f"Refreshed {len(target_ids)} channels (scope={scope}) for tenant {tenant_id} successfully.")
+        try:
+            from cache_manager import publish_tenant_live_event
+            await publish_tenant_live_event(tenant_id, {
+                "type": "analytics_updated",
+                "scope": scope,
+                "message": "تم تحديث كافة إحصائيات القنوات ومعدلات النمو بنجاح ⚡"
+            })
+        except Exception as pe:
+            logger.error(f"Error publishing analytics_updated live event: {pe}")
         return True
     except Exception as e:
         logger.error(f"Error in refresh_tenant_campaign_channels for tenant {tenant_id}: {e}")

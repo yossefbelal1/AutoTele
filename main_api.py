@@ -1539,14 +1539,17 @@ async def get_campaign_channels_analytics(
                     link_joins_today = max(0, total_link_joins - link_baseline)
 
                 # 3.3 Genuine today's joins:
-                # New members can join via links or directly (via public username, forwards, search).
-                # Take the maximum of verified link joins and net member growth so no new members are missed.
+                # Verified link joins strictly from Telegram MTProto link tracking and daily baseline.
+                # Must NEVER use net_member_gain which suffers from organic channel drift on large channels.
                 worker_today_joins = int(ch.get("today_link_joins") or 0)
                 verified_link_today = max(link_joins_today, worker_today_joins)
 
-                joined_today = max(net_member_gain, verified_link_today)
-                if current_members > 0:
-                    joined_today = min(current_members, joined_today)
+                # Strict mathematical integrity: today's link joins cannot exceed total all-time link joins!
+                joined_today = max(0, verified_link_today)
+                if total_link_joins > 0:
+                    joined_today = min(total_link_joins, joined_today)
+                else:
+                    joined_today = 0
             except Exception as be:
                 logger.error(f"Error calculating joined_today baseline for channel {ch_id}: {be}")
                 joined_today = 0

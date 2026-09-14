@@ -4075,6 +4075,13 @@ function handleLiveStreamEvent(payload) {
   } else if (payload.type === "ads_updated") {
     loadActiveAds();
     loadScheduledJobs();
+  } else if (payload.type === "analytics_updated") {
+    if (typeof loadCampaignChannelsAnalytics === "function") {
+      loadCampaignChannelsAnalytics(false, payload.scope || null);
+    }
+    if (typeof showToast === "function" && payload.message) {
+      showToast(payload.message, "success");
+    }
   } else if (payload.type === "new_log") {
     loadEventLogs();
   }

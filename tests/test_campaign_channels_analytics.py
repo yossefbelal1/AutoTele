@@ -32,6 +32,8 @@ class TestCampaignChannelsAnalytics:
                 "title": "قناة العروض الخاصة",
                 "username": "special_offers",
                 "members_count": 5000,
+                "total_joins": 20,
+                "today_link_joins": 20,
                 "can_send": True,
                 "is_broadcast": True
             },
@@ -40,6 +42,8 @@ class TestCampaignChannelsAnalytics:
                 "title": "قناة التسويق المباشر",
                 "username": "direct_marketing",
                 "members_count": 1250,
+                "total_joins": 0,
+                "today_link_joins": 0,
                 "can_send": True,
                 "is_broadcast": True
             },
@@ -48,6 +52,8 @@ class TestCampaignChannelsAnalytics:
                 "title": "قناة شخصية خارج المجلد",
                 "username": "personal_out",
                 "members_count": 300,
+                "total_joins": 0,
+                "today_link_joins": 0,
                 "can_send": False,
                 "is_broadcast": True
             }
@@ -57,6 +63,7 @@ class TestCampaignChannelsAnalytics:
         redis_data = {
             "tenant:10:campaign": campaign_folder_ids,
             f"tenant:10:chan_baseline:-100111:{today_str}": "4980",
+            f"tenant:10:link_baseline:-100111:{today_str}": "0",
         }
 
         async def mock_redis_get(key):
@@ -120,6 +127,8 @@ class TestCampaignChannelsAnalytics:
                 "title": "قناة العروض الخاصة",
                 "username": "special_offers",
                 "members_count": 5000,
+                "total_joins": 20,
+                "today_link_joins": 20,
                 "can_send": True,
                 "is_broadcast": True
             },
@@ -128,6 +137,8 @@ class TestCampaignChannelsAnalytics:
                 "title": "قناة التسويق المباشر",
                 "username": "direct_marketing",
                 "members_count": 1250,
+                "total_joins": 0,
+                "today_link_joins": 0,
                 "can_send": True,
                 "is_broadcast": True
             },
@@ -136,6 +147,8 @@ class TestCampaignChannelsAnalytics:
                 "title": "قناة عامة خارج المجلد",
                 "username": "general_out",
                 "members_count": 300,
+                "total_joins": 5,
+                "today_link_joins": 5,
                 "can_send": False,
                 "is_broadcast": True
             }
@@ -145,7 +158,9 @@ class TestCampaignChannelsAnalytics:
         redis_data = {
             "tenant:10:campaign": campaign_folder_ids,
             f"tenant:10:chan_baseline:-100111:{today_str}": "4980",
+            f"tenant:10:link_baseline:-100111:{today_str}": "0",
             f"tenant:10:chan_baseline:-100333:{today_str}": "295",
+            f"tenant:10:link_baseline:-100333:{today_str}": "0",
         }
 
         async def mock_redis_get(key):
@@ -361,7 +376,9 @@ class TestCampaignChannelsAnalytics:
         redis_data = {
             "tenant:11:campaign": campaign_folder_ids,
             f"tenant:11:chan_baseline:-1003554147110:{today_str}": "292",
+            f"tenant:11:link_baseline:-1003554147110:{today_str}": "267",
             f"tenant:11:chan_baseline:-1002058504282:{today_str}": "3495",
+            f"tenant:11:link_baseline:-1002058504282:{today_str}": "104",
         }
 
         async def mock_redis_get(key):
@@ -585,13 +602,13 @@ class TestCampaignChannelsAnalytics:
 
         redis_data = {
             "tenant:11:campaign": campaign_folder_ids,
-            # Biella Trade had baseline 3516 (gained 7)
+            # Biella Trade had baseline 3516 (gained 7) and 7 link joins today
             f"tenant:11:chan_baseline:-1002058504282:{today_str}": "3516",
-            f"tenant:11:link_baseline:-1002058504282:{today_str}": "116",
+            f"tenant:11:link_baseline:-1002058504282:{today_str}": "109",
 
-            # Arab ICT had NO baseline today yet, but had yesterday baseline 6740 (gained 4)
+            # Arab ICT had NO baseline today yet, but had yesterday baseline 6740 (gained 4) and 4 link joins today
             f"tenant:11:chan_baseline:-1001222348201:{yesterday_str}": "6740",
-            f"tenant:11:link_baseline:-1001222348201:{yesterday_str}": "74",
+            f"tenant:11:link_baseline:-1001222348201:{yesterday_str}": "70",
 
             # Doctor Gold had baseline 897 (gained 1 member + 1 link join)
             f"tenant:11:chan_baseline:-1003999757764:{today_str}": "897",
