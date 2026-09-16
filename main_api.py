@@ -1446,9 +1446,9 @@ async def get_campaign_channels_analytics(
                 except Exception:
                     pass
 
-        # 3. Get all cached channels for this tenant
         cached_channels = await get_channels_cache(acc_id)
-        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        local_tz = timezone(timedelta(hours=3))
+        today_str = datetime.now(local_tz).strftime("%Y-%m-%d")
 
         # Check early exit if campaign folder specifically requested but has no channels
         if effective_scope == "campaign" and not campaign_ids:
@@ -1519,7 +1519,7 @@ async def get_campaign_channels_analytics(
             # 3. Calculate joined_today strictly from daily baselines (only today's new members)
             baseline_key = f"tenant:{acc_id}:chan_baseline:{ch_id}:{today_str}"
             link_baseline_key = f"tenant:{acc_id}:link_baseline:{ch_id}:{today_str}"
-            yesterday_str = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+            yesterday_str = (datetime.now(local_tz) - timedelta(days=1)).strftime("%Y-%m-%d")
             joined_today = 0
             link_joins_today = 0
             net_member_gain = 0
@@ -1541,6 +1541,7 @@ async def get_campaign_channels_analytics(
                     net_member_gain = max(0, current_members - baseline)
 
                 # 3.2 Calculate Link Joins today (delta since start of today)
+                worker_today_joins = int(ch.get("today_link_joins") or 0)
                 raw_link_baseline = await redis_client.get(link_baseline_key)
                 if raw_link_baseline is None:
                     yesterday_link_baseline = await redis_client.get(f"tenant:{acc_id}:link_baseline:{ch_id}:{yesterday_str}")
@@ -1549,8 +1550,13 @@ async def get_campaign_channels_analytics(
                         await redis_client.set(link_baseline_key, str(link_baseline), ex=86400 * 7)
                         link_joins_today = max(0, total_link_joins - link_baseline)
                     else:
-                        await redis_client.set(link_baseline_key, str(total_link_joins), ex=86400 * 7)
-                        link_joins_today = 0
+                        if worker_today_joins > 0:
+                            link_baseline = max(0, total_link_joins - worker_today_joins)
+                            await redis_client.set(link_baseline_key, str(link_baseline), ex=86400 * 7)
+                            link_joins_today = worker_today_joins
+                        else:
+                            await redis_client.set(link_baseline_key, str(total_link_joins), ex=86400 * 7)
+                            link_joins_today = 0
                 else:
                     link_baseline = int(raw_link_baseline)
                     if total_link_joins < link_baseline:
@@ -1979,7 +1985,7 @@ async def campaign_submit(req: CampaignSubmitReq, user_id: int = Depends(get_cur
             telegram_account_id=tg_account.id,
             campaign_type=req.campaign_type,
             delay_start=req.delay_start,
-            delay_between_channels=req.delay_between_channels,
+            delay_between_channels=0 if req.campaign_type in ["single", "timed_post"] else (req.delay_between_channels or 0),
             ad_lifespan=req.ad_lifespan,
             duration_minutes=req.duration_minutes or 0,
             target_link=req.target_link,

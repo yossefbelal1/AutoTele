@@ -855,16 +855,19 @@ async def update_task_progress_in_db(
     except Exception as e:
         logger.error(f"Failed to update task progress in DB for task {task_id}: {e}")
 
-async def safe_edit_message(message: Optional[Message], text: str):
+async def safe_edit_message(message: Optional[Message], text: str) -> bool:
     if not message:
-        return
+        return False
+    success = False
     try:
         await asyncio.wait_for(message.edit_text(text, disable_web_page_preview=True), timeout=8.0)
+        success = True
     except FloodWait as fw:
         if fw.value <= 10:
             await asyncio.sleep(fw.value)
             try:
                 await asyncio.wait_for(message.edit_text(text, disable_web_page_preview=True), timeout=8.0)
+                success = True
             except Exception:
                 pass
         else:
@@ -873,6 +876,7 @@ async def safe_edit_message(message: Optional[Message], text: str):
         # Fallback without markdown parsing if entity syntax is malformed
         try:
             await asyncio.wait_for(message.edit_text(text, parse_mode=None, disable_web_page_preview=True), timeout=8.0)
+            success = True
         except Exception:
             pass
 
@@ -886,6 +890,7 @@ async def safe_edit_message(message: Optional[Message], text: str):
                 asyncio.create_task(update_task_progress_in_db(task_id, text))
     except Exception as e:
         logger.error(f"Error syncing progress in safe_edit_message: {e}")
+    return success
 
 def create_safe_task(coro):
     async def _safe():
@@ -2261,38 +2266,80 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
             return
         
         count = 0
-        if delay_between_channels == 0:
-            # Parallel staggered publishing
-            await log_tenant_event(tenant_id, f"بدء النشر الفوري المتوازي لـ {total} قناة...")
-            
-            async def publish_to_channel(ch, ch_idx=0):
-                nonlocal count
-                cid = ch["id"]
-                try:
-                    ch_title = ch.get("title") or target_title
-                    promoted_title = target_title if target_title else ch_title
-                    ch_members = ch.get("members_count") or ch.get("participants_count") or 0
-                    is_rotate_mode = (not ad_text_custom) or (ad_text_custom.strip() in ["__ROTATE__", "__ROTATE_ALL__"]) or ad_text_custom.strip().startswith("[تدوير")
-                    if is_rotate_mode:
-                        async with AsyncSessionLocal() as db_session:
-                            ad_text = await get_formatted_ad_message(
-                                db_session, tenant_id, promoted_title, target_link,
-                                members_count=ch_members, template_index=ch_idx
-                            )
-                    else:
-                        ad_text = format_user_template(ad_text_custom, promoted_title, target_link, members_count=ch_members)
-                        
-                    # Proxy checking before request
+        last_status_edit_time = 0.0
+        status_edit_lock = asyncio.Lock()
+
+        async def update_campaign_status():
+            nonlocal last_status_edit_time
+            if not status_msg:
+                return
+            now = asyncio.get_event_loop().time()
+            async with status_edit_lock:
+                if (now - last_status_edit_time) < 4.0 and count < total:
+                    return
+                last_status_edit_time = now
+            await safe_edit_message(
+                status_msg,
+                f"⏳ **جاري النشر الموازي للحملة الفردية:**\n"
+                f"• إجمالي قنوات الحساب: `{total_account_channels}` قناة.\n"
+                f"• قنوات مستبعدة (حظر/استثناء/أهداف): `{excluded_channels_count}` قناة.\n"
+                f"• قنوات النشر المتاحة: `{total}` قناة.\n"
+                f"• تم النشر بنجاح في `{count}` من `{total}` قناة.\n"
+                f"• القنوات المستهدفة:\n{target_link}\n"
+                f"• مدة الاعلان: `{ad_lifespan}` دقيقة."
+            )
+
+        # Single campaigns ALWAYS use parallel staggered publishing for fast, reliable delivery across all channels.
+        # This prevents accidental 1-hour sleeps between channels from web form defaults.
+        await log_tenant_event(tenant_id, f"بدء النشر الفوري المتوازي لـ {total} قناة...")
+        
+        async def publish_to_channel(ch, ch_idx=0):
+            nonlocal count
+            cid = ch["id"]
+            try:
+                ch_title = ch.get("title") or target_title
+                promoted_title = target_title if target_title else ch_title
+                ch_members = ch.get("members_count") or ch.get("participants_count") or 0
+                is_rotate_mode = (not ad_text_custom) or (ad_text_custom.strip() in ["__ROTATE__", "__ROTATE_ALL__"]) or ad_text_custom.strip().startswith("[تدوير")
+                if is_rotate_mode:
                     async with AsyncSessionLocal() as db_session:
-                        acc = (await db_session.execute(
-                            select(TelegramAccount).where(TelegramAccount.id == tenant_id)
-                        )).scalar_one_or_none()
-                    # Pre-publish safety cleanup
-                    async with AsyncSessionLocal() as clean_session:
-                        await delete_active_ads_in_channel(clean_session, client, tenant_id, cid)
+                        ad_text = await get_formatted_ad_message(
+                            db_session, tenant_id, promoted_title, target_link,
+                            members_count=ch_members, template_index=ch_idx
+                        )
+                else:
+                    ad_text = format_user_template(ad_text_custom, promoted_title, target_link, members_count=ch_members)
+                    
+                # Proxy checking before request
+                async with AsyncSessionLocal() as db_session:
+                    acc = (await db_session.execute(
+                        select(TelegramAccount).where(TelegramAccount.id == tenant_id)
+                    )).scalar_one_or_none()
+                # Pre-publish safety cleanup
+                async with AsyncSessionLocal() as clean_session:
+                    await delete_active_ads_in_channel(clean_session, client, tenant_id, cid)
+                    
+                sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
                         
-                    sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
-                            
+                msg = await safe_send_ad_message(client, cid, ad_text)
+                async with AsyncSessionLocal() as db_session:
+                    await add_ad_record(
+                        db_session,
+                        telegram_account_id=tenant_id,
+                        chat_id=cid,
+                        msg_id=msg.id,
+                        expires_at=datetime.now(timezone.utc) + timedelta(minutes=ad_lifespan),
+                        campaign_type="campaign",
+                        target_chat_ids=target_chat_ids_list if target_chat_ids_list else [cid],
+                        sticker_msg_id=sticker_msg_id
+                    )
+                count += 1
+                await log_tenant_event(tenant_id, f"تم نشر إعلان الحملة الفردية بنجاح في قناة: {ch.get('title')}")
+                await update_campaign_status()
+            except FloodWait as fw:
+                logger.warning(f"FloodWait hit during concurrent campaign: waiting {fw.value}s")
+                await asyncio.sleep(fw.value + 1)
+                try:
                     msg = await safe_send_ad_message(client, cid, ad_text)
                     async with AsyncSessionLocal() as db_session:
                         await add_ad_record(
@@ -2306,240 +2353,54 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                             sticker_msg_id=sticker_msg_id
                         )
                     count += 1
-                    await log_tenant_event(tenant_id, f"تم نشر إعلان الحملة الفردية بنجاح في قناة: {ch.get('title')}")
-                    if status_msg:
-                        await safe_edit_message(
-                            status_msg,
-                            f"⏳ **جاري النشر الموازي للحملة الفردية:**\n"
-                            f"• إجمالي قنوات الحساب: `{total_account_channels}` قناة.\n"
-                            f"• قنوات مستبعدة (حظر/استثناء/أهداف): `{excluded_channels_count}` قناة.\n"
-                            f"• قنوات النشر المتاحة: `{total}` قناة.\n"
-                            f"• تم النشر بنجاح في `{count}` من `{total}` قناة.\n"
-                            f"• القنوات المستهدفة:\n{target_link}\n"
-                            f"• مدة الاعلان: `{ad_lifespan}` دقيقة."
-                        )
-                except FloodWait as fw:
-                    logger.warning(f"FloodWait hit during concurrent campaign: waiting {fw.value}s")
-                    await asyncio.sleep(fw.value + 1)
-                    try:
-                        msg = await safe_send_ad_message(client, cid, ad_text)
-                        async with AsyncSessionLocal() as db_session:
-                            await add_ad_record(
-                                db_session,
-                                telegram_account_id=tenant_id,
-                                chat_id=cid,
-                                msg_id=msg.id,
-                                expires_at=datetime.now(timezone.utc) + timedelta(minutes=ad_lifespan),
-                                campaign_type="campaign",
-                                target_chat_ids=target_chat_ids_list if target_chat_ids_list else [cid],
-                                sticker_msg_id=sticker_msg_id
-                            )
-                        count += 1
-                    except Exception as e:
-                        await log_tenant_event(tenant_id, f"❌ فشل النشر في قناة [{ch.get('title')}] بعد فك القيود: {e}")
-                        await handle_posting_error_and_clean_cache(tenant_id, cid, e)
-                except SlowmodeWait as sw:
-                    logger.warning(f"SlowmodeWait hit during concurrent campaign: waiting {sw.value}s")
-                    await log_tenant_event(tenant_id, f"⏳ وضع البطء نشط في [{ch.get('title')}]. جاري الانتظار `{sw.value}` ثانية لإعادة المحاولة...")
-                    await asyncio.sleep(sw.value + 1)
-                    try:
-                        sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
-                        msg = await safe_send_ad_message(client, cid, ad_text)
-                        async with AsyncSessionLocal() as db_session:
-                            await add_ad_record(
-                                db_session,
-                                telegram_account_id=tenant_id,
-                                chat_id=cid,
-                                msg_id=msg.id,
-                                expires_at=datetime.now(timezone.utc) + timedelta(minutes=ad_lifespan),
-                                campaign_type="campaign",
-                                target_chat_ids=target_chat_ids_list if target_chat_ids_list else [cid],
-                                sticker_msg_id=sticker_msg_id
-                            )
-                        count += 1
-                        await log_tenant_event(tenant_id, f"تم نشر إعلان الحملة الفردية بنجاح في قناة: {ch.get('title')} (بعد فك وضع البطء)")
-                        if status_msg:
-                            await safe_edit_message(
-                                status_msg,
-                                f"⏳ **جاري النشر الموازي للحملة الفردية:**\n"
-                                f"• إجمالي قنوات الحساب: `{total_account_channels}` قناة.\n"
-                                f"• قنوات مستبعدة (حظر/استثناء/أهداف): `{excluded_channels_count}` قناة.\n"
-                                f"• قنوات النشر المتاحة: `{total}` قناة.\n"
-                                f"• تم النشر بنجاح في `{count}` من `{total}` قناة.\n"
-                                f"• القنوات المستهدفة:\n{target_link}\n"
-                                f"• مدة الاعلان: `{ad_lifespan}` دقيقة."
-                            )
-                    except Exception as e:
-                        await log_tenant_event(tenant_id, f"❌ فشل النشر في قناة [{ch.get('title')}] في وضع البطء: {e}")
-                        await handle_posting_error_and_clean_cache(tenant_id, cid, e)
+                    await update_campaign_status()
                 except Exception as e:
-                    logger.error(f"Failed to post campaign concurrently to {ch.get('title')}: {e}")
-                    await log_tenant_event(tenant_id, f"❌ فشل النشر في قناة [{ch.get('title')}]: {e}")
+                    await log_tenant_event(tenant_id, f"❌ فشل النشر في قناة [{ch.get('title')}] بعد فك القيود: {e}")
                     await handle_posting_error_and_clean_cache(tenant_id, cid, e)
-
-            tasks = []
-            for idx, ch in enumerate(eligible_channels):
-                async def staggered_publish(c, delay, c_idx):
-                    await asyncio.sleep(delay)
-                    await publish_to_channel(c, ch_idx=c_idx)
-                # Enforce safe staggered delay dynamically based on Premium status
-                client = running_clients.get(tenant_id)
-                is_premium = False
-                if client and getattr(client, "me", None):
-                    is_premium = getattr(client.me, "is_premium", False)
-                step = random.uniform(2.0, 3.5) if is_premium else random.uniform(4.5, 6.0)
-                safe_delay = idx * step
-                tasks.append(staggered_publish(ch, safe_delay, idx))
-                
-            await asyncio.gather(*tasks)
-            
-        else:
-            # Sequential publishing (existing logic)
-            for idx, ch in enumerate(eligible_channels):
-                cid = ch["id"]
+            except SlowmodeWait as sw:
+                logger.warning(f"SlowmodeWait hit during concurrent campaign: waiting {sw.value}s")
+                await log_tenant_event(tenant_id, f"⏳ وضع البطء نشط في [{ch.get('title')}]. جاري الانتظار `{sw.value}` ثانية لإعادة المحاولة...")
+                await asyncio.sleep(sw.value + 1)
                 try:
-                    ch_title = ch.get("title") or target_title
-                    promoted_title = target_title if target_title else ch_title
-                    ch_members = ch.get("members_count") or ch.get("participants_count") or 0
-                    is_rotate_mode = (not ad_text_custom) or (ad_text_custom.strip() in ["__ROTATE__", "__ROTATE_ALL__"]) or ad_text_custom.strip().startswith("[تدوير")
-                    if is_rotate_mode:
-                        async with AsyncSessionLocal() as db_session:
-                            ad_text = await get_formatted_ad_message(
-                                db_session, tenant_id, promoted_title, target_link,
-                                members_count=ch_members, template_index=idx
-                            )
-                    else:
-                        ad_text = format_user_template(ad_text_custom, promoted_title, target_link, members_count=ch_members)
-                        
-                    # Proxy checking before request
+                    sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
+                    msg = await safe_send_ad_message(client, cid, ad_text)
                     async with AsyncSessionLocal() as db_session:
-                        acc = (await db_session.execute(
-                            select(TelegramAccount).where(TelegramAccount.id == tenant_id)
-                        )).scalar_one_or_none()
-                    # No dynamic proxy modifications on the shared client instance
-                        
-                    sticker_msg_id = None
-                    if tenant_id not in tenant_semaphores:
-                        tenant_semaphores[tenant_id] = asyncio.Semaphore(1)
-                    async with tenant_semaphores[tenant_id]:
-                        # Pre-publish safety cleanup
-                        async with AsyncSessionLocal() as clean_session:
-                            await delete_active_ads_in_channel(clean_session, client, tenant_id, cid)
-                            
-                        sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
-                                
-                        msg = await safe_send_ad_message(client, cid, ad_text)
-                        async with AsyncSessionLocal() as db_session:
-                            await add_ad_record(
-                                db_session,
-                                telegram_account_id=tenant_id,
-                                chat_id=cid,
-                                msg_id=msg.id,
-                                expires_at=datetime.now(timezone.utc) + timedelta(minutes=ad_lifespan),
-                                campaign_type="campaign",
-                                target_chat_ids=[target_chat_id] if target_chat_id else [cid],
-                                sticker_msg_id=sticker_msg_id
-                            )
-                    count += 1
-                    await log_tenant_event(tenant_id, f"تم نشر إعلان الحملة الفردية بنجاح في قناة: {ch.get('title')}")
-                    decrease_or_reset_tenant_backoff(tenant_id)
-                    if status_msg:
-                        await safe_edit_message(
-                            status_msg,
-                            f"⏳ **جاري نشر الحملة الفردية لايف:**\n"
-                            f"• إجمالي قنوات الحساب: `{total_account_channels}` قناة.\n"
-                            f"• قنوات مستبعدة (حظر/استثناء/أهداف): `{excluded_channels_count}` قناة.\n"
-                            f"• قنوات النشر المتاحة: `{total}` قناة.\n"
-                            f"• تم النشر بنجاح في `{count}` من `{total}` قناة.\n"
-                            f"• القنوات المستهدفة:\n{target_link}\n"
-                            f"• مدة الاعلان: `{ad_lifespan}` دقيقة."
+                        await add_ad_record(
+                            db_session,
+                            telegram_account_id=tenant_id,
+                            chat_id=cid,
+                            msg_id=msg.id,
+                            expires_at=datetime.now(timezone.utc) + timedelta(minutes=ad_lifespan),
+                            campaign_type="campaign",
+                            target_chat_ids=target_chat_ids_list if target_chat_ids_list else [cid],
+                            sticker_msg_id=sticker_msg_id
                         )
-                    
-                    sleep_time = delay_between_channels * 60 if delay_between_channels > 0 else get_adaptive_delay(tenant_id)
-                    await asyncio.sleep(sleep_time)
-                except FloodWait as fw:
-                    logger.warning(f"FloodWait hit during campaign: waiting {fw.value}s")
-                    increase_tenant_backoff(tenant_id)
-                    await asyncio.sleep(fw.value + 2)
-                    try:
-                        if tenant_id not in tenant_semaphores:
-                            tenant_semaphores[tenant_id] = asyncio.Semaphore(1)
-                        async with tenant_semaphores[tenant_id]:
-                            sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
-                            msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
-                            async with AsyncSessionLocal() as db_session:
-                                await add_ad_record(
-                                    db_session,
-                                    telegram_account_id=tenant_id,
-                                    chat_id=cid,
-                                    msg_id=msg.id,
-                                    expires_at=datetime.now(timezone.utc) + timedelta(minutes=ad_lifespan),
-                                    campaign_type="campaign",
-                                    target_chat_ids=target_chat_ids_list if target_chat_ids_list else [cid],
-                                    sticker_msg_id=sticker_msg_id
-                                )
-                        count += 1
-                        await log_tenant_event(tenant_id, f"تم نشر إعلان الحملة الفردية بنجاح في قناة: {ch.get('title')} (بعد فك القيود)")
-                        decrease_or_reset_tenant_backoff(tenant_id)
-                    except Exception as e:
-                        await log_tenant_event(tenant_id, f"❌ فشل النشر في قناة [{ch.get('title')}] بعد فك القيود: {e}")
-                        await handle_posting_error_and_clean_cache(tenant_id, cid, e)
-                    sleep_time = delay_between_channels * 60 if delay_between_channels > 0 else max(get_safe_min_delay(tenant_id), get_adaptive_delay(tenant_id))
-                    await asyncio.sleep(sleep_time)
-                except SlowmodeWait as sw:
-                    logger.warning(f"SlowmodeWait hit during campaign: waiting {sw.value}s")
-                    await log_tenant_event(tenant_id, f"⏳ وضع البطء نشط في [{ch.get('title')}]. جاري الانتظار `{sw.value}` ثانية لإعادة المحاولة...")
-                    await asyncio.sleep(sw.value + 1)
-                    try:
-                        if tenant_id not in tenant_semaphores:
-                            tenant_semaphores[tenant_id] = asyncio.Semaphore(1)
-                        async with tenant_semaphores[tenant_id]:
-                            sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
-                            msg = await client.send_message(chat_id=cid, text=ad_text, disable_web_page_preview=True, parse_mode=ParseMode.HTML)
-                            async with AsyncSessionLocal() as db_session:
-                                await add_ad_record(
-                                    db_session,
-                                    telegram_account_id=tenant_id,
-                                    chat_id=cid,
-                                    msg_id=msg.id,
-                                    expires_at=datetime.now(timezone.utc) + timedelta(minutes=ad_lifespan),
-                                    campaign_type="campaign",
-                                    target_chat_ids=[target_chat_id] if target_chat_id else [cid],
-                                    sticker_msg_id=sticker_msg_id
-                                )
-                        count += 1
-                        await log_tenant_event(tenant_id, f"تم نشر إعلان الحملة الفردية بنجاح في قناة: {ch.get('title')} (بعد فك وضع البطء)")
-                        decrease_or_reset_tenant_backoff(tenant_id)
-                        if status_msg:
-                            await safe_edit_message(
-                                status_msg,
-                                f"⏳ **جاري نشر الحملة الفردية لايف:**\n"
-                                f"• إجمالي قنوات الحساب: `{total_account_channels}` قناة.\n"
-                                f"• قنوات مستبعدة (حظر/استثناء/أهداف): `{excluded_channels_count}` قناة.\n"
-                                f"• قنوات النشر المتاحة: `{total}` قناة.\n"
-                                f"• تم النشر بنجاح في `{count}` من `{total}` قناة.\n"
-                                f"• القنوات المستهدفة:\n{target_link}\n"
-                                f"• مدة الاعلان: `{ad_lifespan}` دقيقة."
-                            )
-                    except Exception as err:
-                        await log_tenant_event(tenant_id, f"❌ فشل النشر في قناة [{ch.get('title')}] بعد فك وضع البطء: {err}")
-                        await handle_posting_error_and_clean_cache(tenant_id, cid, err)
-                    sleep_time = delay_between_channels * 60 if delay_between_channels > 0 else max(get_safe_min_delay(tenant_id), get_adaptive_delay(tenant_id))
-                    await asyncio.sleep(sleep_time)
-                except RPCError as rpc:
-                    logger.error(f"RPCError posting campaign to {ch.get('title')}: {rpc}")
-                    increase_tenant_backoff(tenant_id)
-                    await log_tenant_event(tenant_id, f"❌ فشل النشر في قناة [{ch.get('title')}]: {rpc}")
-                    await handle_posting_error_and_clean_cache(tenant_id, cid, rpc)
-                    sleep_time = delay_between_channels * 60 if delay_between_channels > 0 else max(get_safe_min_delay(tenant_id), get_adaptive_delay(tenant_id))
-                    await asyncio.sleep(sleep_time)
+                    count += 1
+                    await log_tenant_event(tenant_id, f"تم نشر إعلان الحملة الفردية بنجاح في قناة: {ch.get('title')} (بعد فك وضع البطء)")
+                    await update_campaign_status()
                 except Exception as e:
-                    logger.error(f"Failed to post campaign to {ch.get('title')}: {e}")
-                    await log_tenant_event(tenant_id, f"❌ فشل النشر في قناة [{ch.get('title')}]: {e}")
+                    await log_tenant_event(tenant_id, f"❌ فشل النشر في قناة [{ch.get('title')}] في وضع البطء: {e}")
                     await handle_posting_error_and_clean_cache(tenant_id, cid, e)
-                    sleep_time = delay_between_channels * 60 if delay_between_channels > 0 else max(get_safe_min_delay(tenant_id), get_adaptive_delay(tenant_id))
-                    await asyncio.sleep(sleep_time)
-                
+            except Exception as e:
+                logger.error(f"Failed to post campaign concurrently to {ch.get('title')}: {e}")
+                await log_tenant_event(tenant_id, f"❌ فشل النشر في قناة [{ch.get('title')}]: {e}")
+                await handle_posting_error_and_clean_cache(tenant_id, cid, e)
+
+        tasks = []
+        for idx, ch in enumerate(eligible_channels):
+            async def staggered_publish(c, delay, c_idx):
+                await asyncio.sleep(delay)
+                await publish_to_channel(c, ch_idx=c_idx)
+            client = running_clients.get(tenant_id)
+            is_premium = False
+            if client and getattr(client, "me", None):
+                is_premium = getattr(client.me, "is_premium", False)
+            step = random.uniform(2.0, 3.5) if is_premium else random.uniform(4.5, 6.0)
+            safe_delay = idx * step
+            tasks.append(staggered_publish(ch, safe_delay, idx))
+            
+        await asyncio.gather(*tasks)
+
         if status_msg:
             if ad_lifespan > 0:
                 report = (
@@ -2555,9 +2416,14 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                     f"• القناة المستهدفة: {target_link} ({target_title})"
                 )
             try:
-                await safe_edit_message(status_msg, report)
-            except Exception:
-                pass
+                edited = await safe_edit_message(status_msg, report)
+                if not edited:
+                    # Fallback: if edit failed or was skipped (e.g. Telegram FloodWait cooldown),
+                    # ALWAYS deliver completion report as a fresh new message!
+                    chat_id = status_msg.chat.id if status_msg.chat else "me"
+                    await client.send_message(chat_id, report, disable_web_page_preview=True)
+            except Exception as fe:
+                logger.error(f"Error delivering final campaign completion report: {fe}")
         if count == 0:
             raise Exception("تعذر النشر في أي قناة بنجاح.")
         await log_tenant_event(tenant_id, f"تم نشر الحملة الفردية! تم النشر في {count} من {total} قناة.")
@@ -8176,7 +8042,7 @@ async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaig
 
                 full_participants = getattr(full_chat, "participants_count", None)
 
-                today_start_dt = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                today_start_dt = datetime.now(timezone(timedelta(hours=3))).replace(hour=0, minute=0, second=0, microsecond=0)
                 today_start_ts = today_start_dt.timestamp()
                 today_link_joins = 0
 
@@ -8219,7 +8085,7 @@ async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaig
                         imp_res = await client.invoke(
                             functions.messages.GetChatInviteImporters(
                                 peer=peer,
-                                offset_date=None,
+                                offset_date=0,
                                 offset_user=types.InputUserEmpty(),
                                 limit=50,
                                 link=lnk

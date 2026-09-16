@@ -2370,7 +2370,8 @@ async function handleWebCampaignSubmit(e) {
 
   const campaignType = document.getElementById("web-campaign-type").value;
   const delayStart = parseInt(document.getElementById("web-delay-start").value) || 0;
-  const delayBetween = parseInt(document.getElementById("web-delay-between").value) || 0;
+  const rawDelayBetween = parseInt(document.getElementById("web-delay-between").value) || 0;
+  const delayBetween = (campaignType === "single" || campaignType === "timed_post") ? 0 : rawDelayBetween;
   const adLifespan = parseInt(document.getElementById("web-ad-lifespan").value) || 0;
   const durationInput = document.getElementById("web-campaign-duration");
   const durationMinutes = (durationInput && (campaignType === "wave" || campaignType === "wave_folder")) 
@@ -3623,7 +3624,11 @@ document.addEventListener("DOMContentLoaded", () => {
         if (groupBulkExtra) groupBulkExtra.style.display = "none";
         if (groupPinChannels) groupPinChannels.style.display = "none";
         groupCustomText.style.display = "block";
-        if (groupDelayBetween) groupDelayBetween.style.display = "none";
+        if (groupDelayBetween) {
+          groupDelayBetween.style.display = "none";
+          const delayBetweenInput = document.getElementById("web-delay-between");
+          if (delayBetweenInput) delayBetweenInput.value = "0";
+        }
         if (groupAdLifespan) groupAdLifespan.style.display = "block";
         if (groupDelayStart) groupDelayStart.style.display = "block";
         // Auto-fetch channels for the picker
