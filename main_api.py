@@ -1516,26 +1516,19 @@ async def get_campaign_channels_analytics(
             total_link_joins = int(ch.get("total_joins") or (primary_joins + custom_joins))
             links_count = int(ch.get("links_count") or (1 if total_link_joins > 0 or ch.get("invite_link") else 0))
 
-            # 3. Calculate joined_today strictly from daily baselines (only today's new members)
+            # 3. Calculate joined_today strictly from daily baselines (resets at midnight Cairo time)
             baseline_key = f"tenant:{acc_id}:chan_baseline:{ch_id}:{today_str}"
             link_baseline_key = f"tenant:{acc_id}:link_baseline:{ch_id}:{today_str}"
-            yesterday_str = (datetime.now(local_tz) - timedelta(days=1)).strftime("%Y-%m-%d")
             joined_today = 0
             link_joins_today = 0
             net_member_gain = 0
             try:
-                # 3.1 Calculate Net Member Gain today
+                # 3.1 Calculate Net Member Gain today (resets to 0 daily at midnight Cairo time)
                 raw_baseline = await redis_client.get(baseline_key)
                 if raw_baseline is None:
-                    # Carry forward yesterday's closing baseline if available
-                    yesterday_baseline = await redis_client.get(f"tenant:{acc_id}:chan_baseline:{ch_id}:{yesterday_str}")
-                    if yesterday_baseline is not None:
-                        baseline = int(yesterday_baseline)
-                        await redis_client.set(baseline_key, str(baseline), ex=86400 * 7)
-                        net_member_gain = max(0, current_members - baseline)
-                    else:
-                        await redis_client.set(baseline_key, str(current_members), ex=86400 * 7)
-                        net_member_gain = 0
+                    await redis_client.set(baseline_key, str(current_members), ex=86400 * 7)
+                    baseline = current_members
+                    net_member_gain = 0
                 else:
                     baseline = int(raw_baseline)
                     net_member_gain = max(0, current_members - baseline)
@@ -1544,19 +1537,10 @@ async def get_campaign_channels_analytics(
                 worker_today_joins = int(ch.get("today_link_joins") or 0)
                 raw_link_baseline = await redis_client.get(link_baseline_key)
                 if raw_link_baseline is None:
-                    yesterday_link_baseline = await redis_client.get(f"tenant:{acc_id}:link_baseline:{ch_id}:{yesterday_str}")
-                    if yesterday_link_baseline is not None:
-                        link_baseline = int(yesterday_link_baseline)
-                        await redis_client.set(link_baseline_key, str(link_baseline), ex=86400 * 7)
-                        link_joins_today = max(0, total_link_joins - link_baseline)
-                    else:
-                        if worker_today_joins > 0:
-                            link_baseline = max(0, total_link_joins - worker_today_joins)
-                            await redis_client.set(link_baseline_key, str(link_baseline), ex=86400 * 7)
-                            link_joins_today = worker_today_joins
-                        else:
-                            await redis_client.set(link_baseline_key, str(total_link_joins), ex=86400 * 7)
-                            link_joins_today = 0
+                    # Midnight baseline = (Current Total Joins) - (Verified Joins since midnight)
+                    link_baseline = max(0, total_link_joins - worker_today_joins)
+                    await redis_client.set(link_baseline_key, str(link_baseline), ex=86400 * 7)
+                    link_joins_today = worker_today_joins
                 else:
                     link_baseline = int(raw_link_baseline)
                     if total_link_joins < link_baseline:
@@ -1565,10 +1549,17 @@ async def get_campaign_channels_analytics(
                         await redis_client.set(link_baseline_key, str(total_link_joins), ex=86400 * 7)
                     link_joins_today = max(0, total_link_joins - link_baseline)
 
+                # If worker discovered verified today's joins from Telegram MTProto that are higher, adjust baseline
+                if worker_today_joins > link_joins_today:
+                    adjusted_baseline = max(0, total_link_joins - worker_today_joins)
+                    if adjusted_baseline < link_baseline:
+                        link_baseline = adjusted_baseline
+                        await redis_client.set(link_baseline_key, str(link_baseline), ex=86400 * 7)
+                        link_joins_today = worker_today_joins
+
                 # 3.3 Genuine today's joins:
                 # Verified link joins strictly from Telegram MTProto link tracking and daily baseline.
                 # Must NEVER use net_member_gain which suffers from organic channel drift on large channels.
-                worker_today_joins = int(ch.get("today_link_joins") or 0)
                 verified_link_today = max(link_joins_today, worker_today_joins)
 
                 # Strict mathematical integrity: today's link joins cannot exceed total all-time link joins!

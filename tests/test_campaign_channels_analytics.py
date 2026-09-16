@@ -586,7 +586,7 @@ class TestCampaignChannelsAnalytics:
                 "primary_link_joins": 74,
                 "custom_links_joins": 0,
                 "links_count": 1,
-                "today_link_joins": 0
+                "today_link_joins": 4
             },
             {
                 "id": -1003999757764,
@@ -606,9 +606,9 @@ class TestCampaignChannelsAnalytics:
             f"tenant:11:chan_baseline:-1002058504282:{today_str}": "3516",
             f"tenant:11:link_baseline:-1002058504282:{today_str}": "109",
 
-            # Arab ICT had NO baseline today yet, but had yesterday baseline 6740 (gained 4) and 4 link joins today
-            f"tenant:11:chan_baseline:-1001222348201:{yesterday_str}": "6740",
-            f"tenant:11:link_baseline:-1001222348201:{yesterday_str}": "70",
+            # Arab ICT had NO link_baseline today in Redis yet, but has 4 verified joins today from MTProto
+            # Its link_baseline is automatically initialized as 74 - 4 = 70 and stored for today!
+            f"tenant:11:chan_baseline:-1001222348201:{today_str}": "6740",
 
             # Doctor Gold had baseline 897 (gained 1 member + 1 link join)
             f"tenant:11:chan_baseline:-1003999757764:{today_str}": "897",
@@ -650,5 +650,81 @@ class TestCampaignChannelsAnalytics:
             doc = next(c for c in channels if c["channel_id"] == -1003999757764)
             assert doc["joined_today"] == 1
             assert doc["link_joins_today"] == 1
+
+    @pytest.mark.asyncio
+    async def test_midnight_reset_strictly_zeros_out_yesterday_joins(self):
+        """
+        Tests that when midnight strikes and a new day begins:
+        Even if yesterday had +26 joins (total grew from 82 to 108),
+        today's joined_today strictly resets to 0 (NOT 26!),
+        while all-time total_link_joins remains 108.
+        """
+        from datetime import datetime, timezone, timedelta
+        import main_api
+        from db_manager import TelegramAccount, User
+
+        mock_user = User(id=39, email="tamer@test.com")
+        mock_tg_acc = TelegramAccount(id=11, user_id=39, phone="+201207500631", status="active")
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = mock_tg_acc
+        mock_db_sess = AsyncMock()
+        mock_db_sess.execute.return_value = mock_result
+
+        campaign_folder_ids = json.dumps([-1002132146000])
+        local_tz = timezone(timedelta(hours=3))
+        today_str = datetime.now(local_tz).strftime('%Y-%m-%d')
+        yesterday_str = (datetime.now(local_tz) - timedelta(days=1)).strftime('%Y-%m-%d')
+
+        cached_channels = [
+            {
+                "id": -1002132146000,
+                "title": "Sherlock Holmes FX",
+                "members_count": 1440825,
+                "total_joins": 108,
+                "primary_link_joins": 108,
+                "custom_links_joins": 0,
+                "links_count": 1,
+                "today_link_joins": 0  # 0 joins since midnight today
+            }
+        ]
+
+        # Redis has old baseline from yesterday (82), but NO baseline for today yet!
+        redis_data = {
+            "tenant:11:campaign": campaign_folder_ids,
+            f"tenant:11:chan_baseline:-1002132146000:{yesterday_str}": "1440750",
+            f"tenant:11:link_baseline:-1002132146000:{yesterday_str}": "82",
+        }
+
+        async def mock_redis_get(key):
+            return redis_data.get(key)
+
+        async def mock_redis_set(key, val, **kwargs):
+            redis_data[key] = str(val)
+            return True
+
+        with patch("main_api.AsyncSessionLocal") as MockSessionLocal, \
+             patch("main_api.verify_active_subscription", AsyncMock()), \
+             patch("main_api.redis_client.get", side_effect=mock_redis_get), \
+             patch("main_api.redis_client.set", side_effect=mock_redis_set), \
+             patch("main_api.get_channels_cache", AsyncMock(return_value=cached_channels)):
+
+            MockSessionLocal.return_value.__aenter__.return_value = mock_db_sess
+
+            result = await main_api.get_campaign_channels_analytics(user_id=39)
+
+            assert result["status"] == "success"
+            summary = result["summary"]
+            channels = result["channels"]
+
+            # Must strictly be 0 today, NOT 26 (108 - 82)!
+            assert summary["folder_joined_today"] == 0
+            assert summary["folder_total_link_joins"] == 108
+
+            sherlock = channels[0]
+            assert sherlock["joined_today"] == 0
+            assert sherlock["total_link_joins"] == 108
+            assert sherlock["net_member_gain"] == 0
+
 
 
