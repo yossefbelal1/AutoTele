@@ -7591,8 +7591,7 @@ async def redis_pubsub_listener():
                     command = data.get("command")
                     if command == "refresh_campaign_channels":
                         cmd_scope = data.get("scope", "campaign")
-                        # Always refresh ALL channels so switching scopes shows fresh data
-                        refresh_scope = "all"
+                        refresh_scope = cmd_scope if (cmd_scope in ["campaign", "all"] or cmd_scope.startswith("my_channels_")) else "campaign"
                         logger.info(f"Received refresh_campaign_channels command for tenant {tenant_id}, requested_scope={cmd_scope}, using refresh_scope={refresh_scope}")
                         asyncio.create_task(refresh_tenant_campaign_channels(tenant_id, scope=refresh_scope))
                     elif command == "cancel_single_job":
@@ -8025,7 +8024,7 @@ async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaig
             try:
                 chat_id = int(cid)
                 peer = await client.resolve_peer(chat_id)
-                full_res = await client.invoke(functions.channels.GetFullChannel(channel=peer), sleep_threshold=10)
+                full_res = await client.invoke(functions.channels.GetFullChannel(channel=peer), sleep_threshold=25)
                 full_chat = getattr(full_res, "full_chat", None)
 
                 primary_link = None
@@ -8057,7 +8056,7 @@ async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaig
                             admin_id=types.InputUserSelf(),
                             limit=30
                         ),
-                        sleep_threshold=10
+                        sleep_threshold=25
                     )
                     for inv in getattr(res_inv, "invites", []):
                         if getattr(inv, "revoked", False) or getattr(inv, "expired", False):
@@ -8158,13 +8157,14 @@ async def refresh_tenant_campaign_channels(tenant_id: int, scope: str = "campaig
                     ch_entry["today_link_joins"] = today_link_joins
                 
                 # Polite delay between channel requests to avoid Telegram flood limits
-                await asyncio.sleep(0.35)
+                await asyncio.sleep(0.5)
             except FloodWait as fw:
                 logger.warning(f"Telegram FloodWait {fw.value}s when refreshing channel {cid} for tenant {tenant_id}")
-                if fw.value <= 10:
-                    await asyncio.sleep(fw.value)
+                if fw.value <= 30:
+                    await asyncio.sleep(fw.value + 1)
                 else:
-                    break
+                    logger.warning(f"Telegram FloodWait {fw.value}s too long for channel {cid}, skipping to next channel.")
+                    continue
             except Exception as ce:
                 logger.warning(f"Failed to refresh channel {cid} for tenant {tenant_id}: {ce}")
 
