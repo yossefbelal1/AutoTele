@@ -497,7 +497,7 @@ async def handle_posting_error_and_clean_cache(tenant_id: int, chat_id: int, e: 
     If posting is forbidden/restricted, marks can_send=False silently in cache.
     """
     err_str = str(e).upper()
-    if any(err in err_str for err in ["CHAT_ADMIN_REQUIRED", "CHAT_WRITE_FORBIDDEN", "SLOWMODE_WAIT"]):
+    if any(err in err_str for err in ["CHAT_ADMIN_REQUIRED", "CHAT_WRITE_FORBIDDEN"]):
         logger.info(f"Tenant {tenant_id}: Chat {chat_id} is read-only or posting restricted ({err_str}). Marking can_send=False silently.")
         try:
             channels = await get_channels_cache(tenant_id)
@@ -2300,23 +2300,18 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                 promoted_title = target_title if target_title else ch_title
                 ch_members = ch.get("members_count") or ch.get("participants_count") or 0
                 is_rotate_mode = (not ad_text_custom) or (ad_text_custom.strip() in ["__ROTATE__", "__ROTATE_ALL__"]) or ad_text_custom.strip().startswith("[تدوير")
-                if is_rotate_mode:
-                    async with AsyncSessionLocal() as db_session:
+                
+                async with AsyncSessionLocal() as db_session:
+                    if is_rotate_mode:
                         ad_text = await get_formatted_ad_message(
                             db_session, tenant_id, promoted_title, target_link,
                             members_count=ch_members, template_index=ch_idx
                         )
-                else:
-                    ad_text = format_user_template(ad_text_custom, promoted_title, target_link, members_count=ch_members)
+                    else:
+                        ad_text = format_user_template(ad_text_custom, promoted_title, target_link, members_count=ch_members)
                     
-                # Proxy checking before request
-                async with AsyncSessionLocal() as db_session:
-                    acc = (await db_session.execute(
-                        select(TelegramAccount).where(TelegramAccount.id == tenant_id)
-                    )).scalar_one_or_none()
-                # Pre-publish safety cleanup
-                async with AsyncSessionLocal() as clean_session:
-                    await delete_active_ads_in_channel(clean_session, client, tenant_id, cid)
+                    # Pre-publish safety cleanup
+                    await delete_active_ads_in_channel(db_session, client, tenant_id, cid)
                     
                 sticker_msg_id = await send_sticker_if_needed(client, chat_id=cid, tenant_id=tenant_id)
                         
@@ -2386,19 +2381,26 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                 await handle_posting_error_and_clean_cache(tenant_id, cid, e)
 
         tasks = []
+        client = running_clients.get(tenant_id)
+        is_premium = False
+        if client and getattr(client, "me", None):
+            is_premium = getattr(client.me, "is_premium", False)
+
         for idx, ch in enumerate(eligible_channels):
             async def staggered_publish(c, delay, c_idx):
-                await asyncio.sleep(delay)
-                await publish_to_channel(c, ch_idx=c_idx)
-            client = running_clients.get(tenant_id)
-            is_premium = False
-            if client and getattr(client, "me", None):
-                is_premium = getattr(client.me, "is_premium", False)
-            step = random.uniform(2.0, 3.5) if is_premium else random.uniform(4.5, 6.0)
+                try:
+                    await asyncio.sleep(delay)
+                    await publish_to_channel(c, ch_idx=c_idx)
+                except Exception as p_err:
+                    logger.error(f"Error in staggered_publish for channel {c.get('title')}: {p_err}")
+            step = random.uniform(2.0, 3.5) if is_premium else random.uniform(4.0, 5.5)
             safe_delay = idx * step
             tasks.append(staggered_publish(ch, safe_delay, idx))
             
-        await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, Exception):
+                logger.error(f"Task exception in single campaign gather: {r}")
 
         if status_msg:
             if ad_lifespan > 0:
@@ -2489,6 +2491,19 @@ async def run_bulk_campaign_logic(
             await crawl_and_cache_tenant_channels(tenant_id, client, status_msg)
             raw_campaign = await redis_client.get(redis_key)
             campaign_ids = json.loads(raw_campaign) if raw_campaign else []
+            
+            # Smart Fallback: If 'حملات' is still empty, check if tenant has custom folders like 'My_channels1'
+            if not campaign_ids and (folder_number is None or folder_number <= 0):
+                for fn in range(1, 10):
+                    raw_custom = await redis_client.get(f"tenant:{tenant_id}:my_channels:{fn}")
+                    custom_ids = json.loads(raw_custom) if raw_custom else []
+                    if custom_ids:
+                        campaign_ids = custom_ids
+                        folder_label = f"My_channels{fn}"
+                        logger.info(f"Tenant {tenant_id}: 'حملات' was empty, automatically fell back to '{folder_label}' with {len(campaign_ids)} channels.")
+                        await log_tenant_event(tenant_id, f"ℹ️ تم العثور على {len(campaign_ids)} قناة في مجلد '{folder_label}' واعتمادها تلقائياً للحملة.")
+                        break
+
             if not campaign_ids:
                 if status_msg:
                     await safe_edit_message(status_msg, f"❌ **فشل حملة الفولدر: لم يتم العثور على أي قنوات في مجلد '{folder_label}'.**")
@@ -3844,8 +3859,20 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             await crawl_and_cache_tenant_channels(tenant_id, client, status_msg)
             raw_campaign = await redis_client.get(f"tenant:{tenant_id}:campaign")
             campaign_ids = json.loads(raw_campaign) if raw_campaign else []
+            
+            # Smart Fallback: Check if user has custom folders like 'My_channels1'
             if not campaign_ids:
-                await edit_or_reply(status_msg, "❌ **فشل حملة الفولدر: لم يتم العثور على أي قنوات في مجلد 'حملات' حتى بعد التحديث التلقائي.**")
+                for fn in range(1, 10):
+                    raw_custom = await redis_client.get(f"tenant:{tenant_id}:my_channels:{fn}")
+                    custom_ids = json.loads(raw_custom) if raw_custom else []
+                    if custom_ids:
+                        campaign_ids = custom_ids
+                        logger.info(f"Tenant {tenant_id}: 'حملات' was empty in handle_حملات, fell back to 'My_channels{fn}' ({len(campaign_ids)} channels).")
+                        await edit_or_reply(status_msg, f"ℹ️ **مجلد 'حملات' فارغ، تم الاعتماد التلقائي على قنوات مجلد 'My_channels{fn}' بعدد `{len(campaign_ids)}` قناة.**")
+                        break
+
+            if not campaign_ids:
+                await edit_or_reply(status_msg, "❌ **فشل حملة الفولدر: لم يتم العثور على أي قنوات في مجلد 'حملات' أو مجلدات قنواتك بعد التحديث التلقائي.**")
                 return
             
         full_html = getattr(message.text, "html", str(message.text)) if message.text else (getattr(message.caption, "html", str(message.caption)) if message.caption else "")

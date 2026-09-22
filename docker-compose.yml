@@ -110,8 +110,8 @@ services:
     networks:
       - teleauto_internal_network
     restart: always
-    mem_limit: 256m
-    mem_reservation: 96m
+    mem_limit: 512m
+    mem_reservation: 128m
     tmpfs:
       - /tmp
     healthcheck:
@@ -151,8 +151,8 @@ services:
     networks:
       - teleauto_internal_network
     restart: always
-    mem_limit: 512m
-    mem_reservation: 128m
+    mem_limit: 1536m
+    mem_reservation: 256m
     tmpfs:
       - /tmp
     logging:
