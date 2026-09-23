@@ -31,7 +31,7 @@ class TestWaveFolderAndAutoUpdate:
 
         mock_redis = AsyncMock()
         mock_redis.get.side_effect = lambda key: (
-            json.dumps(folder_campaign_ids).encode("utf-8") if "campaign" in key else None
+            json.dumps(folder_campaign_ids).encode("utf-8") if key.endswith(":campaign") else None
         )
 
         with patch("worker.get_channels_cache", new=AsyncMock(return_value=channels_all)), \
@@ -71,7 +71,7 @@ class TestWaveFolderAndAutoUpdate:
 
         mock_redis = AsyncMock()
         mock_redis.get.side_effect = lambda key: (
-            json.dumps(folder_campaign_ids).encode("utf-8") if "campaign" in key else None
+            json.dumps(folder_campaign_ids).encode("utf-8") if key.endswith(":campaign") else None
         )
 
         with patch("worker.get_channels_cache", new=AsyncMock(return_value=channels_all)), \
@@ -403,7 +403,7 @@ class TestWaveFolderAndAutoUpdate:
             settings_set[key] = val
 
         mock_redis = AsyncMock()
-        mock_redis.get.return_value = json.dumps([-100101, -100102]).encode("utf-8")
+        mock_redis.get.side_effect = lambda key: json.dumps([-100101, -100102]).encode("utf-8") if key.endswith(":campaign") else None
         mock_redis.delete = AsyncMock()
         mock_redis.set = AsyncMock()
 

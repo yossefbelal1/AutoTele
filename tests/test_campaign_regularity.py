@@ -237,7 +237,7 @@ class TestCampaignTimelineAndChecklist:
 
     @pytest.mark.asyncio
     async def test_bulk_campaign_activates_bot_system_state_on_start(self):
-        """Bulk campaign must unconditionally activate bot_system_state so it is never killed by stale stopped states."""
+        """Bulk campaign must set promotional_campaign_running and NOT activate bot_system_state so it never triggers random wave exchange."""
         tenant_id = 99
         mock_client = AsyncMock()
         mock_status_msg = AsyncMock()
@@ -284,8 +284,8 @@ class TestCampaignTimelineAndChecklist:
                 status_msg=mock_status_msg
             )
 
-            assert recorded_settings.get("bot_system_state") == "active"
-            mock_redis.set.assert_any_call(f"tenant:{tenant_id}:setting:bot_system_state", "active", ex=86400)
+            assert recorded_settings.get("bot_system_state") != "active"
+            mock_redis.set.assert_any_call(f"tenant:{tenant_id}:promotional_campaign_running", "1", ex=86400)
 
 
 class TestBulkTaskStatusAndLifecycle:

@@ -602,6 +602,7 @@ async def save_active_campaign_state(tenant_id: int, state_data: dict):
         key = f"tenant:{tenant_id}:active_campaign_state"
         await redis_client.set(key, json.dumps(state_data, ensure_ascii=False))
         await redis_client.expire(key, 604800) # 7 days
+        await redis_client.set(f"tenant:{tenant_id}:promotional_campaign_running", "1", ex=604800)
     except Exception as e:
         logger.error(f"Error saving active campaign state for tenant {tenant_id}: {e}")
 
@@ -623,6 +624,24 @@ async def clear_active_campaign_state(tenant_id: int):
         key = f"tenant:{tenant_id}:active_campaign_state"
         await redis_client.delete(key)
         await redis_client.delete(f"tenant:{tenant_id}:bulk_next_target_time")
+        await redis_client.delete(f"tenant:{tenant_id}:promotional_campaign_running")
+
+        # Resume wave exchange if it was automatically paused when promotional campaign started
+        resume_val = await redis_client.get(f"tenant:{tenant_id}:resume_wave_after_campaign")
+        if resume_val:
+            await redis_client.delete(f"tenant:{tenant_id}:resume_wave_after_campaign")
+            try:
+                async with AsyncSessionLocal() as act_session:
+                    await set_setting(act_session, tenant_id, "bot_system_state", "active")
+                    await act_session.commit()
+                await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "active", ex=86400)
+                logger.info(f"Tenant {tenant_id}: Resumed wave exchange after promotional campaign ended.")
+                if tenant_id in running_clients:
+                    w_task = running_tasks.get(tenant_id)
+                    if not w_task or w_task.done():
+                        running_tasks[tenant_id] = asyncio.create_task(wave_publisher_worker(tenant_id))
+            except Exception as _res_err:
+                logger.error(f"Error resuming wave exchange for tenant {tenant_id}: {_res_err}")
     except Exception as e:
         logger.error(f"Error clearing active campaign state for tenant {tenant_id}: {e}")
 
@@ -2194,6 +2213,21 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
     curr_task.add_done_callback(cleanup_task)
     
     try:
+        from cache_manager import redis_client
+        # Mark promotional campaign as active in Redis so background wave exchange pauses
+        await redis_client.set(f"tenant:{tenant_id}:promotional_campaign_running", "1", ex=86400)
+        try:
+            async with AsyncSessionLocal() as act_session:
+                cur_state = await get_setting(act_session, tenant_id, "bot_system_state")
+                if cur_state == "active":
+                    await redis_client.set(f"tenant:{tenant_id}:resume_wave_after_campaign", "1", ex=86400)
+                    await set_setting(act_session, tenant_id, "bot_system_state", "stopped")
+                    await act_session.commit()
+                    await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "stopped", ex=86400)
+                    logger.info(f"Tenant {tenant_id}: Paused wave exchange while single campaign is running.")
+        except Exception as _act_err:
+            logger.warning(f"Tenant {tenant_id}: Could not pause wave exchange at single start: {_act_err}")
+
         await log_tenant_event(tenant_id, f"بدء إطلاق حملة فردية مستهدفة القناة [{target_link}]...")
         channels = await get_channels_cache(tenant_id)
         if not channels:
@@ -2428,8 +2462,10 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
         if count == 0:
             raise Exception("تعذر النشر في أي قناة بنجاح.")
         await log_tenant_event(tenant_id, f"تم نشر الحملة الفردية! تم النشر في {count} من {total} قناة.")
+        await clear_active_campaign_state(tenant_id)
         # Routine campaign publishing notification suppressed for status bot per user preference
     except Exception as e:
+        await clear_active_campaign_state(tenant_id)
         logger.error(f"Error in campaign execution: {e}")
         if status_msg:
             await safe_edit_message(status_msg, f"❌ **فشل تنفيذ الحملة بسبب خطأ داخلي: {e}**")
@@ -2463,14 +2499,19 @@ async def run_bulk_campaign_logic(
     
     try:
         from cache_manager import redis_client
-        # Ensure bot_system_state is active so the campaign state is recognized
+        # Mark promotional campaign as active in Redis so background wave exchange pauses
+        await redis_client.set(f"tenant:{tenant_id}:promotional_campaign_running", "1", ex=86400)
         try:
             async with AsyncSessionLocal() as act_session:
-                await set_setting(act_session, tenant_id, "bot_system_state", "active")
-                await act_session.commit()
-            await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "active", ex=86400)
+                cur_state = await get_setting(act_session, tenant_id, "bot_system_state")
+                if cur_state == "active":
+                    await redis_client.set(f"tenant:{tenant_id}:resume_wave_after_campaign", "1", ex=86400)
+                    await set_setting(act_session, tenant_id, "bot_system_state", "stopped")
+                    await act_session.commit()
+                    await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "stopped", ex=86400)
+                    logger.info(f"Tenant {tenant_id}: Paused wave exchange while bulk campaign is running.")
         except Exception as _act_err:
-            logger.warning(f"Tenant {tenant_id}: Could not set bot_system_state to active at bulk start: {_act_err}")
+            logger.warning(f"Tenant {tenant_id}: Could not pause wave exchange at bulk start: {_act_err}")
 
         if folder_number is not None and folder_number > 0:
             redis_key = f"tenant:{tenant_id}:my_channels:{folder_number}"
@@ -3434,6 +3475,13 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
 
     
     async def handle_يلا_حملات(message: Message, text: str, parts: List[str]):
+        from cache_manager import redis_client
+        promo_running = await redis_client.get(f"tenant:{tenant_id}:promotional_campaign_running")
+        active_camp_state = await redis_client.get(f"tenant:{tenant_id}:active_campaign_state")
+        if promo_running or active_camp_state:
+            await message.reply_text("⚠️ **تنبيه: لا يمكن بدء التبادل التلقائي (.يلا_حملات) لأن هناك حملة مجلد ترويجية نشطة حالياً.**\nانتظر انتهاء الحملة أو قم بإيقافها أولاً عبر `.وقف_حملات`.")
+            return
+
         numbers = [int(x) for x in parts if x.isdigit()]
         delay_start = 0
         wave_interval = 420
@@ -3502,6 +3550,13 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 )
 
     async def handle_يلا(message: Message, text: str, parts: List[str]):
+        from cache_manager import redis_client
+        promo_running = await redis_client.get(f"tenant:{tenant_id}:promotional_campaign_running")
+        active_camp_state = await redis_client.get(f"tenant:{tenant_id}:active_campaign_state")
+        if promo_running or active_camp_state:
+            await message.reply_text("⚠️ **تنبيه: لا يمكن تشغيل التبادل العشوائي (.يلا) لأن هناك حملة مجلد أو ترويجية نشطة حالياً.**\nيرجى انتظار انتهاء الحملة أولاً أو إيقافها بأمر `.وقف_حملات`.")
+            return
+
         numbers = [int(x) for x in parts if x.isdigit()]
         delay_start = 0
         wave_interval = 420
@@ -5414,6 +5469,15 @@ async def trigger_manual_wave(tenant_id: int, status_msg: Optional[Message] = No
             await edit_or_reply(status_msg, "❌ **الحساب متوقف حالياً، يرجى تفعيله من لوحة التحكم.**")
         return
     
+    from cache_manager import redis_client
+    promo_running = await redis_client.get(f"tenant:{tenant_id}:promotional_campaign_running")
+    active_camp_state = await redis_client.get(f"tenant:{tenant_id}:active_campaign_state")
+    if promo_running or active_camp_state:
+        logger.warning(f"Tenant {tenant_id}: Cannot trigger wave while promotional campaign is active.")
+        if status_msg:
+            await edit_or_reply(status_msg, "⚠️ **تنبيه: لا يمكن بدء التبادل التلقائي (.يلا) لأن هناك حملة مجلد ترويجية نشطة حالياً.**\nانتظر انتهاء الحملة أو قم بإيقافها أولاً عبر `.وقف_حملات`.")
+        return
+
     # Ensure the wave lock exists for this tenant
     if tenant_id not in tenant_wave_locks:
         tenant_wave_locks[tenant_id] = asyncio.Lock()
@@ -5603,6 +5667,13 @@ async def wave_publisher_worker(tenant_id: int):
             
             global_pause = await redis_client.get(f"tenant:{tenant_id}:campaign_global_pause")
             if global_pause:
+                await asyncio.sleep(15)
+                continue
+            
+            promo_running = await redis_client.get(f"tenant:{tenant_id}:promotional_campaign_running")
+            active_camp_state = await redis_client.get(f"tenant:{tenant_id}:active_campaign_state")
+            if promo_running or active_camp_state:
+                logger.debug(f"Tenant {tenant_id}: Wave publisher paused because promotional campaign is running.")
                 await asyncio.sleep(15)
                 continue
             

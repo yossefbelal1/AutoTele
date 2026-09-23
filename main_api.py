@@ -2217,8 +2217,11 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
             # Check wave duration expiry
             wave_expires_at_str = None
             remaining_duration_seconds = 0
-            task_duration_mins = getattr(task, "duration_minutes", 0) or 0
-            
+            _dur_val = getattr(task, "duration_minutes", 0)
+            try:
+                task_duration_mins = int(_dur_val) if _dur_val is not None else 0
+            except (ValueError, TypeError):
+                task_duration_mins = 0
             if task.campaign_type in ["wave", "wave_folder", "activate_exchange"]:
                 raw_end = await redis_client.get(f"tenant:{tg_account.id}:wave_end_time")
                 if raw_end:
