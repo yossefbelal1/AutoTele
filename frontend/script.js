@@ -4274,7 +4274,7 @@ function initUserLiveStream() {
   }
   
   try {
-    const sseUrl = `/user/live-stream?token=${encodeURIComponent(token)}`;
+    const sseUrl = `/api/user/live-stream?token=${encodeURIComponent(token)}`;
     userLiveEventSource = new EventSource(sseUrl);
     
     userLiveEventSource.onopen = () => {
