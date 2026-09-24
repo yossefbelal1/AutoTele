@@ -2760,20 +2760,45 @@ async function handleTemplateAdd(e) {
     return;
   }
 
+  // Check for channel-specific template scope
+  const scopeRadio = document.querySelector('input[name="template-scope"]:checked');
+  const isChannelScope = scopeRadio && scopeRadio.value === "channel";
+  let targetChannelId = null;
+  let targetChannelTitle = null;
+
+  if (isChannelScope) {
+    const channelSelect = document.getElementById("template-target-channel");
+    if (channelSelect && channelSelect.value) {
+      targetChannelId = parseInt(channelSelect.value);
+      const selectedOption = channelSelect.options[channelSelect.selectedIndex];
+      targetChannelTitle = selectedOption ? (selectedOption.dataset.title || selectedOption.textContent.split(' [')[0].split(' (')[0].trim()) : null;
+    } else {
+      showToast("يرجى اختيار القناة المراد تخصيص هذه الصيغة لها!", "warning");
+      return;
+    }
+  }
+
   setButtonLoading("btn-add-template", true);
 
   try {
+    const payload = {
+      telegram_account_id: currentTelegramAccountId,
+      template_text: templateText
+    };
+    if (targetChannelId) {
+      payload.channel_id = targetChannelId;
+      payload.channel_title = targetChannelTitle;
+    }
+
     const data = await apiRequest("/templates/add", {
       method: "POST",
-      body: JSON.stringify({
-        telegram_account_id: currentTelegramAccountId,
-        template_text: templateText
-      })
+      body: JSON.stringify(payload)
     });
 
     if (data.status === "success") {
-      showToast(data.message || "تم إضافة صيغة إعلانك بنجاح لمكتبتك الخارجية!", "success");
+      showToast(data.message || "تم إضافة صيغة إعلانك بنجاح لمكتبتك!", "success");
       document.getElementById("template-add-form").reset();
+      toggleTemplateChannelSelect(false);
       loadTemplatesList();
       populateCampaignTemplatePicker();
     }
@@ -2783,6 +2808,55 @@ async function handleTemplateAdd(e) {
     setButtonLoading("btn-add-template", false);
   }
 }
+
+// Channel Scope Selection Helpers
+async function populateTemplateTargetChannels() {
+  const select = document.getElementById("template-target-channel");
+  if (!select) return;
+  
+  let channels = window._channelPickerData || [];
+  if (!channels || channels.length === 0) {
+    try {
+      const data = await apiRequest("/user/channels");
+      if (data && data.channels) {
+        channels = data.channels;
+        window._channelPickerData = channels;
+      }
+    } catch (e) {
+      console.debug("Failed to fetch channels for template target:", e);
+    }
+  }
+
+  select.innerHTML = '<option value="">-- اختر القناة المراد تخصيص الإعلان لها --</option>';
+  if (channels && channels.length > 0) {
+    channels.forEach(ch => {
+      const opt = document.createElement("option");
+      opt.value = ch.id;
+      opt.dataset.title = ch.title || "";
+      const userTag = ch.username ? ` (@${ch.username})` : "";
+      const roleTag = ch.is_creator ? " [مالك 👑]" : (ch.is_admin ? " [مشرف 🛠️]" : "");
+      opt.textContent = `${ch.title}${userTag}${roleTag}`;
+      select.appendChild(opt);
+    });
+  } else {
+    select.innerHTML = '<option value="">لا توجد قنوات متاحة حالياً (يرجى تحديث القنوات أولاً)</option>';
+  }
+}
+window.populateTemplateTargetChannels = populateTemplateTargetChannels;
+
+window.toggleTemplateChannelSelect = function(isChannel) {
+  const wrap = document.getElementById("template-channel-select-wrap");
+  if (wrap) {
+    if (isChannel) {
+      wrap.classList.remove("hidden");
+      populateTemplateTargetChannels();
+    } else {
+      wrap.classList.add("hidden");
+      const sel = document.getElementById("template-target-channel");
+      if (sel) sel.value = "";
+    }
+  }
+};
 
 // Smart Auto-Rotation & Picker Population (Idea 2)
 async function populateCampaignTemplatePicker() {
@@ -2806,7 +2880,8 @@ async function populateCampaignTemplatePicker() {
         const opt = document.createElement("option");
         opt.value = t.template_text;
         const preview = t.template_text.length > 35 ? t.template_text.substring(0, 35) + "..." : t.template_text;
-        opt.textContent = `⭐ صيغة ${idx + 1}: ${preview}`;
+        const tag = t.channel_title ? ` [🎯 ${t.channel_title}]` : "";
+        opt.textContent = `⭐ صيغة ${idx + 1}${tag}: ${preview}`;
         select.appendChild(opt);
       });
     } else {
@@ -2835,6 +2910,96 @@ window.applySelectedTemplateToCampaign = function(text) {
   }
 };
 
+let _allLoadedTemplates = [];
+let _currentTemplateFilter = "all";
+
+window.filterTemplatesList = function(filter) {
+  _currentTemplateFilter = filter;
+  document.querySelectorAll(".template-filter-btn").forEach(btn => {
+    if (btn.getAttribute("data-filter") === filter) {
+      btn.style.background = "rgba(59, 130, 246, 0.25)";
+      btn.style.borderColor = "#3b82f6";
+      btn.style.color = "#60a5fa";
+      btn.style.fontWeight = "700";
+    } else {
+      btn.style.background = "rgba(255,255,255,0.05)";
+      btn.style.borderColor = "rgba(255,255,255,0.1)";
+      btn.style.color = "#94a3b8";
+      btn.style.fontWeight = "600";
+    }
+  });
+  renderFilteredTemplates();
+};
+
+function renderFilteredTemplates() {
+  const container = document.getElementById("templates-list-container");
+  if (!container) return;
+
+  let filtered = _allLoadedTemplates;
+  if (_currentTemplateFilter === "general") {
+    filtered = _allLoadedTemplates.filter(t => !t.channel_id);
+  } else if (_currentTemplateFilter === "channel") {
+    filtered = _allLoadedTemplates.filter(t => !!t.channel_id);
+  }
+
+  if (!filtered || filtered.length === 0) {
+    const emptyMsg = _currentTemplateFilter === "channel" 
+      ? "🎯 لا توجد أي صيغ مخصصة لقنوات حالياً. يمكنك تخصيص صيغة لقناة من النموذج أعلاه أو من المحفوظات عبر أمر <code>.صيغة_قناة @channel</code>."
+      : (_currentTemplateFilter === "general" ? "🌐 لا توجد صيغ عامة حالياً." : "لا يوجد أي صيغ إعلانية مضافة في مكتبتك حالياً.");
+    container.innerHTML = `<p style="color: #94a3b8; font-size: 13px; text-align: center; padding: 20px;">${emptyMsg}</p>`;
+    return;
+  }
+
+  let html = "";
+  filtered.forEach(tmpl => {
+    const safeText = tmpl.template_text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+
+    const badge = tmpl.channel_id 
+      ? `<span style="font-size: 11px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 3px 8px; border-radius: 6px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">🎯 مخصص لقناة: ${tmpl.channel_title || tmpl.channel_id}</span>`
+      : `<span style="font-size: 11px; background: rgba(34, 197, 94, 0.12); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); padding: 3px 8px; border-radius: 6px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">🌐 عامة لكافة القنوات</span>`;
+
+    html += `
+      <div class="template-item" style="background: #0f172a; border: 1px solid ${tmpl.channel_id ? 'rgba(56, 189, 248, 0.3)' : '#1e293b'}; padding: 16px; border-radius: 8px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;">
+        <div style="flex-grow: 1;">
+          <div style="margin-bottom: 8px;">${badge}</div>
+          <div style="color: #fff; font-size: 14px; white-space: pre-wrap; line-height: 1.6; font-family: Cairo, sans-serif;">${safeText}</div>
+        </div>
+        <button class="btn btn-delete-template" data-id="${tmpl.id}" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; transition: background-color 0.2s; white-space: nowrap;">حذف</button>
+      </div>
+    `;
+  });
+  container.innerHTML = html;
+
+  // Attach click handlers to delete buttons
+  const deleteBtns = container.querySelectorAll(".btn-delete-template");
+  deleteBtns.forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      const templateId = e.currentTarget.getAttribute("data-id");
+      if (confirm("هل أنت متأكد من رغبتك في حذف هذه الصيغة؟")) {
+        e.currentTarget.disabled = true;
+        e.currentTarget.textContent = "جاري الحذف...";
+        try {
+          const res = await apiRequest(`/templates/${templateId}`, {
+            method: "DELETE"
+          });
+          if (res.status === "success") {
+            showToast(res.message || "تم حذف الصيغة بنجاح!", "success");
+            loadTemplatesList();
+          }
+        } catch (err) {
+          console.error("Delete template error:", err);
+          e.currentTarget.disabled = false;
+          e.currentTarget.textContent = "حذف";
+        }
+      }
+    });
+  });
+}
 
 async function loadTemplatesList() {
   const container = document.getElementById("templates-list-container");
@@ -2844,56 +3009,15 @@ async function loadTemplatesList() {
     const url = currentTelegramAccountId ? `/templates?telegram_account_id=${currentTelegramAccountId}` : "/templates";
     const data = await apiRequest(url);
     if (!data || data.length === 0) {
+      _allLoadedTemplates = [];
       container.innerHTML = `<p style="color: #94a3b8; font-size: 13px; text-align: center; padding: 20px;">لا يوجد أي صيغ إعلانية مضافة في مكتبتك حالياً.</p>`;
       return;
     }
 
-    let html = "";
-    data.forEach(tmpl => {
-      // Escape HTML to prevent XSS
-      const safeText = tmpl.template_text
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-      
-      html += `
-        <div class="template-item" style="background: #0f172a; border: 1px solid #1e293b; padding: 16px; border-radius: 8px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;">
-          <div style="flex-grow: 1; color: #fff; font-size: 14px; white-space: pre-wrap; line-height: 1.6; font-family: Cairo, sans-serif;">${safeText}</div>
-          <button class="btn btn-delete-template" data-id="${tmpl.id}" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; transition: background-color 0.2s; white-space: nowrap;">حذف</button>
-        </div>
-      `;
-    });
-    container.innerHTML = html;
-
-    // Attach click handlers to delete buttons
-    const deleteBtns = container.querySelectorAll(".btn-delete-template");
-    deleteBtns.forEach(btn => {
-      btn.addEventListener("click", async (e) => {
-        const templateId = e.currentTarget.getAttribute("data-id");
-        if (confirm("هل أنت متأكد من رغبتك في حذف هذه الصيغة؟")) {
-          e.currentTarget.disabled = true;
-          e.currentTarget.textContent = "جاري الحذف...";
-          try {
-            const res = await apiRequest(`/templates/${templateId}`, {
-              method: "DELETE"
-            });
-            if (res.status === "success") {
-              showToast(res.message || "تم حذف الصيغة بنجاح!", "success");
-              loadTemplatesList();
-            }
-          } catch (err) {
-            console.error("Delete template error:", err);
-            e.currentTarget.disabled = false;
-            e.currentTarget.textContent = "حذف";
-          }
-        }
-      });
-    });
-
+    _allLoadedTemplates = data;
+    renderFilteredTemplates();
   } catch (error) {
-    console.error("Load templates error:", error);
+    console.error("Load Templates Error:", error);
     container.innerHTML = `<p style="color: #f43f5e; font-size: 13px; text-align: center; padding: 20px;">فشل تحميل الصيغ الإعلانية. يرجى المحاولة لاحقاً.</p>`;
   }
 }

@@ -211,3 +211,49 @@ async def publish_tenant_live_event(telegram_account_id: int, event_data: dict) 
         logger.debug(f"Failed to publish live event to {channel}: {e}")
         return False
 
+
+# ==========================================
+# 4. كاش صيغ الإعلانات المخصصة للقنوات (Channel Custom Templates Cache)
+# ==========================================
+
+async def save_channel_custom_templates_cache(telegram_account_id: int, channel_id: int, templates: list) -> bool:
+    """حفظ كاش الصيغ المخصصة لقناة معينة لسرعة الوصول الفائقة (<0.1ms) أثناء النشر."""
+    key = f"tenant:{telegram_account_id}:channel_templates:{channel_id}"
+    try:
+        await redis_client.set(key, json.dumps(templates, ensure_ascii=False), ex=86400)
+        return True
+    except RedisError as e:
+        logger.error(f"Failed to save channel templates cache for tenant {telegram_account_id}, channel {channel_id}: {e}")
+        return False
+
+async def get_channel_custom_templates_cache(telegram_account_id: int, channel_id: int) -> Optional[list]:
+    """استرجاع كاش الصيغ المخصصة لقناة معينة إن وجد."""
+    key = f"tenant:{telegram_account_id}:channel_templates:{channel_id}"
+    try:
+        data = await redis_client.get(key)
+        if data:
+            return json.loads(data)
+        return None
+    except Exception as e:
+        logger.debug(f"Failed to get channel templates cache for tenant {telegram_account_id}, channel {channel_id}: {e}")
+        return None
+
+async def clear_channel_custom_templates_cache(telegram_account_id: int, channel_id: Optional[int] = None) -> bool:
+    """مسح كاش الصيغ المخصصة لقناة معينة أو لكافة قنوات المستأجر عند التعديل أو الحذف."""
+    try:
+        if channel_id:
+            key = f"tenant:{telegram_account_id}:channel_templates:{channel_id}"
+            await redis_client.delete(key)
+        else:
+            match_pattern = f"tenant:{telegram_account_id}:channel_templates:*"
+            keys = []
+            async for k in redis_client.scan_iter(match=match_pattern, count=100):
+                keys.append(k)
+            if keys:
+                await redis_client.delete(*keys)
+        return True
+    except Exception as e:
+        logger.error(f"Failed to clear channel templates cache for tenant {telegram_account_id}: {e}")
+        return False
+
+

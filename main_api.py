@@ -303,6 +303,8 @@ class CryptoPaymentReq(BaseModel):
 class TemplateCreateReq(BaseModel):
     telegram_account_id: Optional[int] = None
     template_text: str
+    channel_id: Optional[int] = None
+    channel_title: Optional[str] = None
 
 class TemplateBulkCreateReq(BaseModel):
     telegram_account_id: Optional[int] = None
@@ -1741,16 +1743,29 @@ async def add_template(req: TemplateCreateReq, user_id: int = Depends(get_curren
             raise HTTPException(status_code=400, detail="لم يتم العثور على صيغة إعلانية صالحة للحفظ")
 
         for tmpl_text in parsed_templates:
-            session.add(AdTemplate(telegram_account_id=acc.id, template_text=tmpl_text))
+            session.add(AdTemplate(
+                telegram_account_id=acc.id,
+                template_text=tmpl_text,
+                channel_id=req.channel_id,
+                channel_title=req.channel_title
+            ))
             
         await session.commit()
+
+        if req.channel_id:
+            from db_manager import get_channel_custom_templates
+            from cache_manager import save_channel_custom_templates_cache
+            updated_custom = await get_channel_custom_templates(session, acc.id, req.channel_id)
+            await save_channel_custom_templates_cache(acc.id, req.channel_id, updated_custom)
+
+        ch_name_label = f" لقناة [{req.channel_title}]" if req.channel_title else ""
         if len(parsed_templates) > 1:
             return {
                 "status": "success", 
                 "count": len(parsed_templates),
-                "message": f"تم بنجاح اكتشاف وتفكيك {len(parsed_templates)} صيغة إعلانية منفصلة وتثبيتها في مكتبتك الدائمة! 🚀"
+                "message": f"تم بنجاح اكتشاف وتفكيك {len(parsed_templates)} صيغة إعلانية منفصلة وتثبيتها{ch_name_label}! 🚀"
             }
-        return {"status": "success", "message": "تم إضافة الصيغة وتثبيتها بنجاح في مكتبتك الدائمة"}
+        return {"status": "success", "message": f"تم إضافة الصيغة وتثبيتها بنجاح{ch_name_label}"}
 
 def smart_split_ad_templates(raw_text: str) -> List[str]:
     import re
@@ -1894,7 +1909,9 @@ async def get_templates(telegram_account_id: Optional[int] = None, user_id: int 
                 "id": t.id,
                 "template_text": t.template_text,
                 "is_active": t.is_active,
-                "created_at": t.created_at.isoformat()
+                "created_at": t.created_at.isoformat(),
+                "channel_id": t.channel_id,
+                "channel_title": t.channel_title
             }
             for t in results
         ]
@@ -1916,8 +1933,19 @@ async def delete_template(template_id: int, user_id: int = Depends(get_current_u
         if not tmpl:
             raise HTTPException(status_code=404, detail="الصيغة غير موجودة أو غير مصرح لك بحذفها")
             
+        ch_id = tmpl.channel_id
+        acc_id = tmpl.telegram_account_id
         await session.delete(tmpl)
         await session.commit()
+
+        if ch_id:
+            from db_manager import get_channel_custom_templates
+            from cache_manager import save_channel_custom_templates_cache, clear_channel_custom_templates_cache
+            updated = await get_channel_custom_templates(session, acc_id, ch_id)
+            if updated:
+                await save_channel_custom_templates_cache(acc_id, ch_id, updated)
+            else:
+                await clear_channel_custom_templates_cache(acc_id, ch_id)
         return {"status": "success", "message": "تم حذف الصيغة بنجاح"}
 
 

@@ -195,6 +195,8 @@ class AdTemplate(Base):
     __tablename__ = "ad_templates"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     telegram_account_id: Mapped[int] = mapped_column(ForeignKey("telegram_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
+    channel_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, index=True)
+    channel_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     template_text: Mapped[str] = mapped_column(Text, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -409,6 +411,8 @@ async def init_db() -> None:
                 await conn.execute(text("ALTER TABLE exchange_agreements ALTER COLUMN recipient_channel_id DROP NOT NULL;"))
                 await conn.execute(text("ALTER TABLE exchange_agreements ADD COLUMN IF NOT EXISTS requester_host_channels TEXT;"))
                 await conn.execute(text("ALTER TABLE exchange_agreements ADD COLUMN IF NOT EXISTS recipient_host_channels TEXT;"))
+                await conn.execute(text("ALTER TABLE ad_templates ADD COLUMN IF NOT EXISTS channel_id BIGINT;"))
+                await conn.execute(text("ALTER TABLE ad_templates ADD COLUMN IF NOT EXISTS channel_title VARCHAR(255);"))
             except Exception as me:
                 logger.warning(f"Schema migration check notice: {me}")
         logger.info("Database initialized successfully.")
@@ -493,7 +497,11 @@ async def set_setting(session: AsyncSession, telegram_account_id: int, key: str,
 
 
 async def get_active_templates_for_tenant(session: AsyncSession, telegram_account_id: int) -> List[str]:
-    stmt = select(AdTemplate.template_text).where(AdTemplate.telegram_account_id == telegram_account_id, AdTemplate.is_active == True)
+    stmt = select(AdTemplate.template_text).where(
+        AdTemplate.telegram_account_id == telegram_account_id,
+        AdTemplate.is_active == True,
+        AdTemplate.channel_id.is_(None)
+    )
     results = list((await session.execute(stmt)).scalars().all())
     if not results:
         # User-level fallback: check if any account of the same user has active templates
@@ -505,10 +513,30 @@ async def get_active_templates_for_tenant(session: AsyncSession, telegram_accoun
                 TelegramAccount, AdTemplate.telegram_account_id == TelegramAccount.id
             ).where(
                 TelegramAccount.user_id == user_id,
-                AdTemplate.is_active == True
+                AdTemplate.is_active == True,
+                AdTemplate.channel_id.is_(None)
             )
             results = list((await session.execute(user_stmt)).scalars().all())
     return results
+
+async def get_channel_custom_templates(session: AsyncSession, telegram_account_id: int, channel_id: int) -> List[str]:
+    """Retrieve custom templates dedicated to a specific channel."""
+    stmt = select(AdTemplate.template_text).where(
+        AdTemplate.telegram_account_id == telegram_account_id,
+        AdTemplate.channel_id == channel_id,
+        AdTemplate.is_active == True
+    ).order_by(AdTemplate.created_at.asc())
+    return list((await session.execute(stmt)).scalars().all())
+
+async def get_all_channel_templates_for_tenant(session: AsyncSession, telegram_account_id: int) -> List[AdTemplate]:
+    """Retrieve all channel-specific templates for a tenant."""
+    stmt = select(AdTemplate).where(
+        AdTemplate.telegram_account_id == telegram_account_id,
+        AdTemplate.channel_id.is_not(None),
+        AdTemplate.is_active == True
+    ).order_by(AdTemplate.created_at.desc())
+    return list((await session.execute(stmt)).scalars().all())
+
 
 async def get_blacklist_for_tenant(session: AsyncSession, telegram_account_id: int) -> List[int]:
     stmt = select(Blacklist.chat_id).where(Blacklist.telegram_account_id == telegram_account_id)

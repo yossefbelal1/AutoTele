@@ -1728,6 +1728,31 @@
                       <textarea id="template-text" required placeholder="اكتب صيغة الإعلان الخاصة بك هنا أو اضغط على النكهات التسويقية أعلاه..." rows="8" style="border-radius: 0 0 8px 8px; margin-top: 0; width: 100%; box-sizing: border-box;"></textarea>
                     </div>
 
+                    <!-- Template Scope Selector (Channel-Specific vs General) -->
+                    <div style="margin-bottom: 14px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px;">
+                      <div style="font-size: 12px; color: #94a3b8; margin-bottom: 8px; font-weight: 700; display: flex; align-items: center; gap: 6px;">
+                        <span>🎯</span>
+                        <span>نطاق تطبيق الصيغة:</span>
+                      </div>
+                      <div style="display: flex; gap: 14px; margin-bottom: 8px; flex-wrap: wrap;">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #e2e8f0; cursor: pointer;">
+                          <input type="radio" name="template-scope" value="general" checked onchange="toggleTemplateChannelSelect(false)" style="accent-color: #3b82f6;">
+                          <span>🌐 عامة (تدوير لكافة القنوات)</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #38bdf8; cursor: pointer; font-weight: 600;">
+                          <input type="radio" name="template-scope" value="channel" onchange="toggleTemplateChannelSelect(true)" style="accent-color: #38bdf8;">
+                          <span>🎯 مخصصة لقناة معينة</span>
+                        </label>
+                      </div>
+                      <div id="template-channel-select-wrap" class="hidden" style="margin-top: 10px;">
+                        <label for="template-target-channel" style="display: block; font-size: 11.5px; color: #94a3b8; margin-bottom: 4px;">اختر القناة المراد تخصيص هذا الإعلان لها:</label>
+                        <select id="template-target-channel" class="form-control" style="background: #0f172a; color: #fff; border: 1px solid #38bdf8; border-radius: 6px; padding: 8px 10px; width: 100%; font-size: 13px;">
+                          <option value="">-- جاري تحميل القنوات... --</option>
+                        </select>
+                        <small style="display: block; font-size: 11px; color: #64748b; margin-top: 4px;">💡 عندما يتم الترويج لهذه القناة في التبادل أو الحملات، سيتم استخدام هذه الصيغة تلقائياً بدلاً من الصيغ العامة.</small>
+                      </div>
+                    </div>
+
                     <!-- Dynamic Placeholders Chips (Idea 6) -->
                     <div style="margin-bottom: 16px;">
                       <div style="font-size: 11.5px; color: #94a3b8; margin-bottom: 6px; display: flex; align-items: center; gap: 5px;">
@@ -1804,7 +1829,12 @@
                     </span>
                     <button type="button" onclick="loadTemplatesList()" class="btn btn-sm" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #cbd5e1; font-size: 12px; padding: 4px 10px; border-radius: 6px; cursor: pointer;">🔄 تحديث القائمة</button>
                   </h3>
-                  <div id="templates-list-container" style="margin-top: 20px;">
+                  <div style="display: flex; gap: 8px; margin-top: 14px; margin-bottom: 8px; flex-wrap: wrap;">
+                    <button type="button" class="btn btn-sm template-filter-btn active" data-filter="all" onclick="filterTemplatesList('all')" style="background: rgba(59, 130, 246, 0.2); border: 1px solid #3b82f6; color: #60a5fa; font-size: 12px; padding: 5px 14px; border-radius: 6px; cursor: pointer; font-weight: 700;">الكل</button>
+                    <button type="button" class="btn btn-sm template-filter-btn" data-filter="general" onclick="filterTemplatesList('general')" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #94a3b8; font-size: 12px; padding: 5px 14px; border-radius: 6px; cursor: pointer; font-weight: 600;">🌐 عامة فقط</button>
+                    <button type="button" class="btn btn-sm template-filter-btn" data-filter="channel" onclick="filterTemplatesList('channel')" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #94a3b8; font-size: 12px; padding: 5px 14px; border-radius: 6px; cursor: pointer; font-weight: 600;">🎯 مخصصة لقنوات</button>
+                  </div>
+                  <div id="templates-list-container" style="margin-top: 14px;">
                     <p style="color: #94a3b8; font-size: 13px; text-align: center; padding: 20px;">جاري تحميل مكتبة الصيغ الخاصة بك...</p>
                   </div>
                 </div>

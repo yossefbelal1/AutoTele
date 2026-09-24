@@ -47,9 +47,20 @@ from db_manager import (
     get_setting,
     set_setting,
     get_active_templates_for_tenant,
+    get_channel_custom_templates,
+    get_all_channel_templates_for_tenant,
     apply_pyrogram_patches
 )
-from cache_manager import save_channels_cache, get_channels_cache, is_rate_limited, clear_tenant_cache, redis_client
+from cache_manager import (
+    save_channels_cache,
+    get_channels_cache,
+    is_rate_limited,
+    clear_tenant_cache,
+    redis_client,
+    get_channel_custom_templates_cache,
+    save_channel_custom_templates_cache,
+    clear_channel_custom_templates_cache
+)
 
 import redis
 import re as _re
@@ -984,12 +995,30 @@ async def get_formatted_ad_message(
     target_link: str, 
     extra_link: Optional[str] = None,
     members_count: Optional[int] = None,
-    template_index: Optional[int] = None
+    template_index: Optional[int] = None,
+    target_chat_id: Optional[int] = None
 ) -> str:
     try:
-        db_templates = await get_active_templates_for_tenant(session, telegram_account_id=tenant_id)
-        # Give customer templates 100% top priority if defined
-        pool = db_templates if (db_templates and len(db_templates) > 0) else DEFAULT_TEMPLATES
+        pool = []
+        # 1. First priority (أولوية عليا): Custom templates assigned specifically to this channel
+        if target_chat_id:
+            try:
+                cached_custom = await get_channel_custom_templates_cache(tenant_id, target_chat_id)
+                if cached_custom:
+                    pool = cached_custom
+                else:
+                    db_custom = await get_channel_custom_templates(session, tenant_id, target_chat_id)
+                    if db_custom:
+                        pool = db_custom
+                        await save_channel_custom_templates_cache(tenant_id, target_chat_id, db_custom)
+            except Exception as ce:
+                logger.debug(f"Failed to check channel custom templates for tenant {tenant_id}, channel {target_chat_id}: {ce}")
+        
+        # 2. Second priority (الحالة العامة): General templates from user's library, or DEFAULT_TEMPLATES
+        if not pool:
+            db_templates = await get_active_templates_for_tenant(session, telegram_account_id=tenant_id)
+            pool = db_templates if (db_templates and len(db_templates) > 0) else DEFAULT_TEMPLATES
+
         if template_index is not None and len(pool) > 0:
             chosen_template = pool[template_index % len(pool)]
         else:
@@ -2045,13 +2074,20 @@ async def run_timed_post_logic(
                     # Resolve promo title — cache first, then Telegram API
                     promo_title = await _resolve_link_to_title(client, tenant_id, promo_link)
                         
+                    promo_chat_id = None
+                    try:
+                        promo_chat_id = await _resolve_link_to_chat_id(client, tenant_id, promo_link)
+                    except Exception:
+                        pass
+                        
                     # Prepare message text with rotation & dynamic placeholders
                     is_rotate_mode = (not ad_text_custom) or (ad_text_custom.strip() in ["__ROTATE__", "__ROTATE_ALL__"]) or ad_text_custom.strip().startswith("[تدوير")
                     if is_rotate_mode:
                         async with AsyncSessionLocal() as db_session:
                             ad_text = await get_formatted_ad_message(
                                 db_session, tenant_id, promo_title, promo_link,
-                                template_index=success_count
+                                template_index=success_count,
+                                target_chat_id=promo_chat_id
                             )
                     else:
                         ad_text = format_user_template(ad_text_custom, promo_title, promo_link)
@@ -2277,6 +2313,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
             await log_tenant_event(tenant_id, "فشل إطلاق الحملة الفردية: لا توجد قنوات مستهدفة صالحة.")
             return
 
+        primary_target_chat_id = target_chat_ids_list[0] if target_chat_ids_list else None
         target_link = "\n".join(resolved_links)
         target_title = " / ".join(list(set(target_titles)))
         
@@ -2340,7 +2377,8 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                     if is_rotate_mode:
                         ad_text = await get_formatted_ad_message(
                             db_session, tenant_id, promoted_title, target_link,
-                            members_count=ch_members, template_index=ch_idx
+                            members_count=ch_members, template_index=ch_idx,
+                            target_chat_id=primary_target_chat_id
                         )
                     else:
                         ad_text = format_user_template(ad_text_custom, promoted_title, target_link, members_count=ch_members)
@@ -2910,7 +2948,8 @@ async def run_bulk_campaign_logic(
                                     target_link, 
                                     extra_link=extra_target_link,
                                     members_count=ch_members,
-                                    template_index=ch_idx
+                                    template_index=ch_idx,
+                                    target_chat_id=target_id
                                 )
                             else:
                                 ad_body = format_user_template(
@@ -3461,6 +3500,12 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 await handle_استيكر(message)
             elif cmd_clean in ["تثبيت", "pin", "pin_channel", "pin-channel"]:
                 await handle_تثبيت(message, normalized_text)
+            elif cmd_clean in ["صيغة_قناة", "صيغه_قناة", "صيغة_قناه", "صيغه_قناه", "قالب_قناة", "قالب_قناه", "تخصيص_صيغة", "تخصيص_صيغه", "channel_template", "set_channel_template"]:
+                await handle_صيغة_قناة(message, normalized_text, parts)
+            elif cmd_clean in ["صيغ_القنوات", "صيغ_قنوات", "قوالب_القنوات", "قوالب_قنوات", "channel_templates", "channels_templates"]:
+                await handle_صيغ_القنوات(message)
+            elif cmd_clean in ["حذف_صيغة_قناة", "حذف_صيغه_قناة", "مسح_صيغة_قناة", "مسح_صيغه_قناة", "delete_channel_template", "remove_channel_template"]:
+                await handle_حذف_صيغة_قناة(message, parts)
             elif cmd_clean in ["صيغة", "صيغه", "اضافة_صيغة", "اضافه_صيغة", "صيغة_جديدة", "صيغه_جديده", "template", "add_template", "add-template"]:
                 await handle_اضافة_صيغة(message)
             elif cmd_clean in ["حذف_صيغة", "حذف_صيغه", "مسح_صيغة", "مسح_صيغه", "delete_template", "remove_template"]:
@@ -3739,7 +3784,10 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
 
             if not raw_text:
                 async with AsyncSessionLocal() as session:
-                    stmt = select(AdTemplate).where(AdTemplate.telegram_account_id == tenant_id).order_by(AdTemplate.created_at.asc())
+                    stmt = select(AdTemplate).where(
+                        AdTemplate.telegram_account_id == tenant_id,
+                        AdTemplate.channel_id.is_(None)
+                    ).order_by(AdTemplate.created_at.asc())
                     db_templates = (await session.execute(stmt)).scalars().all()
                 
                 if not db_templates:
@@ -3804,6 +3852,229 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         except Exception as e:
             logger.error(f"Error in handle_حذف_صيغة: {e}")
             await message.reply_text(f"❌ **فشل حذف الصيغة بسبب خطأ داخلي: {e}**")
+
+    async def handle_صيغة_قناة(message: Message, normalized_text: str, parts: List[str]):
+        try:
+            # 1. Parse target channel identifier
+            target_arg = None
+            if len(parts) > 1:
+                target_arg = parts[1].strip()
+
+            if not target_arg:
+                await message.reply_text(
+                    "⚠️ **يرجى تحديد القناة المراد تخصيص الصيغة لها!**\n\n"
+                    "📌 **طريقة الاستخدام بالرد (تحفظ الإيموجيز المتحركة والتنسيقات):**\n"
+                    "1️⃣ أرسل صيغة الإعلان في المحفوظات مع أي إيموجيز مميزة وتنسيقات.\n"
+                    "2️⃣ قم بالرد عليها (Reply) واكتب:\n"
+                    "`.صيغة_قناة @channel_username`\n"
+                    "أو برابط القناة أو معرفها: `.صيغة_قناة -1001234567890`\n\n"
+                    "📋 لعرض القنوات المخصص لها صيغ: `.صيغ_القنوات`"
+                )
+                return
+
+            channels = await get_channels_cache(tenant_id) or []
+            target_chat_id, target_title, _ = await resolve_target_channel_info(client, tenant_id, target_arg, channels)
+            
+            if not target_chat_id:
+                clean_target = target_arg.replace('@', '').strip().lower()
+                for ch in channels:
+                    c_user = str(ch.get("username") or "").lower()
+                    c_id = str(ch.get("id"))
+                    if clean_target in [c_user, c_id, c_id.replace('-100', '')]:
+                        target_chat_id = int(ch["id"])
+                        target_title = ch.get("title", target_title)
+                        break
+
+            if not target_chat_id:
+                try:
+                    chat_obj = await client.get_chat(target_arg)
+                    if chat_obj:
+                        target_chat_id = chat_obj.id
+                        target_title = chat_obj.title or target_title
+                except Exception as ce:
+                    logger.debug(f"Could not get chat directly for target {target_arg}: {ce}")
+
+            if not target_chat_id:
+                await message.reply_text(
+                    f"❌ **تعذر العثور على القناة [{target_arg}]!**\n"
+                    f"يرجى التأكد من كتابة معرف القناة الصحيح (@username أو الرابط أو الآيدي الرقمي)."
+                )
+                return
+
+            # 2. Extract template text (preserving HTML and Custom Emojis)
+            raw_text = None
+            if message.reply_to_message:
+                replied = message.reply_to_message
+                if replied.text:
+                    raw_text = replied.text.html
+                elif replied.caption:
+                    raw_text = replied.caption.html
+            else:
+                full_html = message.text.html if message.text else (message.caption.html if message.caption else "")
+                match = re.match(r"^(\s*[\./\\]\s*(?:صيغة_قناة|صيغه_قناة|صيغة_قناه|صيغه_قناه|قالب_قناة|قالب_قناه|تخصيص_صيغة)\s+[^\s]+\s*)", message.text or message.caption or "")
+                if match:
+                    prefix = match.group(0)
+                    raw_text = full_html[len(prefix):].strip()
+
+            if not raw_text:
+                async with AsyncSessionLocal() as session:
+                    stmt = select(AdTemplate).where(
+                        AdTemplate.telegram_account_id == tenant_id,
+                        AdTemplate.channel_id == target_chat_id,
+                        AdTemplate.is_active == True
+                    ).order_by(AdTemplate.created_at.asc())
+                    ch_templates = (await session.execute(stmt)).scalars().all()
+
+                if not ch_templates:
+                    await message.reply_text(
+                        f"📭 **لا توجد أي صيغ مخصصة مسجلة لقناة [{target_title}] حالياً.**\n\n"
+                        f"➕ **لإضافة صيغة مخصصة:**\n"
+                        f"أرسل الإعلان في المحفوظات ثم رد عليه بـ:\n"
+                        f"`.صيغة_قناة {target_arg}`"
+                    )
+                else:
+                    lines = []
+                    for idx, tmpl in enumerate(ch_templates, 1):
+                        snip = tmpl.template_text[:120] + "..." if len(tmpl.template_text) > 120 else tmpl.template_text
+                        lines.append(f"**{idx}** - {snip}\n🗑️ لحذفها: `.حذف_صيغة_قناة {tmpl.id}`")
+                    await message.reply_text(
+                        f"🎯 **الصيغ المخصصة لقناة [{target_title}] ({len(ch_templates)}):**\n\n"
+                        + "\n\n".join(lines) +
+                        f"\n\n➕ لإضافة صيغة أخرى: أرسل الإعلان ورد عليه بـ `.صيغة_قناة {target_arg}`",
+                        disable_web_page_preview=True
+                    )
+                return
+
+            # 3. Save to database
+            async with AsyncSessionLocal() as session:
+                new_tmpl = AdTemplate(
+                    telegram_account_id=tenant_id,
+                    template_text=raw_text,
+                    channel_id=target_chat_id,
+                    channel_title=target_title
+                )
+                session.add(new_tmpl)
+                await session.commit()
+                updated_custom = await get_channel_custom_templates(session, tenant_id, target_chat_id)
+
+            # 4. Update Redis Cache immediately (<0.1ms lookup speed during campaigns & waves)
+            await save_channel_custom_templates_cache(tenant_id, target_chat_id, updated_custom)
+
+            report = (
+                f"✅ **تم بنجاح حفظ وتثبيت الصيغة المخصصة لقناة [{target_title}]!** 🚀\n\n"
+                f"📌 **معرف القناة:** `{target_chat_id}`\n"
+                f"📝 **إجمالي الصيغ المسجلة لهذه القناة:** `{len(updated_custom)}` صيغة.\n"
+                f"⚙️ **سلوك النظام:** سيتم استخدام هذه الصيغة تلقائياً في كافة التبادلات العشوائية وحملات المجلدات والحملات الفردية عند الإعلان عن هذه القناة بدلاً من الصيغ العامة.\n\n"
+                f"👁️ **معاينة الصيغة:**\n{raw_text}"
+            )
+            await message.reply_text(report, disable_web_page_preview=True)
+            await log_tenant_event(tenant_id, f"تم تخصيص صيغة إعلانية لقناة [{target_title}]")
+        except Exception as e:
+            logger.error(f"Error in handle_صيغة_قناة: {e}")
+            await message.reply_text(f"❌ **فشل تخصيص الصيغة للقناة: {e}**")
+
+    async def handle_صيغ_القنوات(message: Message):
+        try:
+            async with AsyncSessionLocal() as session:
+                templates = await get_all_channel_templates_for_tenant(session, tenant_id)
+
+            if not templates:
+                await message.reply_text(
+                    "📭 **لا توجد أي قنوات مخصص لها صيغ إعلانية حالياً.**\n\n"
+                    "💡 **لتخصيص صيغة لأي قناة:**\n"
+                    "أرسل الإعلان في المحفوظات ثم رد عليه بـ:\n"
+                    "`.صيغة_قناة @username`"
+                )
+                return
+
+            from collections import defaultdict
+            by_channel = defaultdict(list)
+            for t in templates:
+                ch_key = (t.channel_id, t.channel_title or f"قناة {t.channel_id}")
+                by_channel[ch_key].append(t)
+
+            lines = [f"🎯 **قائمة القنوات المخصص لها صيغ إعلانية ({len(by_channel)} قناة):**\n"]
+            for (ch_id, ch_title), tmpls in by_channel.items():
+                lines.append(f"📢 **{ch_title}** (`{ch_id}`) - عدد الصيغ: `{len(tmpls)}`:")
+                for idx, t in enumerate(tmpls, 1):
+                    snip = t.template_text[:100] + "..." if len(t.template_text) > 100 else t.template_text
+                    lines.append(f"   ▫️ **#{t.id}**: {snip}")
+                lines.append(f"   🗑️ لحذف صيغة: `.حذف_صيغة_قناة {tmpls[0].id}`\n")
+
+            lines.append("──────────────────────")
+            lines.append("💡 لإضافة صيغة جديدة لأي قناة: رد على الإعلان بـ `.صيغة_قناة @username`")
+            await reply_long_message(message, lines)
+        except Exception as e:
+            logger.error(f"Error in handle_صيغ_القنوات: {e}")
+            await message.reply_text(f"❌ **فشل جلب صيغ القنوات: {e}**")
+
+    async def handle_حذف_صيغة_قناة(message: Message, parts: List[str]):
+        try:
+            if len(parts) < 2:
+                await message.reply_text(
+                    "⚠️ **يرجى تحديد رقم تعريف الصيغة أو معرف القناة لحذف صيغها.**\n\n"
+                    "مثال:\n"
+                    "• لحذف صيغة محددة برقمها: `.حذف_صيغة_قناة 15`\n"
+                    "• لحذف كل صيغ قناة معينة: `.حذف_صيغة_قناة @channel_username`"
+                )
+                return
+
+            arg = parts[1].strip()
+            async with AsyncSessionLocal() as session:
+                if arg.isdigit():
+                    template_id = int(arg)
+                    stmt = select(AdTemplate).where(
+                        AdTemplate.id == template_id,
+                        AdTemplate.telegram_account_id == tenant_id,
+                        AdTemplate.channel_id.is_not(None)
+                    )
+                    tmpl = (await session.execute(stmt)).scalar_one_or_none()
+                    if not tmpl:
+                        await message.reply_text("❌ **لم يتم العثور على صيغة قناة بهذا الرقم أو أنها غير مخصصة لقناة.**")
+                        return
+                    ch_id = tmpl.channel_id
+                    ch_title = tmpl.channel_title
+                    await session.delete(tmpl)
+                    await session.commit()
+                    
+                    updated = await get_channel_custom_templates(session, tenant_id, ch_id)
+                    if updated:
+                        await save_channel_custom_templates_cache(tenant_id, ch_id, updated)
+                    else:
+                        await clear_channel_custom_templates_cache(tenant_id, ch_id)
+
+                    await message.reply_text(f"✅ **تم حذف الصيغة #{template_id} لقناة [{ch_title or ch_id}] بنجاح.**")
+                    await log_tenant_event(tenant_id, f"تم حذف صيغة مخصصة معرف #{template_id}")
+                else:
+                    channels = await get_channels_cache(tenant_id) or []
+                    target_chat_id, target_title, _ = await resolve_target_channel_info(client, tenant_id, arg, channels)
+                    if not target_chat_id:
+                        clean_target = arg.replace('@', '').strip().lower()
+                        for ch in channels:
+                            c_user = str(ch.get("username") or "").lower()
+                            c_id = str(ch.get("id"))
+                            if clean_target in [c_user, c_id, c_id.replace('-100', '')]:
+                                target_chat_id = int(ch["id"])
+                                target_title = ch.get("title", target_title)
+                                break
+                    if not target_chat_id:
+                        await message.reply_text(f"❌ **تعذر التعرف على القناة [{arg}]!**")
+                        return
+
+                    from sqlalchemy import delete
+                    del_stmt = delete(AdTemplate).where(
+                        AdTemplate.telegram_account_id == tenant_id,
+                        AdTemplate.channel_id == target_chat_id
+                    )
+                    res = await session.execute(del_stmt)
+                    await session.commit()
+                    await clear_channel_custom_templates_cache(tenant_id, target_chat_id)
+
+                    await message.reply_text(f"✅ **تم حذف كافة الصيغ المخصصة لقناة [{target_title}] ({res.rowcount} صيغة). ستعود القناة لاستخدام الصيغ العامة.**")
+                    await log_tenant_event(tenant_id, f"تم حذف كافة صيغ قناة [{target_title}]")
+        except Exception as e:
+            logger.error(f"Error in handle_حذف_صيغة_قناة: {e}")
+            await message.reply_text(f"❌ **فشل حذف صيغة القناة: {e}**")
 
     async def handle_حملة(message: Message, text: str):
         lines = text.split('\n')
@@ -4412,8 +4683,11 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             "• `.تنظيف` : لحذف رسائل الأوامر وتقارير البوت لتنظيف المحادثة.\n\n"
             "• `.مسح_عميق` : لمسح إعلانات القنوات وتصفير البوت تماماً.\n\n"
             "⚙️ **أوامر الصيغ والملصقات:**\n"
-            "• `.صيغة` : لإضافة صيغة نصية جديدة لمكتبة إعلاناتك.\n\n"
-            "• `.حذف_صيغة` : لحذف صيغة محددة من مكتبة الإعلانات.\n\n"
+            "• `.صيغة_قناة @channel` : لتخصيص صيغة إعلانية لقناة معينة (بالرد على الرسالة لحفظ الإيموجيز المتحركة).\n\n"
+            "• `.صيغ_القنوات` : لعرض كافة القنوات المخصص لها صيغ إعلانية مستقلة.\n\n"
+            "• `.حذف_صيغة_قناة` : لحذف صيغة مخصصة لقناة معينة.\n\n"
+            "• `.صيغة` : لإضافة صيغة عامة جديدة لمكتبة إعلاناتك.\n\n"
+            "• `.حذف_صيغة` : لحذف صيغة عامة محددة من مكتبة الإعلانات.\n\n"
             "• `.تفعيل_استيكر` / `.تعطيل_استيكر` : لتشغيل أو إيقاف الملصق الترويجي المرفق."
         )
         await message.reply_text(text)
@@ -5254,7 +5528,7 @@ async def run_wave_execution(
         else:
             try:
                 async with AsyncSessionLocal() as session:
-                    body_a = await get_formatted_ad_message(session, tenant_id, ch_b.get("title", "Channel"), link_b)
+                    body_a = await get_formatted_ad_message(session, tenant_id, ch_b.get("title", "Channel"), link_b, target_chat_id=ch_b["id"])
                 
                 if await is_rate_limited(tenant_id, 12, 60):
                     await asyncio.sleep(15)
@@ -5363,7 +5637,7 @@ async def run_wave_execution(
         else:
             try:
                 async with AsyncSessionLocal() as session:
-                    body_b = await get_formatted_ad_message(session, tenant_id, ch_a.get("title", "Channel"), link_a)
+                    body_b = await get_formatted_ad_message(session, tenant_id, ch_a.get("title", "Channel"), link_a, target_chat_id=ch_a["id"])
                 
                 if await is_rate_limited(tenant_id, 12, 60):
                     await asyncio.sleep(15)
