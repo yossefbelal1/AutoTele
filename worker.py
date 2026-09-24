@@ -3403,6 +3403,10 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         is_disable_sticker = False
         is_wave_folder = False
         is_bulk_campaign = False
+        is_channel_template_add = False
+        is_channel_templates_list = False
+        is_channel_template_delete = False
+        is_general_template_delete = False
 
         # 1. Direct compound command names
         if cmd_clean in [
@@ -3424,7 +3428,16 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             "تبادل_فولدر", "تبادل-فولدر", "تبادل_حملة", "تبادل_حمله", "يلا_فولدر"
         ]:
             is_wave_folder = True
-        # 2. Multi-word commands
+        elif cmd_clean in ["صيغة_قناة", "صيغه_قناة", "صيغة_قناه", "صيغه_قناه", "قالب_قناة", "قالب_قناه", "تخصيص_صيغة", "تخصيص_صيغه", "channel_template", "set_channel_template"]:
+            is_channel_template_add = True
+        elif cmd_clean in ["صيغ_القنوات", "صيغ_قنوات", "قوالب_القنوات", "قوالب_قنوات", "صيغات_القنوات", "channel_templates", "channels_templates"]:
+            is_channel_templates_list = True
+        elif cmd_clean in ["حذف_صيغة_قناة", "حذف_صيغه_قناة", "حذف_صيغ_القنوات", "مسح_صيغة_قناة", "مسح_صيغه_قناة", "delete_channel_template", "remove_channel_template"]:
+            is_channel_template_delete = True
+        elif cmd_clean in ["حذف_صيغة", "حذف_صيغه", "مسح_صيغة", "مسح_صيغه", "delete_template", "remove_template"]:
+            is_general_template_delete = True
+
+        # 2. Multi-word commands (human-friendly with spaces: بلغة البشر بمسافة)
         elif len(parts) > 1:
             arg_clean = _re.sub(r'[\u200e\u200f\u202a-\u202e\ufeff]', '', parts[1]).strip().lower()
             if cmd_clean in ["تفعيل", "تنشيط", "تشغيل", "enable", "on", "active"] and arg_clean in ["استيكر", "ستيكر", "الاستيكر", "الستيكر", "sticker"]:
@@ -3444,12 +3457,49 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             elif cmd_clean in ["حملات", "الحملات"] and arg_clean in ["مجمعة", "مجمعه", "مجمع", "نشر", "bulk", "انشر"]:
                 is_bulk_campaign = True
                 parts = [parts[0]] + parts[2:]
+            # Human-friendly: Listing channel templates (.صيغ القنوات / .عرض صيغ القنوات)
+            elif cmd_clean in ["صيغ", "صيغات", "قوالب", "اعلانات", "إعلانات"] and arg_clean in ["قنوات", "القنوات", "قناة", "قناه", "القناة", "القناه", "مخصصة", "مخصصه", "المخصصة", "المخصصه"]:
+                is_channel_templates_list = True
+            elif cmd_clean in ["عرض", "قائمة", "قايمه", "شوف"] and (
+                arg_clean in ["صيغ_القنوات", "صيغ_قنوات"] or
+                (arg_clean in ["صيغ", "صيغات", "قوالب"] and len(parts) > 2 and parts[2].strip().lower() in ["قنوات", "القنوات", "قناة", "قناه", "القناة", "القناه"])
+            ):
+                is_channel_templates_list = True
+            # Human-friendly: Deleting channel templates (.حذف صيغة قناة @channel / .حذف صيغ القناة)
+            elif cmd_clean in ["حذف", "امسح", "مسح", "احذف", "delete", "remove"]:
+                if arg_clean in ["صيغة_قناة", "صيغه_قناة", "صيغ_القنوات"]:
+                    is_channel_template_delete = True
+                elif arg_clean in ["صيغة", "صيغه", "صيغ", "قالب", "قوالب"]:
+                    if len(parts) > 2 and parts[2].strip().lower() in ["قناة", "قناه", "القناة", "القناه", "قنوات", "القنوات", "لقناة", "لقناه", "للقناة", "للقناه"]:
+                        is_channel_template_delete = True
+                    elif len(parts) > 2 and (parts[2].startswith("@") or parts[2].startswith("t.me") or parts[2].startswith("http") or parts[2].startswith("-100")):
+                        is_channel_template_delete = True
+                    else:
+                        is_general_template_delete = True
+            # Human-friendly: Adding channel templates (.صيغة قناة @channel / .صيغة @channel)
+            elif cmd_clean in ["صيغة", "صيغه", "قالب"]:
+                if arg_clean in ["قناة", "قناه", "القناة", "القناه", "لقناة", "لقناه", "للقناة", "للقناه", "اعلان", "إعلان", "مخصصة", "مخصصه", "خاصة", "خاصه"]:
+                    is_channel_template_add = True
+                elif arg_clean.startswith("@") or arg_clean.startswith("t.me") or arg_clean.startswith("http") or arg_clean.startswith("-100"):
+                    is_channel_template_add = True
+            elif cmd_clean in ["تخصيص", "خصص"] and arg_clean in ["صيغة", "صيغه", "قالب", "اعلان", "إعلان"]:
+                is_channel_template_add = True
+            elif cmd_clean in ["اضافة", "إضافة", "اضافه", "إضافه"] and arg_clean in ["صيغة", "صيغه"] and len(parts) > 2 and parts[2].strip().lower() in ["قناة", "قناه", "القناة", "القناه", "لقناة", "لقناه"]:
+                is_channel_template_add = True
 
         try:
             if is_enable_sticker:
                 await handle_تفعيل_استيكر(message, True)
             elif is_disable_sticker:
                 await handle_تفعيل_استيكر(message, False)
+            elif is_channel_template_delete:
+                await handle_حذف_صيغة_قناة(message, parts)
+            elif is_channel_templates_list:
+                await handle_صيغ_القنوات(message)
+            elif is_channel_template_add:
+                await handle_صيغة_قناة(message, normalized_text, parts)
+            elif is_general_template_delete:
+                await handle_حذف_صيغة(message, parts)
             elif is_wave_folder:
                 await handle_يلا_حملات(message, normalized_text, parts)
             elif cmd_clean in ["يلا", "ابدء", "ابدا", "ابدأ", "تشغيل", "شغل", "yalla", "start", "run", "تبادل", "بدء", "بداء", "ابدا_النشر", "ابداء_النشر", "تشغيل_البوت", "شغل_البوت", "نشر", "يلاا", "يللا", "يلاه", "يلااا"]:
@@ -3834,10 +3884,18 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
 
     async def handle_حذف_صيغة(message: Message, parts: List[str]):
         try:
-            if len(parts) < 2 or not parts[1].isdigit():
-                await message.reply_text("⚠️ **الرجاء تحديد رقم تعريف الصيغة لحذفها. مثال:**\n`.حذف_صيغة 12`")
+            arg = None
+            for p in parts[1:]:
+                p_clean = p.strip().lower()
+                if p_clean in ["صيغة", "صيغه", "قالب"]:
+                    continue
+                arg = p.strip()
+                break
+
+            if not arg or not arg.isdigit():
+                await message.reply_text("⚠️ **الرجاء تحديد رقم تعريف الصيغة لحذفها. مثال:**\n`.حذف صيغة 12` أو `.حذف_صيغة 12`")
                 return
-            template_id = int(parts[1])
+            template_id = int(arg)
             async with AsyncSessionLocal() as session:
                 stmt = select(AdTemplate).where(AdTemplate.id == template_id, AdTemplate.telegram_account_id == tenant_id)
                 tmpl = (await session.execute(stmt)).scalar_one_or_none()
@@ -3855,20 +3913,30 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
 
     async def handle_صيغة_قناة(message: Message, normalized_text: str, parts: List[str]):
         try:
-            # 1. Parse target channel identifier
+            # 1. Parse target channel identifier from arguments
+            skip_words = {
+                "قناة", "قناه", "القناة", "القناه", "لقناة", "لقناه", "للقناة", "للقناه",
+                "اعلان", "إعلان", "صيغة", "صيغه", "صيغ", "مخصصة", "مخصصه", "خاصة", "خاصه",
+                "اضافة", "إضافة", "اضافه", "إضافه", "تخصيص", "جديدة", "جديده"
+            }
             target_arg = None
-            if len(parts) > 1:
-                target_arg = parts[1].strip()
+            for p in parts[1:]:
+                p_clean = p.strip().lower()
+                if p_clean in skip_words:
+                    continue
+                target_arg = p.strip()
+                break
 
             if not target_arg:
                 await message.reply_text(
                     "⚠️ **يرجى تحديد القناة المراد تخصيص الصيغة لها!**\n\n"
-                    "📌 **طريقة الاستخدام بالرد (تحفظ الإيموجيز المتحركة والتنسيقات):**\n"
-                    "1️⃣ أرسل صيغة الإعلان في المحفوظات مع أي إيموجيز مميزة وتنسيقات.\n"
-                    "2️⃣ قم بالرد عليها (Reply) واكتب:\n"
-                    "`.صيغة_قناة @channel_username`\n"
-                    "أو برابط القناة أو معرفها: `.صيغة_قناة -1001234567890`\n\n"
-                    "📋 لعرض القنوات المخصص لها صيغ: `.صيغ_القنوات`"
+                    "📌 **طريقة الاستخدام السهلة بلغة البشر في المحفوظات:**\n"
+                    "• **بالرد (أفضل خيار لدعم الإيموجيز المتحركة):** أرسل إعلانك في المحفوظات ثم رد عليه بـ:\n"
+                    "  `.صيغة قناة @channel` أو `.صيغة @channel`\n\n"
+                    "• **أو في رسالة واحدة:**\n"
+                    "  `.صيغة قناة @channel`\n"
+                    "  نص الإعلان هنا بالتفصيل...\n  [LINK]\n\n"
+                    "📋 لعرض قنواتك المخصص لها صيغ: `.صيغ القنوات`"
                 )
                 return
 
@@ -3911,10 +3979,9 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                     raw_text = replied.caption.html
             else:
                 full_html = message.text.html if message.text else (message.caption.html if message.caption else "")
-                match = re.match(r"^(\s*[\./\\]\s*(?:صيغة_قناة|صيغه_قناة|صيغة_قناه|صيغه_قناه|قالب_قناة|قالب_قناه|تخصيص_صيغة)\s+[^\s]+\s*)", message.text or message.caption or "")
-                if match:
-                    prefix = match.group(0)
-                    raw_text = full_html[len(prefix):].strip()
+                lines = full_html.split('\n')
+                if len(lines) > 1:
+                    raw_text = "\n".join(lines[1:]).strip()
 
             if not raw_text:
                 async with AsyncSessionLocal() as session:
@@ -4010,16 +4077,27 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
 
     async def handle_حذف_صيغة_قناة(message: Message, parts: List[str]):
         try:
-            if len(parts) < 2:
+            skip_words = {
+                "صيغة", "صيغه", "صيغ", "قالب", "قوالب",
+                "قناة", "قناه", "القناة", "القناه", "قنوات", "القنوات", "لقناة", "لقناه", "للقناة", "للقناه",
+                "مخصصة", "مخصصه", "المخصصة", "المخصصه"
+            }
+            arg = None
+            for p in parts[1:]:
+                p_clean = p.strip().lower()
+                if p_clean in skip_words:
+                    continue
+                arg = p.strip()
+                break
+
+            if not arg:
                 await message.reply_text(
                     "⚠️ **يرجى تحديد رقم تعريف الصيغة أو معرف القناة لحذف صيغها.**\n\n"
-                    "مثال:\n"
-                    "• لحذف صيغة محددة برقمها: `.حذف_صيغة_قناة 15`\n"
-                    "• لحذف كل صيغ قناة معينة: `.حذف_صيغة_قناة @channel_username`"
+                    "أمثلة سهلة بلغة البشر:\n"
+                    "• لحذف صيغة محددة برقمها: `.حذف صيغة 15` أو `.حذف صيغة قناة 15`\n"
+                    "• لحذف كل صيغ قناة معينة: `.حذف صيغ القناة @channel` أو `.حذف صيغة @channel`"
                 )
                 return
-
-            arg = parts[1].strip()
             async with AsyncSessionLocal() as session:
                 if arg.isdigit():
                     template_id = int(arg)
@@ -4683,12 +4761,13 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             "• `.تنظيف` : لحذف رسائل الأوامر وتقارير البوت لتنظيف المحادثة.\n\n"
             "• `.مسح_عميق` : لمسح إعلانات القنوات وتصفير البوت تماماً.\n\n"
             "⚙️ **أوامر الصيغ والملصقات:**\n"
-            "• `.صيغة_قناة @channel` : لتخصيص صيغة إعلانية لقناة معينة (بالرد على الرسالة لحفظ الإيموجيز المتحركة).\n\n"
-            "• `.صيغ_القنوات` : لعرض كافة القنوات المخصص لها صيغ إعلانية مستقلة.\n\n"
-            "• `.حذف_صيغة_قناة` : لحذف صيغة مخصصة لقناة معينة.\n\n"
+            "• `.صيغة قناة @channel` : لتخصيص صيغة إعلانية لقناة معينة (بالرد على الرسالة لحفظ الإيموجيز المتحركة أو بكتابتها تحت الأمر مباشرة).\n"
+            "  ← بدائل سريعة: `.صيغة @channel` أو `.صيغة_قناة @channel`\n\n"
+            "• `.صيغ القنوات` : لعرض كافة القنوات المخصص لها صيغ إعلانية مستقلة (أو `.صيغ_القنوات`).\n\n"
+            "• `.حذف صيغة قناة @channel` : لحذف صيغ مخصصة لقناة معينة (أو بالرقم: `.حذف صيغة 15`).\n\n"
             "• `.صيغة` : لإضافة صيغة عامة جديدة لمكتبة إعلاناتك.\n\n"
-            "• `.حذف_صيغة` : لحذف صيغة عامة محددة من مكتبة الإعلانات.\n\n"
-            "• `.تفعيل_استيكر` / `.تعطيل_استيكر` : لتشغيل أو إيقاف الملصق الترويجي المرفق."
+            "• `.حذف صيغة 12` : لحذف صيغة عامة محددة برقمها من مكتبة الإعلانات.\n\n"
+            "• `.تفعيل استيكر` / `.تعطيل استيكر` : لتشغيل أو إيقاف الملصق الترويجي المرفق."
         )
         await message.reply_text(text)
 
