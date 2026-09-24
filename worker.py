@@ -64,7 +64,8 @@ class RedisPublishHandler(logging.Handler):
         self.redis_client = redis.Redis.from_url(
             redis_url, decode_responses=True,
             socket_timeout=0.5,
-            socket_connect_timeout=0.5
+            socket_connect_timeout=0.5,
+            max_connections=5
         )
         self.channel = "saas_live_logs"
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
