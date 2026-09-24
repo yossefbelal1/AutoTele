@@ -2480,42 +2480,62 @@ async function handleWebCampaignSubmit(e) {
 // 9. AD FORMAT ENGINE MODULE (Upgraded with Features 1, 2, 5, 6, 8)
 // ==========================================
 
-// Switch between single template add and bulk import modes
+// Switch between single template add, bulk import, and dedicated channel templates
 window.switchTemplateMode = function(mode) {
   const btnSingle = document.getElementById("tab-btn-single-template");
   const btnBulk = document.getElementById("tab-btn-bulk-template");
+  const btnChannel = document.getElementById("tab-btn-channel-template");
   const cardSingle = document.getElementById("card-single-template");
   const cardBulk = document.getElementById("card-bulk-template");
+  const cardChannel = document.getElementById("card-channel-template");
 
-  if (mode === "bulk") {
+  // Helper to reset button styling
+  const resetBtn = (btn) => {
+    if (!btn) return;
+    btn.style.background = "rgba(30, 41, 59, 0.6)";
+    btn.style.borderColor = "#334155";
+    btn.style.color = "#94a3b8";
+    btn.style.fontWeight = "600";
+  };
+
+  if (mode === "channel") {
+    if (cardSingle) cardSingle.classList.add("hidden");
+    if (cardBulk) cardBulk.classList.add("hidden");
+    if (cardChannel) cardChannel.classList.remove("hidden");
+    resetBtn(btnSingle);
+    resetBtn(btnBulk);
+    if (btnChannel) {
+      btnChannel.style.background = "rgba(56, 189, 248, 0.2)";
+      btnChannel.style.borderColor = "#38bdf8";
+      btnChannel.style.color = "#38bdf8";
+      btnChannel.style.fontWeight = "700";
+    }
+    populateDedicatedChannelDropdown();
+    renderDedicatedChannelsOverview();
+  } else if (mode === "bulk") {
     if (cardSingle) cardSingle.classList.add("hidden");
     if (cardBulk) cardBulk.classList.remove("hidden");
+    if (cardChannel) cardChannel.classList.add("hidden");
+    resetBtn(btnSingle);
+    resetBtn(btnChannel);
     if (btnBulk) {
       btnBulk.style.background = "rgba(34, 197, 94, 0.2)";
       btnBulk.style.borderColor = "#22c55e";
       btnBulk.style.color = "#4ade80";
       btnBulk.style.fontWeight = "700";
     }
-    if (btnSingle) {
-      btnSingle.style.background = "rgba(30, 41, 59, 0.6)";
-      btnSingle.style.borderColor = "#334155";
-      btnSingle.style.color = "#94a3b8";
-      btnSingle.style.fontWeight = "600";
-    }
   } else {
+    // Default to 'single'
     if (cardBulk) cardBulk.classList.add("hidden");
+    if (cardChannel) cardChannel.classList.add("hidden");
     if (cardSingle) cardSingle.classList.remove("hidden");
+    resetBtn(btnBulk);
+    resetBtn(btnChannel);
     if (btnSingle) {
       btnSingle.style.background = "rgba(59, 130, 246, 0.2)";
       btnSingle.style.borderColor = "#3b82f6";
       btnSingle.style.color = "#60a5fa";
       btnSingle.style.fontWeight = "700";
-    }
-    if (btnBulk) {
-      btnBulk.style.background = "rgba(30, 41, 59, 0.6)";
-      btnBulk.style.borderColor = "#334155";
-      btnBulk.style.color = "#94a3b8";
-      btnBulk.style.fontWeight = "600";
     }
   }
 };
@@ -2760,24 +2780,6 @@ async function handleTemplateAdd(e) {
     return;
   }
 
-  // Check for channel-specific template scope
-  const scopeRadio = document.querySelector('input[name="template-scope"]:checked');
-  const isChannelScope = scopeRadio && scopeRadio.value === "channel";
-  let targetChannelId = null;
-  let targetChannelTitle = null;
-
-  if (isChannelScope) {
-    const channelSelect = document.getElementById("template-target-channel");
-    if (channelSelect && channelSelect.value) {
-      targetChannelId = parseInt(channelSelect.value);
-      const selectedOption = channelSelect.options[channelSelect.selectedIndex];
-      targetChannelTitle = selectedOption ? (selectedOption.dataset.title || selectedOption.textContent.split(' [')[0].split(' (')[0].trim()) : null;
-    } else {
-      showToast("يرجى اختيار القناة المراد تخصيص هذه الصيغة لها!", "warning");
-      return;
-    }
-  }
-
   setButtonLoading("btn-add-template", true);
 
   try {
@@ -2785,10 +2787,6 @@ async function handleTemplateAdd(e) {
       telegram_account_id: currentTelegramAccountId,
       template_text: templateText
     };
-    if (targetChannelId) {
-      payload.channel_id = targetChannelId;
-      payload.channel_title = targetChannelTitle;
-    }
 
     const data = await apiRequest("/templates/add", {
       method: "POST",
@@ -2798,7 +2796,6 @@ async function handleTemplateAdd(e) {
     if (data.status === "success") {
       showToast(data.message || "تم إضافة صيغة إعلانك بنجاح لمكتبتك!", "success");
       document.getElementById("template-add-form").reset();
-      toggleTemplateChannelSelect(false);
       loadTemplatesList();
       populateCampaignTemplatePicker();
     }
@@ -2809,13 +2806,20 @@ async function handleTemplateAdd(e) {
   }
 }
 
-// Channel Scope Selection Helpers
-async function populateTemplateTargetChannels() {
-  const select = document.getElementById("template-target-channel");
+// ==========================================
+// DEDICATED CHANNEL AD TEMPLATES MODULE
+// ==========================================
+
+async function populateDedicatedChannelDropdown(forceRefresh = false) {
+  const select = document.getElementById("dedicated-channel-select");
   if (!select) return;
-  
+
+  if (forceRefresh) {
+    select.innerHTML = '<option value="">-- جاري تحديث القنوات... --</option>';
+  }
+
   let channels = window._channelPickerData || [];
-  if (!channels || channels.length === 0) {
+  if (forceRefresh || !channels || channels.length === 0) {
     try {
       const data = await apiRequest("/user/channels");
       if (data && data.channels) {
@@ -2823,11 +2827,12 @@ async function populateTemplateTargetChannels() {
         window._channelPickerData = channels;
       }
     } catch (e) {
-      console.debug("Failed to fetch channels for template target:", e);
+      console.debug("Failed to fetch channels for dedicated template:", e);
     }
   }
 
-  select.innerHTML = '<option value="">-- اختر القناة المراد تخصيص الإعلان لها --</option>';
+  const prevVal = select.value;
+  select.innerHTML = '<option value="">-- اضغط لاختيار القناة من قنواتك --</option>';
   if (channels && channels.length > 0) {
     channels.forEach(ch => {
       const opt = document.createElement("option");
@@ -2838,23 +2843,187 @@ async function populateTemplateTargetChannels() {
       opt.textContent = `${ch.title}${userTag}${roleTag}`;
       select.appendChild(opt);
     });
+    if (prevVal) select.value = prevVal;
   } else {
-    select.innerHTML = '<option value="">لا توجد قنوات متاحة حالياً (يرجى تحديث القنوات أولاً)</option>';
+    select.innerHTML = '<option value="">لا توجد قنوات متاحة (تأكد من ربط حسابك وتحديث قنواتك)</option>';
   }
 }
-window.populateTemplateTargetChannels = populateTemplateTargetChannels;
+window.populateDedicatedChannelDropdown = populateDedicatedChannelDropdown;
 
-window.toggleTemplateChannelSelect = function(isChannel) {
-  const wrap = document.getElementById("template-channel-select-wrap");
-  if (wrap) {
-    if (isChannel) {
-      wrap.classList.remove("hidden");
-      populateTemplateTargetChannels();
-    } else {
-      wrap.classList.add("hidden");
-      const sel = document.getElementById("template-target-channel");
-      if (sel) sel.value = "";
+window.onDedicatedChannelSelected = function(channelId) {
+  const formWrap = document.getElementById("dedicated-channel-form-wrap");
+  const placeholderMsg = document.getElementById("dedicated-channel-placeholder-msg");
+  const existingBox = document.getElementById("dedicated-channel-existing-box");
+
+  if (!channelId) {
+    if (formWrap) formWrap.classList.add("hidden");
+    if (existingBox) existingBox.classList.add("hidden");
+    if (placeholderMsg) placeholderMsg.classList.remove("hidden");
+    return;
+  }
+
+  if (placeholderMsg) placeholderMsg.classList.add("hidden");
+  if (formWrap) formWrap.classList.remove("hidden");
+
+  renderDedicatedExistingTemplates(parseInt(channelId));
+};
+
+function renderDedicatedExistingTemplates(channelId) {
+  const existingBox = document.getElementById("dedicated-channel-existing-box");
+  const listEl = document.getElementById("dedicated-existing-list");
+  const countBadge = document.getElementById("dedicated-existing-count-badge");
+  const headerEl = document.getElementById("dedicated-existing-header");
+  if (!existingBox || !listEl) return;
+
+  const channelTemplates = (_allLoadedTemplates || []).filter(t => t.channel_id === channelId);
+  const chSelect = document.getElementById("dedicated-channel-select");
+  const chTitle = chSelect && chSelect.options[chSelect.selectedIndex] ? (chSelect.options[chSelect.selectedIndex].dataset.title || chSelect.options[chSelect.selectedIndex].textContent) : "القناة";
+
+  if (headerEl) headerEl.textContent = `الصيغ المخصصة لقناة [${chTitle}]:`;
+  if (countBadge) countBadge.textContent = `${channelTemplates.length} صيغ`;
+
+  if (channelTemplates.length === 0) {
+    existingBox.classList.remove("hidden");
+    listEl.innerHTML = `<p style="font-size: 12px; color: #94a3b8; margin: 4px 0;">لا توجد أي صيغ مخصصة لهذه القناة حالياً. أضف صيغة أولى من النموذج أدناه لتطبيقها تلقائياً عند الترويج للقناة.</p>`;
+    return;
+  }
+
+  existingBox.classList.remove("hidden");
+  let html = "";
+  channelTemplates.forEach((t, idx) => {
+    const safeText = t.template_text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    html += `
+      <div style="background: #0f172a; border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
+        <div style="flex-grow: 1;">
+          <div style="font-size: 11px; color: #38bdf8; font-weight: 700; margin-bottom: 4px;">صيغة #${idx + 1} (معرف: ${t.id})</div>
+          <div style="font-size: 13px; color: #e2e8f0; white-space: pre-wrap; line-height: 1.5; font-family: Cairo, sans-serif;">${safeText}</div>
+        </div>
+        <button type="button" onclick="deleteDedicatedTemplate(${t.id}, ${channelId})" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 11.5px; font-weight: 600; white-space: nowrap;">حذف</button>
+      </div>
+    `;
+  });
+  listEl.innerHTML = html;
+}
+
+window.deleteDedicatedTemplate = async function(templateId, channelId) {
+  if (!confirm("هل أنت متأكد من حذف هذه الصيغة المخصصة؟")) return;
+  try {
+    const res = await apiRequest(`/templates/${templateId}`, { method: "DELETE" });
+    if (res.status === "success") {
+      showToast("تم حذف الصيغة المخصصة بنجاح!", "success");
+      await loadTemplatesList();
+      renderDedicatedExistingTemplates(channelId);
+      renderDedicatedChannelsOverview();
     }
+  } catch (e) {
+    console.error("Delete dedicated template error:", e);
+    showToast("فشل حذف الصيغة.", "error");
+  }
+};
+
+window.handleDedicatedChannelTemplateAdd = async function(e) {
+  if (e && e.preventDefault) e.preventDefault();
+
+  if (!currentTelegramAccountId) {
+    showToast("يرجى ربط حسابك على تليجرام أولاً من علامة تبويب 'ربط المحرك'.", "warning");
+    return;
+  }
+
+  const chSelect = document.getElementById("dedicated-channel-select");
+  if (!chSelect || !chSelect.value) {
+    showToast("يرجى اختيار القناة أولاً!", "warning");
+    return;
+  }
+
+  const channelId = parseInt(chSelect.value);
+  const selectedOption = chSelect.options[chSelect.selectedIndex];
+  const channelTitle = selectedOption ? (selectedOption.dataset.title || selectedOption.textContent.split(' [')[0].split(' (')[0].trim()) : null;
+
+  const textarea = document.getElementById("dedicated-template-text");
+  if (!textarea || !textarea.value.trim()) {
+    showToast("يرجى كتابة نص الصيغة الإعلانية!", "warning");
+    return;
+  }
+
+  let text = textarea.value.trim();
+  if (!text.toLowerCase().includes("[link]") && !text.toLowerCase().includes("{link}")) {
+    text += "\n\n[LINK]";
+  }
+
+  setButtonLoading("btn-add-dedicated-template", true);
+  try {
+    const payload = {
+      telegram_account_id: currentTelegramAccountId,
+      template_text: text,
+      channel_id: channelId,
+      channel_title: channelTitle
+    };
+
+    const data = await apiRequest("/templates/add", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+
+    if (data.status === "success") {
+      showToast(data.message || `تم تخصيص الصيغة بنجاح لقناة [${channelTitle}]! 🎯`, "success");
+      textarea.value = "";
+      await loadTemplatesList();
+      renderDedicatedExistingTemplates(channelId);
+      renderDedicatedChannelsOverview();
+      populateCampaignTemplatePicker();
+    }
+  } catch (error) {
+    console.error("Add Dedicated Template Error:", error);
+  } finally {
+    setButtonLoading("btn-add-dedicated-template", false);
+  }
+};
+
+function renderDedicatedChannelsOverview() {
+  const container = document.getElementById("dedicated-channels-chips-list");
+  const countBadge = document.getElementById("dedicated-channels-count-badge");
+  if (!container) return;
+
+  const channelMap = new Map();
+  (_allLoadedTemplates || []).forEach(t => {
+    if (t.channel_id) {
+      if (!channelMap.has(t.channel_id)) {
+        channelMap.set(t.channel_id, {
+          title: t.channel_title || `قناة ${t.channel_id}`,
+          count: 0
+        });
+      }
+      channelMap.get(t.channel_id).count++;
+    }
+  });
+
+  if (countBadge) countBadge.textContent = `${channelMap.size} قناة`;
+
+  if (channelMap.size === 0) {
+    container.innerHTML = `<span style="font-size: 12px; color: #64748b;">لا توجد قنوات مخصص لها صيغ إعلانية حتى الآن. اختر قناة أعلاه لإضافة صيغتها الأولى.</span>`;
+    return;
+  }
+
+  let html = "";
+  channelMap.forEach((info, chId) => {
+    html += `
+      <button type="button" onclick="selectChannelInDedicatedTab(${chId})" style="background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; font-size: 12px; padding: 6px 12px; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; transition: all 0.2s;">
+        <span>📢 ${info.title}</span>
+        <span style="background: rgba(56, 189, 248, 0.25); color: #fff; font-size: 10.5px; padding: 1px 6px; border-radius: 10px; font-weight: 700;">${info.count} صيغ</span>
+      </button>
+    `;
+  });
+  container.innerHTML = html;
+}
+
+window.selectChannelInDedicatedTab = function(channelId) {
+  const select = document.getElementById("dedicated-channel-select");
+  if (select) {
+    select.value = channelId;
+    window.onDedicatedChannelSelected(channelId);
   }
 };
 
@@ -2870,20 +3039,40 @@ async function populateCampaignTemplatePicker() {
     // Always provide Smart Dynamic Rotation option
     const rotateOpt = document.createElement("option");
     rotateOpt.value = "__ROTATE__";
-    rotateOpt.textContent = "🔄 تدوير عشوائي ذكي بين جميع صيغ المكتبة (حماية الحسابات)";
+    rotateOpt.textContent = "🔄 تدوير عشوائي ذكي بين صيغ المكتبة (حماية الحسابات)";
     rotateOpt.style.color = "#4ade80";
     rotateOpt.style.fontWeight = "700";
     select.appendChild(rotateOpt);
 
     if (templates && Array.isArray(templates) && templates.length > 0) {
-      templates.forEach((t, idx) => {
-        const opt = document.createElement("option");
-        opt.value = t.template_text;
-        const preview = t.template_text.length > 35 ? t.template_text.substring(0, 35) + "..." : t.template_text;
-        const tag = t.channel_title ? ` [🎯 ${t.channel_title}]` : "";
-        opt.textContent = `⭐ صيغة ${idx + 1}${tag}: ${preview}`;
-        select.appendChild(opt);
-      });
+      const channelTemplates = templates.filter(t => !!t.channel_id);
+      const generalTemplates = templates.filter(t => !t.channel_id);
+
+      if (channelTemplates.length > 0) {
+        const groupChannel = document.createElement("optgroup");
+        groupChannel.label = "🎯 صيغات القنوات المخصصة:";
+        channelTemplates.forEach((t, idx) => {
+          const opt = document.createElement("option");
+          opt.value = t.template_text;
+          const preview = t.template_text.length > 35 ? t.template_text.substring(0, 35) + "..." : t.template_text;
+          opt.textContent = `🎯 [${t.channel_title || t.channel_id}]: ${preview}`;
+          groupChannel.appendChild(opt);
+        });
+        select.appendChild(groupChannel);
+      }
+
+      if (generalTemplates.length > 0) {
+        const groupGeneral = document.createElement("optgroup");
+        groupGeneral.label = "🌐 الصيغ العامة لكافة القنوات:";
+        generalTemplates.forEach((t, idx) => {
+          const opt = document.createElement("option");
+          opt.value = t.template_text;
+          const preview = t.template_text.length > 35 ? t.template_text.substring(0, 35) + "..." : t.template_text;
+          opt.textContent = `⭐ صيغة عامة ${idx + 1}: ${preview}`;
+          groupGeneral.appendChild(opt);
+        });
+        select.appendChild(groupGeneral);
+      }
     } else {
       const opt = document.createElement("option");
       opt.value = "";
@@ -3016,6 +3205,11 @@ async function loadTemplatesList() {
 
     _allLoadedTemplates = data;
     renderFilteredTemplates();
+    renderDedicatedChannelsOverview();
+    const chSelect = document.getElementById("dedicated-channel-select");
+    if (chSelect && chSelect.value) {
+      renderDedicatedExistingTemplates(parseInt(chSelect.value));
+    }
   } catch (error) {
     console.error("Load Templates Error:", error);
     container.innerHTML = `<p style="color: #f43f5e; font-size: 13px; text-align: center; padding: 20px;">فشل تحميل الصيغ الإعلانية. يرجى المحاولة لاحقاً.</p>`;

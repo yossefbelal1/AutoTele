@@ -1663,14 +1663,18 @@
               </div>
 
               <!-- Mode Switcher Tabs -->
-              <div style="display: flex; gap: 10px; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 12px;">
+              <div style="display: flex; gap: 10px; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 12px; flex-wrap: wrap;">
                 <button type="button" id="tab-btn-single-template" class="btn btn-sm" onclick="switchTemplateMode('single')" style="background: rgba(59, 130, 246, 0.2); border: 1px solid #3b82f6; color: #60a5fa; font-weight: 700; border-radius: 8px; padding: 8px 16px; cursor: pointer; display: flex; align-items: center; gap: 6px;">
                   <span>✏️</span>
-                  <span>صيغة مفردة (مع الأدوات المتقدمة)</span>
+                  <span>صيغة عامة لكافة القنوات</span>
                 </button>
                 <button type="button" id="tab-btn-bulk-template" class="btn btn-sm" onclick="switchTemplateMode('bulk')" style="background: rgba(30, 41, 59, 0.6); border: 1px solid #334155; color: #94a3b8; font-weight: 600; border-radius: 8px; padding: 8px 16px; cursor: pointer; display: flex; align-items: center; gap: 6px;">
                   <span>⚡</span>
                   <span>إضافة مجمّعة ذكية (Bulk Import)</span>
+                </button>
+                <button type="button" id="tab-btn-channel-template" class="btn btn-sm" onclick="switchTemplateMode('channel')" style="background: rgba(30, 41, 59, 0.6); border: 1px solid #334155; color: #94a3b8; font-weight: 600; border-radius: 8px; padding: 8px 16px; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                  <span>🎯</span>
+                  <span>صيغات القنوات المخصصة</span>
                 </button>
               </div>
 
@@ -1680,9 +1684,9 @@
                   <h3 class="card-title" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
                     <span style="display: flex; align-items: center; gap: 8px;">
                       <span>📝</span>
-                      <span>إضافة صيغة إعلان جديدة</span>
+                      <span>إضافة صيغة عامة جديدة</span>
                     </span>
-                    <span style="font-size: 11px; color: #38bdf8; background: rgba(56,189,248,0.1); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(56,189,248,0.2);">أولوية 100% لحسابك</span>
+                    <span style="font-size: 11px; color: #38bdf8; background: rgba(56,189,248,0.1); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(56,189,248,0.2);">تدوير لكافة القنوات</span>
                   </h3>
 
                   <!-- Marketing Tone Shifter (Idea 5) -->
@@ -1726,31 +1730,6 @@
                   <form id="template-add-form">
                     <div class="input-group" style="margin-bottom: 8px;">
                       <textarea id="template-text" required placeholder="اكتب صيغة الإعلان الخاصة بك هنا أو اضغط على النكهات التسويقية أعلاه..." rows="8" style="border-radius: 0 0 8px 8px; margin-top: 0; width: 100%; box-sizing: border-box;"></textarea>
-                    </div>
-
-                    <!-- Template Scope Selector (Channel-Specific vs General) -->
-                    <div style="margin-bottom: 14px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px;">
-                      <div style="font-size: 12px; color: #94a3b8; margin-bottom: 8px; font-weight: 700; display: flex; align-items: center; gap: 6px;">
-                        <span>🎯</span>
-                        <span>نطاق تطبيق الصيغة:</span>
-                      </div>
-                      <div style="display: flex; gap: 14px; margin-bottom: 8px; flex-wrap: wrap;">
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #e2e8f0; cursor: pointer;">
-                          <input type="radio" name="template-scope" value="general" checked onchange="toggleTemplateChannelSelect(false)" style="accent-color: #3b82f6;">
-                          <span>🌐 عامة (تدوير لكافة القنوات)</span>
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #38bdf8; cursor: pointer; font-weight: 600;">
-                          <input type="radio" name="template-scope" value="channel" onchange="toggleTemplateChannelSelect(true)" style="accent-color: #38bdf8;">
-                          <span>🎯 مخصصة لقناة معينة</span>
-                        </label>
-                      </div>
-                      <div id="template-channel-select-wrap" class="hidden" style="margin-top: 10px;">
-                        <label for="template-target-channel" style="display: block; font-size: 11.5px; color: #94a3b8; margin-bottom: 4px;">اختر القناة المراد تخصيص هذا الإعلان لها:</label>
-                        <select id="template-target-channel" class="form-control" style="background: #0f172a; color: #fff; border: 1px solid #38bdf8; border-radius: 6px; padding: 8px 10px; width: 100%; font-size: 13px;">
-                          <option value="">-- جاري تحميل القنوات... --</option>
-                        </select>
-                        <small style="display: block; font-size: 11px; color: #64748b; margin-top: 4px;">💡 عندما يتم الترويج لهذه القناة في التبادل أو الحملات، سيتم استخدام هذه الصيغة تلقائياً بدلاً من الصيغ العامة.</small>
-                      </div>
                     </div>
 
                     <!-- Dynamic Placeholders Chips (Idea 6) -->
@@ -1818,6 +1797,116 @@
                       <span class="spinner hidden"></span>
                     </button>
                   </form>
+                </div>
+
+                <!-- Channel-Specific Templates Card (Idea 3 - Dedicated Channel Ads) -->
+                <div id="card-channel-template" class="template-form-card card hidden" style="background: #1e293b; border: 1px solid #38bdf8; border-radius: 12px; padding: 20px;">
+                  <h3 class="card-title" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                    <span style="display: flex; align-items: center; gap: 8px;">
+                      <span>🎯</span>
+                      <span>صيغات القنوات المخصصة (Dedicated Channel Ads)</span>
+                    </span>
+                    <span style="font-size: 11px; color: #38bdf8; background: rgba(56,189,248,0.12); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(56,189,248,0.3); font-weight: 700;">أولوية مطلقة للقناة المستهدفة</span>
+                  </h3>
+                  <p style="font-size: 12.5px; color: #94a3b8; line-height: 1.6; margin-bottom: 16px;">
+                    خصص صيغة أو أكثر لكل قناة من قنواتك ليتم اعتمادها تلقائياً عند الترويج للقناة في الحملات والتبادل بدلاً من الصيغ العامة.
+                  </p>
+
+                  <!-- 1. Channel Selector -->
+                  <div style="margin-bottom: 16px; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 10px; padding: 14px;">
+                    <label for="dedicated-channel-select" style="display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: #e2e8f0; margin-bottom: 8px;">
+                      <span>📢</span>
+                      <span>اختر القناة المراد تخصيص أو إدارة إعلاناتها:</span>
+                    </label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                      <select id="dedicated-channel-select" class="form-control" onchange="onDedicatedChannelSelected(this.value)" style="background: #0f172a; color: #fff; border: 1px solid #38bdf8; border-radius: 8px; padding: 10px 14px; flex-grow: 1; font-size: 13.5px; outline: none;">
+                        <option value="">-- اضغط لاختيار القناة من قنواتك --</option>
+                      </select>
+                      <button type="button" onclick="populateDedicatedChannelDropdown(true)" title="تحديث قائمة القنوات" class="btn btn-sm" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; padding: 9px 14px; border-radius: 8px; cursor: pointer; white-space: nowrap; font-weight: 600;">
+                        🔄 تحديث
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Existing Templates for Selected Channel Container -->
+                  <div id="dedicated-channel-existing-box" class="hidden" style="margin-bottom: 16px; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 14px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                      <span style="font-size: 13px; font-weight: 700; color: #38bdf8;" id="dedicated-existing-header">الصيغ الحالية المخصصة لهذه القناة:</span>
+                      <span id="dedicated-existing-count-badge" style="font-size: 11px; background: rgba(56,189,248,0.2); color: #38bdf8; padding: 2px 8px; border-radius: 6px; font-weight: 700;">0 صيغ</span>
+                    </div>
+                    <div id="dedicated-existing-list" style="display: flex; flex-direction: column; gap: 8px;">
+                      <!-- Injected dynamically -->
+                    </div>
+                  </div>
+
+                  <!-- Form: Add New Dedicated Template -->
+                  <div id="dedicated-channel-form-wrap" class="hidden">
+                    <div style="font-size: 13px; font-weight: 700; color: #e2e8f0; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+                      <span>✍️</span>
+                      <span>إضافة صيغة مخصصة جديدة للقناة المحددة:</span>
+                    </div>
+
+                    <!-- Toolbar -->
+                    <div style="background: #0f172a; border: 1px solid #1e293b; border-bottom: none; border-radius: 8px 8px 0 0; padding: 8px 12px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;">
+                      <div style="display: flex; align-items: center; gap: 4px;">
+                        <button type="button" onclick="formatTemplateText('bold', 'dedicated-template-text')" title="خط عريض Bold" style="background: #1e293b; border: 1px solid #334155; color: #fff; width: 28px; height: 28px; border-radius: 5px; font-weight: 800; font-size: 12px; cursor: pointer;">B</button>
+                        <button type="button" onclick="formatTemplateText('italic', 'dedicated-template-text')" title="خط مائل Italic" style="background: #1e293b; border: 1px solid #334155; color: #fff; width: 28px; height: 28px; border-radius: 5px; font-style: italic; font-size: 12px; cursor: pointer;">I</button>
+                        <button type="button" onclick="formatTemplateText('link', 'dedicated-template-text')" title="رابط مدمج Inline Link" style="background: #1e293b; border: 1px solid #334155; color: #fff; width: 28px; height: 28px; border-radius: 5px; font-size: 12px; cursor: pointer;">🔗</button>
+                        <button type="button" onclick="formatTemplateText('code', 'dedicated-template-text')" title="كود أحادي Monospace" style="background: #1e293b; border: 1px solid #334155; color: #fff; width: 28px; height: 28px; border-radius: 5px; font-family: monospace; font-size: 11px; cursor: pointer;">&lt;/&gt;</button>
+                        <button type="button" onclick="formatTemplateText('quote', 'dedicated-template-text')" title="اقتباس Quote" style="background: #1e293b; border: 1px solid #334155; color: #fff; width: 28px; height: 28px; border-radius: 5px; font-size: 12px; cursor: pointer;">❝</button>
+                      </div>
+                      <div style="display: flex; align-items: center; gap: 4px; overflow-x: auto;">
+                        <span style="font-size: 11px; color: #64748b; margin-left: 4px;">أيموجي:</span>
+                        <button type="button" onclick="insertEmoji('🚀', 'dedicated-template-text')" style="background: transparent; border: none; font-size: 14px; cursor: pointer; padding: 2px 4px;">🚀</button>
+                        <button type="button" onclick="insertEmoji('📈', 'dedicated-template-text')" style="background: transparent; border: none; font-size: 14px; cursor: pointer; padding: 2px 4px;">📈</button>
+                        <button type="button" onclick="insertEmoji('🚨', 'dedicated-template-text')" style="background: transparent; border: none; font-size: 14px; cursor: pointer; padding: 2px 4px;">🚨</button>
+                        <button type="button" onclick="insertEmoji('🎁', 'dedicated-template-text')" style="background: transparent; border: none; font-size: 14px; cursor: pointer; padding: 2px 4px;">🎁</button>
+                        <button type="button" onclick="insertEmoji('👇', 'dedicated-template-text')" style="background: transparent; border: none; font-size: 14px; cursor: pointer; padding: 2px 4px;">👇</button>
+                        <button type="button" onclick="insertEmoji('⏳', 'dedicated-template-text')" style="background: transparent; border: none; font-size: 14px; cursor: pointer; padding: 2px 4px;">⏳</button>
+                        <button type="button" onclick="insertEmoji('💎', 'dedicated-template-text')" style="background: transparent; border: none; font-size: 14px; cursor: pointer; padding: 2px 4px;">💎</button>
+                        <button type="button" onclick="insertEmoji('🔥', 'dedicated-template-text')" style="background: transparent; border: none; font-size: 14px; cursor: pointer; padding: 2px 4px;">🔥</button>
+                      </div>
+                    </div>
+
+                    <form id="dedicated-channel-add-form" onsubmit="handleDedicatedChannelTemplateAdd(event)">
+                      <div class="input-group" style="margin-bottom: 8px;">
+                        <textarea id="dedicated-template-text" required placeholder="اكتب صيغة الإعلان المخصصة لهذه القناة هنا (سيتم تدويرها تلقائياً إن كان هناك أكثر من صيغة)..." rows="6" style="border-radius: 0 0 8px 8px; margin-top: 0; width: 100%; box-sizing: border-box; background: #0f172a; color: #fff; border: 1px solid #1e293b; padding: 12px; font-size: 13.5px; font-family: Cairo, sans-serif;"></textarea>
+                      </div>
+
+                      <!-- Dynamic Placeholders Chips -->
+                      <div style="margin-bottom: 14px;">
+                        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                          <button type="button" onclick="insertPlaceholder('[LINK]', 'dedicated-template-text')" style="background: rgba(56, 189, 248, 0.1); border: 1px dashed rgba(56, 189, 248, 0.4); color: #38bdf8; font-size: 11.5px; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-weight: 600;">[LINK] رابط القناة</button>
+                          <button type="button" onclick="insertPlaceholder('[CHANNEL_NAME]', 'dedicated-template-text')" style="background: rgba(168, 85, 247, 0.1); border: 1px dashed rgba(168, 85, 247, 0.4); color: #c084fc; font-size: 11.5px; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-weight: 600;">[CHANNEL_NAME] اسم القناة</button>
+                          <button type="button" onclick="insertPlaceholder('[TARGET_MEMBERS]', 'dedicated-template-text')" style="background: rgba(34, 197, 94, 0.1); border: 1px dashed rgba(34, 197, 94, 0.4); color: #4ade80; font-size: 11.5px; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-weight: 600;">[TARGET_MEMBERS] عدد الأعضاء</button>
+                          <button type="button" onclick="insertPlaceholder('[DATE]', 'dedicated-template-text')" style="background: rgba(245, 158, 11, 0.1); border: 1px dashed rgba(245, 158, 11, 0.4); color: #fbbf24; font-size: 11.5px; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-weight: 600;">[DATE] تاريخ اليوم</button>
+                          <button type="button" onclick="insertPlaceholder('[DAY]', 'dedicated-template-text')" style="background: rgba(244, 63, 94, 0.1); border: 1px dashed rgba(244, 63, 94, 0.4); color: #fb7185; font-size: 11.5px; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-weight: 600;">[DAY] اسم اليوم</button>
+                        </div>
+                      </div>
+
+                      <button type="submit" id="btn-add-dedicated-template" class="btn btn-primary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);">
+                        <span class="btn-text">💾 حفظ وتخصيص الصيغة لهذه القناة</span>
+                        <span class="spinner hidden"></span>
+                      </button>
+                    </form>
+                  </div>
+
+                  <!-- Prompt to select a channel if none selected -->
+                  <div id="dedicated-channel-placeholder-msg" style="text-align: center; padding: 24px 16px; color: #64748b; font-size: 13px;">
+                    <span style="font-size: 26px; display: block; margin-bottom: 6px;">👆</span>
+                    يرجى اختيار القناة أولاً من القائمة المنسدلة أعلاه لإدارة وتخصيص صيغها.
+                  </div>
+
+                  <!-- Summary of all channels with dedicated templates -->
+                  <div id="dedicated-all-channels-summary" style="margin-top: 24px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 16px;">
+                    <div style="font-size: 13px; font-weight: 700; color: #cbd5e1; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
+                      <span>📊 القنوات المخصص لها صيغ إعلانية حالياً:</span>
+                      <span id="dedicated-channels-count-badge" style="font-size: 11px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 8px; border-radius: 6px;">0 قناة</span>
+                    </div>
+                    <div id="dedicated-channels-chips-list" style="display: flex; flex-wrap: wrap; gap: 8px;">
+                      <!-- Rendered dynamically -->
+                    </div>
+                  </div>
                 </div>
 
                 <!-- Templates List Card (Full Width) -->
