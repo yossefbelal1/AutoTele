@@ -145,6 +145,7 @@ running_tasks: Dict[int, asyncio.Task] = {}
 active_running_tasks: Dict[int, Set[asyncio.Task]] = {}
 scheduled_jobs: Dict[int, List[Dict[str, Any]]] = {}
 starting_tenants: Set[int] = set()
+last_health_ping: Dict[int, float] = {}
 global_worker_running = False
 
 # Global registries for concurrency control and anti-ban throttling
@@ -3359,15 +3360,18 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         # Dynamic patch to handle Telegram FloodWait rate limits safely on replies
         original_reply_text = message.reply_text
         async def safe_reply_text(*args, **kwargs):
-            try:
-                return await original_reply_text(*args, **kwargs)
-            except FloodWait as fw:
-                logger.warning(f"FloodWait hit on reply_text: waiting {fw.value}s before retry")
-                await asyncio.sleep(fw.value)
+            for attempt in range(3):
                 try:
                     return await original_reply_text(*args, **kwargs)
+                except FloodWait as fw:
+                    logger.warning(f"FloodWait hit on reply_text: waiting {fw.value}s before retry")
+                    await asyncio.sleep(fw.value)
+                except (ConnectionError, ConnectionResetError, asyncio.TimeoutError) as ce:
+                    logger.warning(f"Connection error on reply_text for tenant {tenant_id} (attempt {attempt+1}/3): {ce}")
+                    await asyncio.sleep(1.2)
                 except Exception:
                     raise
+            return await original_reply_text(*args, **kwargs)
         message.reply_text = safe_reply_text
             
         if message.sticker and message.reply_to_message and message.reply_to_message.text:
@@ -5082,21 +5086,41 @@ async def supervisor_loop():
                             await session.commit()
                     except Exception as rbe:
                         logger.error(f"Failed to clear needs_reboot flag for {acc_id}: {rbe}")
+                    # Immediately restart clean worker instance without waiting for next tick
+                    class TempAccReboot:
+                        pass
+                    t_acc_reb = TempAccReboot()
+                    for k, v in acc.items():
+                        setattr(t_acc_reb, k, v)
+                    t_acc_reb.needs_reboot = False
+                    asyncio.create_task(start_tenant_worker(t_acc_reb))
                     continue
                     
                 client = running_clients.get(acc_id)
                 is_connected = False
                 if client and client.is_connected:
-                    try:
-                        await asyncio.wait_for(client.get_chat("me"), timeout=4.0)
-                        is_connected = True
-                    except Exception as p_ex:
-                        logger.warning(f"Tenant {acc_id} client ping failed: {p_ex}. Treating as disconnected for self-healing.")
+                    is_connected = True
+                    # Only ping periodically (every 5m) if not actively crawling
+                    now_ts = time.time()
+                    if now_ts - last_health_ping.get(acc_id, 0) > 300:
+                        last_health_ping[acc_id] = now_ts
+                        if not await is_crawl_in_progress(acc_id):
+                            try:
+                                await asyncio.wait_for(client.get_chat("me"), timeout=15.0)
+                            except Exception as p_ex:
+                                logger.warning(f"Tenant {acc_id} deep health ping failed: {p_ex}. Will self-heal.")
+                                is_connected = False
 
                 # Self-healing: if client is missing or disconnected, restart client
                 if not is_connected and acc_id not in starting_tenants:
+                    # Never interrupt an ongoing crawl
+                    if await is_crawl_in_progress(acc_id):
+                        logger.debug(f"Tenant {acc_id} has crawl in progress, skipping health restart.")
+                        continue
                     starting_tenants.add(acc_id)
                     logger.info(f"Self-Healing: Triggering worker start for tenant {acc_id} (status was {acc['status']})...")
+                    if acc_id in running_clients:
+                        await stop_tenant_worker(acc_id, reason="Self-Healing Cleanup")
                     # Construct clean temporary account object for worker
                     class TempAcc:
                         pass
@@ -5201,6 +5225,16 @@ async def start_tenant_worker(account: TelegramAccount):
     tenant_id = account.id
     starting_tenants.add(tenant_id)
     try:
+        # Crucial safety guard: If an old client instance exists for this tenant, cleanly stop it first!
+        if tenant_id in running_clients:
+            old_client = running_clients[tenant_id]
+            logger.info(f"start_tenant_worker: Stopping previous client instance for tenant {tenant_id}...")
+            try:
+                await old_client.stop()
+            except Exception as e:
+                logger.warning(f"Error stopping old client for tenant {tenant_id}: {e}")
+            running_clients.pop(tenant_id, None)
+
         # Stagger client startup to prevent concurrent SSL handshake CPU spikes on cheap VPS
         import random
         await asyncio.sleep(random.uniform(0.5, 6.0))

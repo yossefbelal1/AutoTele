@@ -4513,7 +4513,12 @@ async def reboot_user_service(target_user_id: int, admin_user: User = Depends(ch
             return {"status": "warning", "message": "المستخدم غير مربوط بأي حساب تليجرام حالياً، لا توجد محركات لإعادة تشغيلها."}
 
         for acc in accounts:
-            await clear_tenant_cache(acc.id)
+            try:
+                from cache_manager import redis_client
+                await redis_client.delete(f"tenant:{acc.id}:ratelimit")
+                await redis_client.delete(f"tenant:{acc.id}:crawl_in_progress")
+            except Exception:
+                pass
             acc.status = "active"
             acc.needs_reboot = True
             session.add(acc)
@@ -4820,12 +4825,34 @@ async def admin_resync_channels(target_user_id: int, admin_user: User = Depends(
             return {"status": "warning", "message": "المستخدم غير مربوط بأي حساب تليجرام لمزامنته."}
         
         for acc in accounts:
-            await clear_tenant_cache(acc.id)
-            acc.needs_reboot = True
-            session.add(acc)
+            try:
+                from cache_manager import redis_client
+                await redis_client.delete(f"tenant:{acc.id}:crawl_in_progress")
+            except Exception:
+                pass
+            try:
+                from db_manager import WebCampaignTask
+                pending_up = await session.execute(
+                    select(WebCampaignTask.id).where(
+                        WebCampaignTask.telegram_account_id == acc.id,
+                        WebCampaignTask.campaign_type == "update",
+                        WebCampaignTask.status.in_(["pending", "processing"])
+                    )
+                )
+                if not pending_up.scalar_one_or_none():
+                    session.add(WebCampaignTask(
+                        telegram_account_id=acc.id,
+                        campaign_type="update",
+                        delay_start=0,
+                        delay_between_channels=0,
+                        ad_lifespan=0,
+                        status="pending"
+                    ))
+            except Exception as e:
+                logger.error(f"Failed to enqueue update task on resync: {e}")
             
         await session.commit()
-        return {"status": "success", "message": "تم تفريغ كاش القنوات وطلب إعادة المزامنة لكافة محركات العميل."}
+        return {"status": "success", "message": "تم إطلاق مهمة مزامنة وسحب القنوات في الخلفية بنجاح دون التأثير على عمل المحرك أو تفريغ الكاش."}
 
 @app.post("/admin/users/{target_user_id}/actions/reset-limits")
 async def admin_reset_limits(target_user_id: int, admin_user: User = Depends(check_admin_user)):
