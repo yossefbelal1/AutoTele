@@ -5135,7 +5135,6 @@ async def supervisor_loop():
                             bot_state = await get_setting(chk_sess, acc_id, "bot_system_state")
                         if bot_state == "active":
                             from cache_manager import redis_client
-                            import time
                             wave_end_time = await redis_client.get(f"tenant:{acc_id}:wave_end_time")
                             if wave_end_time:
                                 try:
