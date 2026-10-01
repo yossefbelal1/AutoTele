@@ -55,6 +55,8 @@ services:
       --maxmemory-policy allkeys-lru
       --save 900 1
       --save 300 10
+      --timeout 300
+      --tcp-keepalive 60
     # Bind to localhost only for debugging; not exposed to public internet
     ports:
       - "127.0.0.1:6380:6379"

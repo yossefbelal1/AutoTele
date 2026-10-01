@@ -45,7 +45,7 @@ from db_manager import (
     ActiveAd, PublishLog, ExchangeRequest, ExchangeAgreement, ExchangeExecution,
     SubscriptionNotificationLog
 )
-from cache_manager import is_rate_limited, is_key_rate_limited, redis_client, clear_tenant_cache, get_channels_cache, get_invite_link
+from cache_manager import is_rate_limited, is_key_rate_limited, redis_client, redis_pubsub_client, clear_tenant_cache, get_channels_cache, get_invite_link
 
 import redis
 import re as _re
@@ -2513,7 +2513,7 @@ async def get_user_active_ads(user_id: int = Depends(get_current_user)):
 
 
 @app.get("/user/live-stream")
-async def user_live_stream(user_id: int = Depends(get_current_user)):
+async def user_live_stream(request: Request, user_id: int = Depends(get_current_user)):
     """
     بث مباشر فائق السرعة عبر Server-Sent Events (SSE).
     يستمع لأحداث المستأجر الحية عبر Redis Pub/Sub:
@@ -2533,7 +2533,7 @@ async def user_live_stream(user_id: int = Depends(get_current_user)):
     channel = f"tenant:{tenant_id}:live_events"
 
     async def event_generator():
-        pubsub = redis_client.pubsub()
+        pubsub = redis_pubsub_client.pubsub()
         await pubsub.subscribe(channel)
         try:
             # Welcome handshake event
@@ -2546,6 +2546,9 @@ async def user_live_stream(user_id: int = Depends(get_current_user)):
             
             last_ping = time.time()
             while True:
+                if await request.is_disconnected():
+                    break
+
                 try:
                     message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
                     if message and message["type"] == "message":
@@ -2557,10 +2560,13 @@ async def user_live_stream(user_id: int = Depends(get_current_user)):
                     if now - last_ping >= 15.0:
                         last_ping = now
                         yield ": ping\n\n"
+                except (asyncio.CancelledError, GeneratorExit, BrokenPipeError, ConnectionResetError):
+                    break
                 except Exception:
-                    pass
+                    if await request.is_disconnected():
+                        break
                 await asyncio.sleep(0.05)
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, GeneratorExit):
             pass
         finally:
             try:
@@ -5267,10 +5273,10 @@ async def admin_broadcast(
     return {"status": "success", "message": f"جاري إطلاق البث{media_desc} {dest_msg} في الخلفية بنجاح!"}
 
 @app.get("/admin/logs/stream")
-async def live_logs_stream(tenant_id: Optional[int] = None, admin_user: User = Depends(check_admin_user)):
+async def live_logs_stream(request: Request, tenant_id: Optional[int] = None, admin_user: User = Depends(check_admin_user)):
 
     async def log_generator():
-        pubsub = redis_client.pubsub()
+        pubsub = redis_pubsub_client.pubsub()
         await pubsub.subscribe("saas_live_logs")
         try:
             scope = f"tenant {tenant_id}" if tenant_id else "جميع المشتركين"
@@ -5280,6 +5286,9 @@ async def live_logs_stream(tenant_id: Optional[int] = None, admin_user: User = D
             }, ensure_ascii=False)
             yield f"data: {hello}\n\n"
             while True:
+                if await request.is_disconnected():
+                    break
+
                 try:
                     message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
                     if message and message["type"] == "message":
@@ -5295,10 +5304,13 @@ async def live_logs_stream(tenant_id: Optional[int] = None, admin_user: User = D
                             except Exception:
                                 pass
                         yield f"data: {raw}\n\n"
+                except (asyncio.CancelledError, GeneratorExit, BrokenPipeError, ConnectionResetError):
+                    break
                 except Exception:
-                    pass
+                    if await request.is_disconnected():
+                        break
                 await asyncio.sleep(0.05)
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, GeneratorExit):
             pass
         finally:
             try:

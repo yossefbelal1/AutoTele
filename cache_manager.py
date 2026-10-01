@@ -21,8 +21,19 @@ INVITE_LINKS_CACHE_TTL = int(os.getenv("INVITE_LINKS_CACHE_TTL", 86400))  # 24 �
 redis_client: aioredis.Redis = aioredis.from_url(
     REDIS_URL,
     decode_responses=True,
-    max_connections=100,  # الحد الأقصى للاتصالات في الـ Pool - يجب أن يكفي لـ PubSub subscriptions لكل tenant + العمليات العادية
+    max_connections=500,  # الحد الأقصى للعمليات العادية (GET, SET, rate-limits, healthchecks)
     socket_timeout=5.0,
+    socket_connect_timeout=5.0,
+    retry_on_timeout=True
+)
+
+# مسبح اتصالات مخصص وحصري لـ Pub/Sub والبث المباشر (SSE / Live streams)
+# تم فصله بالكامل عن مسبح العمليات العامة حتى لا تستهلك قنوات الاستماع المفتوحة اتصالات النظام وتتسبب في إيقافه
+redis_pubsub_client: aioredis.Redis = aioredis.from_url(
+    REDIS_URL,
+    decode_responses=True,
+    max_connections=500,  # مسبح مخصص للبث المباشر وPubSub لكل المشتركين والمشرفين
+    socket_timeout=None,  # عدم فرض timeout على قنوات الاستماع للبث المباشر
     socket_connect_timeout=5.0,
     retry_on_timeout=True
 )

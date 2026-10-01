@@ -29,6 +29,14 @@ function showToast(message, type = "info", duration = 5000) {
   const container = document.getElementById("toast-container");
   if (!container) return;
 
+  // Prevent duplicate toast spam if the exact same message is already visible
+  const activeToasts = container.querySelectorAll(".toast-alert.show");
+  for (const t of activeToasts) {
+    if (t.textContent === message) {
+      return;
+    }
+  }
+
   const toast = document.createElement("div");
   toast.className = `toast-alert ${type}`;
   toast.textContent = message;

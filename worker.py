@@ -7972,9 +7972,9 @@ async def dispatch_worker_broadcast(
                 logger.warning(f"Failed to remove temp broadcast media file: {ce}")
 
 async def redis_pubsub_listener():
-    from cache_manager import redis_client
+    from cache_manager import redis_pubsub_client
     import json
-    pubsub = redis_client.pubsub()
+    pubsub = redis_pubsub_client.pubsub()
     await pubsub.subscribe("saas_otp_channel", "saas_admin_broadcast", "saas_tenant_commands", "saas_user_notifications")
     logger.info("Redis Pub/Sub listener started for saas_otp_channel, saas_admin_broadcast, saas_tenant_commands, and saas_user_notifications.")
     
@@ -8207,7 +8207,7 @@ async def redis_pubsub_listener():
             await asyncio.sleep(2)
             
     try:
-        await pubsub.unsubscribe("saas_otp_channel", "saas_admin_broadcast", "saas_tenant_commands")
+        await pubsub.unsubscribe("saas_otp_channel", "saas_admin_broadcast", "saas_tenant_commands", "saas_user_notifications")
         await pubsub.close()
     except Exception:
         pass
