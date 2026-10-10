@@ -4824,7 +4824,26 @@ function updateCampaignProgressBar(job) {
   let titleStr = `جاري تنفيذ [${typeText}] حالياً...`;
   let hintStr = "البوت يقوم بتنفيذ الإجراء وتحديث الإحصائيات لحظياً...";
   
-  if (summaryText) {
+  // Use structured counts from backend if present
+  if (activeJob.completed_count !== undefined && activeJob.completed_count !== null) {
+    publishedCount = parseInt(activeJob.completed_count) || 0;
+  }
+  if (activeJob.target_count !== undefined && activeJob.target_count !== null && parseInt(activeJob.target_count) > 0) {
+    totalCount = parseInt(activeJob.target_count);
+  }
+
+  const isUpdateJob = typeText.includes("تحديث") || activeJob.campaign_type === "update" || activeJob.type === "update";
+  
+  if (isUpdateJob) {
+    titleStr = "جاري إعادة فحص وتحديث كاش القنوات والمجلدات...";
+    if (publishedCount > 0) {
+      pct = Math.min(99, Math.round((publishedCount / Math.max(totalCount, publishedCount)) * 100));
+      hintStr = `تم فحص ومزامنة ${publishedCount} قنوات حتى الآن وتجديد المجموعات.`;
+    } else {
+      pct = 20;
+      hintStr = "جاري استدعاء قائمة القنوات ومزامنة المجلدات من خوادم تليجرام...";
+    }
+  } else if (summaryText) {
     // 1. Match bulk folder campaign progress: "تم إنجاز 2 من 11 هدف (قناة X) — 18%"
     const matchBulk = summaryText.match(/(?:تم إنجاز|الهدف|أهداف)\s*`?(\d+)`?\s*من\s*`?(\d+)`?\s*(?:هدف|قناة)?(?:\s*\(([^)]+)\))?(?:.*?`?(\d+)%`?)?/);
     if (matchBulk) {
@@ -4846,15 +4865,15 @@ function updateCampaignProgressBar(job) {
         const matchCrawl = summaryText.match(/تم فحص\s*`?(\d+)`?\s*قناة/);
         if (matchCrawl) {
           publishedCount = parseInt(matchCrawl[1]);
-          totalCount = 19; 
-          pct = Math.min(100, Math.round((publishedCount / totalCount) * 100));
+          totalCount = Math.max(totalCount, publishedCount);
+          pct = Math.min(99, Math.round((publishedCount / totalCount) * 100));
           titleStr = `جاري فحص وتحديث كاش القنوات والمجلدات...`;
           hintStr = `تم فحص ومزامنة ${publishedCount} قنوات حتى الآن وتجديد المجموعات.`;
         } else {
           const matchDelete = summaryText.match(/تم حذف\s*`?(\d+)`?\s*(?:إعلان|رسالة)/);
           if (matchDelete) {
             publishedCount = parseInt(matchDelete[1]);
-            totalCount = 12;
+            totalCount = Math.max(totalCount, publishedCount);
             pct = Math.min(100, Math.round((publishedCount / totalCount) * 100));
             titleStr = `جاري إطلاق مكنسة التنظيف وإلغاء الحملات...`;
             hintStr = `تم حذف وتطهير ${publishedCount} إعلانات نشطة من القنوات.`;
@@ -4864,13 +4883,22 @@ function updateCampaignProgressBar(job) {
     }
   }
   
+  if (pct === 0 && publishedCount > 0 && totalCount > 0) {
+    pct = Math.round((publishedCount / totalCount) * 100);
+  }
+
   if (progressTitle) {
     progressTitle.textContent = titleStr;
   }
   
   pct = Math.max(0, Math.min(100, pct));
-  progressText.textContent = `${pct}% (${publishedCount}/${totalCount})`;
-  progressFill.style.width = `${pct}%`;
+  if (pct === 0 && publishedCount === 0 && !isUpdateJob) {
+    progressText.textContent = `جاري البدء...`;
+    progressFill.style.width = `10%`;
+  } else {
+    progressText.textContent = `${pct}% (${publishedCount}/${totalCount})`;
+    progressFill.style.width = `${pct}%`;
+  }
   if (nextHint) {
     nextHint.textContent = hintStr;
   }

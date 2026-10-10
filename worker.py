@@ -161,8 +161,8 @@ tenant_backoff_multipliers: Dict[int, float] = {}
 # (e.g. wave_publisher_worker and trigger_manual_wave firing at the same time)
 tenant_wave_locks: Dict[int, asyncio.Lock] = {}
 
-# Global semaphore: max 3 tenants can crawl (get_dialogs) simultaneously to protect CPU on t3a.medium
-_GLOBAL_CRAWL_SEMAPHORE = asyncio.Semaphore(2)  # Tuned for 2 vCPU
+# Global semaphore: max 5 tenants can crawl (get_dialogs) simultaneously
+_GLOBAL_CRAWL_SEMAPHORE = asyncio.Semaphore(5)
 
 async def check_proxy_responsive(host: str, port: int, username: Optional[str] = None, password: Optional[str] = None, timeout: float = 2.0) -> bool:
     """
@@ -1233,7 +1233,7 @@ def calculate_quality_score(members_count: int, avg_views: float) -> int:
     score_scaled = int(score * multiplier)
     return min(100, max(0, score_scaled))
 
-async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] = None) -> List[dict]:
+async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] = None, web_task_id: Optional[int] = None) -> List[dict]:
 
 
     from pyrogram.raw import functions, types
@@ -1267,16 +1267,28 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
         try:
             while True:
                 now_ts = time.time()
-                if status_msg and (len(scraped) == 0 or now_ts - last_dialogs_edit_ts >= 15.0):
+                if (len(scraped) > 0 and now_ts - last_dialogs_edit_ts >= 2.0) or (status_msg and len(scraped) == 0):
                     last_dialogs_edit_ts = now_ts
-                    try:
-                        await safe_edit_message(
-                            status_msg,
-                            f"🔄 **جاري فحص وتحديث كاش القنوات والمجلدات...**\n"
-                            f"• تم فحص `{len(scraped)}` قناة ذات صلاحيات نشر حتى الآن."
-                        )
-                    except Exception:
-                        pass
+                    edit_text = (
+                        f"🔄 **جاري فحص وتحديث كاش القنوات والمجلدات...**\n"
+                        f"• تم فحص `{len(scraped)}` قناة ذات صلاحيات نشر حتى الآن."
+                    )
+                    if status_msg:
+                        try:
+                            await safe_edit_message(status_msg, edit_text)
+                        except Exception:
+                            pass
+                    if web_task_id:
+                        try:
+                            est_total = max(len(scraped), len(old_channels_map) if old_channels_map else 20)
+                            asyncio.create_task(update_task_progress_in_db(
+                                web_task_id,
+                                edit_text,
+                                completed_count=len(scraped),
+                                target_count=est_total
+                            ))
+                        except Exception:
+                            pass
                 r = await client.invoke(
                     functions.messages.GetDialogs(
                         exclude_pinned=False,
@@ -1385,91 +1397,103 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                             primary_invite_link = None
                             primary_link_joins = 0
                             custom_links_joins = 0
-                            try:
-                                channel_access_hash = getattr(raw_chat, "access_hash", 0) or 0
-                                raw_peer = types.InputPeerChannel(channel_id=raw_chat.id, access_hash=channel_access_hash)
+                            links_count = 0
 
-                                # 1. Fetch channel's full info to get permanent/primary exported invite link & its usage
+                            cached_ch = old_channels_map.get(chat_id)
+                            if cached_ch and (cached_ch.get("invite_link") or cached_ch.get("primary_invite_link")):
+                                # Fast-path: Reuse existing cached invite links (bypasses 100+ slow MTProto RPCs!)
+                                chosen_invite_link = cached_ch.get("invite_link")
+                                primary_invite_link = cached_ch.get("primary_invite_link") or chosen_invite_link
+                                primary_link_joins = cached_ch.get("primary_link_joins", 0) or 0
+                                custom_links_joins = cached_ch.get("custom_links_joins", 0) or 0
+                                links_count = cached_ch.get("links_count", 1) or 1
+                            else:
+                                # Slow-path: only fetch from Telegram for new channels without cached invite link
                                 try:
-                                    full_res = await client.invoke(functions.channels.GetFullChannel(channel=raw_peer), sleep_threshold=2)
-                                    full_chat = getattr(full_res, "full_chat", None)
-                                    exported_inv = getattr(full_chat, "exported_invite", None)
-                                    if exported_inv:
-                                        primary_invite_link = getattr(exported_inv, "link", None)
-                                        primary_link_joins = getattr(exported_inv, "usage", 0) or 0
-                                    full_participants = getattr(full_chat, "participants_count", None)
-                                    if full_participants:
-                                        members_count = full_participants
-                                except Exception as fe:
-                                    logger.debug(f"GetFullChannel skipped/failed for chat {chat_id}: {fe}")
+                                    channel_access_hash = getattr(raw_chat, "access_hash", 0) or 0
+                                    raw_peer = types.InputPeerChannel(channel_id=raw_chat.id, access_hash=channel_access_hash)
 
-                                # 2. Fetch custom invites exported by this admin/userbot
-                                res_inv = await client.invoke(
-                                    functions.messages.GetExportedChatInvites(
-                                        peer=raw_peer,
-                                        admin_id=types.InputUserSelf(),
-                                        limit=30
-                                    ),
-                                    sleep_threshold=2
-                                )
-                                invites = getattr(res_inv, "invites", [])
-                                custom_named = []
-                                permanent = []
-                                for inv in invites:
-                                    if getattr(inv, "revoked", False) or getattr(inv, "expired", False):
-                                        continue
-                                    lnk = getattr(inv, "link", None)
-                                    if not lnk:
-                                        continue
-                                    t = getattr(inv, "title", None)
-                                    p = getattr(inv, "permanent", False)
-                                    u = getattr(inv, "usage", 0) or 0
-                                    if p and not primary_link_joins:
-                                        primary_link_joins = u
-                                        if not primary_invite_link:
-                                            primary_invite_link = lnk
-                                    elif not p:
-                                        custom_links_joins += u
-                                        
-                                    if t or not p:
-                                        custom_named.append((u, lnk))
-                                    else:
-                                        permanent.append((u, lnk))
-                                        
-                                if custom_named:
-                                    custom_named.sort(key=lambda x: x[0], reverse=True)
-                                    chosen_invite_link = custom_named[0][1]
-                                elif permanent:
-                                    permanent.sort(key=lambda x: x[0], reverse=True)
-                                    chosen_invite_link = permanent[0][1]
-                            except Exception as ie:
-                                logger.debug(f"Invite links check skipped for chat {chat_id}: {ie}")
+                                    # 1. Fetch channel's full info to get permanent/primary exported invite link & its usage
+                                    try:
+                                        full_res = await client.invoke(functions.channels.GetFullChannel(channel=raw_peer), sleep_threshold=2)
+                                        full_chat = getattr(full_res, "full_chat", None)
+                                        exported_inv = getattr(full_chat, "exported_invite", None)
+                                        if exported_inv:
+                                            primary_invite_link = getattr(exported_inv, "link", None)
+                                            primary_link_joins = getattr(exported_inv, "usage", 0) or 0
+                                        full_participants = getattr(full_chat, "participants_count", None)
+                                        if full_participants:
+                                            members_count = full_participants
+                                    except Exception as fe:
+                                        logger.debug(f"GetFullChannel skipped/failed for chat {chat_id}: {fe}")
 
-                            # Count active links
-                            active_links = set()
-                            if primary_invite_link:
-                                active_links.add(primary_invite_link)
-                            if 'invites' in locals() and invites:
-                                for inv in invites:
-                                    if getattr(inv, "revoked", False) or getattr(inv, "expired", False):
-                                        continue
-                                    lnk = getattr(inv, "link", None)
-                                    if lnk:
-                                        active_links.add(lnk)
-                            links_count = len(active_links)
+                                    # 2. Fetch custom invites exported by this admin/userbot
+                                    res_inv = await client.invoke(
+                                        functions.messages.GetExportedChatInvites(
+                                            peer=raw_peer,
+                                            admin_id=types.InputUserSelf(),
+                                            limit=30
+                                        ),
+                                        sleep_threshold=2
+                                    )
+                                    invites = getattr(res_inv, "invites", [])
+                                    custom_named = []
+                                    permanent = []
+                                    for inv in invites:
+                                        if getattr(inv, "revoked", False) or getattr(inv, "expired", False):
+                                            continue
+                                        lnk = getattr(inv, "link", None)
+                                        if not lnk:
+                                            continue
+                                        t = getattr(inv, "title", None)
+                                        p = getattr(inv, "permanent", False)
+                                        u = getattr(inv, "usage", 0) or 0
+                                        if p and not primary_link_joins:
+                                            primary_link_joins = u
+                                            if not primary_invite_link:
+                                                primary_invite_link = lnk
+                                        elif not p:
+                                            custom_links_joins += u
+                                            
+                                        if t or not p:
+                                            custom_named.append((u, lnk))
+                                        else:
+                                            permanent.append((u, lnk))
+                                            
+                                    if custom_named:
+                                        custom_named.sort(key=lambda x: x[0], reverse=True)
+                                        chosen_invite_link = custom_named[0][1]
+                                    elif permanent:
+                                        permanent.sort(key=lambda x: x[0], reverse=True)
+                                        chosen_invite_link = permanent[0][1]
+                                except Exception as ie:
+                                    logger.debug(f"Invite links check skipped for chat {chat_id}: {ie}")
 
-                            # Fallback: if no custom link was chosen, use primary link
-                            if not chosen_invite_link:
-                                chosen_invite_link = primary_invite_link
+                                # Count active links
+                                active_links = set()
+                                if primary_invite_link:
+                                    active_links.add(primary_invite_link)
+                                if 'invites' in locals() and invites:
+                                    for inv in invites:
+                                        if getattr(inv, "revoked", False) or getattr(inv, "expired", False):
+                                            continue
+                                        lnk = getattr(inv, "link", None)
+                                        if lnk:
+                                            active_links.add(lnk)
+                                links_count = len(active_links)
 
-                            # If still no link, try export
-                            if not chosen_invite_link:
-                                try:
-                                    chosen_invite_link = await client.export_chat_invite_link(chat_id)
-                                    if chosen_invite_link:
-                                        links_count = max(links_count, 1)
-                                except Exception:
-                                    pass
+                                # Fallback: if no custom link was chosen, use primary link
+                                if not chosen_invite_link:
+                                    chosen_invite_link = primary_invite_link
+
+                                # If still no link, try export
+                                if not chosen_invite_link:
+                                    try:
+                                        chosen_invite_link = await client.export_chat_invite_link(chat_id)
+                                        if chosen_invite_link:
+                                            links_count = max(links_count, 1)
+                                    except Exception:
+                                        pass
 
                             invite_link = chosen_invite_link or (f"https://t.me/{username}" if username else None)
                             total_channel_joins = primary_link_joins + custom_links_joins
@@ -1575,7 +1599,7 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
     return scraped
 
 
-async def crawl_and_cache_tenant_channels(tenant_id: int, client: Client, status_msg: Optional[Message] = None):
+async def crawl_and_cache_tenant_channels(tenant_id: int, client: Client, status_msg: Optional[Message] = None, web_task_id: Optional[int] = None):
 
     from cache_manager import redis_client
     try:
@@ -1584,9 +1608,9 @@ async def crawl_and_cache_tenant_channels(tenant_id: int, client: Client, status
         logger.error(f"Redis error setting crawl_in_progress flag: {re}")
 
     try:
-        # CPU protection: queue crawls so max 3 tenants run get_dialogs simultaneously on t3a.medium
+        # CPU protection: queue crawls so max 5 tenants run get_dialogs simultaneously
         async with _GLOBAL_CRAWL_SEMAPHORE:
-            return await _crawl_and_cache_tenant_channels_inner(tenant_id, client, status_msg)
+            return await _crawl_and_cache_tenant_channels_inner(tenant_id, client, status_msg, web_task_id=web_task_id)
     finally:
         try:
             await redis_client.delete(f"tenant:{tenant_id}:crawl_in_progress")
@@ -1595,12 +1619,12 @@ async def crawl_and_cache_tenant_channels(tenant_id: int, client: Client, status
         import gc
         gc.collect()
 
-async def _crawl_and_cache_tenant_channels_inner(tenant_id: int, client: Client, status_msg: Optional[Message] = None):
+async def _crawl_and_cache_tenant_channels_inner(tenant_id: int, client: Client, status_msg: Optional[Message] = None, web_task_id: Optional[int] = None):
     logger.info(f"Starting auto-crawl for tenant {tenant_id}...")
     
     scraped_channels = []
     try:
-        scraped_channels = await get_admin_channels_raw(client, status_msg=status_msg)
+        scraped_channels = await get_admin_channels_raw(client, status_msg=status_msg, web_task_id=web_task_id)
         await save_channels_cache(tenant_id, scraped_channels)
         logger.info(f"Auto-crawl complete for tenant {tenant_id}. Scraped {len(scraped_channels)} channels.")
         if status_msg:
@@ -1609,6 +1633,16 @@ async def _crawl_and_cache_tenant_channels_inner(tenant_id: int, client: Client,
                     status_msg,
                     f"🔄 **تم جلب `{len(scraped_channels)}` قناة بنجاح.**\n"
                     f"📂 جاري المزامنة وفحص المجلدات (استثناءات/حظر/حملات)..."
+                )
+            except Exception:
+                pass
+        if web_task_id:
+            try:
+                await update_task_progress_in_db(
+                    web_task_id,
+                    f"🔄 **تم جلب `{len(scraped_channels)}` قناة بنجاح.**\n📂 جاري المزامنة وفحص المجلدات...",
+                    completed_count=len(scraped_channels),
+                    target_count=max(len(scraped_channels), 1)
                 )
             except Exception:
                 pass
@@ -1819,6 +1853,12 @@ async def run_first_crawl_onboarding(tenant_id: int, client: Client):
         already_done = await redis_client.get(flag_key)
         if already_done:
             try:
+                from cache_manager import get_channels_cache
+                cached = await get_channels_cache(tenant_id)
+                if cached:
+                    logger.info(f"Tenant {tenant_id} first crawl already done and cache is warm ({len(cached)} channels). Skipping startup crawl.")
+                    return
+                # If cache is missing, crawl once
                 await crawl_and_cache_tenant_channels(tenant_id, client)
             except Exception:
                 pass
@@ -4613,8 +4653,110 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             logger.error(f"Error in priorities organizer: {e}")
             await message.reply_text(f"❌ **فشل ترتيب الأولويات: {e}**")
 
-    
-    
+    async def handle_بنج(message: Message):
+        import pytz
+        try:
+            async with AsyncSessionLocal() as session:
+                from db_manager import ActiveAd
+                from sqlalchemy import func
+                stmt_active = select(func.count(ActiveAd.id)).where(ActiveAd.telegram_account_id == tenant_id)
+                active_ads_count = (await session.execute(stmt_active)).scalar() or 0
+                
+                state_val = await get_setting(session, tenant_id, "bot_system_state")
+                state_val = state_val if state_val else "stopped"
+                
+                tz_setting = await get_setting(session, tenant_id, "timezone")
+                tz_name = tz_setting if tz_setting else "Africa/Cairo"
+                tz = pytz.timezone(tz_name)
+                now_tz = datetime.now(tz)
+                midnight_tz = now_tz.replace(hour=0, minute=0, second=0, microsecond=0)
+                midnight_utc = midnight_tz.astimezone(timezone.utc)
+                
+                from db_manager import PublishLog
+                stmt_pushed = select(func.count(PublishLog.id)).where(
+                    PublishLog.telegram_account_id == tenant_id,
+                    PublishLog.created_at >= midnight_utc
+                )
+                pushed_today = (await session.execute(stmt_pushed)).scalar() or 0
+                
+                stmt_wiped = select(func.count(PublishLog.id)).where(
+                    PublishLog.telegram_account_id == tenant_id,
+                    PublishLog.status == "deleted",
+                    PublishLog.created_at >= midnight_utc
+                )
+                wiped_today = (await session.execute(stmt_wiped)).scalar() or 0
+                
+            from cache_manager import redis_client
+            raw_banned = await redis_client.get(f"tenant:{tenant_id}:banned")
+            raw_no_post = await redis_client.get(f"tenant:{tenant_id}:no_post")
+            raw_campaign = await redis_client.get(f"tenant:{tenant_id}:campaign")
+            raw_channels = await redis_client.get(f"tenant:{tenant_id}:channels")
+            
+            banned_count = len(json.loads(raw_banned)) if raw_banned else 0
+            no_post_count = len(json.loads(raw_no_post)) if raw_no_post else 0
+            campaign_count = len(json.loads(raw_campaign)) if raw_campaign else 0
+            channels_count = len(json.loads(raw_channels)) if raw_channels else 0
+            
+            status_emoji = "✅ يعمل بنشاط" if state_val == "active" else "⏸️ موقوف مؤقتاً"
+            
+            status_text = (
+                f"🏓 **حالة تشغيل البوت والنشاط اليومي:**\n\n"
+                f"• حالة النظام: {status_emoji}\n"
+                f"• الإعلانات النشطة حالياً بالقنوات: `{active_ads_count}` إعلان\n"
+                f"• إجمالي ما تم نشره اليوم: `{pushed_today}` إعلان\n"
+                f"• إجمالي ما تم مسحه اليوم: `{wiped_today}` إعلان\n"
+                f"• القنوات المشتركة (كاش): `{channels_count}` قناة\n\n"
+                f"📁 **مجلدات تليجرام المكتشفة:**\n"
+                f"• مجلد الاستثناءات (`No_Post`): `{no_post_count}` شات\n"
+                f"• مجلد الحظر البوت (`BANNED`): `{banned_count}` شات\n"
+                f"• مجلد أهداف الحملة (`CAMPAIGN`): `{campaign_count}` شات\n\n"
+                f"🕒 التوقيت المحلي للحساب: `{now_tz.strftime('%I:%M %p')}`\n"
+                f"💡 تتصفر الإحصائيات تلقائياً كل يوم الساعة 12:00 منتصف الليل."
+            )
+            await message.reply_text(status_text)
+        except Exception as e:
+            logger.error(f"Error in ping handler: {e}")
+            await message.reply_text(f"❌ **فشل جلب حالة البوت: {e}**")
+
+    async def handle_المهام(message: Message):
+        await handle_الجدول(message)
+
+    async def handle_ادمن(message: Message):
+        try:
+            channels = await get_channels_cache(tenant_id)
+            status_msg = None
+            if not channels:
+                if await is_crawl_in_progress(tenant_id):
+                    await message.reply_text("⏳ **جاري تحديث كاش قنواتك ومجلداتك حالياً لأول مرة... يرجى الانتظار لحين اكتمال التحديث وتلقي إشعار النجاح.**")
+                    return
+                status_msg = await message.reply_text("⏳ **لا توجد قنوات مؤرشفة بالكاش حالياً. جاري سحب وتحديث القنوات تلقائياً (التشافي الذاتي)...**")
+                await crawl_and_cache_tenant_channels(tenant_id, client, status_msg)
+                channels = await get_channels_cache(tenant_id)
+                if not channels:
+                    await edit_or_reply(status_msg, "❌ **فشل عرض دليل القنوات: تعذر سحب القنوات تلقائياً. تأكد من إعدادات حسابك.**")
+                    return
+                try:
+                    await status_msg.delete()
+                except Exception:
+                    pass
+                
+            report = ["👑 **دليل القنوات والجروبات التي تديرها بحسابك:**\n"]
+            for idx, ch in enumerate(channels, 1):
+                link_text = f"[رابط الدخول]({ch['invite_link']})" if ch.get('invite_link') else f"لا يوجد رابط (معرف الحساب: `{ch['id']}`)"
+                status_role = "مالك 👑" if ch.get("is_creator", False) else ("مشرف 🛠️" if ch.get("is_admin", False) else "عضو 📝")
+                report.append(
+                    f"{idx}. **{ch['title']}**\n"
+                    f"   • الحالة: `{status_role}`\n"
+                    f"   • صلاحية النشر: {'نعم ✅' if ch.get('can_send', True) else 'لا ❌ (معطلة)'}\n"
+                    f"   • الأعضاء: `{ch.get('members_count', 0):,}`\n"
+                    f"   • الرابط: {link_text}\n"
+                )
+                
+            await reply_long_message(message, report)
+        except Exception as e:
+            logger.error(f"Error in admin channels map: {e}")
+            await message.reply_text(f"❌ **فشل عرض دليل القنوات: {e}**")
+
     async def handle_الجدول(message: Message):
         try:
             status_msg = await message.reply_text("🔄 **جاري جلب جدول المهام النشطة والمجدولة...**")
@@ -7275,7 +7417,7 @@ async def run_update_logic(tenant_id: int, client: Client, reply_to_message: Opt
 
     try:
         await log_tenant_event(tenant_id, "بدء إعادة فحص وتحديث كاش القنوات والمجموعات والمجلدات...")
-        stats = await crawl_and_cache_tenant_channels(tenant_id, client, status_msg)
+        stats = await crawl_and_cache_tenant_channels(tenant_id, client, status_msg, web_task_id=web_task_id)
         
         total_ch = stats.get("total_channels", 0) if stats else 0
         no_post = stats.get("no_post_count", 0) if stats else 0
@@ -7311,11 +7453,27 @@ async def run_update_logic(tenant_id: int, client: Client, reply_to_message: Opt
                 await safe_edit_message(status_msg, report)
             except Exception:
                 pass
+        if web_task_id:
+            await update_task_progress_in_db(
+                web_task_id,
+                report,
+                completed_count=total_ch,
+                target_count=max(total_ch, 1),
+                status="completed",
+                tenant_id=tenant_id
+            )
         await log_tenant_event(tenant_id, f"اكتمل تحديث المحرك ومزامنة الكاش بنجاح! إجمالي القنوات: {total_ch}")
     except Exception as e:
         logger.error(f"Error in update handler: {e}")
         if status_msg:
             await safe_edit_message(status_msg, f"❌ **فشل التحديث والمزامنة: {e}**")
+        if web_task_id:
+            await update_task_progress_in_db(
+                web_task_id,
+                f"❌ **فشل التحديث والمزامنة: {e}**",
+                status="failed",
+                tenant_id=tenant_id
+            )
         await log_tenant_event(tenant_id, f"فشل تحديث المحرك: {str(e)}")
 
 # ==========================================
@@ -8804,7 +8962,7 @@ async def dialog_filters_sync_worker():
     it is automatically reflected in Redis without requiring a full channel crawl.
     """
     logger.info("[DIALOG_FILTERS_WORKER] Started dialog filters sync worker loop.")
-    await asyncio.sleep(20)  # Initial delay on worker startup
+    await asyncio.sleep(60)  # Initial delay on worker startup
     while global_worker_running:
         try:
             active_tenants = list(running_clients.keys())
@@ -8815,11 +8973,11 @@ async def dialog_filters_sync_worker():
                         await sync_tenant_dialog_filters(tid, client)
                     except Exception as err:
                         logger.debug(f"[DIALOG_FILTERS_WORKER] Error syncing filters for tenant {tid}: {err}")
-                    await asyncio.sleep(2)  # Avoid spamming across accounts
+                    await asyncio.sleep(3)  # Gentle spacing across accounts
         except Exception as e:
             logger.error(f"[DIALOG_FILTERS_WORKER] Unexpected error in sync worker: {e}")
 
-        await asyncio.sleep(60)
+        await asyncio.sleep(300)
 
 
 async def start_global_engine():
