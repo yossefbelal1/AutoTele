@@ -36,14 +36,14 @@ if not DATABASE_URL:
 connect_args = {}
 if "postgresql" in DATABASE_URL or "asyncpg" in DATABASE_URL:
     connect_args["server_settings"] = {
-        "idle_in_transaction_session_timeout": "60000"
+        "idle_in_transaction_session_timeout": "300000"
     }
 
 async_engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    pool_size=15,
-    max_overflow=15,
+    pool_size=25,
+    max_overflow=25,
     pool_timeout=30,
     pool_recycle=300,
     pool_pre_ping=True,

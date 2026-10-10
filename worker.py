@@ -7,7 +7,7 @@ import logging
 import asyncio
 import random
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional, Set, Union, Any
+from typing import Dict, List, Optional, Set, Union, Any, Tuple
 import pytz
 import concurrent.futures
 
@@ -103,7 +103,13 @@ class RedisPublishHandler(logging.Handler):
             if tenant_id is not None:
                 log_obj["tenant_id"] = tenant_id
             
-            # Offload publish to background thread pool
+            # Offload publish to background thread pool (drop if backlog exceeds 50 to prevent unbounded RAM growth)
+            if hasattr(self.executor, '_work_queue'):
+                try:
+                    if self.executor._work_queue.qsize() > 50:
+                        return
+                except Exception:
+                    pass
             self.executor.submit(self._publish_to_redis, log_obj)
         except Exception:
             pass
@@ -129,9 +135,9 @@ logger = logging.getLogger("saas_worker")
 # Apply shared Pyrogram monkey patches to disable link previews and handle high-ID channels
 apply_pyrogram_patches()
 
-# Tune GC thresholds for lower CPU overhead on 2 vCPU server
+# Tune GC thresholds for lower CPU overhead on 2 vCPU server (balanced collection frequency)
 import gc
-gc.set_threshold(700, 10, 5)
+gc.set_threshold(1000, 15, 15)
 
 try:
     redis_handler = RedisPublishHandler()
@@ -841,7 +847,21 @@ def format_user_template(
     return res
 
 
-web_task_progress_msgs = {}
+web_task_progress_msgs: Dict[Tuple[int, int], int] = {}
+_edit_flood_cooldowns: Dict[Tuple[int, int], float] = {}
+_last_edited_text: Dict[Tuple[int, int], str] = {}
+
+def _prune_edit_caches():
+    now = time.time()
+    expired = [k for k, v in _edit_flood_cooldowns.items() if v <= now]
+    for k in expired:
+        _edit_flood_cooldowns.pop(k, None)
+    if len(_last_edited_text) > 1000:
+        for k in list(_last_edited_text.keys())[:300]:
+            _last_edited_text.pop(k, None)
+    if len(web_task_progress_msgs) > 1000:
+        for k in list(web_task_progress_msgs.keys())[:300]:
+            web_task_progress_msgs.pop(k, None)
 
 async def update_task_progress_in_db(
     task_id: int, 
@@ -889,36 +909,75 @@ async def update_task_progress_in_db(
 async def safe_edit_message(message: Optional[Message], text: str) -> bool:
     if not message:
         return False
+    chat_id = message.chat.id if message.chat else None
+    msg_id = message.id
+    msg_key = (chat_id, msg_id) if (chat_id and msg_id) else None
+    now = time.time()
+
+    if msg_key:
+        # 1. Skip if currently in active FloodWait cooldown to avoid spamming Telegram RPC
+        cooldown_until = _edit_flood_cooldowns.get(msg_key, 0)
+        if now < cooldown_until:
+            logger.debug(f"safe_edit_message: Skipping edit for message {msg_key} - FloodWait cooldown active ({int(cooldown_until - now)}s remaining).")
+            # Still update progress in DB if linked to a web task
+            task_id = web_task_progress_msgs.get(msg_key)
+            if task_id:
+                asyncio.create_task(update_task_progress_in_db(task_id, text))
+            return False
+
+        # 2. Skip if text is identical to last edited text (prevents redundant RPC and MessageNotModified errors)
+        if _last_edited_text.get(msg_key) == text:
+            return True
+
     success = False
     try:
         await asyncio.wait_for(message.edit_text(text, disable_web_page_preview=True), timeout=8.0)
         success = True
+        if msg_key:
+            _last_edited_text[msg_key] = text
     except FloodWait as fw:
+        if msg_key:
+            _edit_flood_cooldowns[msg_key] = now + fw.value
         if fw.value <= 10:
             await asyncio.sleep(fw.value)
             try:
                 await asyncio.wait_for(message.edit_text(text, disable_web_page_preview=True), timeout=8.0)
                 success = True
+                if msg_key:
+                    _last_edited_text[msg_key] = text
             except Exception:
                 pass
         else:
-            logger.warning(f"safe_edit_message: FloodWait is {fw.value}s (>10s). Skipping edit to avoid blocking execution.")
+            logger.warning(f"safe_edit_message: FloodWait is {fw.value}s (>10s) on message {msg_key}. Enforcing {fw.value}s cooldown and skipping edit.")
     except Exception as e:
-        # Fallback without markdown parsing if entity syntax is malformed
-        try:
-            await asyncio.wait_for(message.edit_text(text, parse_mode=None, disable_web_page_preview=True), timeout=8.0)
+        err_str = str(e).lower()
+        if "message_not_modified" in err_str or "message is not modified" in err_str:
             success = True
-        except Exception:
-            pass
+            if msg_key:
+                _last_edited_text[msg_key] = text
+        else:
+            # Fallback without markdown parsing if entity syntax is malformed
+            try:
+                await asyncio.wait_for(message.edit_text(text, parse_mode=None, disable_web_page_preview=True), timeout=8.0)
+                success = True
+                if msg_key:
+                    _last_edited_text[msg_key] = text
+            except FloodWait as fw2:
+                if msg_key:
+                    _edit_flood_cooldowns[msg_key] = now + fw2.value
+            except Exception as e2:
+                if "message_not_modified" in str(e2).lower():
+                    success = True
+                    if msg_key:
+                        _last_edited_text[msg_key] = text
+
+    if msg_key and (len(_edit_flood_cooldowns) > 100 or len(_last_edited_text) > 1000):
+        _prune_edit_caches()
 
     try:
-        chat_id = message.chat.id if message.chat else None
-        msg_id = message.id
-        if chat_id and msg_id:
-            key = (chat_id, msg_id)
-            if key in web_task_progress_msgs:
-                task_id = web_task_progress_msgs[key]
-                asyncio.create_task(update_task_progress_in_db(task_id, text))
+        if msg_key and msg_key in web_task_progress_msgs:
+            task_id = web_task_progress_msgs[msg_key]
+            asyncio.create_task(update_task_progress_in_db(task_id, text))
     except Exception as e:
         logger.error(f"Error syncing progress in safe_edit_message: {e}")
     return success
@@ -1203,10 +1262,13 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
         # Ensure offset_date is always an int (Unix timestamp) for pagination
         prev_offset_id = None
         prev_offset_peer_id = None
+        last_dialogs_edit_ts = 0.0
         
         try:
             while True:
-                if status_msg:
+                now_ts = time.time()
+                if status_msg and (len(scraped) == 0 or now_ts - last_dialogs_edit_ts >= 15.0):
+                    last_dialogs_edit_ts = now_ts
                     try:
                         await safe_edit_message(
                             status_msg,
@@ -2347,7 +2409,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                 return
             now = asyncio.get_event_loop().time()
             async with status_edit_lock:
-                if (now - last_status_edit_time) < 4.0 and count < total:
+                if (now - last_status_edit_time) < 8.0 and count < total:
                     return
                 last_status_edit_time = now
             await safe_edit_message(
@@ -2991,9 +3053,9 @@ async def run_bulk_campaign_logic(
                             f"• تم النشر في: `{ch_idx}` من `{total_ch}` قناة مروجة\n"
                             f"• القناة المستهدفة الحالية: **{target_title}**"
                         )
-                        # Real-time progress updates with time-based throttle (updates every 2 channels or whenever >= 3s elapsed)
+                        # Real-time progress updates with time-based throttle (updates every 4 channels or whenever >= 8s elapsed)
                         now_ts = time.time()
-                        if ch_idx == 1 or ch_idx == total_ch or ch_idx % 2 == 0 or (now_ts - last_progress_edit_ts >= 3.0):
+                        if ch_idx == 1 or ch_idx == total_ch or (ch_idx % 4 == 0 and now_ts - last_progress_edit_ts >= 8.0) or (now_ts - last_progress_edit_ts >= 15.0):
                             last_progress_edit_ts = now_ts
                             asyncio.create_task(update_status_message(index, "posting", current_post_info=current_post_info))
                         
@@ -3159,7 +3221,7 @@ async def run_bulk_campaign_logic(
                     remaining = (next_target_start_dt - datetime.now(timezone.utc)).total_seconds()
                     if remaining <= 0:
                         break
-                    step = min(15.0, max(1.0, remaining))
+                    step = min(60.0, max(1.0, remaining))
                     await asyncio.sleep(step)
                 try:
                     await redis_client.delete(f"tenant:{tenant_id}:bulk_next_target_time")
@@ -3189,7 +3251,7 @@ async def run_bulk_campaign_logic(
                 remaining = (final_delete_dt - datetime.now(timezone.utc)).total_seconds()
                 if remaining <= 0:
                     break
-                step = min(15.0, max(1.0, remaining))
+                step = min(60.0, max(1.0, remaining))
                 await asyncio.sleep(step)
             try:
                 await redis_client.delete(f"tenant:{tenant_id}:bulk_next_target_time")
@@ -6064,6 +6126,19 @@ async def wave_publisher_worker(tenant_id: int):
                 await asyncio.sleep(15)
                 continue
             
+            # Fast check Redis first for bot_system_state to avoid hitting Postgres DB pool every 15s
+            cached_sys_state = None
+            try:
+                cached_sys_state = await redis_client.get(f"tenant:{tenant_id}:setting:bot_system_state")
+                if isinstance(cached_sys_state, bytes):
+                    cached_sys_state = cached_sys_state.decode("utf-8")
+            except Exception:
+                pass
+            if cached_sys_state is not None and cached_sys_state != "active":
+                logger.debug(f"[Debug Loop] Tenant {tenant_id} is not active in cache (state={cached_sys_state}). Sleeping.")
+                await asyncio.sleep(15)
+                continue
+
             async with AsyncSessionLocal() as session:
                 state_val = await get_setting(session, tenant_id, "bot_system_state")
                 state_val = state_val if state_val else "stopped"
@@ -7231,6 +7306,16 @@ async def run_update_logic(tenant_id: int, client: Client, reply_to_message: Opt
 
 async def run_web_campaign_task(task_id: int):
     from db_manager import WebCampaignTask
+    tenant_id = None
+    campaign_type = None
+    target_link = None
+    custom_text = None
+    delay_between_channels = 0
+    ad_lifespan = 0
+    duration_minutes = 0
+    completed_count = 0
+    client = None
+
     async with AsyncSessionLocal() as session:
         task = (await session.execute(select(WebCampaignTask).where(WebCampaignTask.id == task_id))).scalar_one_or_none()
         if not task:
@@ -7238,6 +7323,14 @@ async def run_web_campaign_task(task_id: int):
             return
 
         tenant_id = task.telegram_account_id
+        campaign_type = task.campaign_type
+        target_link = task.target_link
+        custom_text = task.custom_text
+        delay_between_channels = getattr(task, "delay_between_channels", 0) or 0
+        ad_lifespan = getattr(task, "ad_lifespan", 0) or 0
+        duration_minutes = getattr(task, "duration_minutes", 0) or 0
+        completed_count = getattr(task, "completed_count", 0) or 0
+
         client = running_clients.get(tenant_id)
         if not client or not client.is_connected:
             try:
@@ -7255,192 +7348,197 @@ async def run_web_campaign_task(task_id: int):
             await session.commit()
             return
 
-        campaign_type_names = {
-            "wave": "حملة التبادل عشوائي",
-            "wave_folder": "التبادل العشوائي (مجلد حملات)",
-            "single": "حملة فردية",
-            "bulk": "حملة مجلد مجمع",
-            "timed_post": "حملة نشر مؤقتة",
-            "channel_exchange": "تبادل قناة بقناة (معلنين)",
-            "clear": "مسح سريع",
-            "deep_clear": "مسح عميق",
-            "update": "تحديث المحرك",
-            "clear_logs": "مسح سجل الأحداث",
-            "activate_exchange": "تفعيل التبادل التلقائي"
-        }
-        type_ar = campaign_type_names.get(task.campaign_type, task.campaign_type)
+    # Campaign execution is fully decoupled from the initial DB session to prevent transaction timeout leaks
+    campaign_type_names = {
+        "wave": "حملة التبادل عشوائي",
+        "wave_folder": "التبادل العشوائي (مجلد حملات)",
+        "single": "حملة فردية",
+        "bulk": "حملة مجلد مجمع",
+        "timed_post": "حملة نشر مؤقتة",
+        "channel_exchange": "تبادل قناة بقناة (معلنين)",
+        "clear": "مسح سريع",
+        "deep_clear": "مسح عميق",
+        "update": "تحديث المحرك",
+        "clear_logs": "مسح سجل الأحداث",
+        "activate_exchange": "تفعيل التبادل التلقائي"
+    }
+    type_ar = campaign_type_names.get(campaign_type, campaign_type)
 
-        try:
-            # Delay start is handled by the polling engine, so we don't sleep here anymore.
-            logger.info(f"Executing Web Campaign Task {task_id} (type: {task.campaign_type}) for tenant {tenant_id}")
-            await log_tenant_event(tenant_id, f"بدء تنفيذ المهمة: {type_ar}...")
-            
-            # Create a start status message in Saved Messages to keep the user in the loop
-            status_msg = None
-            if task.campaign_type in ["wave", "wave_folder", "single", "timed_post", "channel_exchange", "bulk", "activate_exchange"]:
-                try:
-                    status_msg = await client.send_message("me", f"🌐 **تم استلام طلب [{type_ar}]...**")
-                    if status_msg:
-                        web_task_progress_msgs[(status_msg.chat.id, status_msg.id)] = task_id
-                        await update_task_progress_in_db(task_id, f"🌐 **تم استلام طلب [{type_ar}]...**")
-                except Exception as se:
-                    logger.debug(f"Could not send start status message to Saved Messages: {se}")
-            
+    # Automatically clear global pause on new campaign launch
+    try:
+        from cache_manager import redis_client
+        await redis_client.delete(f"tenant:{tenant_id}:campaign_global_pause")
+    except Exception:
+        pass
 
+    try:
+        # Delay start is handled by the polling engine, so we don't sleep here anymore.
+        logger.info(f"Executing Web Campaign Task {task_id} (type: {campaign_type}) for tenant {tenant_id}")
+        await log_tenant_event(tenant_id, f"بدء تنفيذ المهمة: {type_ar}...")
+        
+        # Create a start status message in Saved Messages to keep the user in the loop
+        status_msg = None
+        if campaign_type in ["wave", "wave_folder", "single", "timed_post", "channel_exchange", "bulk", "activate_exchange"]:
+            try:
+                status_msg = await client.send_message("me", f"🌐 **تم استلام طلب [{type_ar}]...**")
+                if status_msg:
+                    web_task_progress_msgs[(status_msg.chat.id, status_msg.id)] = task_id
+                    await update_task_progress_in_db(task_id, f"🌐 **تم استلام طلب [{type_ar}]...**")
+            except Exception as se:
+                logger.debug(f"Could not send start status message to Saved Messages: {se}")
 
-            if task.campaign_type in ["wave", "wave_folder", "activate_exchange"]:
-                is_folder_wave = (task.campaign_type == "wave_folder")
+        if campaign_type in ["wave", "wave_folder", "activate_exchange"]:
+            is_folder_wave = (campaign_type == "wave_folder")
+            try:
+                from cache_manager import redis_client
+                await redis_client.delete(f"tenant:{tenant_id}:campaign_global_pause")
+
+                # Handle execution duration limit for wave campaign
+                import time
+                if duration_minutes > 0:
+                    end_ts = time.time() + (duration_minutes * 60)
+                    await redis_client.set(f"tenant:{tenant_id}:wave_end_time", str(end_ts), ex=(duration_minutes * 60 + 86400))
+                    await redis_client.set(f"tenant:{tenant_id}:wave_task_id", str(task_id), ex=(duration_minutes * 60 + 86400))
+                    await redis_client.set(f"tenant:{tenant_id}:wave_duration_minutes", str(duration_minutes), ex=(duration_minutes * 60 + 86400))
+                    logger.info(f"Tenant {tenant_id}: Wave campaign {task_id} set to run for {duration_minutes} mins (until ts {end_ts})")
+                else:
+                    await redis_client.delete(f"tenant:{tenant_id}:wave_end_time")
+                    await redis_client.delete(f"tenant:{tenant_id}:wave_task_id")
+                    await redis_client.delete(f"tenant:{tenant_id}:wave_duration_minutes")
+            except Exception as w_err:
+                logger.error(f"Error configuring wave duration in Redis for tenant {tenant_id}: {w_err}")
+            async with AsyncSessionLocal() as db_session:
+                await set_setting(db_session, tenant_id, "bot_system_state", "active")
+                await set_setting(db_session, tenant_id, "wave_folder_mode", "campaign" if is_folder_wave else "all")
+                if ad_lifespan > 0:
+                    await set_setting(db_session, tenant_id, "ad_lifespan", str(ad_lifespan * 60))
+                if delay_between_channels > 0:
+                    await set_setting(db_session, tenant_id, "wave_interval", str(delay_between_channels * 60))
+                await db_session.commit()
+
+            # Ensure background wave publisher worker loop is actively running for this tenant
+            w_task = running_tasks.get(tenant_id)
+            if not w_task or w_task.done():
+                logger.info(f"Reviving wave_publisher_worker for tenant {tenant_id} on campaign task {task_id} dispatch.")
+                running_tasks[tenant_id] = asyncio.create_task(wave_publisher_worker(tenant_id))
+
+            await trigger_manual_wave(tenant_id=tenant_id, status_msg=status_msg, folder_only="campaign" if is_folder_wave else None)
+        elif campaign_type == "single":
+            await run_single_campaign_logic(
+                tenant_id=tenant_id,
+                client=client,
+                target_link=target_link,
+                ad_text_custom=custom_text,
+                delay_between_channels=delay_between_channels,
+                ad_lifespan=ad_lifespan,
+                status_msg=status_msg
+            )
+        elif campaign_type in ["timed_post", "channel_exchange"]:
+            await run_timed_post_logic(
+                tenant_id=tenant_id,
+                client=client,
+                target_link=target_link,
+                ad_text_custom=custom_text,
+                ad_lifespan=ad_lifespan,
+                status_msg=status_msg,
+                campaign_type="channel_exchange" if campaign_type == "channel_exchange" else "timed_post"
+            )
+        elif campaign_type in ["bulk", "custom_folder"]:
+            folder_num = None
+            extra_link = None
+            if campaign_type == "custom_folder" and target_link:
+                if "|" in target_link:
+                    f_str, extra_link = target_link.split("|", 1)
+                    folder_num = int(f_str) if f_str.isdigit() else 1
+                elif target_link.isdigit():
+                    folder_num = int(target_link)
+                else:
+                    extra_link = target_link
+            elif campaign_type == "bulk" and target_link:
+                extra_link = target_link
+
+            # Check if task was in-progress and can be resumed
+            resume_idx = 0
+            if completed_count and completed_count > 0:
+                resume_idx = completed_count
+            else:
                 try:
                     from cache_manager import redis_client
-                    await redis_client.delete(f"tenant:{tenant_id}:campaign_global_pause")
+                    raw_state = await redis_client.get(f"tenant:{tenant_id}:active_campaign_state")
+                    if raw_state:
+                        s_data = json.loads(raw_state)
+                        resume_idx = s_data.get("current_target_index", 0)
+                except Exception:
+                    pass
 
-                    # Handle execution duration limit for wave campaign
-                    import time
-                    duration_mins = getattr(task, "duration_minutes", 0) or 0
-                    if duration_mins > 0:
-                        end_ts = time.time() + (duration_mins * 60)
-                        await redis_client.set(f"tenant:{tenant_id}:wave_end_time", str(end_ts), ex=(duration_mins * 60 + 86400))
-                        await redis_client.set(f"tenant:{tenant_id}:wave_task_id", str(task_id), ex=(duration_mins * 60 + 86400))
-                        await redis_client.set(f"tenant:{tenant_id}:wave_duration_minutes", str(duration_mins), ex=(duration_mins * 60 + 86400))
-                        logger.info(f"Tenant {tenant_id}: Wave campaign {task_id} set to run for {duration_mins} mins (until ts {end_ts})")
-                    else:
-                        await redis_client.delete(f"tenant:{tenant_id}:wave_end_time")
-                        await redis_client.delete(f"tenant:{tenant_id}:wave_task_id")
-                        await redis_client.delete(f"tenant:{tenant_id}:wave_duration_minutes")
-                except Exception as w_err:
-                    logger.error(f"Error configuring wave duration in Redis for tenant {tenant_id}: {w_err}")
-                async with AsyncSessionLocal() as db_session:
-                    await set_setting(db_session, tenant_id, "bot_system_state", "active")
-                    await set_setting(db_session, tenant_id, "wave_folder_mode", "campaign" if is_folder_wave else "all")
-                    if task.ad_lifespan > 0:
-                        await set_setting(db_session, tenant_id, "ad_lifespan", str(task.ad_lifespan * 60))
-                    if task.delay_between_channels > 0:
-                        await set_setting(db_session, tenant_id, "wave_interval", str(task.delay_between_channels * 60))
-                    await db_session.commit()
-
-                # Ensure background wave publisher worker loop is actively running for this tenant
-                w_task = running_tasks.get(tenant_id)
-                if not w_task or w_task.done():
-                    logger.info(f"Reviving wave_publisher_worker for tenant {tenant_id} on campaign task {task_id} dispatch.")
-                    running_tasks[tenant_id] = asyncio.create_task(wave_publisher_worker(tenant_id))
-
-                await trigger_manual_wave(tenant_id=tenant_id, status_msg=status_msg, folder_only="campaign" if is_folder_wave else None)
-            elif task.campaign_type == "single":
-                await run_single_campaign_logic(
-                    tenant_id=tenant_id,
-                    client=client,
-                    target_link=task.target_link,
-                    ad_text_custom=task.custom_text,
-                    delay_between_channels=task.delay_between_channels,
-                    ad_lifespan=task.ad_lifespan,
-                    status_msg=status_msg
-                )
-            elif task.campaign_type in ["timed_post", "channel_exchange"]:
-                await run_timed_post_logic(
-                    tenant_id=tenant_id,
-                    client=client,
-                    target_link=task.target_link,
-                    ad_text_custom=task.custom_text,
-                    ad_lifespan=task.ad_lifespan,
-                    status_msg=status_msg,
-                    campaign_type="channel_exchange" if task.campaign_type == "channel_exchange" else "timed_post"
-                )
-            elif task.campaign_type in ["bulk", "custom_folder"]:
-                folder_num = None
-                extra_link = None
-                if task.campaign_type == "custom_folder" and task.target_link:
-                    if "|" in task.target_link:
-                        f_str, extra_link = task.target_link.split("|", 1)
-                        folder_num = int(f_str) if f_str.isdigit() else 1
-                    elif task.target_link.isdigit():
-                        folder_num = int(task.target_link)
-                    else:
-                        extra_link = task.target_link
-                elif task.campaign_type == "bulk" and task.target_link:
-                    extra_link = task.target_link
-
-                # Check if task was in-progress and can be resumed
-                resume_idx = 0
-                if task.completed_count and task.completed_count > 0:
-                    resume_idx = task.completed_count
-                else:
-                    try:
-                        from cache_manager import redis_client
-                        raw_state = await redis_client.get(f"tenant:{tenant_id}:active_campaign_state")
-                        if raw_state:
-                            s_data = json.loads(raw_state)
-                            resume_idx = s_data.get("current_target_index", 0)
-                    except Exception:
-                        pass
-
-                await run_bulk_campaign_logic(
-                    tenant_id=tenant_id,
-                    client=client,
-                    ad_text_custom=task.custom_text,
-                    delay_between_channels=task.delay_between_channels,
-                    ad_lifespan=task.ad_lifespan,
-                    status_msg=status_msg,
-                    resume_index=resume_idx,
-                    folder_number=folder_num,
-                    web_task_id=task_id,
-                    extra_target_link=extra_link
-                )
-            elif task.campaign_type == "clear":
-                await run_clear_logic(tenant_id=tenant_id, client=client, web_task_id=task_id)
-            elif task.campaign_type == "deep_clear":
-                await run_deep_clear_logic(tenant_id=tenant_id, client=client, web_task_id=task_id)
-            elif task.campaign_type == "stop_everything":
-                await run_stop_everything_logic(tenant_id=tenant_id, client=client, web_task_id=task_id)
-            elif task.campaign_type == "update":
-                await run_update_logic(tenant_id=tenant_id, client=client, web_task_id=task_id)
-            elif task.campaign_type == "clear_logs":
-                await run_clear_logs_logic(tenant_id=tenant_id, client=client)
-            
-            # Refresh session to write back status
+            await run_bulk_campaign_logic(
+                tenant_id=tenant_id,
+                client=client,
+                ad_text_custom=custom_text,
+                delay_between_channels=delay_between_channels,
+                ad_lifespan=ad_lifespan,
+                status_msg=status_msg,
+                resume_index=resume_idx,
+                folder_number=folder_num,
+                web_task_id=task_id,
+                extra_target_link=extra_link
+            )
+        elif campaign_type == "clear":
+            await run_clear_logic(tenant_id=tenant_id, client=client, web_task_id=task_id)
+        elif campaign_type == "deep_clear":
+            await run_deep_clear_logic(tenant_id=tenant_id, client=client, web_task_id=task_id)
+        elif campaign_type == "stop_everything":
+            await run_stop_everything_logic(tenant_id=tenant_id, client=client, web_task_id=task_id)
+        elif campaign_type == "update":
+            await run_update_logic(tenant_id=tenant_id, client=client, web_task_id=task_id)
+        elif campaign_type == "clear_logs":
+            await run_clear_logs_logic(tenant_id=tenant_id, client=client)
+        
+        # Write back status in a fresh, isolated short-lived session
+        async with AsyncSessionLocal() as write_session:
+            # For wave/activate_exchange: stay "active" in database
+            if campaign_type in ["wave", "wave_folder", "activate_exchange"]:
+                final_status = "active"
+            # For timed_post, single, and channel_exchange: stay "active" until the cleaner actually deletes the ad
+            elif campaign_type in ["timed_post", "single", "channel_exchange"] and ad_lifespan > 0:
+                final_status = "active"
+            elif campaign_type in ["bulk", "custom_folder"]:
+                cur_status = (await write_session.execute(select(WebCampaignTask.status).where(WebCampaignTask.id == task_id))).scalar_one_or_none()
+                final_status = cur_status or "completed"
+            else:
+                final_status = "completed"
+            await write_session.execute(
+                update(WebCampaignTask).where(WebCampaignTask.id == task_id).values(status=final_status)
+            )
+            await write_session.commit()
+        logger.info(f"Web Campaign Task {task_id} marked as {final_status}.")
+        await log_tenant_event(tenant_id, f"اكتملت المهمة: {type_ar} (ويب) بنجاح.")
+        await handle_exchange_execution_callback(task_id, success=True)
+    except asyncio.CancelledError:
+        logger.info(f"Web Campaign Task {task_id} was cancelled.")
+        await log_tenant_event(tenant_id, f"تم إلغاء المهمة المجدولة: {type_ar} (ويب).")
+        try:
             async with AsyncSessionLocal() as write_session:
-                # For wave/activate_exchange: stay "active" in database
-                if task.campaign_type in ["wave", "wave_folder", "activate_exchange"]:
-                    final_status = "active"
-                # For timed_post, single, and channel_exchange: stay "active" until the cleaner actually deletes the ad
-                elif task.campaign_type in ["timed_post", "single", "channel_exchange"] and task.ad_lifespan > 0:
-                    final_status = "active"
-                elif task.campaign_type in ["bulk", "custom_folder"]:
-                    cur_status = (await write_session.execute(select(WebCampaignTask.status).where(WebCampaignTask.id == task_id))).scalar_one_or_none()
-                    final_status = cur_status or "completed"
-                else:
-                    final_status = "completed"
                 await write_session.execute(
-                    update(WebCampaignTask).where(WebCampaignTask.id == task_id).values(status=final_status)
+                    update(WebCampaignTask).where(WebCampaignTask.id == task_id).values(status="failed")
                 )
                 await write_session.commit()
-            logger.info(f"Web Campaign Task {task_id} marked as {final_status}.")
-            await log_tenant_event(tenant_id, f"اكتملت المهمة: {type_ar} (ويب) بنجاح.")
-            await handle_exchange_execution_callback(task_id, success=True)
-        except asyncio.CancelledError:
-            logger.info(f"Web Campaign Task {task_id} was cancelled.")
-            await log_tenant_event(tenant_id, f"تم إلغاء المهمة المجدولة: {type_ar} (ويب).")
-            try:
-                async with AsyncSessionLocal() as write_session:
-                    await write_session.execute(
-                        update(WebCampaignTask).where(WebCampaignTask.id == task_id).values(status="failed")
-                    )
-                    await write_session.commit()
-            except Exception as se:
-                logger.error(f"Could not mark task {task_id} as failed (after cancellation): {se}")
-            await handle_exchange_execution_callback(task_id, success=False, error_msg="Cancelled")
-            raise
-        except Exception as e:
-            logger.error(f"Failed to execute web campaign task {task_id}: {e}")
-            await log_tenant_event(tenant_id, f"فشلت المهمة: {type_ar} (ويب) بسبب خطأ: {str(e)}")
-            try:
-                async with AsyncSessionLocal() as write_session:
-                    await write_session.execute(
-                        update(WebCampaignTask).where(WebCampaignTask.id == task_id).values(status="failed")
-                    )
-                    await write_session.commit()
-            except Exception as se:
-                logger.error(f"Could not mark task {task_id} as failed: {se}")
-            await handle_exchange_execution_callback(task_id, success=False, error_msg=str(e))
+        except Exception as se:
+            logger.error(f"Could not mark task {task_id} as failed (after cancellation): {se}")
+        await handle_exchange_execution_callback(task_id, success=False, error_msg="Cancelled")
+        raise
+    except Exception as e:
+        logger.error(f"Failed to execute web campaign task {task_id}: {e}")
+        await log_tenant_event(tenant_id, f"فشلت المهمة: {type_ar} (ويب) بسبب خطأ: {str(e)}")
+        try:
+            async with AsyncSessionLocal() as write_session:
+                await write_session.execute(
+                    update(WebCampaignTask).where(WebCampaignTask.id == task_id).values(status="failed")
+                )
+                await write_session.commit()
+        except Exception as se:
+            logger.error(f"Could not mark task {task_id} as failed: {se}")
+        await handle_exchange_execution_callback(task_id, success=False, error_msg=str(e))
 
 
 async def handle_exchange_execution_callback(task_id: int, success: bool, error_msg: Optional[str] = None):
@@ -7972,7 +8070,7 @@ async def dispatch_worker_broadcast(
                 logger.warning(f"Failed to remove temp broadcast media file: {ce}")
 
 async def redis_pubsub_listener():
-    from cache_manager import redis_pubsub_client
+    from cache_manager import redis_pubsub_client, redis_client
     import json
     pubsub = redis_pubsub_client.pubsub()
     await pubsub.subscribe("saas_otp_channel", "saas_admin_broadcast", "saas_tenant_commands", "saas_user_notifications")
@@ -8187,8 +8285,11 @@ async def redis_pubsub_listener():
                     if user_id and message_text:
                         # 1. Send strictly to user Saved Messages via Pyrogram
                         async def run_alert():
-                            async with AsyncSessionLocal() as session:
-                                await send_telegram_alert(user_id, message_text, session, notify_bot=False)
+                            try:
+                                async with AsyncSessionLocal() as session:
+                                    await send_telegram_alert(user_id, message_text, session, notify_bot=False)
+                            except Exception as ale:
+                                logger.error(f"Error sending telegram alert in redis listener: {ale}")
                         asyncio.create_task(run_alert())
 
                         # 2. Send to Status Bot ONLY if it is an interactive exchange update (accepted/rejected/cancelled)

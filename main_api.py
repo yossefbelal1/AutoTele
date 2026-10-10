@@ -82,7 +82,13 @@ class RedisPublishHandler(logging.Handler):
             if tenant_id is not None:
                 log_obj["tenant_id"] = tenant_id
             
-            # Submit to thread pool
+            # Submit to thread pool (drop if backlog exceeds 50 to prevent unbounded RAM growth)
+            if hasattr(self.executor, '_work_queue'):
+                try:
+                    if self.executor._work_queue.qsize() > 50:
+                        return
+                except Exception:
+                    pass
             self.executor.submit(self._publish_to_redis, log_obj)
         except Exception:
             pass
