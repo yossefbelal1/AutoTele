@@ -5326,7 +5326,14 @@ async def start_tenant_worker(account: TelegramAccount):
         )
         
         try:
-            await asyncio.wait_for(client.start(), timeout=12.0)
+            await asyncio.wait_for(client.start(), timeout=15.0)
+        except FloodWait as fw:
+            if fw.value <= 30:
+                logger.warning(f"Tenant {tenant_id}: Telegram FloodWait {fw.value}s on client.start(). Waiting {fw.value}s...")
+                await asyncio.sleep(fw.value + 1)
+                await asyncio.wait_for(client.start(), timeout=15.0)
+            else:
+                raise
         except Exception as start_err:
             if proxy_config:
                 logger.warning(f"Tenant {tenant_id}: Failed to start with proxy ({start_err}). Falling back to direct connection...")
@@ -5342,7 +5349,15 @@ async def start_tenant_worker(account: TelegramAccount):
                     in_memory=True,
                     workers=2
                 )
-                await asyncio.wait_for(client.start(), timeout=15.0)
+                try:
+                    await asyncio.wait_for(client.start(), timeout=15.0)
+                except FloodWait as pfw:
+                    if pfw.value <= 30:
+                        logger.warning(f"Tenant {tenant_id}: Telegram FloodWait {pfw.value}s on direct client.start(). Waiting {pfw.value}s...")
+                        await asyncio.sleep(pfw.value + 1)
+                        await asyncio.wait_for(client.start(), timeout=15.0)
+                    else:
+                        raise
             else:
                 raise
 
@@ -5444,7 +5459,9 @@ async def start_tenant_worker(account: TelegramAccount):
             except Exception as e:
                 logger.error(f"Error resuming active campaign for tenant {tenant_id}: {e}")
         
-        asyncio.create_task(try_resume_campaign())
+    except FloodWait as fw:
+        logger.warning(f"Tenant {tenant_id}: Telegram FloodWait {fw.value}s during worker startup. Backing off safely without erroring account...")
+        await asyncio.sleep(min(fw.value, 60))
     except Exception as e:
         logger.error(f"Failed to start worker for tenant {tenant_id}: {e}")
         from pyrogram.errors import UserDeactivated, AuthKeyUnregistered, AuthKeyDuplicated, SessionRevoked, Unauthorized
