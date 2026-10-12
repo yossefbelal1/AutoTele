@@ -2171,6 +2171,9 @@ async def run_timed_post_logic(
 
             # Process each promo link inside this host channel
             for promo_link in promo_links:
+                if await redis_client.get(f"tenant:{tenant_id}:campaign_global_pause"):
+                    logger.info(f"Tenant {tenant_id}: Timed post halted due to campaign_global_pause.")
+                    break
                 try:
                     await log_tenant_event(tenant_id, f"جاري نشر إعلان [{promo_link}] في القناة [{host_link}] ({lifespan_desc})...")
                     
@@ -2566,6 +2569,9 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
             async def staggered_publish(c, delay, c_idx):
                 try:
                     await asyncio.sleep(delay)
+                    if await redis_client.get(f"tenant:{tenant_id}:campaign_global_pause"):
+                        logger.info(f"Tenant {tenant_id}: Staggered publish skipped channel {c.get('title')} due to pause.")
+                        return
                     await publish_to_channel(c, ch_idx=c_idx)
                 except Exception as p_err:
                     logger.error(f"Error in staggered_publish for channel {c.get('title')}: {p_err}")
@@ -2973,6 +2979,20 @@ async def run_bulk_campaign_logic(
             if index < resume_index:
                 continue
                 
+            # Instant termination if global pause is set or task cancelled
+            pause_val = await redis_client.get(f"tenant:{tenant_id}:campaign_global_pause")
+            if pause_val:
+                logger.info(f"Tenant {tenant_id}: Bulk campaign aborted before target {index} due to campaign_global_pause.")
+                await clear_active_campaign_state(tenant_id)
+                return
+            if web_task_id:
+                async with AsyncSessionLocal() as chk_sess:
+                    chk_status = (await chk_sess.execute(select(WebCampaignTask.status).where(WebCampaignTask.id == web_task_id))).scalar_one_or_none()
+                    if chk_status in ("failed", "cancelled"):
+                        logger.info(f"Tenant {tenant_id}: Bulk campaign aborted before target {index} because task {web_task_id} status is {chk_status}.")
+                        await clear_active_campaign_state(tenant_id)
+                        return
+
             # Record real actual start and delete timestamps for this target
             target_now_utc = datetime.now(timezone.utc)
             target_actual_starts[index] = target_now_utc
@@ -3063,6 +3083,10 @@ async def run_bulk_campaign_logic(
                                     members_count=ch_members
                                 )
                         
+                        if await redis_client.get(f"tenant:{tenant_id}:campaign_global_pause"):
+                            logger.info(f"Tenant {tenant_id}: Halting bulk channel loop due to campaign_global_pause.")
+                            break
+
                         sticker_msg_id = None
                         if tenant_id not in tenant_semaphores:
                             tenant_semaphores[tenant_id] = asyncio.Semaphore(1)
@@ -4859,20 +4883,95 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                     
                 task.status = "failed"
                 task.result_summary = "🚨 تم إلغاء المهمة بأمر من التيليجرام."
+                campaign_type = getattr(task, "campaign_type", None)
                 await session.commit()
                 
             jobs = scheduled_jobs.get(tenant_id, [])
             for j in jobs:
-                if j.get("id") == f"web_{task_id}" or j.get("task_id") == task_id:
+                is_match = (
+                    str(j.get("id")) in [str(task_id), f"web_{task_id}"] or 
+                    str(j.get("task_id")) == str(task_id) or
+                    j.get("id") == task_id
+                )
+                if is_match:
+                    if not campaign_type and j.get("type"):
+                        campaign_type = j.get("type")
                     try:
                         j["task"].cancel()
                     except Exception:
                         pass
-            scheduled_jobs[tenant_id] = [j for j in jobs if j.get("id") != f"web_{task_id}" and j.get("task_id") != task_id]
+            scheduled_jobs[tenant_id] = [
+                j for j in jobs 
+                if not (str(j.get("id")) in [str(task_id), f"web_{task_id}"] or str(j.get("task_id")) == str(task_id) or j.get("id") == task_id)
+            ]
             await save_scheduled_jobs(tenant_id)
+
+            # If Wave campaign: immediately halt wave engine and purge wave state
+            cur_wave_tid = None
+            try:
+                from cache_manager import redis_client
+                raw_wtid = await redis_client.get(f"tenant:{tenant_id}:wave_task_id")
+                if raw_wtid:
+                    cur_wave_tid = raw_wtid.decode("utf-8") if isinstance(raw_wtid, bytes) else str(raw_wtid)
+            except Exception:
+                pass
             
-            await log_tenant_event(tenant_id, f"🗑️ تم إلغاء المهمة المجدولة #{task_id} بنجاح.")
-            await message.reply_text(f"🗑️ **تم إلغاء وحذف المهمة المجدولة رقم `#{task_id}` بنجاح!**")
+            is_wave = campaign_type in ["wave", "wave_folder", "activate_exchange"]
+            if is_wave or (cur_wave_tid and str(cur_wave_tid) == str(task_id)):
+                logger.info(f"Tenant {tenant_id}: Halting wave engine due to Telegram cancellation of wave task {task_id}")
+                if tenant_id in running_tasks:
+                    w_task = running_tasks.pop(tenant_id, None)
+                    if w_task and not w_task.done():
+                        w_task.cancel()
+                try:
+                    await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "stopped", ex=86400)
+                    await redis_client.delete(f"tenant:{tenant_id}:last_wave_time")
+                    await redis_client.delete(f"tenant:{tenant_id}:wave_end_time")
+                    await redis_client.delete(f"tenant:{tenant_id}:wave_task_id")
+                    await redis_client.delete(f"tenant:{tenant_id}:wave_duration_minutes")
+                except Exception as pe:
+                    logger.error(f"Failed to clear wave keys in handle_مسح_مهمة: {pe}")
+                last_wave_time.pop(tenant_id, None)
+                async with AsyncSessionLocal() as db_sess:
+                    await set_setting(db_sess, tenant_id, "bot_system_state", "stopped")
+                    await db_sess.commit()
+
+            # If Promo/Bulk/Single task: cancel active running tasks & clear promotional state
+            is_promo = campaign_type in ["bulk", "single", "timed_post", "channel_exchange", "custom_folder"] or not is_wave
+            if is_promo:
+                logger.info(f"Tenant {tenant_id}: Cancelling active running tasks and clearing promotional state for task {task_id}")
+                running_tasks_list = list(active_running_tasks.get(tenant_id, []))
+                for t in running_tasks_list:
+                    try:
+                        t.cancel()
+                    except Exception:
+                        pass
+                active_running_tasks.pop(tenant_id, None)
+                await clear_active_campaign_state(tenant_id)
+                try:
+                    await redis_client.delete(f"tenant:{tenant_id}:promotional_campaign_running")
+                    await redis_client.delete(f"tenant:{tenant_id}:bulk_next_target_time")
+                    await redis_client.delete(f"tenant:{tenant_id}:bulk_active_targets")
+                    await redis_client.delete(f"tenant:{tenant_id}:active_job_id")
+                    await redis_client.delete(f"tenant:{tenant_id}:live_progress")
+                except Exception:
+                    pass
+
+            # Global pause to halt any in-flight loop immediately
+            try:
+                await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
+            except Exception:
+                pass
+
+            await log_tenant_event(tenant_id, f"🗑️ تم إلغاء المهمة المجدولة #{task_id} فورياً.")
+            try:
+                from cache_manager import publish_tenant_live_event
+                await publish_tenant_live_event(tenant_id, {"type": "jobs_updated", "task_id": task_id, "status": "failed"})
+                await publish_tenant_live_event(tenant_id, {"type": "wave_status", "status": "stopped"})
+                await publish_tenant_live_event(tenant_id, {"type": "progress_update", "status": "stopped", "percent": 0, "active": False})
+            except Exception:
+                pass
+            await message.reply_text(f"🗑️ **تم إلغاء وإيقاف المهمة المجدولة رقم `#{task_id}` فورياً بنجاح!**")
         except Exception as e:
             logger.error(f"Error in handle_مسح_مهمة: {e}")
             await message.reply_text(f"❌ **حدث خطأ أثناء إلغاء المهمة: {e}**")
@@ -5023,18 +5122,27 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 if w_task and not w_task.done():
                     w_task.cancel()
 
-            # 2. Hard kill-switch: Set global campaign pause in Redis
+            # 2. Hard kill-switch: Set global campaign pause in Redis and clear all state keys
             try:
                 from cache_manager import redis_client
                 await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
                 await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "stopped", ex=86400)
                 await redis_client.delete(f"tenant:{tenant_id}:last_wave_time")
+                await redis_client.delete(f"tenant:{tenant_id}:wave_end_time")
+                await redis_client.delete(f"tenant:{tenant_id}:wave_task_id")
+                await redis_client.delete(f"tenant:{tenant_id}:wave_duration_minutes")
+                await redis_client.delete(f"tenant:{tenant_id}:bulk_next_target_time")
+                await redis_client.delete(f"tenant:{tenant_id}:bulk_active_targets")
+                await redis_client.delete(f"tenant:{tenant_id}:active_job_id")
+                await redis_client.delete(f"tenant:{tenant_id}:live_progress")
+                await redis_client.delete(f"tenant:{tenant_id}:promotional_campaign_running")
             except Exception as pe:
                 logger.error(f"Failed to set pause flags in Redis in clear_scheduled_jobs: {pe}")
 
             # 3. Clear in-memory last_wave_time
             last_wave_time.pop(tenant_id, None)
 
+            # 4. Cancel delayed scheduled jobs
             jobs = scheduled_jobs.get(tenant_id, [])
             total_jobs = len(jobs)
             for j in jobs:
@@ -5045,6 +5153,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             scheduled_jobs[tenant_id] = []
             await save_scheduled_jobs(tenant_id)
             
+            # 5. Cancel active running tasks and clear campaign state
             running_tasks_list = list(active_running_tasks.get(tenant_id, []))
             total_running = len(running_tasks_list)
             for t in running_tasks_list:
@@ -5053,21 +5162,30 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 except Exception:
                     pass
             active_running_tasks.pop(tenant_id, None)
+            await clear_active_campaign_state(tenant_id)
             
             async with AsyncSessionLocal() as session:
                 from db_manager import WebCampaignTask
                 from sqlalchemy import update
                 await set_setting(session, tenant_id, "bot_system_state", "stopped")
                 
-                # Cancel pending web tasks and get the rowcount
+                # Cancel pending/processing/active web tasks and get the rowcount
                 db_result = await session.execute(
                     update(WebCampaignTask).where(
                         WebCampaignTask.telegram_account_id == tenant_id,
-                        WebCampaignTask.status == "pending"
-                    ).values(status="failed")
+                        WebCampaignTask.status.in_(["pending", "processing", "active"])
+                    ).values(status="failed", result_summary="🚨 تم إلغاء المهمة بأمر مسح المهام.")
                 )
                 total_cancelled_db = db_result.rowcount
                 await session.commit()
+
+            try:
+                from cache_manager import publish_tenant_live_event
+                await publish_tenant_live_event(tenant_id, {"type": "jobs_updated", "action": "cleared"})
+                await publish_tenant_live_event(tenant_id, {"type": "wave_status", "status": "stopped"})
+                await publish_tenant_live_event(tenant_id, {"type": "progress_update", "status": "stopped", "percent": 0, "active": False})
+            except Exception:
+                pass
 
             total_cancelled = total_jobs + total_cancelled_db
 
@@ -6273,6 +6391,21 @@ async def wave_publisher_worker(tenant_id: int):
                 except Exception as exp_err:
                     logger.error(f"Error parsing wave_end_time for tenant {tenant_id}: {exp_err}")
             
+            # Double safeguard: Verify if the wave_task_id is still valid and active in DB
+            wave_task_id_val = await redis_client.get(f"tenant:{tenant_id}:wave_task_id")
+            if wave_task_id_val:
+                try:
+                    w_tid = int(wave_task_id_val.decode("utf-8") if isinstance(wave_task_id_val, bytes) else wave_task_id_val)
+                    async with AsyncSessionLocal() as chk_session:
+                        from db_manager import WebCampaignTask
+                        w_task_obj = (await chk_session.execute(select(WebCampaignTask).where(WebCampaignTask.id == w_tid))).scalar_one_or_none()
+                        if not w_task_obj or w_task_obj.status in ("failed", "cancelled"):
+                            logger.info(f"Tenant {tenant_id}: Wave task {w_tid} is no longer active in DB (status={w_task_obj.status if w_task_obj else 'deleted'}). Stopping wave publisher worker.")
+                            await stop_wave_campaign_on_timeout(tenant_id)
+                            break
+                except Exception as w_chk_err:
+                    logger.debug(f"Error checking wave_task_id in DB: {w_chk_err}")
+
             global_pause = await redis_client.get(f"tenant:{tenant_id}:campaign_global_pause")
             if global_pause:
                 await asyncio.sleep(15)
@@ -8353,17 +8486,124 @@ async def redis_pubsub_listener():
                         asyncio.create_task(refresh_tenant_campaign_channels(tenant_id, scope=refresh_scope))
                     elif command == "cancel_single_job":
                         task_id = data.get("task_id")
-                        logger.info(f"Received cancel_single_job command for tenant {tenant_id}, task {task_id}")
+                        campaign_type = data.get("campaign_type")
+                        logger.info(f"Received cancel_single_job command for tenant {tenant_id}, task {task_id}, type {campaign_type}")
+                        
+                        # 1. Fetch task details from DB if needed
+                        if not campaign_type and task_id:
+                            try:
+                                async with AsyncSessionLocal() as session:
+                                    from db_manager import WebCampaignTask
+                                    db_t = (await session.execute(select(WebCampaignTask).where(WebCampaignTask.id == task_id))).scalar_one_or_none()
+                                    if db_t:
+                                        campaign_type = db_t.campaign_type
+                            except Exception as _dbe:
+                                logger.debug(f"Could not load task {task_id} from DB: {_dbe}")
+
+                        # 2. Cancel and remove matching job from scheduled_jobs
                         jobs = scheduled_jobs.get(tenant_id, [])
                         for j in jobs:
-                            if j.get("id") == f"web_{task_id}" or j.get("task_id") == task_id:
+                            is_match = (
+                                str(j.get("id")) in [str(task_id), f"web_{task_id}"] or 
+                                str(j.get("task_id")) == str(task_id) or
+                                j.get("id") == task_id
+                            )
+                            if is_match:
+                                if not campaign_type and j.get("type"):
+                                    campaign_type = j.get("type")
                                 try:
                                     j["task"].cancel()
                                 except Exception:
                                     pass
-                        scheduled_jobs[tenant_id] = [j for j in jobs if j.get("id") != f"web_{task_id}" and j.get("task_id") != task_id]
+
+                        scheduled_jobs[tenant_id] = [
+                            j for j in jobs 
+                            if not (str(j.get("id")) in [str(task_id), f"web_{task_id}"] or str(j.get("task_id")) == str(task_id) or j.get("id") == task_id)
+                        ]
                         await save_scheduled_jobs(tenant_id)
-                        await log_tenant_event(tenant_id, f"🗑️ تم إلغاء المهمة المجدولة #{task_id} من لوحة التحكم.")
+
+                        # 3. If Wave campaign: immediately halt wave engine and purge wave state
+                        cur_wave_tid = None
+                        try:
+                            from cache_manager import redis_client
+                            raw_wtid = await redis_client.get(f"tenant:{tenant_id}:wave_task_id")
+                            if raw_wtid:
+                                cur_wave_tid = raw_wtid.decode("utf-8") if isinstance(raw_wtid, bytes) else str(raw_wtid)
+                        except Exception:
+                            pass
+                        
+                        is_wave = campaign_type in ["wave", "wave_folder", "activate_exchange"]
+                        if is_wave or (cur_wave_tid and str(cur_wave_tid) == str(task_id)):
+                            logger.info(f"Tenant {tenant_id}: Halting wave engine due to cancellation of wave task {task_id}")
+                            if tenant_id in running_tasks:
+                                w_task = running_tasks.pop(tenant_id, None)
+                                if w_task and not w_task.done():
+                                    w_task.cancel()
+                            try:
+                                await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "stopped", ex=86400)
+                                await redis_client.delete(f"tenant:{tenant_id}:last_wave_time")
+                                await redis_client.delete(f"tenant:{tenant_id}:wave_end_time")
+                                await redis_client.delete(f"tenant:{tenant_id}:wave_task_id")
+                                await redis_client.delete(f"tenant:{tenant_id}:wave_duration_minutes")
+                            except Exception as pe:
+                                logger.error(f"Failed to clear wave keys in cancel_single_job: {pe}")
+                            last_wave_time.pop(tenant_id, None)
+                            async with AsyncSessionLocal() as db_sess:
+                                await set_setting(db_sess, tenant_id, "bot_system_state", "stopped")
+                                await db_sess.commit()
+
+                        # 4. If Bulk / Single / Timed / Promo task: cancel active running tasks & clear promotional state
+                        is_promo = campaign_type in ["bulk", "single", "timed_post", "channel_exchange", "custom_folder"] or not is_wave
+                        if is_promo:
+                            logger.info(f"Tenant {tenant_id}: Cancelling active running tasks and clearing promotional state for task {task_id}")
+                            running_tasks_list = list(active_running_tasks.get(tenant_id, []))
+                            for t in running_tasks_list:
+                                try:
+                                    t.cancel()
+                                except Exception:
+                                    pass
+                            active_running_tasks.pop(tenant_id, None)
+                            await clear_active_campaign_state(tenant_id)
+                            try:
+                                await redis_client.delete(f"tenant:{tenant_id}:promotional_campaign_running")
+                                await redis_client.delete(f"tenant:{tenant_id}:bulk_next_target_time")
+                                await redis_client.delete(f"tenant:{tenant_id}:bulk_active_targets")
+                                await redis_client.delete(f"tenant:{tenant_id}:active_job_id")
+                                await redis_client.delete(f"tenant:{tenant_id}:live_progress")
+                            except Exception:
+                                pass
+
+                        # 5. Set campaign_global_pause = "1" to guarantee in-flight loops halt immediately
+                        try:
+                            await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
+                        except Exception:
+                            pass
+
+                        # 6. Mark DB task status = "failed"
+                        try:
+                            async with AsyncSessionLocal() as session:
+                                from db_manager import WebCampaignTask
+                                from sqlalchemy import update
+                                await session.execute(
+                                    update(WebCampaignTask)
+                                    .where(
+                                        WebCampaignTask.id == task_id,
+                                        WebCampaignTask.telegram_account_id == tenant_id
+                                    )
+                                    .values(status="failed", result_summary="🚨 تم إلغاء المهمة فورياً بناءً على طلب المستخدم.")
+                                )
+                                await session.commit()
+                        except Exception as dbe:
+                            logger.error(f"Error updating task status in cancel_single_job: {dbe}")
+
+                        await log_tenant_event(tenant_id, f"🗑️ تم إيقاف وإلغاء المهمة المجدولة #{task_id} فورياً.")
+                        try:
+                            from cache_manager import publish_tenant_live_event
+                            await publish_tenant_live_event(tenant_id, {"type": "jobs_updated", "task_id": task_id, "status": "failed"})
+                            await publish_tenant_live_event(tenant_id, {"type": "wave_status", "status": "stopped"})
+                            await publish_tenant_live_event(tenant_id, {"type": "progress_update", "status": "stopped", "percent": 0, "active": False})
+                        except Exception:
+                            pass
                     elif command == "update_single_job":
                         task_id = data.get("task_id")
                         logger.info(f"Received update_single_job command for tenant {tenant_id}, task {task_id}")

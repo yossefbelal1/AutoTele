@@ -1233,7 +1233,7 @@ async def get_user_campaign_details(task_id: int, user_id: int = Depends(get_cur
 
 @app.post("/user/campaigns/{task_id}/cancel")
 async def cancel_user_campaign_endpoint(task_id: int, user_id: int = Depends(get_current_user)):
-    return await cancel_single_scheduled_job(task_id=task_id, user_id=user_id)
+    return await delete_single_scheduled_job(task_id=task_id, user_id=user_id)
 
 
 # ==========================================
@@ -2613,6 +2613,7 @@ async def delete_single_scheduled_job(task_id: int, user_id: int = Depends(get_c
         if not task:
             raise HTTPException(status_code=404, detail="المهمة المجدولة غير موجودة.")
         
+        campaign_type = getattr(task, "campaign_type", None)
         task.status = "failed"
         task.result_summary = "🚨 تم إلغاء المهمة المجدولة بناءً على طلب من لوحة التحكم."
         await session.commit()
@@ -2628,7 +2629,12 @@ async def delete_single_scheduled_job(task_id: int, user_id: int = Depends(get_c
             import json as _json
             await redis_client.publish(
                 "saas_tenant_commands",
-                _json.dumps({"tenant_id": tg_account.id, "command": "cancel_single_job", "task_id": task_id})
+                _json.dumps({
+                    "tenant_id": tg_account.id,
+                    "command": "cancel_single_job",
+                    "task_id": task_id,
+                    "campaign_type": campaign_type
+                })
             )
         except Exception as pe:
             logger.error(f"Failed to publish cancel_single_job: {pe}")
@@ -2637,6 +2643,8 @@ async def delete_single_scheduled_job(task_id: int, user_id: int = Depends(get_c
             "status": "success",
             "message": f"تم إلغاء المهمة المجدولة #{task_id} بنجاح."
         }
+
+cancel_single_scheduled_job = delete_single_scheduled_job
 
 @app.put("/user/scheduled-jobs/{task_id}")
 async def update_single_scheduled_job(task_id: int, req: UpdateScheduledJobReq, user_id: int = Depends(get_current_user)):
@@ -2719,26 +2727,20 @@ async def clear_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
         from cache_manager import redis_client, get_invite_link
         await redis_client.delete(f"tenant:{tg_account.id}:scheduled_jobs")
         
-        # 2. Publish cancel command to worker if any pending/processing jobs exist
-        from db_manager import WebCampaignTask
-        from sqlalchemy import delete
-        
-        stmt_active = select(WebCampaignTask).where(
-            WebCampaignTask.telegram_account_id == tg_account.id,
-            WebCampaignTask.status.in_(["pending", "processing"])
-        )
-        active_tasks = (await session.execute(stmt_active)).scalars().all()
-        if active_tasks:
-            try:
-                import json as _json
-                await redis_client.publish(
-                    "saas_tenant_commands",
-                    _json.dumps({"tenant_id": tg_account.id, "command": "cancel_jobs"})
-                )
-            except Exception as pe:
-                logger.error(f"Failed to publish cancel_jobs command: {pe}")
+        # 2. Always publish cancel_jobs command to worker to stop all in-memory and scheduled tasks
+        try:
+            from cache_manager import redis_client, get_invite_link
+            import json as _json
+            await redis_client.publish(
+                "saas_tenant_commands",
+                _json.dumps({"tenant_id": tg_account.id, "command": "cancel_jobs"})
+            )
+        except Exception as pe:
+            logger.error(f"Failed to publish cancel_jobs command: {pe}")
         
         # 3. Delete all tasks from DB
+        from db_manager import WebCampaignTask
+        from sqlalchemy import delete
         await session.execute(
             delete(WebCampaignTask).where(WebCampaignTask.telegram_account_id == tg_account.id)
         )
