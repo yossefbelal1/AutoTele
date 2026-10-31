@@ -1277,7 +1277,7 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                     )
                     if status_msg:
                         try:
-                            await safe_edit_message(status_msg, edit_text)
+                            asyncio.create_task(safe_edit_message(status_msg, edit_text))
                         except Exception:
                             pass
                     if web_task_id:
@@ -1819,14 +1819,23 @@ async def sync_tenant_dialog_filters(tenant_id: int, client: Client, scraped_cha
                 return new_ids
 
         campaign_ids = await safe_cache_folder(f"tenant:{tenant_id}:campaign", campaign_ids, "Campaigns/حملات")
-        await redis_client.set(f"tenant:{tenant_id}:no_post", json.dumps(no_post_ids))
-        await redis_client.set(f"tenant:{tenant_id}:banned", json.dumps(banned_ids))
-        await redis_client.set(f"tenant:{tenant_id}:only_post", json.dumps(only_post_ids))
-
         custom_folder_numbers = sorted(list(custom_my_channels.keys()))
         for folder_num, ch_ids in custom_my_channels.items():
             await safe_cache_folder(f"tenant:{tenant_id}:my_channels:{folder_num}", ch_ids, f"My_channels{folder_num}")
-        await redis_client.set(f"tenant:{tenant_id}:my_channels_list", json.dumps(custom_folder_numbers))
+
+        try:
+            pipe = redis_client.pipeline()
+            pipe.set(f"tenant:{tenant_id}:no_post", json.dumps(no_post_ids))
+            pipe.set(f"tenant:{tenant_id}:banned", json.dumps(banned_ids))
+            pipe.set(f"tenant:{tenant_id}:only_post", json.dumps(only_post_ids))
+            pipe.set(f"tenant:{tenant_id}:my_channels_list", json.dumps(custom_folder_numbers))
+            await pipe.execute()
+        except Exception as pe:
+            logger.error(f"Error executing redis pipeline in sync_tenant_dialog_filters: {pe}")
+            await redis_client.set(f"tenant:{tenant_id}:no_post", json.dumps(no_post_ids))
+            await redis_client.set(f"tenant:{tenant_id}:banned", json.dumps(banned_ids))
+            await redis_client.set(f"tenant:{tenant_id}:only_post", json.dumps(only_post_ids))
+            await redis_client.set(f"tenant:{tenant_id}:my_channels_list", json.dumps(custom_folder_numbers))
 
         logger.info(f"Folders synced for tenant {tenant_id}: No_Post={len(no_post_ids)} | BANNED={len(banned_ids)} | CAMPAIGN={len(campaign_ids)} | ONLY_POST={len(only_post_ids)} | MY_CHANNELS={custom_folder_numbers}")
 
@@ -2522,7 +2531,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                     )
                 count += 1
                 await log_tenant_event(tenant_id, f"تم نشر إعلان الحملة الفردية بنجاح في قناة: {ch.get('title')}")
-                await update_campaign_status()
+                asyncio.create_task(update_campaign_status())
             except FloodWait as fw:
                 logger.warning(f"FloodWait hit during concurrent campaign: waiting {fw.value}s")
                 await asyncio.sleep(fw.value + 1)
@@ -8211,7 +8220,15 @@ async def poll_web_campaign_tasks():
         if not hasattr(poll_web_campaign_tasks, "_last_expiry_check") or (datetime.now(timezone.utc) - poll_web_campaign_tasks._last_expiry_check).total_seconds() > 300:
             poll_web_campaign_tasks._last_expiry_check = datetime.now(timezone.utc)
             asyncio.create_task(check_expired_exchange_requests())
-        await asyncio.sleep(0.5 if (pending_results and len(pending_results) > 0) else 2.5)
+        has_web_signal = False
+        try:
+            from cache_manager import redis_client
+            if await redis_client.get("has_pending_web_tasks"):
+                has_web_signal = True
+                await redis_client.delete("has_pending_web_tasks")
+        except Exception:
+            pass
+        await asyncio.sleep(0.2 if (has_web_signal or (pending_results and len(pending_results) > 0)) else 2.5)
 
 
 async def periodic_memory_optimizer():

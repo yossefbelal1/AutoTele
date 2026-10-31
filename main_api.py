@@ -2022,8 +2022,9 @@ async def campaign_submit(req: CampaignSubmitReq, user_id: int = Depends(get_cur
         session.add(new_task)
         await session.commit()
         try:
-            from cache_manager import publish_tenant_live_event
+            from cache_manager import publish_tenant_live_event, redis_client
             await publish_tenant_live_event(tg_account.id, {"type": "jobs_updated", "task_id": new_task.id, "status": "pending"})
+            await redis_client.set("has_pending_web_tasks", "1", ex=30)
         except Exception:
             pass
         return {"status": "success", "message": "تم تقديم طلب الحملة بنجاح، جاري معالجتها سحابياً..."}
