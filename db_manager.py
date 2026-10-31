@@ -660,3 +660,39 @@ class AccountNotification(Base):
     chat_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), nullable=False)
+
+
+class BroadcastCampaign(Base):
+    __tablename__ = "broadcast_campaigns"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    admin_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    message_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    target_group: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    target_user_ids: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    media_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    media_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    total_targets: Mapped[int] = mapped_column(Integer, default=0)
+    successful_deliveries: Mapped[int] = mapped_column(Integer, default=0)
+    failed_deliveries: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(50), default="completed")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    deliveries: Mapped[List["BroadcastDeliveryLog"]] = relationship("BroadcastDeliveryLog", back_populates="campaign", cascade="all, delete-orphan")
+
+
+class BroadcastDeliveryLog(Base):
+    __tablename__ = "broadcast_delivery_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    campaign_id: Mapped[int] = mapped_column(ForeignKey("broadcast_campaigns.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)  # delivered, partial, failed
+    bot_delivered: Mapped[bool] = mapped_column(Boolean, default=False)
+    saved_msgs_delivered: Mapped[bool] = mapped_column(Boolean, default=False)
+    error_detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    campaign: Mapped["BroadcastCampaign"] = relationship("BroadcastCampaign", back_populates="deliveries")

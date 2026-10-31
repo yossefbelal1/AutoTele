@@ -141,8 +141,16 @@ window.resetAdminLoginForm = function() {
 
 function showAuthScreen() {
   stopLogStream();
-  document.getElementById("dashboard-view").classList.add("hidden");
-  document.getElementById("auth-view").classList.remove("hidden");
+  const dash = document.getElementById("dashboard-view");
+  if (dash) {
+    dash.classList.add("hidden");
+    dash.style.setProperty("display", "none", "important");
+  }
+  const auth = document.getElementById("auth-view");
+  if (auth) {
+    auth.classList.remove("hidden");
+    auth.style.removeProperty("display");
+  }
   
   // Reset fields
   document.getElementById("admin-login-form").reset();
@@ -234,8 +242,16 @@ window.refreshCurrentAdminTab = function() {
 };
 
 function showDashboardScreen(preferredTab = null) {
-  document.getElementById("auth-view").classList.add("hidden");
-  document.getElementById("dashboard-view").classList.remove("hidden");
+  const auth = document.getElementById("auth-view");
+  if (auth) {
+    auth.classList.add("hidden");
+    auth.style.setProperty("display", "none", "important");
+  }
+  const dash = document.getElementById("dashboard-view");
+  if (dash) {
+    dash.classList.remove("hidden");
+    dash.style.removeProperty("display");
+  }
   
   // Set display email if available
   const emailDisplay = document.getElementById("admin-email-display");
@@ -321,6 +337,7 @@ function switchTab(tabId) {
     document.getElementById("broadcast-message").value = "";
     if (typeof removeBroadcastMedia === "function") removeBroadcastMedia();
     if (typeof loadBroadcastAudience === "function") loadBroadcastAudience();
+    if (typeof loadBroadcastHistory === "function") loadBroadcastHistory();
   } else if (tabId === "tab-logs") {
     loadLogTenants().then(() => startLogStream());
   } else if (tabId === "tab-health") {
@@ -2445,6 +2462,10 @@ async function handleAdminBroadcast(e) {
       setTimeout(() => {
         if (progressContainer) progressContainer.classList.add("hidden");
       }, 4000);
+      if (typeof loadBroadcastHistory === "function") {
+        loadBroadcastHistory();
+        setTimeout(loadBroadcastHistory, 3000);
+      }
     }
   } catch (error) {
     console.error("Broadcast failed:", error);
@@ -2463,6 +2484,234 @@ async function handleAdminBroadcast(e) {
   }
 }
 window.handleAdminBroadcast = handleAdminBroadcast;
+
+// ==========================================
+// BROADCAST HISTORY & DELIVERY LOGS
+// ==========================================
+async function loadBroadcastHistory() {
+  const tbody = document.getElementById("broadcast-history-tbody");
+  const badge = document.getElementById("broadcast-history-badge");
+  if (!tbody) return;
+
+  try {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 25px; color: #94a3b8;"><span class="spinner" style="display: inline-block; margin-left: 8px;"></span> جاري تحميل سجل البث...</td></tr>`;
+    const res = await adminApiRequest("/admin/broadcast/history");
+    const campaigns = (res && res.campaigns) ? res.campaigns : [];
+
+    if (badge) {
+      badge.textContent = `${campaigns.length} حملة`;
+    }
+
+    if (campaigns.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 35px; color: #64748b;">لا توجد حملات بث سابقة حتى الآن.</td></tr>`;
+      return;
+    }
+
+    let html = "";
+    campaigns.forEach(c => {
+      // Date formatting
+      let dateStr = "—";
+      if (c.created_at) {
+        try {
+          const d = new Date(c.created_at);
+          dateStr = d.toLocaleDateString("ar-EG", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+        } catch (_) {
+          dateStr = c.created_at.split("T")[0];
+        }
+      }
+
+      // Target group label
+      let targetBadge = "";
+      if (c.target_group === "active") {
+        targetBadge = `<span style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600;">المشتركين النشطين</span>`;
+      } else if (c.target_group === "expired") {
+        targetBadge = `<span style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600;">الاشتراكات المنتهية</span>`;
+      } else if (c.target_group === "custom" || c.target_user_ids) {
+        const uCount = c.target_user_ids ? c.target_user_ids.split(",").length : 1;
+        targetBadge = `<span style="background: rgba(139, 92, 246, 0.15); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600;">محدد (${uCount} عملاء)</span>`;
+      } else {
+        targetBadge = `<span style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600;">الجميع (All)</span>`;
+      }
+
+      // Message preview & Media badge
+      let mediaBadge = "";
+      if (c.media_type === "photo") {
+        mediaBadge = `<span style="display: inline-flex; align-items: center; gap: 3px; background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 4px; padding: 1px 6px; font-size: 11px; margin-left: 6px;">📷 صورة</span>`;
+      } else if (c.media_type === "video") {
+        mediaBadge = `<span style="display: inline-flex; align-items: center; gap: 3px; background: rgba(168, 85, 247, 0.12); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 4px; padding: 1px 6px; font-size: 11px; margin-left: 6px;">🎥 فيديو</span>`;
+      }
+
+      const cleanText = (c.message_text || "").replace(/\n+/g, " ").trim();
+      const previewText = cleanText.length > 55 ? cleanText.substring(0, 55) + "..." : cleanText || "بدون نص (وسائط فقط)";
+
+      // Delivery ratio & Percentage
+      const total = c.total_targets || 0;
+      const success = c.successful_deliveries || 0;
+      const pct = total > 0 ? Math.round((success / total) * 100) : (success > 0 ? 100 : 0);
+      let pctColor = "#10b981";
+      if (pct < 50) pctColor = "#ef4444";
+      else if (pct < 100) pctColor = "#f59e0b";
+
+      // Status badge
+      let statusBadge = "";
+      if (c.status === "completed") {
+        statusBadge = `<span style="color: #10b981; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">🟢 مكتملة</span>`;
+      } else if (c.status === "processing") {
+        statusBadge = `<span style="color: #38bdf8; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25); padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">🟡 قيد الإرسال</span>`;
+      } else {
+        statusBadge = `<span style="color: #ef4444; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">🔴 تعثرت</span>`;
+      }
+
+      html += `
+        <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05); transition: background 0.15s ease;" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
+          <td style="padding: 12px 10px; font-weight: 700; color: #fff;">#${c.id}</td>
+          <td style="padding: 12px 10px; color: #cbd5e1; white-space: nowrap;">${dateStr}</td>
+          <td style="padding: 12px 10px;">${targetBadge}</td>
+          <td style="padding: 12px 10px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(c.message_text || '')}">
+            ${mediaBadge}<span style="color: #e2e8f0;">${escapeHtml(previewText)}</span>
+          </td>
+          <td style="padding: 12px 10px; text-align: center; white-space: nowrap;">
+            <span style="font-weight: 700; color: #fff;">${success}</span> / <span style="color: #94a3b8;">${total}</span>
+            <span style="display: inline-block; margin-right: 6px; font-size: 11px; font-weight: 700; color: ${pctColor}; background: rgba(255,255,255,0.04); border-radius: 4px; padding: 1px 5px;">${pct}%</span>
+          </td>
+          <td style="padding: 12px 10px; text-align: center;">${statusBadge}</td>
+          <td style="padding: 12px 10px; text-align: center;">
+            <button type="button" class="btn btn-secondary" onclick="viewBroadcastDeliveries(${c.id})" style="padding: 5px 12px; font-size: 12px; display: inline-flex; align-items: center; gap: 5px; border-color: rgba(56, 189, 248, 0.3); color: #38bdf8;">
+              <span>👥</span>
+              <span>سجل التسليم</span>
+            </button>
+          </td>
+        </tr>
+      `;
+    });
+
+    tbody.innerHTML = html;
+  } catch (err) {
+    console.error("Failed to load broadcast history:", err);
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 25px; color: #ef4444;">فشل تحميل سجل البث: ${escapeHtml(err.message || 'خطأ غير معروف')}</td></tr>`;
+  }
+}
+window.loadBroadcastHistory = loadBroadcastHistory;
+
+async function viewBroadcastDeliveries(campaignId) {
+  const modal = document.getElementById("broadcast-deliveries-modal");
+  const title = document.getElementById("broadcast-deliveries-title");
+  const infoCard = document.getElementById("broadcast-campaign-info-card");
+  const tbody = document.getElementById("broadcast-deliveries-tbody");
+  if (!modal) return;
+
+  modal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+
+  if (title) title.innerHTML = `<span>📊</span> تفاصيل تسليم حملة البث #${campaignId}`;
+  if (infoCard) infoCard.innerHTML = `<div style="text-align: center; color: #94a3b8; padding: 10px;"><span class="spinner" style="display: inline-block; margin-left: 6px;"></span> جاري جلب بيانات الحملة...</div>`;
+  if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 30px; color: #94a3b8;"><span class="spinner" style="display: inline-block; margin-left: 6px;"></span> جاري تحميل تقرير المستلمين...</td></tr>`;
+
+  try {
+    const res = await adminApiRequest(`/admin/broadcast/history/${campaignId}/deliveries`);
+    const campaign = res.campaign || {};
+    const deliveries = res.deliveries || [];
+
+    // Render Info Card
+    let mediaSnippet = "";
+    if (campaign.media_url) {
+      mediaSnippet = `
+        <div style="margin-top: 8px;">
+          <a href="${campaign.media_url}" target="_blank" style="display: inline-flex; align-items: center; gap: 5px; color: #38bdf8; text-decoration: none; font-size: 12px; background: rgba(56, 189, 248, 0.1); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.25);">
+            <span>${campaign.media_type === 'video' ? '🎥' : '📷'}</span>
+            <span>عرض المرفق بالكامل</span>
+            <span>↗</span>
+          </a>
+        </div>
+      `;
+    }
+
+    if (infoCard) {
+      infoCard.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px;">
+          <div style="flex: 1; min-width: 250px;">
+            <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px; font-weight: 600;">نص الرسالة المرسلة:</div>
+            <div style="font-size: 13px; color: #e2e8f0; line-height: 1.6; max-height: 120px; overflow-y: auto; white-space: pre-wrap; background: rgba(0,0,0,0.3); padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); font-family: inherit;">${escapeHtml(campaign.message_text || 'بدون نص')}</div>
+            ${mediaSnippet}
+          </div>
+          <div style="display: flex; gap: 14px; flex-wrap: wrap;">
+            <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 10px 16px; text-align: center; min-width: 90px;">
+              <div style="font-size: 11px; color: #94a3b8;">إجمالي المستهدفين</div>
+              <div style="font-size: 20px; font-weight: 800; color: #fff; margin-top: 2px;">${campaign.total_targets || deliveries.length}</div>
+            </div>
+            <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 10px; padding: 10px 16px; text-align: center; min-width: 90px;">
+              <div style="font-size: 11px; color: #10b981;">تم الاستلام بنجاح</div>
+              <div style="font-size: 20px; font-weight: 800; color: #10b981; margin-top: 2px;">${campaign.successful_deliveries || 0}</div>
+            </div>
+            <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 10px; padding: 10px 16px; text-align: center; min-width: 90px;">
+              <div style="font-size: 11px; color: #ef4444;">تعذر الاستلام</div>
+              <div style="font-size: 20px; font-weight: 800; color: #ef4444; margin-top: 2px;">${campaign.failed_deliveries || 0}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Render Deliveries Table
+    if (deliveries.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 30px; color: #64748b;">لا توجد سجلات مستلمين مسجلة لهذه الحملة.</td></tr>`;
+      return;
+    }
+
+    let rowsHtml = "";
+    deliveries.forEach((d) => {
+      // Bot status
+      const botBadge = d.bot_delivered
+        ? `<span style="display: inline-flex; align-items: center; gap: 4px; color: #10b981; font-weight: 700; background: rgba(16, 185, 129, 0.1); padding: 3px 8px; border-radius: 6px; font-size: 12px;">✅ تم الإرسال</span>`
+        : `<span style="display: inline-flex; align-items: center; gap: 4px; color: #ef4444; background: rgba(239, 68, 68, 0.1); padding: 3px 8px; border-radius: 6px; font-size: 12px;">❌ لم يبدأ البوت</span>`;
+
+      // Saved Messages status
+      const savedBadge = d.saved_msgs_delivered
+        ? `<span style="display: inline-flex; align-items: center; gap: 4px; color: #10b981; font-weight: 700; background: rgba(16, 185, 129, 0.1); padding: 3px 8px; border-radius: 6px; font-size: 12px;">✅ تم الإرسال</span>`
+        : `<span style="display: inline-flex; align-items: center; gap: 4px; color: #94a3b8; background: rgba(255, 255, 255, 0.05); padding: 3px 8px; border-radius: 6px; font-size: 12px;">❌ غير متاح</span>`;
+
+      // Overall status
+      let overallBadge = "";
+      if (d.status === "delivered" || d.bot_delivered || d.saved_msgs_delivered) {
+        overallBadge = `<span style="color: #10b981; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700;">🟢 تم الاستلام</span>`;
+      } else {
+        overallBadge = `<span style="color: #ef4444; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700;">🔴 لم يصل</span>`;
+      }
+
+      rowsHtml += `
+        <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.04); transition: background 0.15s ease;" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
+          <td style="padding: 10px 12px;">
+            <div style="font-weight: 700; color: #fff;">${escapeHtml(d.user_name || 'مشترك #' + d.user_id)}</div>
+            <div style="font-size: 11px; color: #64748b;">ID: ${d.user_id}</div>
+          </td>
+          <td style="padding: 10px 12px; font-family: monospace; color: #cbd5e1; direction: ltr; text-align: right;">
+            ${d.phone ? escapeHtml(d.phone) : '<span style="color: #64748b;">—</span>'}
+          </td>
+          <td style="padding: 10px 12px; text-align: center;">${botBadge}</td>
+          <td style="padding: 10px 12px; text-align: center;">${savedBadge}</td>
+          <td style="padding: 10px 12px; text-align: center;">${overallBadge}</td>
+          <td style="padding: 10px 12px; font-size: 12px; color: #94a3b8; max-width: 200px;">
+            ${d.error_detail ? `<span style="color: #fbbf24;">${escapeHtml(d.error_detail)}</span>` : '<span style="color: #10b981;">وصل إلى المشترك بنجاح 🚀</span>'}
+          </td>
+        </tr>
+      `;
+    });
+
+    tbody.innerHTML = rowsHtml;
+  } catch (err) {
+    console.error("Failed to load campaign deliveries:", err);
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 25px; color: #ef4444;">فشل جلب تفاصيل المستلمين: ${escapeHtml(err.message || 'خطأ غير معروف')}</td></tr>`;
+  }
+}
+window.viewBroadcastDeliveries = viewBroadcastDeliveries;
+
+function closeBroadcastDeliveriesModal() {
+  const modal = document.getElementById("broadcast-deliveries-modal");
+  if (modal) modal.classList.add("hidden");
+  document.body.style.overflow = "auto";
+}
+window.closeBroadcastDeliveriesModal = closeBroadcastDeliveriesModal;
+
 
 // ==========================================
 // 8. INITIALIZATION & LISTENERS

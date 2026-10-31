@@ -99,7 +99,7 @@ services:
       - FRONTEND_URL=${FRONTEND_URL:-https://telegauto.com}
       - PYTHONUNBUFFERED=1
       - STATUS_BOT_TOKEN=${STATUS_BOT_TOKEN:-}
-      - STATUS_BOT_USERNAME=${STATUS_BOT_USERNAME:-AutoTeleStatusBot}
+      - STATUS_BOT_USERNAME=${STATUS_BOT_USERNAME:-AutoTele_UpdatesBot}
       - PROXY_POOL=${PROXY_POOL:-[]}
       - DEFAULT_PROXY_PORT=${DEFAULT_PROXY_PORT:-50101}
       - DEFAULT_PROXY_USERNAME=${DEFAULT_PROXY_USERNAME:-}
@@ -138,7 +138,7 @@ services:
       - SESSION_ENCRYPTION_KEY=${SESSION_ENCRYPTION_KEY:?SESSION_ENCRYPTION_KEY is required. Set it in .env file.}
       - PYTHONUNBUFFERED=1
       - STATUS_BOT_TOKEN=${STATUS_BOT_TOKEN:-}
-      - STATUS_BOT_USERNAME=${STATUS_BOT_USERNAME:-AutoTeleStatusBot}
+      - STATUS_BOT_USERNAME=${STATUS_BOT_USERNAME:-AutoTele_UpdatesBot}
     depends_on:
       postgres_db:
         condition: service_healthy

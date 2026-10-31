@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 # Global bot client instance
 status_bot_client: Optional[Client] = None
-status_bot_username: str = "AutoTeleStatusBot"
+status_bot_username: str = "AutoTele_UpdatesBot"
 
 def format_ad_lifespan_arabic(minutes: int) -> str:
     if minutes < 60:
@@ -519,7 +519,7 @@ async def start_status_bot():
         logger.warning("STATUS_BOT_TOKEN environment variable not set. Status bot will not start.")
         return
         
-    status_bot_username = os.getenv("STATUS_BOT_USERNAME", "AutoTeleStatusBot")
+    status_bot_username = os.getenv("STATUS_BOT_USERNAME", "AutoTele_UpdatesBot")
     
     # Resolve api_id and api_hash
     api_id = int(os.getenv("STATUS_BOT_API_ID", "0"))
@@ -870,7 +870,7 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
             stmt = select(TelegramAccount.id).where(TelegramAccount.user_id == user.id)
             acc_ids = (await session.execute(stmt)).scalars().all()
             for aid in acc_ids:
-                await redis_client.set(f"tenant:{aid}:campaign_global_pause", "1")
+                await redis_client.set(f"tenant:{aid}:campaign_global_pause", "1", ex=120)
                 
         await callback_query.answer("⏸️ تم إيقاف جميع حملات النشر مؤقتاً بنجاح.", show_alert=True)
 

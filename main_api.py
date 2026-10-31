@@ -43,7 +43,7 @@ from db_manager import (
     get_db, User, TelegramAccount, AsyncSessionLocal, CryptoPayment,
     AdTemplate, WebCampaignTask, apply_pyrogram_patches, AccountNotification,
     ActiveAd, PublishLog, ExchangeRequest, ExchangeAgreement, ExchangeExecution,
-    SubscriptionNotificationLog
+    SubscriptionNotificationLog, BroadcastCampaign, BroadcastDeliveryLog
 )
 from cache_manager import is_rate_limited, is_key_rate_limited, redis_client, redis_pubsub_client, clear_tenant_cache, get_channels_cache, get_invite_link
 
@@ -1689,7 +1689,7 @@ async def get_status_bot_link(user_id: int = Depends(get_current_user)):
     link_token = secrets.token_hex(16)
     from cache_manager import redis_client, get_invite_link
     await redis_client.set(f"status_bot_link_token:{link_token}", str(user_id), ex=900)
-    bot_username = os.getenv("STATUS_BOT_USERNAME", "AutoTeleStatusBot")
+    bot_username = os.getenv("STATUS_BOT_USERNAME", "AutoTele_UpdatesBot")
     link = f"https://t.me/{bot_username}?start={link_token}"
     return {"link": link}
 
@@ -2099,7 +2099,7 @@ async def stop_everything(user_id: int = Depends(get_current_user)):
         )
         
         # 4. Clear active campaign state and set global pause in Redis
-        await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
+        await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1", ex=120)
         await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "stopped", ex=86400)
         await redis_client.delete(f"tenant:{tenant_id}:last_wave_time")
         await redis_client.delete(f"tenant:{tenant_id}:wave_end_time")
@@ -5013,12 +5013,14 @@ async def dispatch_admin_broadcast(
     media_type: Optional[str] = None,
     media_id: Optional[str] = None,
     media_url: Optional[str] = None,
-    media_filename: Optional[str] = None
+    media_filename: Optional[str] = None,
+    campaign_id: Optional[int] = None
 ):
-    logger.info(f"Starting admin broadcast via Redis (target_user_id={target_user_id}, target_user_ids={target_user_ids}, target_group={target_group}, media_type={media_type}): {text[:50]}...")
+    logger.info(f"Starting admin broadcast via Redis (campaign_id={campaign_id}, target_user_id={target_user_id}, target_user_ids={target_user_ids}, target_group={target_group}, media_type={media_type}): {text[:50]}...")
     try:
         import json as _json
         payload = {
+            "campaign_id": campaign_id,
             "message_text": text,
             "target_user_id": target_user_id,
             "target_user_ids": target_user_ids,
@@ -5255,6 +5257,36 @@ async def admin_broadcast(
     except Exception as d_err:
         logger.warning(f"Broadcast dedup Redis check failed: {d_err}")
 
+    # Create BroadcastCampaign record in DB
+    campaign_id = None
+    try:
+        now_utc = datetime.now(timezone.utc)
+        target_group_val = target_group or ("custom" if (target_user_ids or target_user_id) else "all")
+        target_uids_str = ",".join(str(x) for x in target_user_ids) if target_user_ids else (str(target_user_id) if target_user_id else None)
+        media_link = media_url or (f"/api/broadcast/media/{media_id}" if media_id else None)
+        
+        async with AsyncSessionLocal() as db_sess:
+            campaign = BroadcastCampaign(
+                admin_id=admin_user.id,
+                message_text=message_text,
+                target_group=target_group_val,
+                target_user_ids=target_uids_str,
+                media_type=media_type,
+                media_url=media_link,
+                total_targets=len(target_user_ids) if target_user_ids else (1 if target_user_id else 0),
+                successful_deliveries=0,
+                failed_deliveries=0,
+                status="processing",
+                created_at=now_utc
+            )
+            db_sess.add(campaign)
+            await db_sess.commit()
+            await db_sess.refresh(campaign)
+            campaign_id = campaign.id
+            logger.info(f"Created BroadcastCampaign #{campaign_id} in DB.")
+    except Exception as c_err:
+        logger.error(f"Failed to create BroadcastCampaign record in DB: {c_err}")
+
     background_tasks.add_task(
         dispatch_admin_broadcast,
         text=message_text,
@@ -5264,7 +5296,8 @@ async def admin_broadcast(
         media_type=media_type,
         media_id=media_id,
         media_url=media_url,
-        media_filename=media_filename
+        media_filename=media_filename,
+        campaign_id=campaign_id
     )
 
     if target_user_ids:
@@ -5279,6 +5312,90 @@ async def admin_broadcast(
         dest_msg = "لجميع المشتركين"
     media_desc = f" متضمناً ({'صورة' if media_type == 'photo' else 'فيديو'})" if media_type else ""
     return {"status": "success", "message": f"جاري إطلاق البث{media_desc} {dest_msg} في الخلفية بنجاح!"}
+
+@app.get("/admin/broadcast/history")
+async def get_broadcast_history(
+    admin_user: User = Depends(check_admin_user)
+):
+    try:
+        async with AsyncSessionLocal() as session:
+            stmt = select(BroadcastCampaign).order_by(BroadcastCampaign.created_at.desc()).limit(50)
+            campaigns = (await session.execute(stmt)).scalars().all()
+            
+            result = []
+            for c in campaigns:
+                result.append({
+                    "id": c.id,
+                    "admin_id": c.admin_id,
+                    "message_text": c.message_text,
+                    "target_group": c.target_group,
+                    "target_user_ids": c.target_user_ids,
+                    "media_type": c.media_type,
+                    "media_url": c.media_url,
+                    "total_targets": c.total_targets,
+                    "successful_deliveries": c.successful_deliveries,
+                    "failed_deliveries": c.failed_deliveries,
+                    "status": c.status,
+                    "created_at": c.created_at.isoformat() if c.created_at else None
+                })
+            return {"status": "success", "campaigns": result}
+    except Exception as e:
+        logger.error(f"Failed to fetch broadcast history: {e}")
+        raise HTTPException(status_code=500, detail=f"فشل جلب سجل البث: {str(e)}")
+
+
+@app.get("/admin/broadcast/history/{campaign_id}/deliveries")
+async def get_broadcast_deliveries(
+    campaign_id: int,
+    admin_user: User = Depends(check_admin_user)
+):
+    try:
+        async with AsyncSessionLocal() as session:
+            c_stmt = select(BroadcastCampaign).where(BroadcastCampaign.id == campaign_id)
+            campaign = (await session.execute(c_stmt)).scalar_one_or_none()
+            if not campaign:
+                raise HTTPException(status_code=404, detail="حملة البث غير موجودة")
+
+            d_stmt = select(BroadcastDeliveryLog).where(BroadcastDeliveryLog.campaign_id == campaign_id).order_by(BroadcastDeliveryLog.id.asc())
+            logs = (await session.execute(d_stmt)).scalars().all()
+
+            deliveries = []
+            for l in logs:
+                deliveries.append({
+                    "id": l.id,
+                    "user_id": l.user_id,
+                    "user_name": l.user_name,
+                    "phone": l.phone,
+                    "status": l.status,
+                    "bot_delivered": l.bot_delivered,
+                    "saved_msgs_delivered": l.saved_msgs_delivered,
+                    "error_detail": l.error_detail,
+                    "created_at": l.created_at.isoformat() if l.created_at else None
+                })
+
+            return {
+                "status": "success",
+                "campaign": {
+                    "id": campaign.id,
+                    "message_text": campaign.message_text,
+                    "target_group": campaign.target_group,
+                    "target_user_ids": campaign.target_user_ids,
+                    "media_type": campaign.media_type,
+                    "media_url": campaign.media_url,
+                    "total_targets": campaign.total_targets,
+                    "successful_deliveries": campaign.successful_deliveries,
+                    "failed_deliveries": campaign.failed_deliveries,
+                    "status": campaign.status,
+                    "created_at": campaign.created_at.isoformat() if campaign.created_at else None
+                },
+                "deliveries": deliveries
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch broadcast deliveries for campaign {campaign_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"فشل جلب تفاصيل مستلمي البث: {str(e)}")
+
 
 @app.get("/admin/logs/stream")
 async def live_logs_stream(request: Request, tenant_id: Optional[int] = None, admin_user: User = Depends(check_admin_user)):

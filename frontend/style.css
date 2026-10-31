@@ -67,9 +67,42 @@ body.drawer-open {
   background: #3e546a;
 }
 
-/* Utilities */
-.hidden {
+/* Utilities & Hard View Isolation Guards */
+.hidden,
+[hidden],
+.dashboard-view-root.hidden,
+#dashboard-view.hidden,
+.view-container.hidden,
+#auth-view.hidden,
+#signup-view.hidden {
   display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  overflow: hidden !important;
+}
+
+/* Ensure mobile bars & drawers are never orphaned or visible when dashboard-view is hidden */
+.dashboard-view-root.hidden .mobile-app-bar,
+.dashboard-view-root.hidden .mobile-bottom-nav,
+.dashboard-view-root.hidden .mobile-nav-drawer,
+.dashboard-view-root.hidden .mobile-drawer-backdrop,
+.dashboard-view-root.hidden .admin-mobile-app-bar,
+.dashboard-view-root.hidden .admin-mobile-bottom-nav,
+.dashboard-view-root.hidden .admin-mobile-drawer,
+#dashboard-view.hidden .mobile-app-bar,
+#dashboard-view.hidden .mobile-bottom-nav,
+#dashboard-view.hidden .mobile-nav-drawer,
+#dashboard-view.hidden .mobile-drawer-backdrop,
+#dashboard-view.hidden .admin-mobile-app-bar,
+#dashboard-view.hidden .admin-mobile-bottom-nav,
+#dashboard-view.hidden .admin-mobile-drawer {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 .show-mobile {
   display: none;
@@ -566,7 +599,7 @@ body.drawer-open {
     display: none !important;
   }
 
-  .dashboard-view-root {
+  .dashboard-view-root:not(.hidden) {
     display: block;
   }
 
@@ -698,7 +731,7 @@ body.drawer-open {
     display: none !important;
   }
 
-  .dashboard-view-root {
+  .dashboard-view-root:not(.hidden) {
     display: flex !important;
     flex-direction: column !important;
     width: 100% !important;
@@ -4542,3 +4575,24 @@ body.drawer-open {
 }
 
 
+
+
+/* ==========================================================================
+   FINAL OVERRIDE: ABSOLUTE VIEW ISOLATION (Prevents Auth & Dashboard Leaks)
+   ========================================================================== */
+#dashboard-view.hidden,
+.dashboard-view-root.hidden {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+#auth-view.hidden,
+#signup-view.hidden,
+.view-container.hidden {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}

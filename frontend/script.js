@@ -165,15 +165,39 @@ function showAuthScreen() {
     try { userLiveEventSource.close(); } catch(e) {}
     userLiveEventSource = null;
   }
-  document.getElementById("dashboard-view").classList.add("hidden");
-  document.getElementById("signup-view").classList.add("hidden");
-  document.getElementById("auth-view").classList.remove("hidden");
+  const dash = document.getElementById("dashboard-view");
+  if (dash) {
+    dash.classList.add("hidden");
+    dash.style.setProperty("display", "none", "important");
+  }
+  const signup = document.getElementById("signup-view");
+  if (signup) {
+    signup.classList.add("hidden");
+    signup.style.setProperty("display", "none", "important");
+  }
+  const auth = document.getElementById("auth-view");
+  if (auth) {
+    auth.classList.remove("hidden");
+    auth.style.removeProperty("display");
+  }
 }
 
 function showSignupScreen() {
-  document.getElementById("auth-view").classList.add("hidden");
-  document.getElementById("dashboard-view").classList.add("hidden");
-  document.getElementById("signup-view").classList.remove("hidden");
+  const auth = document.getElementById("auth-view");
+  if (auth) {
+    auth.classList.add("hidden");
+    auth.style.setProperty("display", "none", "important");
+  }
+  const dash = document.getElementById("dashboard-view");
+  if (dash) {
+    dash.classList.add("hidden");
+    dash.style.setProperty("display", "none", "important");
+  }
+  const signup = document.getElementById("signup-view");
+  if (signup) {
+    signup.classList.remove("hidden");
+    signup.style.removeProperty("display");
+  }
 }
 
 function checkImpersonationState() {
@@ -203,9 +227,21 @@ window.exitImpersonation = function() {
 function showDashboardScreen() {
   checkImpersonationState();
   initNotificationCenter();
-  document.getElementById("auth-view").classList.add("hidden");
-  document.getElementById("signup-view").classList.add("hidden");
-  document.getElementById("dashboard-view").classList.remove("hidden");
+  const auth = document.getElementById("auth-view");
+  if (auth) {
+    auth.classList.add("hidden");
+    auth.style.setProperty("display", "none", "important");
+  }
+  const signup = document.getElementById("signup-view");
+  if (signup) {
+    signup.classList.add("hidden");
+    signup.style.setProperty("display", "none", "important");
+  }
+  const dash = document.getElementById("dashboard-view");
+  if (dash) {
+    dash.classList.remove("hidden");
+    dash.style.removeProperty("display");
+  }
   
   const isNewSignup = sessionStorage.getItem("is_new_signup") === "true";
   const savedPlan = localStorage.getItem('selectedPlan');

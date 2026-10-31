@@ -49,7 +49,9 @@ from db_manager import (
     get_active_templates_for_tenant,
     get_channel_custom_templates,
     get_all_channel_templates_for_tenant,
-    apply_pyrogram_patches
+    apply_pyrogram_patches,
+    BroadcastCampaign,
+    BroadcastDeliveryLog
 )
 from cache_manager import (
     save_channels_cache,
@@ -2143,6 +2145,13 @@ async def run_timed_post_logic(
         fail_count = 0
         errors = []
 
+        # Automatically clear any stale pause flag on new timed post launch
+        try:
+            from cache_manager import redis_client
+            await redis_client.delete(f"tenant:{tenant_id}:campaign_global_pause")
+        except Exception:
+            pass
+
         for host_link in host_links:
             # Resolve host channel B — supports private invite links via Redis cache
             try:
@@ -2357,6 +2366,11 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
     
     try:
         from cache_manager import redis_client
+        # Automatically clear any stale pause flag so new single campaign launches cleanly
+        try:
+            await redis_client.delete(f"tenant:{tenant_id}:campaign_global_pause")
+        except Exception:
+            pass
         # Mark promotional campaign as active in Redis so background wave exchange pauses
         await redis_client.set(f"tenant:{tenant_id}:promotional_campaign_running", "1", ex=86400)
         try:
@@ -2647,6 +2661,11 @@ async def run_bulk_campaign_logic(
     
     try:
         from cache_manager import redis_client
+        # Automatically clear any stale pause flag so new bulk campaign launches cleanly
+        try:
+            await redis_client.delete(f"tenant:{tenant_id}:campaign_global_pause")
+        except Exception:
+            pass
         # Mark promotional campaign as active in Redis so background wave exchange pauses
         await redis_client.set(f"tenant:{tenant_id}:promotional_campaign_running", "1", ex=86400)
         try:
@@ -3867,7 +3886,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
 
         try:
             from cache_manager import redis_client
-            await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
+            await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1", ex=120)
         except Exception:
             pass
 
@@ -4320,15 +4339,34 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 else:
                     ad_text_lines.append(extra_line)
         
+        ad_text_custom = "\n".join(ad_text_lines).strip()
+        
+        # Support replied message for ad text or target links if not provided directly in command
+        if message.reply_to_message:
+            replied = message.reply_to_message
+            if not links:
+                r_text = replied.text or replied.caption or ""
+                extra_links = re.findall(link_pattern, r_text)
+                if extra_links:
+                    links.extend(extra_links)
+            if not ad_text_custom:
+                r_html = getattr(replied.text, "html", str(replied.text)) if replied.text else (getattr(replied.caption, "html", str(replied.caption)) if replied.caption else "")
+                if r_html:
+                    ad_text_custom = r_html.strip()
+
         if not links:
             await message.reply_text("❌ **يرجى تحديد رابط القناة المستهدفة.**\nمثال:\n`.حملة 0 2 15 @username`\nأو روابط متعددة:\n`.حملة 0 2 15 @ch1 @ch2`\nأو كل رابط في سطر منفصل.")
             return
-        
-        ad_text_custom = "\n".join(ad_text_lines).strip()
-        
+
         target_link_combined = "\n".join(links)
         target_title = "القنوات المستهدفة"
         
+        try:
+            from cache_manager import redis_client
+            await redis_client.delete(f"tenant:{tenant_id}:campaign_global_pause")
+        except Exception:
+            pass
+
         if delay_start == 0:
             status_msg = await message.reply_text(f"🔍 **جاري إطلاق الحملة المستهدفة الموحدة فوراً...**")
             create_safe_task(run_single_campaign_logic(tenant_id, client, target_link_combined, ad_text_custom, delay_between_channels, ad_lifespan, status_msg))
@@ -4415,6 +4453,19 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         ad_text_lines = html_lines[1:] if len(html_lines) > 1 else []
         ad_text_custom = "\n".join(ad_text_lines).strip()
         
+        # Support replied message for ad text in bulk campaign
+        if not ad_text_custom and message.reply_to_message:
+            replied = message.reply_to_message
+            r_html = getattr(replied.text, "html", str(replied.text)) if replied.text else (getattr(replied.caption, "html", str(replied.caption)) if replied.caption else "")
+            if r_html:
+                ad_text_custom = r_html.strip()
+
+        try:
+            from cache_manager import redis_client
+            await redis_client.delete(f"tenant:{tenant_id}:campaign_global_pause")
+        except Exception:
+            pass
+
         if delay_start == 0:
             # Create active task in database so it shows up on website
             async with AsyncSessionLocal() as db_session:
@@ -4478,23 +4529,37 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         delay_between_channels = 60  # default 60 minutes (الموصى به)
         ad_lifespan = 15  # default 15 minutes
 
-        if len(numbers) >= 4:
-            folder_num = numbers[0]
-            delay_start = numbers[1]
-            delay_between_channels = numbers[2]
-            ad_lifespan = numbers[3]
-        elif len(numbers) == 3:
-            folder_num = numbers[0]
-            delay_start = numbers[1]
-            delay_between_channels = numbers[2]
-        elif len(numbers) == 2:
-            folder_num = numbers[0]
-            delay_start = numbers[1]
-        elif len(numbers) == 1:
-            if parts[0].isdigit():
-                folder_num = numbers[0]
-            else:
+        cmd_digit_match = _re.search(r'\d+', parts[0])
+        if cmd_digit_match:
+            folder_num = int(cmd_digit_match.group())
+            if len(numbers) >= 3:
                 delay_start = numbers[0]
+                delay_between_channels = numbers[1]
+                ad_lifespan = numbers[2]
+            elif len(numbers) == 2:
+                delay_start = numbers[0]
+                delay_between_channels = numbers[1]
+            elif len(numbers) == 1:
+                delay_start = numbers[0]
+        else:
+            if len(numbers) >= 4:
+                folder_num = numbers[0]
+                delay_start = numbers[1]
+                delay_between_channels = numbers[2]
+                ad_lifespan = numbers[3]
+            elif len(numbers) == 3:
+                folder_num = numbers[0]
+                delay_start = numbers[1]
+                delay_between_channels = numbers[2]
+            elif len(numbers) == 2:
+                folder_num = numbers[0]
+                delay_start = numbers[1]
+            elif len(numbers) == 1:
+                if numbers[0] <= 9:
+                    folder_num = numbers[0]
+                    delay_start = 0
+                else:
+                    delay_start = numbers[0]
 
         from cache_manager import redis_client
         raw_campaign = await redis_client.get(f"tenant:{tenant_id}:my_channels:{folder_num}")
@@ -4513,11 +4578,24 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 await edit_or_reply(status_msg, f"❌ **فشل حملة الفولدر: لم يتم العثور على أي قنوات في مجلد 'My_channels{folder_num}' حتى بعد التحديث التلقائي.**")
                 return
             
-        full_html = message.text.html if message.text else (message.caption.html if message.caption else "")
+        full_html = getattr(message.text, "html", str(message.text)) if message.text else (getattr(message.caption, "html", str(message.caption)) if message.caption else "")
         html_lines = full_html.split('\n') if full_html else []
         ad_text_lines = html_lines[1:] if len(html_lines) > 1 else []
         ad_text_custom = "\n".join(ad_text_lines).strip()
         
+        # Support replied message for ad text in custom folder campaign
+        if not ad_text_custom and message.reply_to_message:
+            replied = message.reply_to_message
+            r_html = getattr(replied.text, "html", str(replied.text)) if replied.text else (getattr(replied.caption, "html", str(replied.caption)) if replied.caption else "")
+            if r_html:
+                ad_text_custom = r_html.strip()
+
+        try:
+            from cache_manager import redis_client
+            await redis_client.delete(f"tenant:{tenant_id}:campaign_global_pause")
+        except Exception:
+            pass
+
         if delay_start == 0:
             # Create active task in database so it shows up on website
             async with AsyncSessionLocal() as db_session:
@@ -4959,7 +5037,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
 
             # Global pause to halt any in-flight loop immediately
             try:
-                await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
+                await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1", ex=120)
             except Exception:
                 pass
 
@@ -5125,7 +5203,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             # 2. Hard kill-switch: Set global campaign pause in Redis and clear all state keys
             try:
                 from cache_manager import redis_client
-                await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
+                await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1", ex=120)
                 await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "stopped", ex=86400)
                 await redis_client.delete(f"tenant:{tenant_id}:last_wave_time")
                 await redis_client.delete(f"tenant:{tenant_id}:wave_end_time")
@@ -5638,18 +5716,36 @@ async def start_tenant_worker(account: TelegramAccount):
                     if db_user:
                         try:
                             me = await client.get_me()
-                            if me and me.id and (not db_user.status_bot_chat_id or db_user.status_bot_chat_id != me.id):
-                                db_user.status_bot_chat_id = me.id
-                                await db_sess.commit()
-                                logger.info(f"Auto-linked status_bot_chat_id={me.id} for user {db_user.id} ({db_user.email})")
+                            if me and me.id:
+                                if not db_user.status_bot_chat_id or db_user.status_bot_chat_id != me.id:
+                                    db_user.status_bot_chat_id = me.id
+                                    await db_sess.commit()
+                                    logger.info(f"Auto-linked status_bot_chat_id={me.id} for user {db_user.id} ({db_user.email})")
                                 
-                                # Auto send /start to bot to open the 2-way channel on Telegram servers
+                                bot_uname = os.getenv("STATUS_BOT_USERNAME", "AutoTele_UpdatesBot")
                                 try:
-                                    bot_uname = os.getenv("STATUS_BOT_USERNAME", "AutoTeleStatusBot")
                                     await client.send_message(bot_uname, "/start")
                                     logger.info(f"Auto-sent /start to @{bot_uname} for user {db_user.id}")
                                 except Exception as bot_err:
                                     logger.debug(f"Auto /start to bot for user {db_user.id}: {bot_err}")
+                                
+                                try:
+                                    from pyrogram.raw.functions.account import UpdateNotifySettings
+                                    from pyrogram.raw.types import InputNotifyPeer, InputPeerNotifySettings
+                                    peer = await client.resolve_peer(bot_uname)
+                                    await client.invoke(
+                                        UpdateNotifySettings(
+                                            peer=InputNotifyPeer(peer=peer),
+                                            settings=InputPeerNotifySettings(
+                                                mute_until=0,
+                                                silent=False,
+                                                show_previews=True
+                                            )
+                                        )
+                                    )
+                                    logger.info(f"Auto-unmuted @{bot_uname} for user {db_user.id}")
+                                except Exception as unmute_err:
+                                    logger.debug(f"Auto-unmute error for user {db_user.id}: {unmute_err}")
                         except Exception as me_err:
                             logger.debug(f"Could not fetch me.id for auto-link: {me_err}")
         except Exception as dbe:
@@ -6577,37 +6673,42 @@ async def sweep_single_channel(client: Client, ch: Union[dict, int], known_msg_i
         if getattr(me, "username", None): my_names.append(me.username.lower())
     my_id = getattr(me, "id", None) if me else None
 
-    # Base Arabic & English ad detection keywords
+    # Base Arabic & English ad detection keywords - Strictly promotional (NO generic market words like "الذهب" or "صفقات")
     default_keywords = [
-        "تبادل", "إعلان", "اعلان", "اشترك", "انضم", "قناة", "توصيات", "مدفوعة", "vip",
-        "برعاية", "خصم", "عرض خاص", "رابط القناة", "سارع", "فرصة", "أقوى قناة", "أفضل قناة",
-        "نوصيكم", "ننصحكم", "للاشتراك", "للتواصل", "بوت", "جروب", "قروب", "شات", "ارباح",
-        "أرباح", "استثمار", "لا يفوتك", "متفوتش", "تابعونا", "قنواتنا", "رابط:", "الرابط:",
-        "صفقات", "دخول مجاني", "قناة مميزة"
+        "تبادل", "إعلان", "اعلان", "اشترك", "انضم", "انضموا", "اشتراك", "للاشتراك", "للانضمام",
+        "قناة", "القناة", "قناتنا", "قنواتنا", "توصيات", "مدفوعة", "vip", "برعاية", "خصم",
+        "عرض خاص", "رابط القناة", "رابط الشات", "سارع", "فرصة", "أقوى قناة", "أفضل قناة",
+        "نوصيكم", "ننصحكم", "للتواصل", "بوت", "جروب", "قروب", "شات", "ارباح", "أرباح",
+        "استثمار", "لا يفوتك", "متفوتش", "تابعونا", "دخول مجاني", "قناة مميزة", "join", "subscribe"
     ]
     all_ad_keywords = set(k.lower() for k in default_keywords)
     if ad_keywords:
-        all_ad_keywords.update(kw.lower() for kw in ad_keywords)
+        all_ad_keywords.update(kw.lower() for kw in ad_keywords if kw.lower() not in ["الذهب", "صفقات"])
 
     try:
         async def _scan():
             deleted = 0
             history = []
             try:
-                # Scan last 20 messages for thorough clearance
-                async for msg in client.get_chat_history(chat_id=cid, limit=20):
+                # Scan last 25 messages for thorough clearance of recent ads
+                async for msg in client.get_chat_history(chat_id=cid, limit=25):
                     history.append(msg)
             except Exception as e:
                 logger.debug(f"Failed history scan in channel {cid}: {e}")
                 return 0
                 
             pinned_msg_id = None
+            nonlocal ch_username, ch_invite_link
             try:
                 chat = await client.get_chat(cid)
                 if chat.pinned_message:
                     pinned_msg_id = chat.pinned_message.id
+                if not ch_username and chat.username:
+                    ch_username = chat.username.lower().lstrip("@")
+                if not ch_invite_link and chat.invite_link:
+                    ch_invite_link = chat.invite_link.lower()
             except Exception as e:
-                logger.debug(f"Failed to fetch pinned message ID for channel {cid}: {e}")
+                logger.debug(f"Failed to fetch chat details for channel {cid}: {e}")
 
             to_delete = set()
             h_idx = 0
@@ -6625,17 +6726,11 @@ async def sweep_single_channel(client: Client, ch: Union[dict, int], known_msg_i
                     h_idx += 1
                     continue
                 
-                # 3. SAFETY in Groups/Supergroups: NEVER delete messages from other users!
-                if is_group:
-                    if msg.from_user and not msg.from_user.is_self and not msg.outgoing:
-                        h_idx += 1
-                        continue
-
-                # Check signature
+                # Check signature & authorship
                 is_my_sig = False
                 if getattr(msg, "author_signature", None):
                     sig = msg.author_signature.lower()
-                    if any(name and name in sig for name in my_names):
+                    if any(name and len(name) >= 3 and name in sig for name in my_names):
                         is_my_sig = True
 
                 is_explicitly_my_msg = (
@@ -6645,116 +6740,145 @@ async def sweep_single_channel(client: Client, ch: Union[dict, int], known_msg_i
                     is_my_sig
                 )
 
-                # 4. SAFETY in Channels where user is NOT the creator (قنوات الناس):
-                # Never delete anything unless we are 100% sure it was posted by our system/account!
-                if not is_creator:
-                    is_our_item = (
-                        (cid, msg.id) in known_msg_ids or
-                        (msg.sticker and sticker_unique_id and msg.sticker.file_unique_id == sticker_unique_id) or
-                        is_explicitly_my_msg
-                    )
-                    if not is_our_item:
-                        # Belongs to the channel owner or other admins - DO NOT TOUCH!
-                        h_idx += 1
-                        continue
+                # 3. ABSOLUTE IRONCLAD SAFETY VALVE (Channels & Groups alike):
+                # NEVER EVER delete ANY message unless it was sent by OUR user account or recorded by our bot!
+                # Messages sent by channel owners, other admins, or other people are 100% IMMUNE and SACRED.
+                if not is_explicitly_my_msg and (cid, msg.id) not in known_msg_ids:
+                    h_idx += 1
+                    continue
 
-                # 5. Ad Detection Logic:
+                # 4. Ad Detection Logic (Automated & Manual Cross-Promotions sent by user):
                 # Check A: Automated ad recorded in database (ActiveAd / PublishLog)
                 if (cid, msg.id) in known_msg_ids:
                     is_ad = True
                 
-                # Check B: Unique ad sticker
+                # Check B: Unique ad sticker sent by user
                 elif msg.sticker and sticker_unique_id and msg.sticker.file_unique_id == sticker_unique_id:
                     is_ad = True
                 
-                # Check C: Forwarded from another channel / external user (Manual cross-promotion)
+                # Check C: Forwarded from another channel (Manual cross-promotion forward)
                 elif msg.forward_from_chat and msg.forward_from_chat.id != cid:
-                    is_ad = True
+                    fwd_text = (msg.text or msg.caption or "").lower()
+                    has_fwd_links = "t.me/" in fwd_text or "http" in fwd_text or "@" in fwd_text
+                    has_fwd_kw = any(kw in fwd_text for kw in all_ad_keywords)
+                    has_fwd_em = any(em in fwd_text for em in ["👇", "⬇️", "🔗", "🏆", "🚨", "💰", "💎"])
+                    if has_fwd_links and (has_fwd_kw or has_fwd_em):
+                        is_ad = True
                 elif msg.forward_from and (not my_id or msg.forward_from.id != my_id):
                     fwd_text = (msg.text or msg.caption or "").lower()
-                    if any(kw in fwd_text for kw in all_ad_keywords) or "t.me/" in fwd_text or "@" in fwd_text:
+                    has_fwd_links = "t.me/" in fwd_text or "http" in fwd_text or "@" in fwd_text
+                    has_fwd_kw = any(kw in fwd_text for kw in all_ad_keywords)
+                    if has_fwd_links and has_fwd_kw:
                         is_ad = True
                 
-                # Check D: Inline buttons with external links
-                else:
+                # Check D: Inline buttons with external Telegram links
+                elif getattr(msg, "reply_markup", None) and hasattr(msg.reply_markup, "inline_keyboard"):
                     has_external_btn = False
-                    if getattr(msg, "reply_markup", None) and hasattr(msg.reply_markup, "inline_keyboard"):
-                        for row in msg.reply_markup.inline_keyboard:
-                            for btn in row:
-                                btn_url = getattr(btn, "url", None)
-                                if btn_url:
-                                    u_lower = btn_url.lower()
-                                    if ch_username and ch_username in u_lower:
-                                        pass
-                                    elif ch_invite_link and ch_invite_link in u_lower:
-                                        pass
-                                    else:
-                                        has_external_btn = True
-                                        break
-                            if has_external_btn:
-                                break
-                    
+                    for row in msg.reply_markup.inline_keyboard:
+                        for btn in row:
+                            btn_url = getattr(btn, "url", None)
+                            if btn_url:
+                                u_lower = btn_url.lower()
+                                if ch_username and ch_username in u_lower:
+                                    pass
+                                elif ch_invite_link and ch_invite_link in u_lower:
+                                    pass
+                                elif "t.me/" in u_lower or "telegram.me/" in u_lower:
+                                    has_external_btn = True
+                                    break
+                        if has_external_btn:
+                            break
                     if has_external_btn:
                         is_ad = True
-                    else:
-                        # Check E: External link/mention + promotional context (Keywords / Format)
-                        text_content = (msg.text or msg.caption or "").lower()
-                        if text_content and not msg.sticker:
-                            # 1. Check for invite link to another channel (t.me/+ or t.me/joinchat)
-                            has_external_invite = False
-                            if "t.me/+" in text_content or "t.me/joinchat" in text_content or "telegram.me/+" in text_content:
-                                for part in text_content.split():
-                                    if ("t.me/+" in part or "t.me/joinchat" in part or "telegram.me/+" in part):
-                                        if not (ch_invite_link and ch_invite_link in part):
-                                            has_external_invite = True
-                                            break
-                            
-                            # 2. Check for other external links
-                            has_external_link = False
-                            if "t.me/" in text_content or "http://" in text_content or "https://" in text_content:
-                                for part in text_content.split():
-                                    if "t.me/" in part or "http" in part:
-                                        if ch_username and ch_username in part:
-                                            continue
-                                        if ch_invite_link and ch_invite_link in part:
-                                            continue
-                                        has_external_link = True
-                                        break
-                            
-                            # 3. Check for external mentions
-                            has_external_mention = False
-                            if "@" in text_content:
-                                for part in text_content.split():
-                                    if part.startswith("@") or "/@" in part:
-                                        m_clean = part.strip("@/.,()[]{}").lower()
-                                        if m_clean and m_clean != ch_username and (not me or m_clean != (me.username or "").lower()):
-                                            has_external_mention = True
-                                            break
-                            
-                            has_ad_kw = any(kw in text_content for kw in all_ad_keywords)
-                            has_ad_emoji = any(em in text_content for em in ["👇", "⬇️", "🔗", "🏆", "🔥", "🚨", "💰", "💎"])
-                            
-                            # Decision: Must have an external target PLUS promotional signal
-                            # Normal posts (analysis, signals without external links, educational) are 100% PROTECTED!
-                            if has_external_invite:
-                                is_ad = True
-                            elif (has_external_link or has_external_mention) and (has_ad_kw or has_ad_emoji):
-                                is_ad = True
 
-                # In groups, double-check that we only delete messages that were explicitly sent by this account
+                # Check E: External Telegram Channel Links / Invites in text or entities (Manual Ads)
+                if not is_ad:
+                    text_content = (msg.text or msg.caption or "").lower()
+                    if text_content and not msg.sticker:
+                        # Extract all URLs from plaintext and MessageEntities (hyperlinks)
+                        all_urls = []
+                        entities = (getattr(msg, "entities", None) or []) + (getattr(msg, "caption_entities", None) or [])
+                        for ent in entities:
+                            u = getattr(ent, "url", None)
+                            if u:
+                                all_urls.append(u.lower())
+                        for part in text_content.split():
+                            clean_p = part.strip("()[]{}<>\"',;.")
+                            if "http" in clean_p or "t.me" in clean_p:
+                                all_urls.append(clean_p)
+
+                        # 1. Check for private invite link to another channel (t.me/+ or t.me/joinchat)
+                        has_external_invite = False
+                        for u in all_urls:
+                            if "t.me/+" in u or "t.me/joinchat" in u or "telegram.me/+" in u:
+                                if not (ch_invite_link and ch_invite_link in u):
+                                    has_external_invite = True
+                                    break
+                        
+                        # 2. Check for public external Telegram channel link
+                        has_external_tg = False
+                        for u in all_urls:
+                            if ("t.me/" in u or "telegram.me/" in u) and not ("t.me/+" in u or "joinchat" in u):
+                                u_clean = u.split("t.me/")[-1].split("telegram.me/")[-1].split("/")[0].split("?")[0].strip("@")
+                                if u_clean and u_clean != ch_username and (not me or u_clean != (me.username or "").lower()):
+                                    if u_clean not in ["share", "addstickers", "iv", "proxy", "socks", "telegram"]:
+                                        has_external_tg = True
+                                        break
+                        
+                        # 3. Check for external mentions (@username)
+                        has_external_mention = False
+                        if "@" in text_content:
+                            for part in text_content.split():
+                                if part.startswith("@") or "/@" in part:
+                                    m_clean = part.strip("@/.,()[]{}<>\"';:").lower()
+                                    if m_clean and m_clean != ch_username and (not me or m_clean != (me.username or "").lower()):
+                                        has_external_mention = True
+                                        break
+                        
+                        has_ad_kw = any(kw in text_content for kw in all_ad_keywords)
+                        has_ad_emoji = any(em in text_content for em in ["👇", "⬇️", "🔗", "🏆", "🚨", "💰", "💎"])
+                        
+                        # Decision:
+                        # Private invite to another channel -> 100% Exchange Ad!
+                        if has_external_invite:
+                            is_ad = True
+                        # External public TG channel / mention + promotional context -> Exchange Ad!
+                        elif (has_external_tg or has_external_mention) and (has_ad_kw or has_ad_emoji):
+                            is_ad = True
+
+                # In groups, double-check that we never delete messages from other users
                 if is_group and not is_explicitly_my_msg:
                     is_ad = False
 
                 if is_ad:
                     to_delete.add(msg.id)
-                    # Check paired sticker (pre-ad or post-ad sticker)
+                    # Check paired sticker (pre-ad sticker at h_idx + 1, or post-ad sticker at h_idx - 1)
                     if h_idx + 1 < len(history):
                         older_msg = history[h_idx + 1]
+                        older_is_my = (
+                            older_msg.outgoing or
+                            (cid, older_msg.id) in known_msg_ids or
+                            (older_msg.from_user and older_msg.from_user.is_self) or
+                            (my_id and getattr(older_msg.from_user, "id", None) == my_id)
+                        )
                         if pinned_msg_id and older_msg.id == pinned_msg_id:
                             pass
-                        elif older_msg.sticker:
-                            if is_creator or older_msg.outgoing or (older_msg.from_user and older_msg.from_user.is_self) or (sticker_unique_id and older_msg.sticker.file_unique_id == sticker_unique_id):
+                        elif older_msg.sticker and older_is_my:
+                            if not sticker_unique_id or getattr(older_msg.sticker, "file_unique_id", None) == sticker_unique_id:
                                 to_delete.add(older_msg.id)
+                    if h_idx - 1 >= 0:
+                        newer_msg = history[h_idx - 1]
+                        newer_is_my = (
+                            newer_msg.outgoing or
+                            (cid, newer_msg.id) in known_msg_ids or
+                            (newer_msg.from_user and newer_msg.from_user.is_self) or
+                            (my_id and getattr(newer_msg.from_user, "id", None) == my_id)
+                        )
+                        if pinned_msg_id and newer_msg.id == pinned_msg_id:
+                            pass
+                        elif newer_msg.sticker and newer_is_my:
+                            if not sticker_unique_id or getattr(newer_msg.sticker, "file_unique_id", None) == sticker_unique_id:
+                                to_delete.add(newer_msg.id)
                                 
                 h_idx += 1
                 
@@ -7032,10 +7156,14 @@ async def run_clear_logic(tenant_id: int, client: Client, reply_to_message: Opti
         
         scanned_del = 0
         channels = await get_channels_cache(tenant_id)
+        if not channels:
+            logger.info(f"Tenant {tenant_id}: Channels cache empty in run_clear_logic. Triggering self-healing crawl...")
+            await crawl_and_cache_tenant_channels(tenant_id, client, status_msg)
+            channels = await get_channels_cache(tenant_id) or []
         # Skip channels that are in No_Post, Banned, or Blacklist
         channels = [ch for ch in channels if (ch.get("id") or ch.get("chat_id")) not in all_excluded_ids]
         total_ch = len(channels)
-        ad_keywords = ["قنواتنا", "تابعوا", "شات", "الرابط:", "متفوتش", "تنبيه", "حملة", "إعلان", "صفقات", "الذهب"]
+        ad_keywords = ["قنواتنا", "تابعوا", "شات", "الرابط:", "متفوتش", "تنبيه", "حملة", "إعلان", "اشترك", "انضم", "رابط القناة"]
         
         sticker_unique_id = await ensure_sticker_unique_id(client, tenant_id)
 
@@ -7139,7 +7267,7 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
         # 2. Hard kill-switch: Set global campaign pause in Redis
         from cache_manager import redis_client
         try:
-            await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
+            await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1", ex=120)
         except Exception as pe:
             logger.error(f"Failed to set campaign_global_pause in deep clear: {pe}")
 
@@ -7195,6 +7323,10 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
         
         # Comprehensive exclusion set: live no_post, redis no_post, redis banned, and DB blacklist
         pre_channels = await get_channels_cache(tenant_id)
+        if not pre_channels:
+            logger.info(f"Tenant {tenant_id}: Channels cache empty in run_deep_clear_logic. Triggering self-healing crawl...")
+            await crawl_and_cache_tenant_channels(tenant_id, client, status_msg)
+            pre_channels = await get_channels_cache(tenant_id) or []
         live_no_post = await get_no_post_channel_ids_live(tenant_id, client)
         banned_ids = []
         redis_no_post_ids = []
@@ -7265,7 +7397,7 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
         channels = [ch for ch in pre_channels if (ch.get("id") or ch.get("chat_id")) not in all_excluded_ids]
         total_ch = len(channels)
         wiped_count = 0
-        ad_keywords = ["قنواتنا", "تابعوا", "شات", "الرابط:", "متفوتش", "تنبيه", "حملة", "إعلان", "صفقات", "الذهب"]
+        ad_keywords = ["قنواتنا", "تابعوا", "شات", "الرابط:", "متفوتش", "تنبيه", "حملة", "إعلان", "اشترك", "انضم", "رابط القناة"]
         
         # Fetch custom sticker info from database for this tenant
         sticker_unique_id = await ensure_sticker_unique_id(client, tenant_id)
@@ -7383,7 +7515,7 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
 
             # CRITICAL: Re-affirm stopped state and global pause killswitch in Redis AFTER cache purge
             await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "stopped", ex=86400)
-            await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
+            await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1", ex=120)
         except Exception as rc_err:
             logger.error(f"Failed to clear settings Redis keys in deep clear: {rc_err}")
 
@@ -7447,7 +7579,7 @@ async def run_stop_everything_logic(tenant_id: int, client: Client, reply_to_mes
         # 2. Hard kill-switch: Set global campaign pause in Redis
         from cache_manager import redis_client
         try:
-            await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
+            await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1", ex=120)
             await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "stopped", ex=86400)
             await redis_client.delete(f"tenant:{tenant_id}:last_wave_time")
             await redis_client.delete(f"tenant:{tenant_id}:wave_end_time")
@@ -7549,6 +7681,11 @@ async def run_update_logic(tenant_id: int, client: Client, reply_to_message: Opt
         await update_task_progress_in_db(web_task_id, msg_text)
 
     try:
+        from cache_manager import redis_client
+        try:
+            await redis_client.delete(f"tenant:{tenant_id}:campaign_global_pause")
+        except Exception:
+            pass
         await log_tenant_event(tenant_id, "بدء إعادة فحص وتحديث كاش القنوات والمجموعات والمجلدات...")
         stats = await crawl_and_cache_tenant_channels(tenant_id, client, status_msg, web_task_id=web_task_id)
         
@@ -8276,7 +8413,8 @@ async def dispatch_worker_broadcast(
     media_type: Optional[str] = None,
     media_id: Optional[str] = None,
     media_url: Optional[str] = None,
-    media_filename: Optional[str] = None
+    media_filename: Optional[str] = None,
+    campaign_id: Optional[int] = None
 ):
     logger.info(f"Starting admin broadcast (target_user_id={target_user_id}, target_user_ids={target_user_ids}, target_group={target_group}, media_type={media_type}, media_id={media_id}): {text[:50]}...")
 
@@ -8329,6 +8467,9 @@ async def dispatch_worker_broadcast(
             fail_count = 0
             for user in users:
                 user_delivered = False
+                bot_delivered = False
+                alert_delivered = False
+                error_reasons = []
 
                 # 1. Send directly to user via central Status Bot chat (@AutoTeleStatusBot)
                 try:
@@ -8342,10 +8483,14 @@ async def dispatch_worker_broadcast(
                     if bot_delivered:
                         user_delivered = True
                         logger.info(f"Broadcast delivered to status bot chat for user {user.id}")
+                    else:
+                        error_reasons.append("لم يبدأ محادثة مع البوت")
                 except Exception as be:
                     logger.warning(f"Status bot broadcast error for user {user.id}: {be}")
+                    error_reasons.append(f"بوت: {be}")
 
                 # 2. Send to user's Telegram Saved Messages
+                alert_msg = ""
                 try:
                     alert_delivered, alert_msg = await send_telegram_alert(
                         user.id, 
@@ -8360,20 +8505,72 @@ async def dispatch_worker_broadcast(
                         logger.info(f"Broadcast delivered to Saved Messages for user {user.id}")
                     else:
                         logger.info(f"Saved Messages alert for user {user.id}: {alert_msg}")
+                        error_reasons.append(f"محفوظة: {alert_msg}")
                 except Exception as se:
                     logger.warning(f"Saved messages broadcast error for user {user.id}: {se}")
+                    error_reasons.append(f"محفوظة: {se}")
 
                 if user_delivered:
                     sent_count += 1
                 else:
                     fail_count += 1
 
+                # If campaign_id, save recipient delivery log
+                if campaign_id:
+                    try:
+                        ta_stmt = select(TelegramAccount.phone).where(TelegramAccount.user_id == user.id, TelegramAccount.status == "active")
+                        user_phone = (await session.execute(ta_stmt)).scalar()
+                        if not user_phone:
+                            ta_stmt2 = select(TelegramAccount.phone).where(TelegramAccount.user_id == user.id)
+                            user_phone = (await session.execute(ta_stmt2)).scalar()
+
+                        d_status = "delivered" if user_delivered else "failed"
+                        err_text = " | ".join(error_reasons) if error_reasons else None
+                        if user_delivered and not (bot_delivered and alert_delivered):
+                            if bot_delivered:
+                                err_text = "وصل عبر البوت فقط (الرسائل المحفوظة غير متوفرة)"
+                            else:
+                                err_text = "وصل عبر الرسائل المحفوظة فقط (البوت غير مفعل)"
+
+                        d_log = BroadcastDeliveryLog(
+                            campaign_id=campaign_id,
+                            user_id=user.id,
+                            user_name=user.full_name or user.email,
+                            phone=user_phone or getattr(user, 'phone', None),
+                            status=d_status,
+                            bot_delivered=bool(bot_delivered),
+                            saved_msgs_delivered=bool(alert_delivered),
+                            error_detail=err_text if not (bot_delivered and alert_delivered) else None,
+                            created_at=datetime.now(timezone.utc)
+                        )
+                        session.add(d_log)
+                        await session.commit()
+                    except Exception as le:
+                        logger.error(f"Failed to record BroadcastDeliveryLog for user {user.id}: {le}")
+
+            # Update campaign final counts and mark completed
+            if campaign_id:
+                try:
+                    c_stmt = select(BroadcastCampaign).where(BroadcastCampaign.id == campaign_id)
+                    camp = (await session.execute(c_stmt)).scalar_one_or_none()
+                    if camp:
+                        camp.total_targets = len(users)
+                        camp.successful_deliveries = sent_count
+                        camp.failed_deliveries = fail_count
+                        camp.status = "completed"
+                        await session.commit()
+                        logger.info(f"Updated BroadcastCampaign #{campaign_id} as completed: targets={len(users)}, success={sent_count}, failed={fail_count}")
+                except Exception as ce:
+                    logger.error(f"Failed to update BroadcastCampaign #{campaign_id}: {ce}")
+
             logger.info(f"Admin broadcast completed: delivered to {sent_count} users, failed for {fail_count} users.")
     finally:
         if local_temp_path and os.path.exists(local_temp_path):
             try:
-                os.remove(local_temp_path)
-                logger.info(f"Cleaned up local temp broadcast media file: {local_temp_path}")
+                import tempfile
+                if local_temp_path.startswith(tempfile.gettempdir()):
+                    os.remove(local_temp_path)
+                    logger.info(f"Cleaned up local temp broadcast media file: {local_temp_path}")
             except Exception as ce:
                 logger.warning(f"Failed to remove temp broadcast media file: {ce}")
 
@@ -8442,6 +8639,7 @@ async def redis_pubsub_listener():
                         logger.warning("Could not send admin OTP code. No admin clients are active and no admins have status bot chat IDs configured.")
                         
                 elif channel == "saas_admin_broadcast":
+                    campaign_id = data.get("campaign_id")
                     message_text = data.get("message_text")
                     target_user_id = data.get("target_user_id")
                     target_user_ids = data.get("target_user_ids")
@@ -8453,7 +8651,7 @@ async def redis_pubsub_listener():
                     if message_text or media_id or media_url:
                         # Extra defense: Deduplicate in worker in case of network replay or multiple publishers
                         import hashlib
-                        w_dedup_raw = f"{message_text}:{target_user_id}:{target_user_ids}:{target_group}:{media_id}:{media_url}:{media_filename}"
+                        w_dedup_raw = f"{campaign_id}:{message_text}:{target_user_id}:{target_user_ids}:{target_group}:{media_id}:{media_url}:{media_filename}"
                         w_dedup_hash = hashlib.sha256(w_dedup_raw.encode("utf-8")).hexdigest()
                         w_dedup_key = f"worker_broadcast_dedup:{w_dedup_hash}"
                         try:
@@ -8473,7 +8671,8 @@ async def redis_pubsub_listener():
                             media_type=media_type,
                             media_id=media_id,
                             media_url=media_url,
-                            media_filename=media_filename
+                            media_filename=media_filename,
+                            campaign_id=campaign_id
                         ))
                         
                 elif channel == "saas_tenant_commands":
@@ -8575,7 +8774,7 @@ async def redis_pubsub_listener():
 
                         # 5. Set campaign_global_pause = "1" to guarantee in-flight loops halt immediately
                         try:
-                            await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
+                            await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1", ex=120)
                         except Exception:
                             pass
 
@@ -8619,7 +8818,7 @@ async def redis_pubsub_listener():
 
                         # 2. Hard kill-switch: Set global campaign pause and stopped state in Redis
                         try:
-                            await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1")
+                            await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1", ex=120)
                             await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "stopped", ex=86400)
                             await redis_client.delete(f"tenant:{tenant_id}:last_wave_time")
                             await redis_client.delete(f"tenant:{tenant_id}:wave_end_time")
