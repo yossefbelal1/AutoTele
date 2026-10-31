@@ -1,3 +1,4 @@
+from fastapi.middleware.gzip import GZipMiddleware
 import os
 import time
 import logging
@@ -275,6 +276,7 @@ class SecurityHeadersMiddleware:
         await self.app(scope, receive, send_wrapper)
 
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 active_handshakes: Dict[str, Dict[str, Any]] = {}
 

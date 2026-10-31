@@ -139,7 +139,7 @@ apply_pyrogram_patches()
 
 # Tune GC thresholds for lower CPU overhead on 2 vCPU server (balanced collection frequency)
 import gc
-gc.set_threshold(1000, 15, 15)
+gc.set_threshold(700, 10, 10)
 
 try:
     redis_handler = RedisPublishHandler()
@@ -5531,8 +5531,11 @@ async def supervisor_loop():
                 elif is_connected:
                     # Supervisor self-healing: verify wave_publisher_worker is running if bot_system_state is active
                     try:
-                        async with AsyncSessionLocal() as chk_sess:
-                            bot_state = await get_setting(chk_sess, acc_id, "bot_system_state")
+                        from cache_manager import redis_client
+                        bot_state = await redis_client.get(f"tenant:{acc_id}:setting:bot_system_state")
+                        if not bot_state:
+                            async with AsyncSessionLocal() as chk_sess:
+                                bot_state = await get_setting(chk_sess, acc_id, "bot_system_state")
                         if bot_state == "active":
                             from cache_manager import redis_client
                             wave_end_time = await redis_client.get(f"tenant:{acc_id}:wave_end_time")
@@ -8208,7 +8211,38 @@ async def poll_web_campaign_tasks():
         if not hasattr(poll_web_campaign_tasks, "_last_expiry_check") or (datetime.now(timezone.utc) - poll_web_campaign_tasks._last_expiry_check).total_seconds() > 300:
             poll_web_campaign_tasks._last_expiry_check = datetime.now(timezone.utc)
             asyncio.create_task(check_expired_exchange_requests())
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(0.5 if (pending_results and len(pending_results) > 0) else 2.5)
+
+
+async def periodic_memory_optimizer():
+    """
+    Runs periodically every 10 minutes to safely reclaim cyclic garbage
+    and return unmapped heap memory pages to the OS host via malloc_trim.
+    """
+    import gc
+    import ctypes
+    libc = None
+    try:
+        libc = ctypes.CDLL("libc.so.6")
+    except Exception:
+        pass
+
+    while global_worker_running:
+        try:
+            await asyncio.sleep(600)
+            collected = gc.collect()
+            trimmed = False
+            if libc and hasattr(libc, "malloc_trim"):
+                try:
+                    libc.malloc_trim(0)
+                    trimmed = True
+                except Exception:
+                    pass
+            logger.info(f"[Memory Optimizer] Reclaimed RAM | GC objects collected: {collected} | malloc_trim: {trimmed}")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.debug(f"[Memory Optimizer] Notice: {e}")
 
 async def global_cleaner_worker():
     while global_worker_running:
@@ -9433,7 +9467,8 @@ async def start_global_engine():
         logger.error(f"Error loading scheduled jobs on startup: {e}")
     await asyncio.gather(
         asyncio.create_task(supervisor_loop()), 
-        asyncio.create_task(global_cleaner_worker()), 
+        asyncio.create_task(global_cleaner_worker()),
+        asyncio.create_task(periodic_memory_optimizer()), 
         asyncio.create_task(poll_web_campaign_tasks()),
         asyncio.create_task(redis_pubsub_listener()),
         asyncio.create_task(subscription_lifecycle_worker()),

@@ -469,19 +469,19 @@ async def get_setting(session: AsyncSession, telegram_account_id: int, key: str)
         from cache_manager import redis_client
         cached_val = await redis_client.get(f"tenant:{telegram_account_id}:setting:{key}")
         if cached_val is not None:
-            return cached_val
+            return None if cached_val == "__NONE__" else cached_val
     except Exception as e:
         logger.error(f"Redis get_setting error for tenant {telegram_account_id}, key {key}: {e}")
 
     stmt = select(Setting.value).where(Setting.telegram_account_id == telegram_account_id, Setting.key == key)
     val = (await session.execute(stmt)).scalar_one_or_none()
 
-    if val is not None:
-        try:
-            from cache_manager import redis_client
-            await redis_client.set(f"tenant:{telegram_account_id}:setting:{key}", val, ex=86400)
-        except Exception as e:
-            logger.error(f"Redis set_setting error for tenant {telegram_account_id}, key {key}: {e}")
+    try:
+        from cache_manager import redis_client
+        store_val = val if val is not None else "__NONE__"
+        await redis_client.set(f"tenant:{telegram_account_id}:setting:{key}", store_val, ex=86400)
+    except Exception as e:
+        logger.error(f"Redis set_setting error for tenant {telegram_account_id}, key {key}: {e}")
     return val
 
 async def set_setting(session: AsyncSession, telegram_account_id: int, key: str, value: str) -> None:
