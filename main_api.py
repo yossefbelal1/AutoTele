@@ -5972,7 +5972,9 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
                 if not first_username and ch_user:
                     first_username = ch_user
                 t_link = await get_invite_link(sender_acc.id, cid)
-                ch_link = t_link or matched_ch.get("invite_link") or (f"https://t.me/{ch_user}" if ch_user else f"https://t.me/c/{abs(cid)}")
+                ch_link = t_link or matched_ch.get("invite_link") or (f"https://t.me/{ch_user}" if ch_user else "")
+                if ch_link and "t.me/c/" in ch_link:
+                    ch_link = f"https://t.me/{ch_user}" if ch_user else ""
                 
                 resolved_titles.append(ch_title)
                 resolved_promo_links.append(ch_link)
@@ -6033,7 +6035,9 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
                     ch_title = matched_ch.get("title") or f"قناة {cid}"
                     ch_user = matched_ch.get("username")
                     t_link = await get_invite_link(sender_acc.id, cid)
-                    ch_link = t_link or matched_ch.get("invite_link") or (f"https://t.me/{ch_user}" if ch_user else f"https://t.me/c/{abs(cid)}")
+                    ch_link = t_link or matched_ch.get("invite_link") or (f"https://t.me/{ch_user}" if ch_user else "")
+                    if ch_link and "t.me/c/" in ch_link:
+                        ch_link = f"https://t.me/{ch_user}" if ch_user else ""
                     resolved_titles.append(ch_title)
                     camp_urls.append(ch_link)
             
@@ -6327,7 +6331,9 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
                 ch_title = matched_b.get("title") or f"قناة {cid}"
                 ch_user = matched_b.get("username")
                 t_link = await get_invite_link(recipient_acc.id, cid)
-                ch_link = t_link or matched_b.get("invite_link") or (f"https://t.me/{ch_user}" if ch_user else f"https://t.me/c/{abs(cid)}")
+                ch_link = t_link or matched_b.get("invite_link") or (f"https://t.me/{ch_user}" if ch_user else "")
+                if ch_link and "t.me/c/" in ch_link:
+                    ch_link = f"https://t.me/{ch_user}" if ch_user else ""
                 
                 if ch_title not in b_resolved_titles:
                     b_resolved_titles.append(ch_title)

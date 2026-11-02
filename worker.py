@@ -744,12 +744,16 @@ def format_user_template(
     safe_title = _html.escape(title) if title else ""
     safe_link = _html.escape(link) if link else ""
 
+    # Sanitize safe_link: internal telegram links (t.me/c/) are strictly prohibited in public ads
+    if safe_link and "t.me/c/" in safe_link:
+        safe_link = ""
+
     # Process extra links: support multiple links with clean separation by line space (\n\n)
     extra_items = []
     if extra_link:
         for raw_line in str(extra_link).strip().splitlines():
             line_str = raw_line.strip()
-            if line_str:
+            if line_str and "t.me/c/" not in line_str:
                 extra_items.append(_html.escape(line_str))
 
     # Format multiple extra links with a blank line (سطر مسافة) between each link
@@ -1202,8 +1206,20 @@ async def resolve_best_channel_link(client: Client, chat_id: int, general_fallba
     except Exception as e:
         logger.debug(f"Failed to create new invite link for chat {chat_id}: {e}")
 
-    # 5. General Fallback
-    return general_fallback_link
+    # 4.5 Try get_chat to see if Telegram provides an invite_link or username
+    try:
+        c_obj = await client.get_chat(chat_id)
+        if getattr(c_obj, "invite_link", None) and "t.me/c/" not in str(c_obj.invite_link):
+            return c_obj.invite_link
+        if getattr(c_obj, "username", None):
+            return f"https://t.me/{c_obj.username}"
+    except Exception as ge:
+        logger.debug(f"get_chat failed for {chat_id}: {ge}")
+
+    # 5. General Fallback (never return internal t.me/c/ link)
+    if general_fallback_link and "t.me/c/" not in general_fallback_link:
+        return general_fallback_link
+    return ""
 
 async def get_average_views(client: Client, chat_id: int, limit: int = 10) -> int:
     try:
@@ -2758,23 +2774,14 @@ async def run_bulk_campaign_logic(
         targets_info = []
         for tid in campaign_ids:
             if tid in ch_map:
-                title = ch_map[tid].get("title") or "قناة"
+                title = ch_map[tid].get("title") or f"قناة [{tid}]"
                 username = ch_map[tid].get("username")
                 link = ch_map[tid].get("invite_link")
-                if not link:
-                    tid_str = str(tid)
-                    if tid_str.startswith("-100"):
-                        link = f"https://t.me/{username}" if username else f"https://t.me/c/{tid_str[4:]}"
-                    else:
-                        link = f"https://t.me/{username}" if username else f"https://t.me/c/{tid_str[1:] if tid_str.startswith('-') else tid_str}"
-                # Use in-memory tracking link directly without blocking network calls
-                if not link:
-                    link = f"https://t.me/{username}" if username else f"https://t.me/c/{str(tid)[4:] if str(tid).startswith('-100') else str(tid)}"
+                if not link or "t.me/c/" in str(link):
+                    link = f"https://t.me/{username}" if username else ""
                 targets_info.append({"id": tid, "title": title, "link": link})
             else:
-                tid_str = str(tid)
-                fallback = f"https://t.me/c/{tid_str[4:] if tid_str.startswith('-100') else (tid_str[1:] if tid_str.startswith('-') else tid_str)}"
-                targets_info.append({"id": tid, "title": f"قناة [{tid}]", "link": fallback})
+                targets_info.append({"id": tid, "title": f"قناة [{tid}]", "link": ""})
 
         target_states = {}
         target_actual_starts = {}
@@ -3055,8 +3062,40 @@ async def run_bulk_campaign_logic(
                     continue
                 
                 info = targets_info[index]
-                target_title = info["title"]
-                target_link = info["link"]
+                target_title = info.get("title") or f"قناة [{target_id}]"
+                target_link = info.get("link") or ""
+
+                # Live self-healing resolution for target channel title & invite link
+                if not target_link or "t.me/c/" in str(target_link) or target_title.startswith("قناة ["):
+                    cur_channels = await get_channels_cache(tenant_id)
+                    if cur_channels:
+                        cur_map = {c["id"]: c for c in cur_channels if isinstance(c, dict)}
+                        if target_id in cur_map:
+                            target_title = cur_map[target_id].get("title") or target_title
+                            cached_link = cur_map[target_id].get("invite_link")
+                            u_name = cur_map[target_id].get("username")
+                            if cached_link and "t.me/c/" not in str(cached_link):
+                                target_link = cached_link
+                            elif u_name:
+                                target_link = f"https://t.me/{u_name}"
+
+                    # Still no valid link? Resolve dynamically from Telegram API
+                    if not target_link or "t.me/c/" in str(target_link):
+                        try:
+                            dynamic_link = await resolve_best_channel_link(client, target_id, "")
+                            if dynamic_link and "t.me/c/" not in dynamic_link:
+                                target_link = dynamic_link
+                                await save_invite_link(tenant_id, target_id, target_link)
+                        except Exception as rbe:
+                            logger.debug(f"Dynamic link resolution failed for target {target_id}: {rbe}")
+
+                    # If still no invite link, fallback to campaign extra_target_link (e.g. folder link)
+                    if not target_link or "t.me/c/" in str(target_link):
+                        target_link = extra_target_link or ""
+
+                    # Update targets_info in memory so future checklist renders display resolved title & link
+                    info["title"] = target_title
+                    info["link"] = target_link
                 
                 channels = await get_channels_cache(tenant_id)
                 if not channels:
@@ -6053,11 +6092,9 @@ async def run_wave_execution(
                     await remove_channel_from_cache_on_demotion(tenant_id, ch_b["id"])
             continue
         
-        cid_b_str = str(ch_b.get("id"))
-        if cid_b_str.startswith("-100"):
-            fallback_link_b = ch_b.get("invite_link") or (f"https://t.me/{ch_b.get('username')}" if ch_b.get('username') else f"https://t.me/c/{cid_b_str[4:]}")
-        else:
-            fallback_link_b = ch_b.get("invite_link") or (f"https://t.me/{ch_b.get('username')}" if ch_b.get('username') else f"https://t.me/c/{cid_b_str[1:] if cid_b_str.startswith('-') else cid_b_str}")
+        fallback_link_b = ch_b.get("invite_link") or (f"https://t.me/{ch_b.get('username')}" if ch_b.get('username') else "")
+        if "t.me/c/" in str(fallback_link_b):
+            fallback_link_b = ""
         link_b = await resolve_best_channel_link(client, ch_b["id"], fallback_link_b)
         
         if status_msg:
@@ -6162,11 +6199,9 @@ async def run_wave_execution(
             
         await asyncio.sleep(max(get_safe_min_delay(tenant_id), get_adaptive_delay(tenant_id)))
         
-        cid_a_str = str(ch_a.get("id"))
-        if cid_a_str.startswith("-100"):
-            fallback_link_a = ch_a.get("invite_link") or (f"https://t.me/{ch_a.get('username')}" if ch_a.get('username') else f"https://t.me/c/{cid_a_str[4:]}")
-        else:
-            fallback_link_a = ch_a.get("invite_link") or (f"https://t.me/{ch_a.get('username')}" if ch_a.get('username') else f"https://t.me/c/{cid_a_str[1:] if cid_a_str.startswith('-') else cid_a_str}")
+        fallback_link_a = ch_a.get("invite_link") or (f"https://t.me/{ch_a.get('username')}" if ch_a.get('username') else "")
+        if "t.me/c/" in str(fallback_link_a):
+            fallback_link_a = ""
         link_a = await resolve_best_channel_link(client, ch_a["id"], fallback_link_a)
         
         if status_msg:

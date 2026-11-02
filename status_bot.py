@@ -318,7 +318,9 @@ async def execute_bot_exchange_accept(user_id: int, request_id: int, lifespan_ov
                         pass
                 if not first_b_link:
                     u_name = eligible_b[0].get("username")
-                    first_b_link = f"https://t.me/{u_name}" if u_name else f"https://t.me/c/{str(first_b_cid)[4:]}"
+                    first_b_link = f"https://t.me/{u_name}" if u_name else ""
+                if first_b_link and "t.me/c/" in str(first_b_link):
+                    first_b_link = ""
                     
                 req_obj.status = "accepted"
                 req_obj.responded_at = now
