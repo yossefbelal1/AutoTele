@@ -444,8 +444,44 @@ async def add_ad_record(session: AsyncSession, telegram_account_id: int, chat_id
         await session.rollback(); logger.error(f"Error adding ad: {e}"); return False
 
 async def get_expired_ads(session: AsyncSession) -> List[ActiveAd]:
-    stmt = select(ActiveAd).where(ActiveAd.expires_at <= datetime.now(timezone.utc))
+    stmt = (
+        select(ActiveAd)
+        .join(TelegramAccount, ActiveAd.telegram_account_id == TelegramAccount.id)
+        .where(
+            ActiveAd.expires_at <= datetime.now(timezone.utc),
+            TelegramAccount.status.notin_(["banned", "session_expired", "disabled"])
+        )
+    )
     return list((await session.execute(stmt)).scalars().all())
+
+async def purge_stale_abandoned_ads(session: AsyncSession) -> int:
+    """Purges ActiveAd records expired for >24h or belonging to inactive/banned accounts."""
+    try:
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(hours=24)
+        stale_stmt = select(ActiveAd).where(ActiveAd.expires_at <= cutoff)
+        stale_ads = list((await session.execute(stale_stmt)).scalars().all())
+        if stale_ads:
+            for ad in stale_ads:
+                await session.execute(
+                    update(PublishLog)
+                    .where(
+                        PublishLog.telegram_account_id == ad.telegram_account_id,
+                        PublishLog.chat_id == ad.chat_id,
+                        PublishLog.msg_id == ad.msg_id,
+                        PublishLog.status == "active"
+                    )
+                    .values(status="abandoned")
+                )
+                await session.delete(ad)
+            await session.commit()
+            logger.info(f"[DB Cleaner] Purged {len(stale_ads)} stale expired ads (>24h).")
+            return len(stale_ads)
+        return 0
+    except Exception as e:
+        await session.rollback()
+        logger.error(f"Error in purge_stale_abandoned_ads: {e}")
+        return 0
 
 async def remove_ad_record(session: AsyncSession, active_ad_id: int, telegram_account_id: int) -> bool:
     try:

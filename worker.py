@@ -542,6 +542,27 @@ async def handle_posting_error_and_clean_cache(tenant_id: int, chat_id: int, e: 
         except Exception as ex:
             logger.debug(f"Failed to clean inaccessible chat {chat_id} from cache: {ex}")
 
+async def handle_deletion_error_and_clean_cache(tenant_id: int, chat_id: int, e: Exception):
+    """
+    Handles message deletion errors gracefully.
+    If delete is forbidden, marks can_delete=False silently in cache.
+    """
+    err_str = str(e).upper()
+    if any(err in err_str for err in ["MESSAGE_DELETE_FORBIDDEN", "CHAT_ADMIN_REQUIRED"]):
+        logger.info(f"Tenant {tenant_id}: Chat {chat_id} delete forbidden ({err_str}). Marking can_delete=False in cache.")
+        try:
+            channels = await get_channels_cache(tenant_id)
+            if channels:
+                updated = False
+                for ch in channels:
+                    if ch.get("id") == chat_id:
+                        ch["can_delete"] = False
+                        updated = True
+                if updated:
+                    await save_channels_cache(tenant_id, channels)
+        except Exception as ex:
+            logger.debug(f"Failed to update can_delete in cache for chat {chat_id}: {ex}")
+
 # Global state to track scheduled tasks and last wave execution timestamp per tenant
 scheduled_jobs: Dict[int, List[dict]] = {}
 
@@ -1369,10 +1390,12 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                                 
                     if is_group_or_channel and raw_chat:
                         can_send = False
+                        can_delete = False
                         is_admin_flag = False
                         if isinstance(peer, types.PeerChat):
                             if is_creator:
                                 can_send = True
+                                can_delete = True
                                 is_admin_flag = True
                             else:
                                 try:
@@ -1380,19 +1403,24 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                                     from pyrogram.enums import ChatMemberStatus
                                     if member.status in [ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR]:
                                         can_send = True
+                                        can_delete = True
                                         is_admin_flag = True
                                 except Exception:
                                     pass
                         else:
                             if is_creator:
                                 can_send = True
+                                can_delete = True
                             elif admin_rights is not None:
                                 is_admin_flag = True
                                 if is_broadcast:
                                     if getattr(admin_rights, "post_messages", False):
                                         can_send = True
+                                    if getattr(admin_rights, "delete_messages", False):
+                                        can_delete = True
                                 else:
                                     can_send = True
+                                    can_delete = True
                                         
                         if is_admin_flag or is_creator:
                             if chat_id in seen_ids:
@@ -1539,6 +1567,7 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                                 "is_group": is_group,
                                 "is_broadcast": is_broadcast,
                                 "can_send": can_send,
+                                "can_delete": can_delete,
                                 "latest_views": views_count,
                                 "avg_views": avg_views,
                                 "links_count": links_count,
@@ -2195,6 +2224,10 @@ async def run_timed_post_logic(
                 from pyrogram.enums import ChatMemberStatus
                 if member.status not in [ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR]:
                     raise Exception("يجب أن تكون مشرفًا (Admin) في القناة لنشر الرسائل وتثبيتها.")
+                if ad_lifespan > 0 and member.status == ChatMemberStatus.ADMINISTRATOR:
+                    privs = getattr(member, "privileges", None)
+                    if privs and not getattr(privs, "can_delete_messages", False):
+                        raise Exception("يجب أن تمتلك صلاحية 'حذف الرسائل' (Delete Messages) في القناة الحاضنة لحذف الإعلان تلقائياً بعد انقضاء الوقت.")
             except Exception as e:
                 err_msg = f"فشل التحقق من صلاحيات المشرف في [{host_link}]: {str(e)}"
                 logger.error(err_msg)
@@ -2462,7 +2495,22 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
         target_link = "\n".join(resolved_links)
         target_title = " / ".join(list(set(target_titles)))
         
-        eligible_channels = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True)]
+        campaign_start_time = datetime.now(timezone.utc)
+        campaign_expiry_time = campaign_start_time + timedelta(minutes=ad_lifespan) if ad_lifespan > 0 else (datetime.now(timezone.utc) + timedelta(days=36500))
+
+        if ad_lifespan > 0:
+            no_del_channels = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True) and ch.get("can_delete") is False]
+            if no_del_channels:
+                logger.info(f"Tenant {tenant_id}: Excluded {len(no_del_channels)} channels from single campaign due to missing delete permissions.")
+                await log_tenant_event(tenant_id, f"ℹ️ تم استبعاد {len(no_del_channels)} قناة لا تملك فيها صلاحية مسح الرسائل لضمان حذف الإعلانات تلقائياً بعد {ad_lifespan} دقيقة.")
+            eligible_channels = [
+                ch for ch in channels 
+                if ch["id"] not in exclude_ids 
+                and ch.get("can_send", True) 
+                and ch.get("can_delete") is not False
+            ]
+        else:
+            eligible_channels = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True)]
         
         # Smart Sorting: Sort in memory using cached total_joins (0 or lowest joins come FIRST!)
         channel_map = {ch["id"]: ch for ch in channels}
@@ -2559,7 +2607,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                             telegram_account_id=tenant_id,
                             chat_id=cid,
                             msg_id=msg.id,
-                            expires_at=datetime.now(timezone.utc) + timedelta(minutes=ad_lifespan),
+                            expires_at=campaign_expiry_time,
                             campaign_type="campaign",
                             target_chat_ids=target_chat_ids_list if target_chat_ids_list else [cid],
                             sticker_msg_id=sticker_msg_id
@@ -2582,7 +2630,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                             telegram_account_id=tenant_id,
                             chat_id=cid,
                             msg_id=msg.id,
-                            expires_at=datetime.now(timezone.utc) + timedelta(minutes=ad_lifespan),
+                            expires_at=campaign_expiry_time,
                             campaign_type="campaign",
                             target_chat_ids=target_chat_ids_list if target_chat_ids_list else [cid],
                             sticker_msg_id=sticker_msg_id
@@ -2648,6 +2696,96 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                 logger.error(f"Error delivering final campaign completion report: {fe}")
         if count == 0:
             raise Exception("تعذر النشر في أي قناة بنجاح.")
+
+        # Dedicated auto-delete sweeper for single campaign
+        if ad_lifespan > 0 and count > 0:
+            async def auto_delete_single_campaign_ads(deadline=campaign_expiry_time, lifespan=ad_lifespan, total_posted=count, s_msg=status_msg, t_id=tenant_id, t_client=client):
+                try:
+                    del_wait = max(0.0, (deadline - datetime.now(timezone.utc)).total_seconds())
+                    if del_wait > 0:
+                        logger.info(f"Tenant {t_id}: Single campaign auto-delete waiting {del_wait:.1f}s until deadline...")
+                        await asyncio.sleep(del_wait)
+                    
+                    logger.info(f"Tenant {t_id}: Single campaign lifespan expired ({lifespan}m). Sweeping ads now...")
+                    await log_tenant_event(t_id, f"⏳ انتهت مدة بقاء إعلانات الحملة الفردية ({lifespan} دقيقة). جاري المسح التلقائي لجميع الإعلانات المنشورة...")
+                    
+                    async with AsyncSessionLocal() as session:
+                        stmt = select(ActiveAd).where(
+                            ActiveAd.telegram_account_id == t_id,
+                            ActiveAd.campaign_type == "campaign",
+                            ActiveAd.expires_at <= datetime.now(timezone.utc)
+                        )
+                        ads_to_del = list((await session.execute(stmt)).scalars().all())
+                    
+                    if not ads_to_del:
+                        logger.info(f"Tenant {t_id}: No ads found in ActiveAd for single campaign deletion.")
+                        return
+
+                    del_count = 0
+                    fail_count = 0
+                    for ad in ads_to_del:
+                        try:
+                            msgs_del = [ad.msg_id]
+                            if ad.sticker_msg_id:
+                                msgs_del.append(ad.sticker_msg_id)
+                            await t_client.delete_messages(chat_id=ad.chat_id, message_ids=msgs_del)
+                            del_count += 1
+                        except RPCError as rpc_err:
+                            err_str = str(rpc_err).upper()
+                            if "MESSAGE_ID_INVALID" in err_str:
+                                del_count += 1
+                            elif any(x in err_str for x in ["MESSAGE_DELETE_FORBIDDEN", "CHAT_ADMIN_REQUIRED"]):
+                                fail_count += 1
+                                logger.warning(f"Tenant {t_id}: Chat {ad.chat_id} delete forbidden: {rpc_err}")
+                                await handle_deletion_error_and_clean_cache(t_id, ad.chat_id, rpc_err)
+                            else:
+                                fail_count += 1
+                        except Exception as e:
+                            fail_count += 1
+                        finally:
+                            try:
+                                async with AsyncSessionLocal() as session:
+                                    await remove_ad_record(session, ad.id, t_id)
+                            except Exception:
+                                pass
+                        await asyncio.sleep(0.05)
+
+                    summary_msg = (
+                        f"🗑️ **اكتمل المسح التلقائي للحملة الفردية:**\n"
+                        f"✅ تم مسح `{del_count}` من `{len(ads_to_del)}` إعلان بنجاح بعد انقضاء `{lifespan}` دقيقة.\n"
+                    )
+                    if fail_count > 0:
+                        summary_msg += f"⚠️ تعذر مسح `{fail_count}` إعلان لعدم توفر صلاحية الحذف في تلك القنوات.\n"
+                    summary_msg += f"🎉 **انتهت الحملة بنجاح.**"
+
+                    if s_msg:
+                        try:
+                            await safe_edit_message(s_msg, summary_msg)
+                        except Exception:
+                            try:
+                                chat_target = s_msg.chat.id if s_msg.chat else "me"
+                                await t_client.send_message(chat_target, summary_msg, disable_web_page_preview=True)
+                            except Exception:
+                                pass
+                    await log_tenant_event(t_id, f"✅ اكتمل المسح التلقائي للحملة الفردية ({del_count} ممسوح).")
+
+                    async with AsyncSessionLocal() as session:
+                        from db_manager import WebCampaignTask
+                        from sqlalchemy import update
+                        await session.execute(
+                            update(WebCampaignTask)
+                            .where(
+                                WebCampaignTask.telegram_account_id == t_id,
+                                WebCampaignTask.campaign_type == "single",
+                                WebCampaignTask.status == "active"
+                            )
+                            .values(status="completed")
+                        )
+                        await session.commit()
+                except Exception as del_err:
+                    logger.error(f"Tenant {t_id}: Error in auto_delete_single_campaign_ads: {del_err}")
+
+            create_safe_task(auto_delete_single_campaign_ads())
         await log_tenant_event(tenant_id, f"تم نشر الحملة الفردية! تم النشر في {count} من {total} قناة.")
         await clear_active_campaign_state(tenant_id)
         # Routine campaign publishing notification suppressed for status bot per user preference
@@ -3113,7 +3251,15 @@ async def run_bulk_campaign_logic(
                 # In bulk campaign (.حملات), each target channel from the campaign folder is promoted
                 # across ALL the tenant's channels where posting rights exist (can_send=True),
                 # excluding the target channel itself and any blacklisted/banned/no_post channels.
-                eligible_ch = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True)]
+                if ad_lifespan > 0:
+                    eligible_ch = [
+                        ch for ch in channels 
+                        if ch["id"] not in exclude_ids 
+                        and ch.get("can_send", True) 
+                        and ch.get("can_delete") is not False
+                    ]
+                else:
+                    eligible_ch = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True)]
                 
                 import random
                 random.shuffle(eligible_ch)
@@ -3304,7 +3450,8 @@ async def run_bulk_campaign_logic(
                                     if ad.sticker_msg_id: ids.append(ad.sticker_msg_id)
                                     await client.delete_messages(chat_id=ad.chat_id, message_ids=ids)
                                     del_count += 1
-                                except Exception: pass
+                                except Exception as d_err:
+                                    await handle_deletion_error_and_clean_cache(tenant_id, ad.chat_id, d_err)
                                 try:
                                     async with AsyncSessionLocal() as del_sess:
                                         await remove_ad_record(del_sess, ad.id, tenant_id)
@@ -3443,6 +3590,96 @@ async def run_bulk_campaign_logic(
         
         if count == 0:
             raise Exception("تعذر النشر في أي قناة بنجاح.")
+
+        # Dedicated auto-delete sweeper for single campaign
+        if ad_lifespan > 0 and count > 0:
+            async def auto_delete_single_campaign_ads(deadline=campaign_expiry_time, lifespan=ad_lifespan, total_posted=count, s_msg=status_msg, t_id=tenant_id, t_client=client):
+                try:
+                    del_wait = max(0.0, (deadline - datetime.now(timezone.utc)).total_seconds())
+                    if del_wait > 0:
+                        logger.info(f"Tenant {t_id}: Single campaign auto-delete waiting {del_wait:.1f}s until deadline...")
+                        await asyncio.sleep(del_wait)
+                    
+                    logger.info(f"Tenant {t_id}: Single campaign lifespan expired ({lifespan}m). Sweeping ads now...")
+                    await log_tenant_event(t_id, f"⏳ انتهت مدة بقاء إعلانات الحملة الفردية ({lifespan} دقيقة). جاري المسح التلقائي لجميع الإعلانات المنشورة...")
+                    
+                    async with AsyncSessionLocal() as session:
+                        stmt = select(ActiveAd).where(
+                            ActiveAd.telegram_account_id == t_id,
+                            ActiveAd.campaign_type == "campaign",
+                            ActiveAd.expires_at <= datetime.now(timezone.utc)
+                        )
+                        ads_to_del = list((await session.execute(stmt)).scalars().all())
+                    
+                    if not ads_to_del:
+                        logger.info(f"Tenant {t_id}: No ads found in ActiveAd for single campaign deletion.")
+                        return
+
+                    del_count = 0
+                    fail_count = 0
+                    for ad in ads_to_del:
+                        try:
+                            msgs_del = [ad.msg_id]
+                            if ad.sticker_msg_id:
+                                msgs_del.append(ad.sticker_msg_id)
+                            await t_client.delete_messages(chat_id=ad.chat_id, message_ids=msgs_del)
+                            del_count += 1
+                        except RPCError as rpc_err:
+                            err_str = str(rpc_err).upper()
+                            if "MESSAGE_ID_INVALID" in err_str:
+                                del_count += 1
+                            elif any(x in err_str for x in ["MESSAGE_DELETE_FORBIDDEN", "CHAT_ADMIN_REQUIRED"]):
+                                fail_count += 1
+                                logger.warning(f"Tenant {t_id}: Chat {ad.chat_id} delete forbidden: {rpc_err}")
+                                await handle_deletion_error_and_clean_cache(t_id, ad.chat_id, rpc_err)
+                            else:
+                                fail_count += 1
+                        except Exception as e:
+                            fail_count += 1
+                        finally:
+                            try:
+                                async with AsyncSessionLocal() as session:
+                                    await remove_ad_record(session, ad.id, t_id)
+                            except Exception:
+                                pass
+                        await asyncio.sleep(0.05)
+
+                    summary_msg = (
+                        f"🗑️ **اكتمل المسح التلقائي للحملة الفردية:**\n"
+                        f"✅ تم مسح `{del_count}` من `{len(ads_to_del)}` إعلان بنجاح بعد انقضاء `{lifespan}` دقيقة.\n"
+                    )
+                    if fail_count > 0:
+                        summary_msg += f"⚠️ تعذر مسح `{fail_count}` إعلان لعدم توفر صلاحية الحذف في تلك القنوات.\n"
+                    summary_msg += f"🎉 **انتهت الحملة بنجاح.**"
+
+                    if s_msg:
+                        try:
+                            await safe_edit_message(s_msg, summary_msg)
+                        except Exception:
+                            try:
+                                chat_target = s_msg.chat.id if s_msg.chat else "me"
+                                await t_client.send_message(chat_target, summary_msg, disable_web_page_preview=True)
+                            except Exception:
+                                pass
+                    await log_tenant_event(t_id, f"✅ اكتمل المسح التلقائي للحملة الفردية ({del_count} ممسوح).")
+
+                    async with AsyncSessionLocal() as session:
+                        from db_manager import WebCampaignTask
+                        from sqlalchemy import update
+                        await session.execute(
+                            update(WebCampaignTask)
+                            .where(
+                                WebCampaignTask.telegram_account_id == t_id,
+                                WebCampaignTask.campaign_type == "single",
+                                WebCampaignTask.status == "active"
+                            )
+                            .values(status="completed")
+                        )
+                        await session.commit()
+                except Exception as del_err:
+                    logger.error(f"Tenant {t_id}: Error in auto_delete_single_campaign_ads: {del_err}")
+
+            create_safe_task(auto_delete_single_campaign_ads())
         await log_tenant_event(tenant_id, f"تم نشر حملة المجلد المجمعة! تم نشر {count} إعلان في القنوات المروجة.")
         # Routine bulk campaign publishing notification suppressed for status bot per user preference
         await clear_active_campaign_state(tenant_id)
@@ -4898,6 +5135,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                     f"{idx}. **{ch['title']}**\n"
                     f"   • الحالة: `{status_role}`\n"
                     f"   • صلاحية النشر: {'نعم ✅' if ch.get('can_send', True) else 'لا ❌ (معطلة)'}\n"
+                    f"   • صلاحية الحذف: {'نعم ✅' if ch.get('can_delete', True) else 'لا ❌ (معطلة)'}\n"
                     f"   • الأعضاء: `{ch.get('members_count', 0):,}`\n"
                     f"   • الرابط: {link_text}\n"
                 )
@@ -7167,8 +7405,28 @@ async def run_clear_logic(tenant_id: int, client: Client, reply_to_message: Opti
                 telegram_deleted = True
             except RPCError as rpc_err:
                 err_str = str(rpc_err).upper()
-                if any(x in err_str for x in ["MESSAGE_ID_INVALID", "MESSAGE_DELETE_FORBIDDEN"]):
+                if "MESSAGE_ID_INVALID" in err_str:
                     telegram_deleted = True
+                elif any(x in err_str for x in ["MESSAGE_DELETE_FORBIDDEN", "CHAT_ADMIN_REQUIRED"]):
+                    telegram_deleted = False
+                    await handle_deletion_error_and_clean_cache(tenant_id, ad.chat_id, rpc_err)
+                    try:
+                        async with AsyncSessionLocal() as session:
+                            from sqlalchemy import update
+                            await session.execute(
+                                update(PublishLog)
+                                .where(
+                                    PublishLog.telegram_account_id == tenant_id,
+                                    PublishLog.chat_id == ad.chat_id,
+                                    PublishLog.msg_id == ad.msg_id,
+                                    PublishLog.status == "active"
+                                )
+                                .values(status="delete_forbidden")
+                            )
+                            await session.commit()
+                            await remove_ad_record(session, ad.id, tenant_id)
+                    except Exception:
+                        pass
                 else:
                     logger.warning(f"RPCError during clear for ad {ad.id}: {rpc_err}. Will retry later.")
                     telegram_deleted = False
@@ -7414,8 +7672,28 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
                 telegram_deleted = True
             except RPCError as rpc_err:
                 err_str = str(rpc_err).upper()
-                if any(x in err_str for x in ["MESSAGE_ID_INVALID", "MESSAGE_DELETE_FORBIDDEN"]):
+                if "MESSAGE_ID_INVALID" in err_str:
                     telegram_deleted = True
+                elif any(x in err_str for x in ["MESSAGE_DELETE_FORBIDDEN", "CHAT_ADMIN_REQUIRED"]):
+                    telegram_deleted = False
+                    await handle_deletion_error_and_clean_cache(tenant_id, ad.chat_id, rpc_err)
+                    try:
+                        async with AsyncSessionLocal() as session:
+                            from sqlalchemy import update
+                            await session.execute(
+                                update(PublishLog)
+                                .where(
+                                    PublishLog.telegram_account_id == tenant_id,
+                                    PublishLog.chat_id == ad.chat_id,
+                                    PublishLog.msg_id == ad.msg_id,
+                                    PublishLog.status == "active"
+                                )
+                                .values(status="delete_forbidden")
+                            )
+                            await session.commit()
+                            await remove_ad_record(session, ad.id, tenant_id)
+                    except Exception:
+                        pass
                 else:
                     logger.warning(f"RPCError during clear for ad {ad.id}: {rpc_err}. Will retry later.")
                     telegram_deleted = False
@@ -8338,18 +8616,42 @@ async def global_cleaner_worker():
                     except RPCError as rpc_err:
                         err_code = getattr(rpc_err, "CODE", None) or getattr(rpc_err, "code", None) or 400
                         err_str = str(rpc_err).upper()
-                        if any(x in err_str for x in [
-                            "MESSAGE_ID_INVALID", 
-                            "MESSAGE_DELETE_FORBIDDEN", 
+                        if "MESSAGE_ID_INVALID" in err_str:
+                            telegram_deleted = True
+                            logger.info(f"[Cleaner] Message {msg_id} already deleted on Telegram.")
+                        elif any(x in err_str for x in ["MESSAGE_DELETE_FORBIDDEN", "CHAT_ADMIN_REQUIRED"]):
+                            telegram_deleted = False
+                            logger.warning(f"[Cleaner] Permission forbidden deleting msg {msg_id} from chat {chat_id} (code {err_code}): {rpc_err}.")
+                            await handle_deletion_error_and_clean_cache(tenant_id, chat_id, rpc_err)
+                            try:
+                                async with AsyncSessionLocal() as del_session:
+                                    from sqlalchemy import update
+                                    await del_session.execute(
+                                        update(PublishLog)
+                                        .where(
+                                            PublishLog.telegram_account_id == tenant_id,
+                                            PublishLog.chat_id == chat_id,
+                                            PublishLog.msg_id == msg_id,
+                                            PublishLog.status == "active"
+                                        )
+                                        .values(status="delete_forbidden")
+                                    )
+                                    stmt = select(ActiveAd).where(ActiveAd.id == ad_id, ActiveAd.telegram_account_id == tenant_id)
+                                    target_ad = (await del_session.execute(stmt)).scalar_one_or_none()
+                                    if target_ad:
+                                        await del_session.delete(target_ad)
+                                    await del_session.commit()
+                            except Exception as db_err:
+                                logger.error(f"[Cleaner] Failed to handle delete_forbidden record: {db_err}")
+                        elif any(x in err_str for x in [
                             "CHANNEL_INVALID", 
                             "CHANNEL_PRIVATE", 
                             "CHAT_WRITE_FORBIDDEN", 
-                            "CHAT_ADMIN_REQUIRED",
                             "USER_BANNED_IN_CHANNEL",
                             "CHAT_ID_INVALID"
                         ]):
                             telegram_deleted = True
-                            logger.info(f"[Cleaner] Message/Channel inaccessible on Telegram (code {err_code}): {rpc_err}. Marked as deleted in DB.")
+                            logger.info(f"[Cleaner] Channel inaccessible on Telegram (code {err_code}): {rpc_err}. Marked as deleted in DB.")
                         else:
                             telegram_deleted = False
                             logger.warning(f"[Cleaner] Permission or temporary RPCError deleting msg {msg_id} from chat {chat_id} (code {err_code}): {rpc_err}. Will retry later.")
@@ -8358,6 +8660,12 @@ async def global_cleaner_worker():
                         telegram_deleted = False
                 else:
                     telegram_deleted = False
+                    try:
+                        async with AsyncSessionLocal() as session:
+                            from db_manager import purge_stale_abandoned_ads
+                            await purge_stale_abandoned_ads(session)
+                    except Exception:
+                        pass
                     logger.warning(f"[Cleaner] Client for tenant {tenant_id} is not running or connected. Skipping deletion of expired ad {ad_id} for now.")
 
                 if telegram_deleted:
