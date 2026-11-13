@@ -129,8 +129,9 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 43200  # 30 days persistent login session
 # Frontend values are NEVER trusted â€” all durations are computed from here.
 # ===========================================================================
 OFFICIAL_PLANS: dict = {
-    "weekly":    {"price_usd": 30,   "duration_days": 7,   "label": "باقة أسبوعية"},
-    "monthly":   {"price_usd": 65,   "duration_days": 30,  "label": "باقة شهرية"},
+    "biweekly":  {"price_usd": 20,   "duration_days": 14,  "label": "باقة أسبوعين ($20)"},
+    "weekly":    {"price_usd": 20,   "duration_days": 14,  "label": "باقة أسبوعين ($20)"},
+    "monthly":   {"price_usd": 40,   "duration_days": 30,  "label": "باقة شهرية ($40)"},
     "half_year": {"price_usd": 500,  "duration_days": 180, "label": "باقة 6 شهور"},
     "yearly":    {"price_usd": 999,  "duration_days": 365, "label": "باقة سنوية"},
 }
@@ -3894,8 +3895,8 @@ async def get_admin_system_stats(admin_user: User = Depends(check_admin_user)):
     import os
     from cache_manager import redis_client, get_invite_link
     
-    # CPU
-    cpu_percent = psutil.cpu_percent(interval=None)
+    # CPU (sample over 100ms for stable and accurate metric)
+    cpu_percent = psutil.cpu_percent(interval=0.1)
     
     # RAM
     ram = psutil.virtual_memory()
@@ -4425,6 +4426,9 @@ async def modify_subscription(target_user_id: int, req: ModifySubscriptionReq, b
         user.subscription_status = req.subscription_status
         user.subscription_end = end_dt
         if req.subscription_status == "active":
+            user.sub_alert_5d_sent = False
+            user.sub_alert_4d_sent = False
+            user.sub_alert_3d_sent = False
             user.sub_alert_2d_sent = False
             user.sub_alert_24h_sent = False
             user.sub_alert_expired_sent = False
@@ -4491,6 +4495,68 @@ async def modify_subscription(target_user_id: int, req: ModifySubscriptionReq, b
             background_tasks.add_task(send_renewal_alert_task, user.id, plan_label, end_dt.strftime("%Y-%m-%d %H:%M:%S"))
             
         return {"status": "success", "message": "تم تعديل بيانات اشتراك المستخدم بنجاح"}
+
+class QuickExtendReq(BaseModel):
+    plan: str  # "biweekly" or "monthly"
+
+@app.post("/admin/users/{target_user_id}/quick-extend")
+async def quick_extend_user_subscription(
+    target_user_id: int,
+    req: QuickExtendReq,
+    background_tasks: BackgroundTasks,
+    admin_user: User = Depends(check_admin_user)
+):
+    days_map = {
+        "biweekly": 14,
+        "weekly": 14,
+        "monthly": 30
+    }
+    days = days_map.get(req.plan, 30)
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.id == target_user_id))).scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="المستخدم غير موجود")
+
+        now = datetime.now(timezone.utc)
+        curr_end = user.subscription_end
+        if curr_end.tzinfo is None:
+            curr_end = curr_end.replace(tzinfo=timezone.utc)
+
+        if curr_end > now and user.subscription_status == "active":
+            new_end = curr_end + timedelta(days=days)
+        else:
+            new_end = now + timedelta(days=days)
+
+        user.subscription_plan = req.plan
+        user.subscription_status = "active"
+        user.subscription_end = new_end
+        user.sub_alert_5d_sent = False
+        user.sub_alert_4d_sent = False
+        user.sub_alert_3d_sent = False
+        user.sub_alert_2d_sent = False
+        user.sub_alert_24h_sent = False
+        user.sub_alert_expired_sent = False
+        user.sub_shutdown_executed = False
+
+        session.add(user)
+        await session.commit()
+
+        plan_labels = {
+            "biweekly": "أسبوعين ($20)",
+            "weekly": "أسبوعين ($20)",
+            "monthly": "شهر كامل ($40)"
+        }
+        label = plan_labels.get(req.plan, f"{days} يوم")
+        plan_official_label = OFFICIAL_PLANS.get(req.plan, {}).get("label", label)
+        background_tasks.add_task(send_renewal_alert_task, user.id, plan_official_label, new_end.strftime("%Y-%m-%d %H:%M:%S"))
+
+        return {
+            "status": "success",
+            "message": f"تم تمديد اشتراك المستخدم {label} بنجاح حتى {new_end.strftime('%Y-%m-%d %H:%M UTC')}",
+            "subscription_end": new_end.strftime("%Y-%m-%d"),
+            "subscription_plan": req.plan,
+            "subscription_status": "active"
+        }
 
 @app.post("/admin/users/{target_user_id}/change-password")
 async def admin_change_user_password(target_user_id: int, req: AdminChangePasswordReq, admin_user: User = Depends(check_admin_user)):

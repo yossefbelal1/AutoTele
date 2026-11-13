@@ -1100,8 +1100,9 @@
             <label for="edit-user-plan">باقة الاشتراك</label>
             <select id="edit-user-plan" required>
               <option value="trial">تجربة مجانية (trial)</option>
+              <option value="biweekly">أسبوعين - 20$ (biweekly)</option>
               <option value="weekly">اشتراك أسبوعي (weekly)</option>
-              <option value="monthly">اشتراك شهري (monthly)</option>
+              <option value="monthly">اشتراك شهري - 40$ (monthly)</option>
               <option value="half_year">اشتراك 6 شهور (half_year)</option>
               <option value="yearly">اشتراك سنوي (yearly)</option>
             </select>
@@ -1118,6 +1119,14 @@
           <div class="input-group">
             <label for="edit-user-end-date">تاريخ انتهاء الاشتراك (YYYY-MM-DD)</label>
             <input type="date" id="edit-user-end-date" required>
+            <div style="display: flex; gap: 8px; margin-top: 8px;">
+              <button type="button" class="btn btn-sm" onclick="quickSetSubscription(14, 'biweekly')" style="flex: 1; padding: 7px 10px; font-size: 12px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); border-radius: 6px; cursor: pointer; font-weight: 700;">
+                ⚡ + أسبوعين (20$)
+              </button>
+              <button type="button" class="btn btn-sm" onclick="quickSetSubscription(30, 'monthly')" style="flex: 1; padding: 7px 10px; font-size: 12px; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 6px; cursor: pointer; font-weight: 700;">
+                🚀 + شهر كامل (40$)
+              </button>
+            </div>
           </div>
 
           <!-- SOCKS5 Proxy Details -->

@@ -881,9 +881,11 @@ function renderFilteredAdminUsers() {
     if (user.subscription_plan === "yearly") {
       planBadge = `<span style="background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">👑 سنوي</span>`;
     } else if (user.subscription_plan === "monthly") {
-      planBadge = `<span style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">💎 شهري</span>`;
+      planBadge = `<span style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">💎 شهري ($40)</span>`;
+    } else if (user.subscription_plan === "biweekly") {
+      planBadge = `<span style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">⚡ أسبوعين ($20)</span>`;
     } else if (user.subscription_plan === "weekly") {
-      planBadge = `<span style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">⚡ أسبوعي</span>`;
+      planBadge = `<span style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">⚡ أسبوعين ($20)</span>`;
     } else {
       planBadge = `<span style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">⏳ تجريبي</span>`;
     }
@@ -3361,4 +3363,41 @@ window.submitBulkExtend = async function() {
   } finally {
     setButtonLoading("btn-submit-bulk-extend", false);
   }
+};
+
+
+window.quickSetSubscription = function(days, plan) {
+  const dateInput = document.getElementById("edit-user-end-date");
+  const planSelect = document.getElementById("edit-user-plan");
+  const statusSelect = document.getElementById("edit-user-status");
+
+  let baseDate = new Date();
+  if (dateInput && dateInput.value) {
+    const existing = new Date(dateInput.value);
+    if (!isNaN(existing.getTime()) && existing > baseDate) {
+      baseDate = existing;
+    }
+  }
+  baseDate.setDate(baseDate.getDate() + days);
+  const yyyy = baseDate.getFullYear();
+  const mm = String(baseDate.getMonth() + 1).padStart(2, '0');
+  const dd = String(baseDate.getDate()).padStart(2, '0');
+  if (dateInput) {
+    dateInput.value = `${yyyy}-${mm}-${dd}`;
+  }
+  if (planSelect) {
+    let opt = Array.from(planSelect.options).find(o => o.value === plan);
+    if (!opt) {
+      const newOpt = document.createElement("option");
+      newOpt.value = plan;
+      newOpt.textContent = plan === 'biweekly' ? 'أسبوعين - 20$ (biweekly)' : 'اشتراك شهري - 40$ (monthly)';
+      planSelect.appendChild(newOpt);
+    }
+    planSelect.value = plan;
+  }
+  if (statusSelect) {
+    statusSelect.value = "active";
+  }
+  const label = plan === 'biweekly' ? 'أسبوعين ($20)' : 'شهر كامل ($40)';
+  showToast(`⚡ تم ضبط الباقة (${label}) حتى تاريخ ${yyyy}-${mm}-${dd}. اضغط حفظ لتأكيد التعديل.`, "success");
 };

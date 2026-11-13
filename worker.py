@@ -2498,19 +2498,12 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
         campaign_start_time = datetime.now(timezone.utc)
         campaign_expiry_time = campaign_start_time + timedelta(minutes=ad_lifespan) if ad_lifespan > 0 else (datetime.now(timezone.utc) + timedelta(days=36500))
 
-        if ad_lifespan > 0:
-            no_del_channels = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True) and ch.get("can_delete") is False]
-            if no_del_channels:
-                logger.info(f"Tenant {tenant_id}: Excluded {len(no_del_channels)} channels from single campaign due to missing delete permissions.")
-                await log_tenant_event(tenant_id, f"ℹ️ تم استبعاد {len(no_del_channels)} قناة لا تملك فيها صلاحية مسح الرسائل لضمان حذف الإعلانات تلقائياً بعد {ad_lifespan} دقيقة.")
-            eligible_channels = [
-                ch for ch in channels 
-                if ch["id"] not in exclude_ids 
-                and ch.get("can_send", True) 
-                and ch.get("can_delete") is not False
-            ]
-        else:
-            eligible_channels = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True)]
+        # Full channel coverage: Publish to ALL channels where account has posting rights
+        no_del_channels = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True) and ch.get("can_delete") is False]
+        if no_del_channels and ad_lifespan > 0:
+            logger.info(f"Tenant {tenant_id}: {len(no_del_channels)} channels lack delete rights; will publish to all and attempt auto-cleanup at expiry.")
+            await log_tenant_event(tenant_id, f"📢 النشر يشمل كافة القنوات المتاحة ({len(channels)} قناة). يوجد {len(no_del_channels)} قناة بصلاحيات نشر فقط وسيتم محاولة مسح الإعلان منها تلقائياً عند انتهاء المدة.")
+        eligible_channels = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True)]
         
         # Smart Sorting: Sort in memory using cached total_joins (0 or lowest joins come FIRST!)
         channel_map = {ch["id"]: ch for ch in channels}
@@ -3251,15 +3244,8 @@ async def run_bulk_campaign_logic(
                 # In bulk campaign (.حملات), each target channel from the campaign folder is promoted
                 # across ALL the tenant's channels where posting rights exist (can_send=True),
                 # excluding the target channel itself and any blacklisted/banned/no_post channels.
-                if ad_lifespan > 0:
-                    eligible_ch = [
-                        ch for ch in channels 
-                        if ch["id"] not in exclude_ids 
-                        and ch.get("can_send", True) 
-                        and ch.get("can_delete") is not False
-                    ]
-                else:
-                    eligible_ch = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True)]
+                # Full channel coverage in bulk campaigns
+                eligible_ch = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True)]
                 
                 import random
                 random.shuffle(eligible_ch)
@@ -6012,27 +5998,47 @@ async def start_tenant_worker(account: TelegramAccount):
                                     logger.info(f"Auto-linked status_bot_chat_id={me.id} for user {db_user.id} ({db_user.email})")
                                 
                                 bot_uname = os.getenv("STATUS_BOT_USERNAME", "AutoTele_UpdatesBot")
+                                has_history = False
                                 try:
-                                    await client.send_message(bot_uname, "/start")
-                                    logger.info(f"Auto-sent /start to @{bot_uname} for user {db_user.id}")
-                                except Exception as bot_err:
-                                    logger.debug(f"Auto /start to bot for user {db_user.id}: {bot_err}")
-                                
+                                    async for _ in client.get_chat_history(bot_uname, limit=1):
+                                        has_history = True
+                                        break
+                                except Exception:
+                                    pass
+
+                                if not has_history:
+                                    try:
+                                        await client.send_message(bot_uname, "/start")
+                                        logger.info(f"Auto-sent first-time /start to @{bot_uname} for user {db_user.id}")
+                                    except Exception as bot_err:
+                                        logger.debug(f"Auto /start to bot for user {db_user.id}: {bot_err}")
+
                                 try:
-                                    from pyrogram.raw.functions.account import UpdateNotifySettings
+                                    from pyrogram.raw.functions.account import GetNotifySettings, UpdateNotifySettings
                                     from pyrogram.raw.types import InputNotifyPeer, InputPeerNotifySettings
                                     peer = await client.resolve_peer(bot_uname)
-                                    await client.invoke(
-                                        UpdateNotifySettings(
-                                            peer=InputNotifyPeer(peer=peer),
-                                            settings=InputPeerNotifySettings(
-                                                mute_until=0,
-                                                silent=False,
-                                                show_previews=True
+                                    notify_peer = InputNotifyPeer(peer=peer)
+                                    current_settings = await client.invoke(GetNotifySettings(peer=notify_peer))
+
+                                    is_muted = False
+                                    mute_until = getattr(current_settings, "mute_until", 0) or 0
+                                    if mute_until > time.time() or mute_until >= 2147483647:
+                                        is_muted = True
+                                    if getattr(current_settings, "silent", False):
+                                        is_muted = True
+
+                                    if is_muted:
+                                        await client.invoke(
+                                            UpdateNotifySettings(
+                                                peer=notify_peer,
+                                                settings=InputPeerNotifySettings(
+                                                    mute_until=0,
+                                                    silent=False,
+                                                    show_previews=True
+                                                )
                                             )
                                         )
-                                    )
-                                    logger.info(f"Auto-unmuted @{bot_uname} for user {db_user.id}")
+                                        logger.info(f"Auto-unmuted @{bot_uname} for user {db_user.id} (was muted)")
                                 except Exception as unmute_err:
                                     logger.debug(f"Auto-unmute error for user {db_user.id}: {unmute_err}")
                         except Exception as me_err:
@@ -8625,7 +8631,7 @@ async def global_cleaner_worker():
                             await handle_deletion_error_and_clean_cache(tenant_id, chat_id, rpc_err)
                             try:
                                 async with AsyncSessionLocal() as del_session:
-                                    from sqlalchemy import update
+                                    # update already imported globally
                                     await del_session.execute(
                                         update(PublishLog)
                                         .where(
@@ -9409,70 +9415,171 @@ async def send_telegram_alert(
             except:
                 pass
 
+async def ensure_all_active_tenants_unmuted():
+    """
+    Guarantees all active connected tenants:
+    1. Verify user status_bot_chat_id is linked to me.id.
+    2. Check if the user has already opened/started the bot (has chat history).
+       If history exists, NEVER send /start (to prevent repeated notification spam!).
+       Only if no history exists at all, sends /start once to initialize the chat.
+    3. Check current notification settings via MTProto GetNotifySettings.
+       If and only if the chat is currently muted, unmutes it via MTProto UpdateNotifySettings
+       (a silent account setting that does not send any messages to the chat).
+    """
+    bot_uname = os.getenv("STATUS_BOT_USERNAME", "AutoTele_UpdatesBot")
+    from pyrogram.raw.functions.account import GetNotifySettings, UpdateNotifySettings
+    from pyrogram.raw.types import InputNotifyPeer, InputPeerNotifySettings
+
+    for tenant_id, client in list(running_clients.items()):
+        if not client or not client.is_connected:
+            continue
+        try:
+            async with AsyncSessionLocal() as session:
+                acc = (await session.execute(select(TelegramAccount).where(TelegramAccount.id == tenant_id))).scalar_one_or_none()
+                if not acc:
+                    continue
+                db_user = (await session.execute(select(User).where(User.id == acc.user_id))).scalar_one_or_none()
+                if not db_user:
+                    continue
+
+                # 1. Verify me.id
+                try:
+                    me = await client.get_me()
+                    if me and me.id and db_user.status_bot_chat_id != me.id:
+                        db_user.status_bot_chat_id = me.id
+                        await session.commit()
+                        logger.info(f"[AutoUnmute] Updated status_bot_chat_id={me.id} for user {db_user.id}")
+                except Exception as me_err:
+                    logger.debug(f"[AutoUnmute] get_me failed for tenant {tenant_id}: {me_err}")
+
+                # 2. Check if user already has history with the bot
+                has_history = False
+                try:
+                    async for _ in client.get_chat_history(bot_uname, limit=1):
+                        has_history = True
+                        break
+                except Exception as he:
+                    logger.debug(f"[AutoUnmute] History check failed for tenant {tenant_id}: {he}")
+
+                # Only send /start if the chat has NEVER been initiated before
+                if not has_history:
+                    try:
+                        await client.send_message(bot_uname, "/start")
+                        logger.info(f"[AutoUnmute] Sent initial /start to @{bot_uname} for user {db_user.id}")
+                    except Exception as be:
+                        logger.debug(f"[AutoUnmute] /start to @{bot_uname} for tenant {tenant_id}: {be}")
+
+                # 3. Check notify settings and ONLY unmute if currently muted
+                try:
+                    peer = await client.resolve_peer(bot_uname)
+                    notify_peer = InputNotifyPeer(peer=peer)
+                    current_settings = await client.invoke(GetNotifySettings(peer=notify_peer))
+
+                    is_muted = False
+                    mute_until = getattr(current_settings, "mute_until", 0) or 0
+                    if mute_until > time.time() or mute_until >= 2147483647:
+                        is_muted = True
+                    if getattr(current_settings, "silent", False):
+                        is_muted = True
+
+                    if is_muted:
+                        await client.invoke(
+                            UpdateNotifySettings(
+                                peer=notify_peer,
+                                settings=InputPeerNotifySettings(
+                                    mute_until=0,
+                                    silent=False,
+                                    show_previews=True
+                                )
+                            )
+                        )
+                        logger.info(f"[AutoUnmute] Detected muted state; unmuted @{bot_uname} for user {db_user.id} (tenant {tenant_id})")
+                    else:
+                        logger.debug(f"[AutoUnmute] @{bot_uname} is already active and unmuted for user {db_user.id}")
+                except Exception as ue:
+                    logger.debug(f"[AutoUnmute] Unmute check error for tenant {tenant_id}: {ue}")
+        except Exception as te:
+            logger.debug(f"[AutoUnmute] Error processing tenant {tenant_id}: {te}")
+
+
 async def subscription_lifecycle_worker():
     """
     Background job running every 5 minutes to verify subscription status,
-    send Telegram notifications to user Saved Messages, and pause services on expiry.
+    send Telegram notifications to @AutoTele_UpdatesBot & Saved Messages,
+    and enforce strict service cutoff immediately upon expiry.
     """
     logger.info("Starting subscription lifecycle worker...")
     await asyncio.sleep(15)  # Wait for startup
-    
+
     from db_manager import SubscriptionNotificationLog
-    
+    last_unmute_check = 0.0
+
     while True:
         try:
+            now_ts = time.time()
+            if now_ts - last_unmute_check > 1800:  # Check unmute every 30 minutes
+                last_unmute_check = now_ts
+                create_safe_task(ensure_all_active_tenants_unmuted())
+
             async with AsyncSessionLocal() as session:
                 now = datetime.now(timezone.utc)
-                
+
                 stmt = select(User)
                 users = (await session.execute(stmt)).scalars().all()
-                
+
                 for user in users:
                     sub_end = user.subscription_end
                     if sub_end.tzinfo is None:
                         sub_end = sub_end.replace(tzinfo=timezone.utc)
-                        
+
                     diff = sub_end - now
                     diff_hours = diff.total_seconds() / 3600.0
-                    
-                    # 1. Check if expired
+                    date_str = sub_end.strftime("%Y-%m-%d %H:%M UTC")
+
+                    # 0. Check if expired (<= 0 hours)
                     if diff_hours <= 0:
                         if user.subscription_status != "expired":
                             user.subscription_status = "expired"
                             session.add(user)
                             logger.info(f"Subscription expired for User {user.id} ({user.email}).")
-                            
+
                         if not user.sub_shutdown_executed:
                             user.sub_shutdown_executed = True
                             session.add(user)
-                            
+
                             stmt_acc = select(TelegramAccount).where(TelegramAccount.user_id == user.id)
                             user_accounts = (await session.execute(stmt_acc)).scalars().all()
-                            
+
                             for acc in user_accounts:
                                 if acc.id in running_clients:
                                     logger.info(f"Stopping tenant client {acc.id} due to expired subscription.")
                                     await stop_tenant_worker(acc.id, session, reason="Subscription Expired")
-                                    
+
                                 await set_setting(session, acc.id, "bot_system_state", "stopped")
-                                
+
+                                # Cancel any running tasks for this account
+                                tasks_to_cancel = active_running_tasks.get(acc.id, set())
+                                for t in list(tasks_to_cancel):
+                                    if not t.done():
+                                        t.cancel()
+                                active_running_tasks.pop(acc.id, None)
+
                             logger.info(f"Auto-shutdown completed for User {user.id}.")
                             await session.commit()
-                            
+
                         if not user.sub_alert_expired_sent:
                             user.sub_alert_expired_sent = True
                             session.add(user)
-                            
+
                             alert_msg = (
-                                "❌ انتهى اشتراكك\n\n"
-                                "تم إيقاف الخدمات المرتبطة بحسابك بسبب انتهاء الاشتراك.\n\n"
-                                "يمكنك إعادة تفعيل الخدمة فوراً من خلال تجديد الاشتراك.\n\n"
-                                "🔗 تجديد الاشتراك:\n"
-                                "https://telegauto.com/app.html"
+                                "❌ **انتهى اشتراكك في AutoTele**\n\n"
+                                "تم إيقاف كافة الخدمات وحملات النشر التلقائية المرتبطة بحسابك لانتهاء مدة الاشتراك.\n\n"
+                                "⚡ يمكنك استئناف العمل فوراً وبدون انقطاع عبر تجديد الاشتراك:\n"
+                                "🔗 https://telegauto.com/app.html"
                             )
-                            
-                            success, details = await send_telegram_alert(user.id, alert_msg, session)
-                            
+
+                            success, details = await send_telegram_alert(user.id, alert_msg, session, notify_bot=True)
+
                             log_entry = SubscriptionNotificationLog(
                                 user_id=user.id,
                                 notification_type="expired",
@@ -9483,24 +9590,24 @@ async def subscription_lifecycle_worker():
                             )
                             session.add(log_entry)
                             await session.commit()
-                            
-                    # 2. Check if 24 hours warning
+
+                    # 1. Day 1 before (<= 24 hours)
                     elif diff_hours <= 24:
                         if not user.sub_alert_24h_sent:
                             user.sub_alert_24h_sent = True
                             session.add(user)
-                            
+
                             alert_msg = (
-                                "⏳ تذكير أخير\n\n"
-                                "متبقي 24 ساعة فقط على انتهاء اشتراكك.\n\n"
-                                f"📅 تاريخ الانتهاء: {sub_end.strftime('%Y-%m-%d %H:%M:%S UTC')}\n\n"
-                                "بعد انتهاء الاشتراك سيتم إيقاف جميع الخدمات والحملات المرتبطة بحسابك تلقائياً.\n\n"
-                                "🔗 تجديد الاشتراك:\n"
+                                "🚨 **تحذير أخير — متبقي 24 ساعة فقط!**\n\n"
+                                f"نود تذكيرك بأن اشتراكك سينتهي غداً:\n"
+                                f"📅 موعد الانتهاء: `{date_str}`\n\n"
+                                "⚠️ فور انتهاء الاشتراك سيتم إيقاف كافة الحملات والخدمات تلقائياً.\n\n"
+                                "🔗 **جدد الآن لتفادي توقف النشر:**\n"
                                 "https://telegauto.com/app.html"
                             )
-                            
-                            success, details = await send_telegram_alert(user.id, alert_msg, session)
-                            
+
+                            success, details = await send_telegram_alert(user.id, alert_msg, session, notify_bot=True)
+
                             log_entry = SubscriptionNotificationLog(
                                 user_id=user.id,
                                 notification_type="24_hours_before",
@@ -9511,25 +9618,24 @@ async def subscription_lifecycle_worker():
                             )
                             session.add(log_entry)
                             await session.commit()
-                            
-                    # 3. Check if 2 days warning
+
+                    # 2. Day 2 before (<= 48 hours)
                     elif diff_hours <= 48:
                         if not user.sub_alert_2d_sent:
                             user.sub_alert_2d_sent = True
                             session.add(user)
-                            
+
                             alert_msg = (
-                                "⚠️ تنبيه تجديد الاشتراك\n\n"
-                                "مرحباً،\n\n"
-                                "نود إعلامك بأن اشتراكك سينتهي خلال يومين.\n\n"
-                                f"📅 تاريخ الانتهاء: {sub_end.strftime('%Y-%m-%d %H:%M:%S UTC')}\n\n"
-                                "لضمان استمرار الخدمة دون انقطاع، يرجى تجديد اشتراكك قبل موعد الانتهاء.\n\n"
-                                "🔗 رابط التجديد:\n"
-                                "https://telegauto.com/app.html"
+                                "⏳ **تنبيه عاجل — متبقي يومان (48 ساعة)**\n\n"
+                                "مرحباً،\n"
+                                f"اشتراكك في AutoTele قارب على الانتهاء:\n"
+                                f"📅 تاريخ الانتهاء: `{date_str}`\n\n"
+                                "لضمان استمرار حملاتك الإعلانية، يرجى تجديد الاشتراك مسبقاً:\n"
+                                "🔗 https://telegauto.com/app.html"
                             )
-                            
-                            success, details = await send_telegram_alert(user.id, alert_msg, session)
-                            
+
+                            success, details = await send_telegram_alert(user.id, alert_msg, session, notify_bot=True)
+
                             log_entry = SubscriptionNotificationLog(
                                 user_id=user.id,
                                 notification_type="2_days_before",
@@ -9540,10 +9646,94 @@ async def subscription_lifecycle_worker():
                             )
                             session.add(log_entry)
                             await session.commit()
-                            
+
+                    # 3. Day 3 before (<= 72 hours)
+                    elif diff_hours <= 72:
+                        if not getattr(user, "sub_alert_3d_sent", False):
+                            user.sub_alert_3d_sent = True
+                            session.add(user)
+
+                            alert_msg = (
+                                "⚠️ **تذكير بتجديد الاشتراك — متبقي 3 أيام**\n\n"
+                                "مرحباً،\n"
+                                f"نود إحاطتك بأن اشتراكك سينتهي بعد 3 أيام:\n"
+                                f"📅 تاريخ الانتهاء: `{date_str}`\n\n"
+                                "🔗 رابط تجديد الاشتراك:\n"
+                                "https://telegauto.com/app.html"
+                            )
+
+                            success, details = await send_telegram_alert(user.id, alert_msg, session, notify_bot=True)
+
+                            log_entry = SubscriptionNotificationLog(
+                                user_id=user.id,
+                                notification_type="3_days_before",
+                                channel="Telegram",
+                                message_content=alert_msg,
+                                success=success,
+                                details=details
+                            )
+                            session.add(log_entry)
+                            await session.commit()
+
+                    # 4. Day 4 before (<= 96 hours)
+                    elif diff_hours <= 96:
+                        if not getattr(user, "sub_alert_4d_sent", False):
+                            user.sub_alert_4d_sent = True
+                            session.add(user)
+
+                            alert_msg = (
+                                "🔔 **تذكير بتجديد الاشتراك — متبقي 4 أيام**\n\n"
+                                "مرحباً،\n"
+                                f"متبقي 4 أيام على موعد تجديد باقتك في AutoTele:\n"
+                                f"📅 تاريخ الانتهاء: `{date_str}`\n\n"
+                                "🔗 تفاصيل باقتك والتجديد:\n"
+                                "https://telegauto.com/app.html"
+                            )
+
+                            success, details = await send_telegram_alert(user.id, alert_msg, session, notify_bot=True)
+
+                            log_entry = SubscriptionNotificationLog(
+                                user_id=user.id,
+                                notification_type="4_days_before",
+                                channel="Telegram",
+                                message_content=alert_msg,
+                                success=success,
+                                details=details
+                            )
+                            session.add(log_entry)
+                            await session.commit()
+
+                    # 5. Day 5 before (<= 120 hours)
+                    elif diff_hours <= 120:
+                        if not getattr(user, "sub_alert_5d_sent", False):
+                            user.sub_alert_5d_sent = True
+                            session.add(user)
+
+                            alert_msg = (
+                                "🔔 **تنبيه مسبق — متبقي 5 أيام على انتهاء اشتراكك**\n\n"
+                                "مرحباً،\n"
+                                f"نود تذكيرك بأن اشتراكك في AutoTele سينتهي خلال 5 أيام:\n"
+                                f"📅 تاريخ الانتهاء: `{date_str}`\n\n"
+                                "لضمان استمرار النشر والحملات التلقائية دون توقف:\n"
+                                "🔗 https://telegauto.com/app.html"
+                            )
+
+                            success, details = await send_telegram_alert(user.id, alert_msg, session, notify_bot=True)
+
+                            log_entry = SubscriptionNotificationLog(
+                                user_id=user.id,
+                                notification_type="5_days_before",
+                                channel="Telegram",
+                                message_content=alert_msg,
+                                success=success,
+                                details=details
+                            )
+                            session.add(log_entry)
+                            await session.commit()
+
         except Exception as e:
             logger.error(f"Error in Subscription Lifecycle Worker: {e}")
-            
+
         await asyncio.sleep(300)
 
 
