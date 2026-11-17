@@ -48,4 +48,7 @@ tmp/
 *.session
 *.session-journal
 scripts/*.json
+*.bak
+*.bak*
+uploads/
 
