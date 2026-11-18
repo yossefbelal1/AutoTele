@@ -515,23 +515,13 @@ async def remove_channel_from_cache_on_demotion(telegram_account_id: int, chat_i
 async def handle_posting_error_and_clean_cache(tenant_id: int, chat_id: int, e: Exception):
     """
     Handles posting errors gracefully without sending false demotion alarms to the user.
-    If posting is forbidden/restricted, marks can_send=False silently in cache.
+    Never poisons the cache by setting can_send=False permanently, allowing future campaigns
+    to retry posting after transient permissions or slowmodes resolve.
+    Only removes the channel if the account was truly kicked or the channel was deleted.
     """
     err_str = str(e).upper()
     if any(err in err_str for err in ["CHAT_ADMIN_REQUIRED", "CHAT_WRITE_FORBIDDEN"]):
-        logger.info(f"Tenant {tenant_id}: Chat {chat_id} is read-only or posting restricted ({err_str}). Marking can_send=False silently.")
-        try:
-            channels = await get_channels_cache(tenant_id)
-            if channels:
-                updated = False
-                for ch in channels:
-                    if ch.get("id") == chat_id:
-                        ch["can_send"] = False
-                        updated = True
-                if updated:
-                    await save_channels_cache(tenant_id, channels)
-        except Exception as ex:
-            logger.debug(f"Failed to update can_send in cache for chat {chat_id}: {ex}")
+        logger.info(f"Tenant {tenant_id}: Chat {chat_id} returned transient restriction ({err_str}). Will retry in next campaigns.")
     elif any(err in err_str for err in ["CHANNEL_PRIVATE", "USER_NOT_PARTICIPANT"]):
         logger.info(f"Tenant {tenant_id}: Chat {chat_id} is inaccessible. Removing from cache silently.")
         try:
@@ -2498,12 +2488,12 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
         campaign_start_time = datetime.now(timezone.utc)
         campaign_expiry_time = campaign_start_time + timedelta(minutes=ad_lifespan) if ad_lifespan > 0 else (datetime.now(timezone.utc) + timedelta(days=36500))
 
-        # Full channel coverage: Publish to ALL channels where account has posting rights
-        no_del_channels = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True) and ch.get("can_delete") is False]
+        # Full channel coverage: Publish to ALL channels where account is present, excluding only explicit user blacklists/banned/no_post
+        no_del_channels = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_delete") is False]
         if no_del_channels and ad_lifespan > 0:
             logger.info(f"Tenant {tenant_id}: {len(no_del_channels)} channels lack delete rights; will publish to all and attempt auto-cleanup at expiry.")
             await log_tenant_event(tenant_id, f"📢 النشر يشمل كافة القنوات المتاحة ({len(channels)} قناة). يوجد {len(no_del_channels)} قناة بصلاحيات نشر فقط وسيتم محاولة مسح الإعلان منها تلقائياً عند انتهاء المدة.")
-        eligible_channels = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True)]
+        eligible_channels = [ch for ch in channels if ch["id"] not in exclude_ids]
         
         # Smart Sorting: Sort in memory using cached total_joins (0 or lowest joins come FIRST!)
         channel_map = {ch["id"]: ch for ch in channels}
@@ -3185,13 +3175,7 @@ async def run_bulk_campaign_logic(
                     await update_status_message(index, "posting")
                     continue
 
-                is_admin = await check_admin_rights_dynamic(client, target_id, tenant_id, require_posting_rights=False)
-                if not is_admin:
-                    await log_tenant_event(tenant_id, f"⚠️ تم تخطي الترويج للقناة ذات المعرف [{target_id}] في حملة المجلد لأنك لست مشرفاً (Admin) فيها.")
-                    target_states[target_id] = "skipped"
-                    await update_status_message(index, "posting")
-                    continue
-                
+                # Target channel is being promoted (its link goes in ad text); no admin rights required in the target itself.
                 info = targets_info[index]
                 target_title = info.get("title") or f"قناة [{target_id}]"
                 target_link = info.get("link") or ""
@@ -3241,11 +3225,8 @@ async def run_bulk_campaign_logic(
                 no_post_ids = json.loads(raw_no_post) if raw_no_post else []
                 exclude_ids = set(blacklist) | set(banned_ids) | set(no_post_ids) | {target_id}
                 
-                # In bulk campaign (.حملات), each target channel from the campaign folder is promoted
-                # across ALL the tenant's channels where posting rights exist (can_send=True),
-                # excluding the target channel itself and any blacklisted/banned/no_post channels.
-                # Full channel coverage in bulk campaigns
-                eligible_ch = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True)]
+                # Full channel coverage in bulk campaigns: publish across ALL account channels, excluding only explicit user exclusions
+                eligible_ch = [ch for ch in channels if ch["id"] not in exclude_ids]
                 
                 import random
                 random.shuffle(eligible_ch)
@@ -6818,14 +6799,17 @@ async def wave_publisher_worker(tenant_id: int):
                 await asyncio.sleep(15)
                 continue
 
+            state_val = None
             async with AsyncSessionLocal() as session:
                 state_val = await get_setting(session, tenant_id, "bot_system_state")
                 state_val = state_val if state_val else "stopped"
                 
-                if state_val != "active":
-                    logger.debug(f"[Debug Loop] Tenant {tenant_id} is not active (state={state_val}). Sleeping.")
-                    await asyncio.sleep(15)
-                    continue
+            if state_val != "active":
+                logger.debug(f"[Debug Loop] Tenant {tenant_id} is not active (state={state_val}). Sleeping.")
+                await asyncio.sleep(15)
+                continue
+
+            async with AsyncSessionLocal() as session:
                 
                 if tenant_id not in last_wave_time:
                     try:
