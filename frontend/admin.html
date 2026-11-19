@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#17212b">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>لوحة التحكم الإدارية المؤمّنة | 2FA Admin</title>
+  <title>AutoTele Admin | الإدارة المركزية</title>
   <base href="/">
   <link rel="manifest" href="/manifest.json">
   
@@ -459,6 +459,40 @@
             <p class="panel-subtitle">إحصاءات الحسابات وتفاصيل التراخيص وتعديل الاشتراك يدوياً</p>
           </div>
 
+          <!-- NEW: Dedicated Pending Approvals Section (طلبات التسجيل الجديدة) -->
+          <div id="pending-registrations-container" class="pending-approvals-card" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 22px;">📥</span>
+                <div>
+                  <h3 style="margin: 0; font-size: 15px; font-weight: 800; color: #fff;">طلبات التسجيل الجديدة (بانتظار تفعيل التجربة المجانية 3 أيام)</h3>
+                  <p style="margin: 2px 0 0; font-size: 11.5px; color: #94a3b8;">راجع حسابات المشتركين الجدد وامنحهم 3 أيام تجريبية بنقرة واحدة أو ارفض الحسابات المشبوهة</p>
+                </div>
+                <span id="pending-users-count-badge" class="pending-badge-pulse">0 طلب جديد</span>
+              </div>
+              <button type="button" class="btn btn-sm btn-outline" onclick="approveAllPendingUsers()" style="border-color: rgba(16, 185, 129, 0.4); color: #34d399; font-weight: 700; padding: 6px 14px; border-radius: 8px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+                <span>⚡ قبول وتفعيل الكل (3 أيام مجاناً)</span>
+              </button>
+            </div>
+            
+            <div class="table-responsive">
+              <table class="admin-table" style="background: rgba(15, 23, 42, 0.6); border-radius: 10px; overflow: hidden;">
+                <thead>
+                  <tr>
+                    <th style="width: 55px;">ID</th>
+                    <th>بيانات المشترك</th>
+                    <th>تاريخ ووقت التسجيل</th>
+                    <th>الحالة</th>
+                    <th style="text-align: center; width: 240px;">إجراءات الموافقة</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-pending-users-table-body">
+                  <!-- Injected via JavaScript -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div class="card table-card users-management-card">
             <div class="users-card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
               <div style="display: flex; align-items: center; gap: 10px;">
@@ -475,6 +509,10 @@
               <button type="button" class="triage-chip active" data-filter="all" onclick="setAdminUserFilter('all')">
                 <span>الكل</span>
                 <span class="chip-count" id="triage-count-all">0</span>
+              </button>
+              <button type="button" class="triage-chip chip-warning" data-filter="pending" onclick="setAdminUserFilter('pending')" style="border-color: rgba(245, 158, 11, 0.4); color: #fbbf24;">
+                <span>طلبات بانتظار الموافقة 🔔</span>
+                <span class="chip-count" id="triage-count-pending">0</span>
               </button>
               <button type="button" class="triage-chip chip-danger" data-filter="problem" onclick="setAdminUserFilter('problem')">
                 <span>مشاكل وتحذيرات 🔴</span>
@@ -505,7 +543,7 @@
                     <th>نوع الباقة والصلاحية</th>
                     <th>حالة التشغيل الفعلية (Live)</th>
                     <th>محركات البوت</th>
-                    <th style="text-align: center; width: 260px;">الإجراءات والتحكم الشامل</th>
+                    <th style="text-align: center; width: 140px;">الإجراءات</th>
                   </tr>
                 </thead>
                 <tbody id="admin-users-table-body">

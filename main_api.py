@@ -432,7 +432,7 @@ async def signup(user_data: UserAuth, request: Request):
         
         assigned_host = await get_least_used_proxy(session)
         
-        trial_end = datetime.now(timezone.utc) + timedelta(days=2)
+        now = datetime.now(timezone.utc)
         raw_name = (user_data.full_name or "").strip()
         name = raw_name if raw_name else user_data.email.split('@')[0]
         
@@ -443,7 +443,9 @@ async def signup(user_data: UserAuth, request: Request):
             full_name=name,
             password_hash=pw_hash,
             subscription_plan="trial",
-            subscription_end=trial_end,
+            subscription_status="pending_approval",
+            subscription_start=now,
+            subscription_end=now,
             proxy_host=assigned_host,
             proxy_port=PROXY_PORT if assigned_host else None,
             proxy_username=PROXY_USERNAME if assigned_host else None,
@@ -451,8 +453,11 @@ async def signup(user_data: UserAuth, request: Request):
         )
         session.add(new_user)
         await session.commit()
-        logger.info(f"==> [SIGNUP SUCCESS] Created user ID {new_user.id} ({user_data.email})")
-        return {"status": "success", "message": "تم إنشاء الحساب وتفعيل الفترة التجريبية (يومين) بنجاح!"}
+        logger.info(f"==> [SIGNUP PENDING] Created user ID {new_user.id} ({user_data.email}) awaiting admin approval for 3-day trial")
+        return {
+            "status": "success", 
+            "message": "تم استلام طلب التسجيل بنجاح! حسابك قيد مراجعة الإدارة لتفعيل فترة التجربة (3 أيام مجاناً)."
+        }
 
 @app.post("/auth/login", response_model=Token)
 async def login(user_data: UserAuth, request: Request):
@@ -474,6 +479,15 @@ async def login(user_data: UserAuth, request: Request):
         user = (await session.execute(select(User).where(func.lower(User.email) == clean_email))).scalar_one_or_none()
         if not user or not bcrypt.checkpw(user_data.password.encode('utf-8'), user.password_hash.encode('utf-8')):
             raise HTTPException(status_code=401, detail="بيانات خاطئة")
+        
+        if user.subscription_status == "pending_approval" and not user.is_admin:
+            raise HTTPException(
+                status_code=403, 
+                detail="⏳ طلب تسجيل حسابك قيد المراجعة والموافقة من الإدارة. سيتم تفعيل الـ 3 أيام التجريبية لحسابك فور الاعتماد."
+            )
+            
+        if user.subscription_status == "banned":
+            raise HTTPException(status_code=403, detail="⛔ تم حظر هذا الحساب من قبل الإدارة.")
         
         access_token = jwt.encode({"sub": user.id, "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)}, JWT_SECRET, algorithm=JWT_ALGORITHM)
         logger.info(f"==> [LOGIN SUCCESS] User ID {user.id} ({user_data.email}) logged in successfully")
@@ -4337,7 +4351,10 @@ async def get_admin_users(admin_user: User = Depends(check_admin_user)):
             rem_days = max(0, int((sub_end - now).total_seconds() / 86400)) if (sub_end and not is_sub_expired) else 0
 
             # Real Live Operational Status (حالة التشغيل الفعلية الحية)
-            if is_sub_expired:
+            if user.subscription_status == "pending_approval":
+                operational_status = "pending_approval"
+                operational_label = "طلب جديد (بانتظار الموافقة)"
+            elif is_sub_expired:
                 operational_status = "expired"
                 operational_label = "اشتراك منتهي"
             elif len(tg_accounts) == 0:
@@ -4378,6 +4395,7 @@ async def get_admin_users(admin_user: User = Depends(check_admin_user)):
                 "operational_label": operational_label,
                 "is_sub_expired": is_sub_expired,
                 "is_admin": user.is_admin,
+                "is_pending_approval": user.subscription_status == "pending_approval",
                 "subscription_plan": user.subscription_plan,
                 "subscription_status": user.subscription_status,
                 "subscription_start": user.subscription_start.strftime("%Y-%m-%d %H:%M:%S") if user.subscription_start else None,
@@ -4626,6 +4644,75 @@ async def delete_user_account(target_user_id: int, admin_user: User = Depends(ch
         await session.delete(user)
         await session.commit()
         return {"status": "success", "message": "تم حذف حساب العميل وجميع بياناته ومحركاته نهائياً من النظام"}
+
+# ==============================================================================
+# PENDING REGISTRATION APPROVAL & 3-DAY TRIAL GRANT APIS
+# ==============================================================================
+
+@app.post("/admin/users/{target_user_id}/approve_trial")
+async def admin_approve_user_trial(target_user_id: int, admin_user: User = Depends(check_admin_user)):
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.id == target_user_id))).scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="المستخدم غير موجود")
+        
+        now = datetime.now(timezone.utc)
+        user.subscription_plan = "trial"
+        user.subscription_status = "active"
+        user.subscription_start = now
+        user.subscription_end = now + timedelta(days=3)
+        user.credits = max(user.credits, 500)
+        
+        if not user.proxy_host:
+            assigned_host = await get_least_used_proxy(session)
+            user.proxy_host = assigned_host
+            user.proxy_port = PROXY_PORT if assigned_host else None
+            user.proxy_username = PROXY_USERNAME if assigned_host else None
+            user.proxy_password = PROXY_PASSWORD if assigned_host else None
+            
+        session.add(user)
+        await session.commit()
+        logger.info(f"==> [ADMIN] Admin {admin_user.email} approved user {user.id} ({user.email}) for 3 days trial")
+        return {
+            "status": "success", 
+            "message": f"تمت الموافقة وتفعيل 3 أيام تجريبية بنجاح للمشترك ({user.email})!"
+        }
+
+@app.post("/admin/users/{target_user_id}/reject_registration")
+async def admin_reject_user_registration(target_user_id: int, admin_user: User = Depends(check_admin_user)):
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.id == target_user_id))).scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="المستخدم غير موجود")
+        
+        email = user.email
+        await session.delete(user)
+        await session.commit()
+        logger.info(f"==> [ADMIN] Admin {admin_user.email} rejected and deleted pending user {target_user_id} ({email})")
+        return {"status": "success", "message": f"تم رفض طلب المشترك ({email}) وحذف الحساب بنجاح."}
+
+@app.post("/admin/users/approve_all_pending")
+async def admin_approve_all_pending(admin_user: User = Depends(check_admin_user)):
+    async with AsyncSessionLocal() as session:
+        now = datetime.now(timezone.utc)
+        pending_users = (await session.execute(select(User).where(User.subscription_status == "pending_approval"))).scalars().all()
+        count = len(pending_users)
+        for u in pending_users:
+            u.subscription_plan = "trial"
+            u.subscription_status = "active"
+            u.subscription_start = now
+            u.subscription_end = now + timedelta(days=3)
+            u.credits = max(u.credits, 500)
+            if not u.proxy_host:
+                assigned_host = await get_least_used_proxy(session)
+                u.proxy_host = assigned_host
+                u.proxy_port = PROXY_PORT if assigned_host else None
+                u.proxy_username = PROXY_USERNAME if assigned_host else None
+                u.proxy_password = PROXY_PASSWORD if assigned_host else None
+            session.add(u)
+        await session.commit()
+        logger.info(f"==> [ADMIN] Admin {admin_user.email} approved all {count} pending users for 3 days trial")
+        return {"status": "success", "message": f"تمت الموافقة وتفعيل 3 أيام تجريبية لجميع الطلبات ({count} مشترك) بنجاح!"}
 
 # ==============================================================================
 # CLIENT IMPERSONATION, DEEP DIAGNOSTICS & ONE-CLICK HEALING APIS

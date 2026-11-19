@@ -724,6 +724,7 @@ let currentAdminUserFilter = 'all';
 
 function updateTriageChipCounts(users) {
   const cAll = users.length;
+  let cPending = 0;
   let cProblem = 0;
   let cExpiring = 0;
   let cRunning = 0;
@@ -732,6 +733,10 @@ function updateTriageChipCounts(users) {
   const now = new Date();
 
   users.forEach(u => {
+    // Pending Approval check (جديد بانتظار تفعيل التجربة)
+    const isPending = u.is_pending_approval || u.operational_status === 'pending_approval' || u.subscription_status === 'pending_approval';
+    if (isPending) cPending++;
+
     // Problem check: banned/error userbot, or active bot with expired subscription
     const isProblem = u.has_banned_bot || u.has_error || 
       (u.banned_engines_count && u.banned_engines_count > 0) ||
@@ -741,7 +746,7 @@ function updateTriageChipCounts(users) {
     if (isProblem) cProblem++;
 
     // Expiring check: valid within next 3 days
-    if (u.subscription_end && u.subscription_status !== 'expired' && !u.is_sub_expired) {
+    if (u.subscription_end && u.subscription_status !== 'expired' && !u.is_sub_expired && !isPending) {
       const expDate = new Date(u.subscription_end.split(' ')[0]);
       const diffDays = (expDate - now) / (1000 * 3600 * 24);
       if (diffDays >= 0 && diffDays <= 3) cExpiring++;
@@ -752,17 +757,19 @@ function updateTriageChipCounts(users) {
     if (isRunning) cRunning++;
 
     // Unlinked check
-    const isUnlinked = u.operational_status === 'unlinked' || u.telegram_accounts_count === 0;
+    const isUnlinked = (u.operational_status === 'unlinked' || u.telegram_accounts_count === 0) && !isPending;
     if (isUnlinked) cUnlinked++;
   });
 
   const elAll = document.getElementById("triage-count-all");
+  const elPending = document.getElementById("triage-count-pending");
   const elProb = document.getElementById("triage-count-problem");
   const elExp = document.getElementById("triage-count-expiring");
   const elRun = document.getElementById("triage-count-running");
   const elUnlink = document.getElementById("triage-count-unlinked");
 
   if (elAll) elAll.textContent = cAll;
+  if (elPending) elPending.textContent = cPending;
   if (elProb) elProb.textContent = cProblem;
   if (elExp) elExp.textContent = cExpiring;
   if (elRun) elRun.textContent = cRunning;
@@ -828,9 +835,68 @@ function renderFilteredAdminUsers() {
   const query = (document.getElementById("admin-users-search")?.value || "").toLowerCase().trim();
   const now = new Date();
 
+  // 1. Populate Dedicated Pending Registrations Card (if pending users exist)
+  const pendingUsers = currentAdminUsers.filter(u => u.is_pending_approval || u.operational_status === 'pending_approval' || u.subscription_status === 'pending_approval');
+  const pendingContainer = document.getElementById("pending-registrations-container");
+  const pendingTbody = document.getElementById("admin-pending-users-table-body");
+  const pendingCountBadge = document.getElementById("pending-users-count-badge");
+
+  if (pendingContainer) {
+    if (pendingUsers.length > 0) {
+      pendingContainer.style.display = "block";
+      if (pendingCountBadge) pendingCountBadge.textContent = `${pendingUsers.length} طلب جديد`;
+      if (pendingTbody) {
+        pendingTbody.innerHTML = "";
+        pendingUsers.forEach(u => {
+          const rawName = u.full_name || u.email.split('@')[0];
+          const initials = rawName.substring(0, 2).toUpperCase();
+          const tr = document.createElement("tr");
+          tr.style.borderBottom = "1px solid rgba(255,255,255,0.06)";
+          tr.innerHTML = `
+            <td><span style="font-family: monospace; font-weight: 700; color: #fbbf24; background: rgba(245, 158, 11, 0.12); padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(245, 158, 11, 0.3);">#${u.id}</span></td>
+            <td>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <div style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #78350f, #451a03); border: 1px solid rgba(245, 158, 11, 0.4); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px; color: #fef08a; flex-shrink: 0;">
+                  ${escapeHtml(initials)}
+                </div>
+                <div>
+                  <div style="color: #fff; font-size: 13.5px; font-weight: 700;">${escapeHtml(rawName)}</div>
+                  <div style="color: #94a3b8; font-size: 12px; font-family: monospace;">${escapeHtml(u.email)}</div>
+                </div>
+              </div>
+            </td>
+            <td style="color: #94a3b8; font-size: 12px; font-family: monospace;">${u.created_at || 'الآن'}</td>
+            <td>
+              <span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">
+                ⏳ بانتظار الموافقة
+              </span>
+            </td>
+            <td style="text-align: center;">
+              <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+                <button type="button" class="btn-approve-trial" onclick="approveUserTrial(${u.id}, '${escapeHtml(rawName)}')" title="تفعيل 3 أيام تجريبية مجانية">
+                  <span>⚡ تفعيل 3 أيام</span>
+                </button>
+                <button type="button" class="btn-reject-trial" onclick="rejectUserRegistration(${u.id}, '${escapeHtml(rawName)}')" title="رفض وحظر الحساب">
+                  <span>🚫 رفض</span>
+                </button>
+              </div>
+            </td>
+          `;
+          pendingTbody.appendChild(tr);
+        });
+      }
+    } else {
+      pendingContainer.style.display = "none";
+    }
+  }
+
   let filtered = currentAdminUsers.filter(user => {
+    const isPending = user.is_pending_approval || user.operational_status === 'pending_approval' || user.subscription_status === 'pending_approval';
+
     // 1. Triage Filter
-    if (currentAdminUserFilter === 'problem') {
+    if (currentAdminUserFilter === 'pending') {
+      if (!isPending) return false;
+    } else if (currentAdminUserFilter === 'problem') {
       const isProblem = user.has_banned_bot || user.has_error || 
         (user.banned_engines_count && user.banned_engines_count > 0) ||
         (user.bot_status && (user.bot_status.includes('error') || user.bot_status.includes('banned'))) ||
@@ -838,6 +904,7 @@ function renderFilteredAdminUsers() {
         (user.has_active_bot && user.subscription_status === 'expired');
       if (!isProblem) return false;
     } else if (currentAdminUserFilter === 'expiring') {
+      if (isPending) return false;
       if (!user.subscription_end || user.subscription_status === 'expired' || user.is_sub_expired) return false;
       const expDate = new Date(user.subscription_end.split(' ')[0]);
       const diffDays = (expDate - now) / (1000 * 3600 * 24);
@@ -846,6 +913,7 @@ function renderFilteredAdminUsers() {
       const isRunning = user.is_publishing || (user.active_campaigns && user.active_campaigns > 0) || user.operational_status === 'active';
       if (!isRunning) return false;
     } else if (currentAdminUserFilter === 'unlinked') {
+      if (isPending) return false;
       const isUnlinked = user.operational_status === 'unlinked' || user.telegram_accounts_count === 0;
       if (!isUnlinked) return false;
     }
@@ -870,6 +938,8 @@ function renderFilteredAdminUsers() {
   }
 
   filtered.forEach(user => {
+    const isPending = user.is_pending_approval || user.operational_status === 'pending_approval' || user.subscription_status === 'pending_approval';
+
     // 1. User Identity & Initials
     const idBadge = `<span style="font-family: monospace; font-weight: 700; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.25);">#${user.id}</span>`;
     const rawName = user.full_name || user.email.split('@')[0];
@@ -878,7 +948,9 @@ function renderFilteredAdminUsers() {
 
     // 2. Subscription Plan Badge
     let planBadge = '';
-    if (user.subscription_plan === "yearly") {
+    if (isPending) {
+      planBadge = `<span style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">⏳ بانتظار الموافقة</span>`;
+    } else if (user.subscription_plan === "yearly") {
       planBadge = `<span style="background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">👑 سنوي</span>`;
     } else if (user.subscription_plan === "monthly") {
       planBadge = `<span style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">💎 شهري ($40)</span>`;
@@ -892,7 +964,9 @@ function renderFilteredAdminUsers() {
 
     // 3. Real Live Operational Status Badge (حالة التشغيل الفعلية الحية)
     let operationalBadge = '';
-    if (user.operational_status === "unlinked") {
+    if (isPending) {
+      operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">⏳ طلب جديد (معلق)</span>`;
+    } else if (user.operational_status === "unlinked") {
       operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(148, 163, 184, 0.12); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.25); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">⚪ غير مربوط (بانتظار الإعداد)</span>`;
     } else if (user.operational_status === "active") {
       operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.35); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">🟢 متصل ونشط</span>`;
@@ -910,7 +984,9 @@ function renderFilteredAdminUsers() {
 
     // 4. Subscription Expiry String
     let expiryShort = '--';
-    if (user.subscription_end) {
+    if (isPending) {
+      expiryShort = `<span style="color: #fbbf24; font-weight: 700;">غير مفعل (0 يوم)</span>`;
+    } else if (user.subscription_end) {
       const dateStr = user.subscription_end.split(" ")[0];
       const remDays = user.remaining_days !== undefined ? user.remaining_days : 0;
       if (user.is_sub_expired || user.subscription_status === "expired") {
@@ -987,14 +1063,61 @@ function renderFilteredAdminUsers() {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
 
-    // 7. Action buttons
+    // 7. Action buttons construction
     const isUnlinked = user.telegram_accounts_count === 0;
     const rebootBtnStyle = isUnlinked
-      ? `background: rgba(255, 255, 255, 0.05); color: #64748b; border: 1px solid rgba(255, 255, 255, 0.1); opacity: 0.5; cursor: not-allowed;`
-      : `background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); cursor: pointer;`;
+      ? `opacity: 0.45; cursor: not-allowed;`
+      : `cursor: pointer;`;
     const rebootAction = isUnlinked
       ? `showToast('المستخدم غير مربوط بأي حساب تليجرام، لا توجد محركات لإعادة تشغيلها.', 'warning')`
       : `rebootUserService(${user.id})`;
+
+    // Modern Luxury Actions: Sleek Primary Button + Elegant '•••' Dropdown
+    let desktopActionCell = '';
+    if (isPending) {
+      desktopActionCell = `
+        <div style="display: flex; align-items: center; justify-content: center; gap: 6px;">
+          <button type="button" class="btn-approve-trial" onclick="approveUserTrial(${user.id}, '${escapeHtml(rawName)}')" title="قبول وتفعيل 3 أيام تجريبية">
+            <span>⚡ تفعيل 3 أيام</span>
+          </button>
+          <button type="button" class="btn-reject-trial" onclick="rejectUserRegistration(${user.id}, '${escapeHtml(rawName)}')" title="رفض وحظر طلب المشترك">
+            <span>🚫 رفض</span>
+          </button>
+        </div>
+      `;
+    } else {
+      desktopActionCell = `
+        <div class="user-action-cell">
+          <button type="button" class="btn-impersonate-sleek" title="دخول مباشر إلى لوحة المشترك" onclick="impersonateUser(${user.id}, '${escapeHtml(rawName)}', '${escapeHtml(user.email)}')">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span>دخول</span>
+          </button>
+          <div class="user-dropdown-wrapper">
+            <button type="button" class="btn-more-options" id="btn-dropdown-${user.id}" onclick="toggleUserDropdown(event, ${user.id})" title="خيارات إضافية">
+              •••
+            </button>
+            <div class="user-dropdown-menu" id="user-dropdown-${user.id}">
+              <button type="button" class="dropdown-item" onclick="openUserDiagnosticsModal(${user.id}); closeAllUserDropdowns();">
+                🔍 تشخيص وحل المشاكل
+              </button>
+              <button type="button" class="dropdown-item" onclick="openAdminChangePasswordModal(${userJson}); closeAllUserDropdowns();">
+                🔑 تعيين كلمة المرور
+              </button>
+              <button type="button" class="dropdown-item" onclick="openAdminEditModal(${userJson}); closeAllUserDropdowns();">
+                ✏️ تعديل الباقة والبيانات
+              </button>
+              <button type="button" class="dropdown-item" style="${rebootBtnStyle}" onclick="${rebootAction}; closeAllUserDropdowns();">
+                🔄 إعادة تشغيل المحركات
+              </button>
+              <div class="dropdown-divider"></div>
+              <button type="button" class="dropdown-item item-danger" onclick="deleteUserAccount(${user.id}); closeAllUserDropdowns();">
+                🗑️ حذف المشترك
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
 
     // 8. Populate Desktop Table Row
     if (tbody) {
@@ -1019,16 +1142,6 @@ function renderFilteredAdminUsers() {
           <div style="font-size: 11px; margin-top: 2px;">${expiryShort}</div>
         </div>
       `;
-      const actionButtons = `
-        <div class="action-btn-group" style="justify-content: center; gap: 5px; flex-wrap: wrap;">
-          <button type="button" class="btn-table btn-impersonate" style="background: rgba(14, 165, 233, 0.15); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.35); padding: 5px 9px; border-radius: 6px; font-weight: 700; cursor: pointer;" title="دخول إلى حساب العميل" onclick="impersonateUser(${user.id}, '${escapeHtml(rawName)}', '${escapeHtml(user.email)}')">👤 دخول</button>
-          <button type="button" class="btn-table btn-diag" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); padding: 5px 9px; border-radius: 6px; font-weight: 700; cursor: pointer;" title="تشخيص وحل المشاكل" onclick="openUserDiagnosticsModal(${user.id})">🔍 تشخيص</button>
-          <button type="button" class="btn-table btn-password" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); padding: 5px 8px; border-radius: 6px; font-weight: 600; cursor: pointer;" title="تعيين كلمة مرور جديدة للعميل ونسخ بيانات الدخول" onclick="openAdminChangePasswordModal(${userJson})">🔑 باسورد</button>
-          <button type="button" class="btn-table btn-edit" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 5px 8px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="openAdminEditModal(${userJson})">تعديل</button>
-          <button type="button" class="btn-table btn-reboot" style="${rebootBtnStyle} padding: 5px 8px; border-radius: 6px; font-weight: 600;" onclick="${rebootAction}">ريبوت</button>
-          <button type="button" class="btn-table btn-delete" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 5px 8px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="deleteUserAccount(${user.id})">حذف</button>
-        </div>
-      `;
       tr.innerHTML = `
         <td>${idBadge}</td>
         <td>${clientCell}</td>
@@ -1036,7 +1149,7 @@ function renderFilteredAdminUsers() {
         <td>${planAndValidityCell}</td>
         <td>${operationalBadge}</td>
         <td>${tgEnginesCell}</td>
-        <td style="text-align: center;">${actionButtons}</td>
+        <td style="text-align: center;">${desktopActionCell}</td>
       `;
       tbody.appendChild(tr);
     }
@@ -1047,6 +1160,25 @@ function renderFilteredAdminUsers() {
       card.className = "admin-user-card";
       const searchKeywords = `${rawName} ${user.email} ${(user.phones || []).join(' ')} #${user.id} ${user.operational_label || ''}`.toLowerCase();
       card.setAttribute("data-user-search", searchKeywords);
+
+      let mobileActionsHtml = '';
+      if (isPending) {
+        mobileActionsHtml = `
+          <button type="button" class="btn-approve-trial" style="flex: 1;" onclick="approveUserTrial(${user.id}, '${escapeHtml(rawName)}')">⚡ قبول وتفعيل 3 أيام</button>
+          <button type="button" class="btn-reject-trial" onclick="rejectUserRegistration(${user.id}, '${escapeHtml(rawName)}')">🚫 رفض</button>
+        `;
+      } else {
+        mobileActionsHtml = `
+          <button type="button" class="btn-impersonate-sleek" style="flex: 1;" onclick="impersonateUser(${user.id}, '${escapeHtml(rawName)}', '${escapeHtml(user.email)}')">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span>دخول الحساب</span>
+          </button>
+          <button type="button" class="btn-card-action" style="padding: 6px 10px; border-radius: 8px; background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);" onclick="openUserDiagnosticsModal(${user.id})">🔍 تشخيص</button>
+          <button type="button" class="btn-card-action" style="padding: 6px 10px; border-radius: 8px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);" onclick="openAdminEditModal(${userJson})">✏️ تعديل</button>
+          <button type="button" class="btn-card-action" style="padding: 6px 10px; border-radius: 8px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="deleteUserAccount(${user.id})">🗑️</button>
+        `;
+      }
+
       card.innerHTML = `
         <div class="auc-top">
           <div class="auc-avatar">${escapeHtml(initials)}</div>
@@ -1085,31 +1217,8 @@ function renderFilteredAdminUsers() {
           </div>
         </div>
 
-        <div class="auc-actions" style="padding: 10px 12px; gap: 6px; border-top: 1px solid rgba(255,255,255,0.04);">
-          <button type="button" class="btn-card-action btn-card-impersonate" style="background: rgba(14, 165, 233, 0.15); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.35); font-weight: 700;" onclick="impersonateUser(${user.id}, '${escapeHtml(rawName)}', '${escapeHtml(user.email)}')">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            <span>دخول</span>
-          </button>
-          <button type="button" class="btn-card-action btn-card-diag" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);" onclick="openUserDiagnosticsModal(${user.id})">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <span>تشخيص</span>
-          </button>
-          <button type="button" class="btn-card-action btn-card-password" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); font-weight: 700;" onclick="openAdminChangePasswordModal(${userJson})">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m21 3-9.5 9.5"/><path d="m15.5 7.5 3 3"/><path d="M18 5l2 2"/></svg>
-            <span>باسورد</span>
-          </button>
-          <button type="button" class="btn-card-action btn-card-edit" onclick="openAdminEditModal(${userJson})">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-            <span>تعديل</span>
-          </button>
-          <button type="button" class="btn-card-action btn-card-reboot" style="${rebootBtnStyle}" onclick="${rebootAction}">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-            <span>ريبوت</span>
-          </button>
-          <button type="button" class="btn-card-action btn-card-delete" onclick="deleteUserAccount(${user.id})">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            <span>حذف</span>
-          </button>
+        <div class="auc-actions" style="padding: 10px 12px; gap: 8px; border-top: 1px solid rgba(255,255,255,0.04); display: flex; align-items: center; justify-content: space-between;">
+          ${mobileActionsHtml}
         </div>
       `;
       mobileContainer.appendChild(card);
@@ -3400,4 +3509,87 @@ window.quickSetSubscription = function(days, plan) {
   }
   const label = plan === 'biweekly' ? 'أسبوعين ($20)' : 'شهر كامل ($40)';
   showToast(`⚡ تم ضبط الباقة (${label}) حتى تاريخ ${yyyy}-${mm}-${dd}. اضغط حفظ لتأكيد التعديل.`, "success");
+};
+
+// ==========================================
+// 8. DROPDOWN & REGISTRATION APPROVAL SUITE
+// ==========================================
+
+window.toggleUserDropdown = function(event, userId) {
+  if (event) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
+  const targetMenu = document.getElementById(`user-dropdown-${userId}`);
+  const isAlreadyOpen = targetMenu && targetMenu.classList.contains("show");
+  
+  window.closeAllUserDropdowns();
+  
+  if (targetMenu && !isAlreadyOpen) {
+    targetMenu.classList.add("show");
+  }
+};
+
+window.closeAllUserDropdowns = function() {
+  document.querySelectorAll(".user-dropdown-menu.show").forEach(menu => {
+    menu.classList.remove("show");
+  });
+};
+
+document.addEventListener("click", function(e) {
+  if (!e.target.closest(".user-dropdown-wrapper")) {
+    window.closeAllUserDropdowns();
+  }
+});
+
+// Admin Approval Actions (تفعيل التجربة المجانية 3 أيام للمشتركين الجدد)
+window.approveUserTrial = async function(userId, userName) {
+  const confirmed = confirm(`هل أنت متأكد من قبول المشترك "${userName}" وتفعيل باقة تجريبية مجانية لمدة 3 أيام؟`);
+  if (!confirmed) return;
+
+  try {
+    showToast("جاري تفعيل الحساب وتخصيص البروكسي...", "info");
+    const res = await adminApiRequest(`/admin/users/${userId}/approve_trial`, {
+      method: "POST"
+    });
+    showToast(res.message || "تم تفعيل الاشتراك التجريبي لمدة 3 أيام بنجاح!", "success");
+    await loadAdminUsers();
+  } catch (err) {
+    console.error("Failed to approve trial:", err);
+    showToast(err.message || "فشل تفعيل الاشتراك التجريبي", "error");
+  }
+};
+
+window.rejectUserRegistration = async function(userId, userName) {
+  const confirmed = confirm(`⚠️ هل أنت متأكد من رفض وحذف طلب التسجيل للمشترك "${userName}"؟\nسيتم حذف الحساب بالكامل.`);
+  if (!confirmed) return;
+
+  try {
+    showToast("جاري رفض الطلب وحذف الحساب...", "info");
+    const res = await adminApiRequest(`/admin/users/${userId}/reject_registration`, {
+      method: "POST"
+    });
+    showToast(res.message || "تم رفض طلب التسجيل وحذف الحساب", "success");
+    await loadAdminUsers();
+  } catch (err) {
+    console.error("Failed to reject registration:", err);
+    showToast(err.message || "فشل رفض طلب التسجيل", "error");
+  }
+};
+
+window.approveAllPendingUsers = async function() {
+  const confirmed = confirm("هل أنت متأكد من قبول وتفعيل كافة طلبات التسجيل المعلقة ومنح كل منهم 3 أيام تجريبية؟");
+  if (!confirmed) return;
+
+  try {
+    showToast("جاري تفعيل كافة الطلبات المعلقة...", "info");
+    const res = await adminApiRequest("/admin/users/approve_all_pending", {
+      method: "POST"
+    });
+    showToast(res.message || "تم قبول وتفعيل جميع الطلبات بنجاح!", "success");
+    await loadAdminUsers();
+  } catch (err) {
+    console.error("Failed to approve all pending users:", err);
+    showToast(err.message || "فشل تفعيل الطلبات", "error");
+  }
 };
