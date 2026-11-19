@@ -824,8 +824,14 @@ def format_user_template(
     res = res.replace("{DAY}", day_str).replace("[DAY]", day_str)
 
     # Replace link placeholders
-    res = res.replace("{link}", combined_link).replace("[link]", combined_link)
-    res = res.replace("{LINK}", combined_link).replace("[LINK]", combined_link)
+    if combined_link:
+        res = res.replace("{link}", combined_link).replace("[link]", combined_link)
+        res = res.replace("{LINK}", combined_link).replace("[LINK]", combined_link)
+    else:
+        # Fallback safety: do not leave dangling pointer arrows if link was unexpectedly empty
+        res = res.replace("{link}", "").replace("[link]", "")
+        res = res.replace("{LINK}", "").replace("[LINK]", "")
+        res = re.sub(r'(\n|^)[^\n]*?(انضم|ادخل|الرابط|للتفاصيل|رابط الانضمام|تابع|الدخول)[^\n]*?👇[^\n]*', '', res)
 
     # Replace extra link placeholders
     if extra_link:
@@ -1217,13 +1223,20 @@ async def resolve_best_channel_link(client: Client, chat_id: int, general_fallba
     except Exception as e:
         logger.debug(f"Failed to create new invite link for chat {chat_id}: {e}")
 
-    # 4.5 Try get_chat to see if Telegram provides an invite_link or username
+    # 4.5 Try get_chat to see if Telegram provides an invite_link, username, or link in description
     try:
         c_obj = await client.get_chat(chat_id)
         if getattr(c_obj, "invite_link", None) and "t.me/c/" not in str(c_obj.invite_link):
             return c_obj.invite_link
         if getattr(c_obj, "username", None):
             return f"https://t.me/{c_obj.username}"
+        if getattr(c_obj, "description", None):
+            desc = c_obj.description
+            m = re.search(r"https?://t\.me/(\+[a-zA-Z0-9_-]+|joinchat/[a-zA-Z0-9_-]+|[a-zA-Z0-9_]{4,})", desc)
+            if m:
+                found_link = m.group(0)
+                if "t.me/c/" not in found_link:
+                    return found_link
     except Exception as ge:
         logger.debug(f"get_chat failed for {chat_id}: {ge}")
 
@@ -3160,6 +3173,12 @@ async def run_bulk_campaign_logic(
             except Exception as se:
                 logger.error(f"Failed to save last processed target for tenant {tenant_id}: {se}")
 
+            # Reset adaptive backoff multiplier to 1.0 for fresh target iteration
+            try:
+                await redis_client.set(f"tenant:{tenant_id}:adaptive_backoff_mult", "1.0")
+            except Exception as _rbe:
+                pass
+
             # Immediately display this target as active / posting on the checklist
             try:
                 await update_status_message(index, "posting")
@@ -3243,8 +3262,8 @@ async def run_bulk_campaign_logic(
                 no_post_ids = json.loads(raw_no_post) if raw_no_post else []
                 exclude_ids = set(blacklist) | set(banned_ids) | set(no_post_ids) | {target_id}
                 
-                # Full channel coverage in bulk campaigns: publish across ALL account channels, excluding only explicit user exclusions
-                eligible_ch = [ch for ch in channels if ch["id"] not in exclude_ids]
+                # Full channel coverage in bulk campaigns: publish across ALL account channels, excluding only explicit user exclusions and channels where user cannot post
+                eligible_ch = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True) is not False]
                 
                 import random
                 random.shuffle(eligible_ch)
