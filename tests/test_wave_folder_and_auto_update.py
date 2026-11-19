@@ -233,7 +233,7 @@ class TestWaveFolderAndAutoUpdate:
 
         mock_redis = AsyncMock()
         mock_redis.get.side_effect = lambda key: (
-            json.dumps(folder_ids).encode("utf-8") if "campaign" in key else None
+            json.dumps(folder_ids).encode("utf-8") if key.endswith(":campaign") else None
         )
 
         mock_db_session = AsyncMock()
@@ -251,6 +251,7 @@ class TestWaveFolderAndAutoUpdate:
                 pass
 
         with patch("worker.check_admin_rights_dynamic", new=AsyncMock(return_value=True)), \
+             patch("worker.resolve_best_channel_link", new=AsyncMock(return_value="https://t.me/valid_invite_link")), \
              patch("cache_manager.get_channels_cache", new=AsyncMock(return_value=channels_all)), \
              patch("worker.get_channels_cache", new=AsyncMock(return_value=channels_all)), \
              patch("worker.get_blacklist_for_tenant", new=AsyncMock(return_value=[])), \
@@ -304,7 +305,7 @@ class TestWaveFolderAndAutoUpdate:
 
         mock_redis = AsyncMock()
         mock_redis.get.side_effect = lambda key: (
-            json.dumps(folder_ids).encode("utf-8") if "campaign" in key else None
+            json.dumps(folder_ids).encode("utf-8") if key.endswith(":campaign") else None
         )
 
         mock_db_session = AsyncMock()
@@ -322,6 +323,7 @@ class TestWaveFolderAndAutoUpdate:
                 pass
 
         with patch("worker.check_admin_rights_dynamic", new=AsyncMock(return_value=True)), \
+             patch("worker.resolve_best_channel_link", new=AsyncMock(return_value="https://t.me/valid_invite_link")), \
              patch("cache_manager.get_channels_cache", new=AsyncMock(return_value=channels_all)), \
              patch("worker.get_channels_cache", new=AsyncMock(return_value=channels_all)), \
              patch("worker.get_blacklist_for_tenant", new=AsyncMock(return_value=[])), \

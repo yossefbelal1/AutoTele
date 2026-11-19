@@ -2997,15 +2997,14 @@ async def run_bulk_campaign_logic(
                     )
                     if is_past_lifespan:
                         status_label = "🗑️ [تم المسح]"
+                    elif state == "skipped":
+                        status_label = "⚠️ [تم التخطي]"
+                    elif state == "failed":
+                        status_label = "❌ [فشل]"
                     elif target_posting_status == "posting":
                         status_label = "🚀 [جاري النشر]"
                     elif target_posting_status in ("sleeping", "waiting_final_clean"):
-                        if state == "failed":
-                            status_label = "❌ [فشل]"
-                        elif state == "skipped":
-                            status_label = "⚠️ [تم التخطي]"
-                        else:
-                            status_label = "✅ [تم النشر]"
+                        status_label = "✅ [تم النشر]"
                     else:
                         status_label = "⏳ [انتظار]"
                 else:
@@ -3175,10 +3174,20 @@ async def run_bulk_campaign_logic(
                     await update_status_message(index, "posting")
                     continue
 
-                # Target channel is being promoted (its link goes in ad text); no admin rights required in the target itself.
                 info = targets_info[index]
                 target_title = info.get("title") or f"قناة [{target_id}]"
                 target_link = info.get("link") or ""
+
+                # 2. Strict Target Admin Verification:
+                # The subscriber must be an administrator in the target channel to promote it in bulk campaigns.
+                # If the account lacks admin privileges in the target channel, skip it immediately.
+                is_admin = await check_admin_rights_dynamic(client, target_id, tenant_id, require_posting_rights=False)
+                if not is_admin:
+                    logger.warning(f"Tenant {tenant_id}: Skipping target [{target_id}] ({target_title}) - user is not admin in target channel.")
+                    await log_tenant_event(tenant_id, f"⚠️ تم تخطي الترويج للقناة [{target_title}] ({target_id}) لأنك لست مشرفاً (Admin) فيها.")
+                    target_states[target_id] = "skipped"
+                    await update_status_message(index, "posting")
+                    continue
 
                 # Live self-healing resolution for target channel title & invite link
                 if not target_link or "t.me/c/" in str(target_link) or target_title.startswith("قناة ["):
@@ -3211,6 +3220,15 @@ async def run_bulk_campaign_logic(
                     # Update targets_info in memory so future checklist renders display resolved title & link
                     info["title"] = target_title
                     info["link"] = target_link
+
+                # 3. Strict Non-Empty Link Assertion:
+                # Under no circumstances should an ad be published with an empty or broken link!
+                if not target_link or not str(target_link).strip() or "t.me/c/" in str(target_link):
+                    logger.warning(f"Tenant {tenant_id}: Skipping target [{target_id}] ({target_title}) - target link is empty or invalid ({target_link}).")
+                    await log_tenant_event(tenant_id, f"⚠️ تم تخطي القناة [{target_title}] لعدم توفر رابط انضمام صالح.")
+                    target_states[target_id] = "skipped"
+                    await update_status_message(index, "posting")
+                    continue
                 
                 channels = await get_channels_cache(tenant_id)
                 if not channels:
@@ -3555,98 +3573,6 @@ async def run_bulk_campaign_logic(
             except Exception as e:
                 logger.error(f"Failed to mark web task as completed in db: {e}")
         
-        if count == 0:
-            raise Exception("تعذر النشر في أي قناة بنجاح.")
-
-        # Dedicated auto-delete sweeper for single campaign
-        if ad_lifespan > 0 and count > 0:
-            async def auto_delete_single_campaign_ads(deadline=campaign_expiry_time, lifespan=ad_lifespan, total_posted=count, s_msg=status_msg, t_id=tenant_id, t_client=client):
-                try:
-                    del_wait = max(0.0, (deadline - datetime.now(timezone.utc)).total_seconds())
-                    if del_wait > 0:
-                        logger.info(f"Tenant {t_id}: Single campaign auto-delete waiting {del_wait:.1f}s until deadline...")
-                        await asyncio.sleep(del_wait)
-                    
-                    logger.info(f"Tenant {t_id}: Single campaign lifespan expired ({lifespan}m). Sweeping ads now...")
-                    await log_tenant_event(t_id, f"⏳ انتهت مدة بقاء إعلانات الحملة الفردية ({lifespan} دقيقة). جاري المسح التلقائي لجميع الإعلانات المنشورة...")
-                    
-                    async with AsyncSessionLocal() as session:
-                        stmt = select(ActiveAd).where(
-                            ActiveAd.telegram_account_id == t_id,
-                            ActiveAd.campaign_type == "campaign",
-                            ActiveAd.expires_at <= datetime.now(timezone.utc)
-                        )
-                        ads_to_del = list((await session.execute(stmt)).scalars().all())
-                    
-                    if not ads_to_del:
-                        logger.info(f"Tenant {t_id}: No ads found in ActiveAd for single campaign deletion.")
-                        return
-
-                    del_count = 0
-                    fail_count = 0
-                    for ad in ads_to_del:
-                        try:
-                            msgs_del = [ad.msg_id]
-                            if ad.sticker_msg_id:
-                                msgs_del.append(ad.sticker_msg_id)
-                            await t_client.delete_messages(chat_id=ad.chat_id, message_ids=msgs_del)
-                            del_count += 1
-                        except RPCError as rpc_err:
-                            err_str = str(rpc_err).upper()
-                            if "MESSAGE_ID_INVALID" in err_str:
-                                del_count += 1
-                            elif any(x in err_str for x in ["MESSAGE_DELETE_FORBIDDEN", "CHAT_ADMIN_REQUIRED"]):
-                                fail_count += 1
-                                logger.warning(f"Tenant {t_id}: Chat {ad.chat_id} delete forbidden: {rpc_err}")
-                                await handle_deletion_error_and_clean_cache(t_id, ad.chat_id, rpc_err)
-                            else:
-                                fail_count += 1
-                        except Exception as e:
-                            fail_count += 1
-                        finally:
-                            try:
-                                async with AsyncSessionLocal() as session:
-                                    await remove_ad_record(session, ad.id, t_id)
-                            except Exception:
-                                pass
-                        await asyncio.sleep(0.05)
-
-                    summary_msg = (
-                        f"🗑️ **اكتمل المسح التلقائي للحملة الفردية:**\n"
-                        f"✅ تم مسح `{del_count}` من `{len(ads_to_del)}` إعلان بنجاح بعد انقضاء `{lifespan}` دقيقة.\n"
-                    )
-                    if fail_count > 0:
-                        summary_msg += f"⚠️ تعذر مسح `{fail_count}` إعلان لعدم توفر صلاحية الحذف في تلك القنوات.\n"
-                    summary_msg += f"🎉 **انتهت الحملة بنجاح.**"
-
-                    if s_msg:
-                        try:
-                            await safe_edit_message(s_msg, summary_msg)
-                        except Exception:
-                            try:
-                                chat_target = s_msg.chat.id if s_msg.chat else "me"
-                                await t_client.send_message(chat_target, summary_msg, disable_web_page_preview=True)
-                            except Exception:
-                                pass
-                    await log_tenant_event(t_id, f"✅ اكتمل المسح التلقائي للحملة الفردية ({del_count} ممسوح).")
-
-                    async with AsyncSessionLocal() as session:
-                        from db_manager import WebCampaignTask
-                        from sqlalchemy import update
-                        await session.execute(
-                            update(WebCampaignTask)
-                            .where(
-                                WebCampaignTask.telegram_account_id == t_id,
-                                WebCampaignTask.campaign_type == "single",
-                                WebCampaignTask.status == "active"
-                            )
-                            .values(status="completed")
-                        )
-                        await session.commit()
-                except Exception as del_err:
-                    logger.error(f"Tenant {t_id}: Error in auto_delete_single_campaign_ads: {del_err}")
-
-            create_safe_task(auto_delete_single_campaign_ads())
         await log_tenant_event(tenant_id, f"تم نشر حملة المجلد المجمعة! تم نشر {count} إعلان في القنوات المروجة.")
         # Routine bulk campaign publishing notification suppressed for status bot per user preference
         await clear_active_campaign_state(tenant_id)

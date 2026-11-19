@@ -93,7 +93,7 @@ class TestCampaignTimelineAndChecklist:
         mock_status_msg.edit_text.side_effect = mock_edit_text
 
         mock_redis = AsyncMock()
-        mock_redis.get.side_effect = lambda key: json.dumps(campaign_ids).encode("utf-8") if "campaign" in key else None
+        mock_redis.get.side_effect = lambda key: json.dumps(campaign_ids).encode("utf-8") if key.endswith(":campaign") else None
 
         mock_acc = MagicMock()
         mock_acc.id = tenant_id
@@ -111,6 +111,7 @@ class TestCampaignTimelineAndChecklist:
                 pass
 
         with patch("worker.check_admin_rights_dynamic", new=AsyncMock(return_value=True)), \
+             patch("worker.resolve_best_channel_link", new=AsyncMock(return_value="https://t.me/target_link")), \
              patch("cache_manager.get_channels_cache", new=AsyncMock(return_value=channels)), \
              patch("worker.get_channels_cache", new=AsyncMock(return_value=channels)), \
              patch("worker.get_blacklist_for_tenant", new=AsyncMock(return_value=[])), \
@@ -166,7 +167,7 @@ class TestCampaignTimelineAndChecklist:
         mock_status_msg.edit_text.side_effect = mock_edit_text
 
         mock_redis = AsyncMock()
-        mock_redis.get.side_effect = lambda key: json.dumps(campaign_ids).encode("utf-8") if "campaign" in key else None
+        mock_redis.get.side_effect = lambda key: json.dumps(campaign_ids).encode("utf-8") if key.endswith(":campaign") else None
 
         mock_acc = MagicMock()
         mock_acc.id = tenant_id
@@ -190,6 +191,7 @@ class TestCampaignTimelineAndChecklist:
             await original_sleep(0.001)
 
         with patch("worker.check_admin_rights_dynamic", new=AsyncMock(return_value=True)), \
+             patch("worker.resolve_best_channel_link", new=AsyncMock(return_value="https://t.me/target_link")), \
              patch("cache_manager.get_channels_cache", new=AsyncMock(return_value=channels)), \
              patch("worker.get_channels_cache", new=AsyncMock(return_value=channels)), \
              patch("worker.get_blacklist_for_tenant", new=AsyncMock(return_value=[])), \
@@ -234,6 +236,105 @@ class TestCampaignTimelineAndChecklist:
             all_text_combined = " ".join(edited_texts)
             # Must have progressed and updated checklist
             assert "مخطط سير الحملة" in all_text_combined
+
+    @pytest.mark.asyncio
+    async def test_bulk_campaign_skips_non_admin_and_empty_link_targets(self):
+        """Verify that target channels where the user is NOT an admin or where link is empty are strictly skipped."""
+        tenant_id = 99997
+        mock_client = AsyncMock()
+        mock_status_msg = AsyncMock()
+        mock_status_msg.chat.id = 12345
+        mock_status_msg.id = 67890
+
+        # Target 1: not admin (-100111)
+        # Target 2: admin but empty link (-100222)
+        # Target 3: valid admin with invite link (-100333)
+        campaign_ids = [-100111, -100222, -100333]
+        channels = [
+            {"id": -100333, "title": "Valid Admin Target", "can_send": True, "invite_link": "https://t.me/+valid"},
+            {"id": -100444, "title": "Host Channel", "can_send": True, "username": "host1"}
+        ]
+
+        edited_texts = []
+        async def mock_edit_text(text, **kwargs):
+            edited_texts.append(text)
+            return True
+        mock_status_msg.edit_text.side_effect = mock_edit_text
+
+        mock_redis = AsyncMock()
+        mock_redis.get.side_effect = lambda key: json.dumps(campaign_ids).encode("utf-8") if key.endswith(":campaign") else None
+
+        mock_acc = MagicMock()
+        mock_acc.id = tenant_id
+
+        mock_db_session = AsyncMock()
+        mock_db_result = MagicMock()
+        mock_db_result.scalar_one_or_none.return_value = mock_acc
+        mock_db_result.scalars.return_value.all.return_value = []
+        mock_db_session.execute.return_value = mock_db_result
+
+        class MockSessionContext:
+            async def __aenter__(self):
+                return mock_db_session
+            async def __aexit__(self, *args):
+                pass
+
+        async def mock_admin_check(cli, chat_id, tid, **kwargs):
+            # Target -100111 is NOT an admin!
+            if chat_id == -100111:
+                return False
+            return True
+
+        async def mock_resolve_link(cli, chat_id, extra):
+            # Target -100222 has no link!
+            if chat_id == -100222:
+                return ""
+            return "https://t.me/+valid"
+
+        sent_messages = []
+        async def mock_send_msg(chat_id, text, **kwargs):
+            sent_messages.append((chat_id, text))
+            m = MagicMock()
+            m.id = 777
+            return m
+        mock_client.send_message.side_effect = mock_send_msg
+
+        with patch("worker.check_admin_rights_dynamic", side_effect=mock_admin_check), \
+             patch("worker.resolve_best_channel_link", side_effect=mock_resolve_link), \
+             patch("cache_manager.get_channels_cache", new=AsyncMock(return_value=channels)), \
+             patch("worker.get_channels_cache", new=AsyncMock(return_value=channels)), \
+             patch("worker.get_blacklist_for_tenant", new=AsyncMock(return_value=[])), \
+             patch("cache_manager.redis_client", mock_redis), \
+             patch("worker.AsyncSessionLocal", return_value=MockSessionContext()), \
+             patch("worker.add_ad_record", new=AsyncMock()), \
+             patch("worker.send_sticker_if_needed", new=AsyncMock(return_value=None)), \
+             patch("worker.delete_active_ads_in_channel", new=AsyncMock(return_value=None)), \
+             patch("worker.get_safe_min_delay", return_value=0.01), \
+             patch("worker.get_adaptive_delay", return_value=0.01), \
+             patch("worker.save_active_campaign_state", new=AsyncMock()), \
+             patch("worker.clear_active_campaign_state", new=AsyncMock()), \
+             patch("worker.log_tenant_event", new=AsyncMock()), \
+             patch("status_bot.notify_user_by_tenant_id", new=AsyncMock()):
+
+            await run_bulk_campaign_logic(
+                tenant_id=tenant_id,
+                client=mock_client,
+                ad_text_custom="Join here: {link}",
+                delay_between_channels=0,
+                ad_lifespan=0,
+                status_msg=mock_status_msg
+            )
+
+        # Ads should ONLY have been posted for Target -100333 (the only valid admin target with link)
+        # None of the sent messages should have an empty link!
+        assert len(sent_messages) > 0
+        for cid, txt in sent_messages:
+            assert "https://t.me/+valid" in txt
+            assert "Join here: \n" not in txt
+
+        # In edited_texts, target 1 (-100111) and target 2 (-100222) MUST be marked as skipped!
+        final_text = edited_texts[-1]
+        assert "⚠️ [تم التخطي]" in final_text
 
     @pytest.mark.asyncio
     async def test_bulk_campaign_activates_bot_system_state_on_start(self):
