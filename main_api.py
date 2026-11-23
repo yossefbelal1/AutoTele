@@ -4959,10 +4959,35 @@ async def admin_reject_user_registration(target_user_id: int, admin_user: User =
             raise HTTPException(status_code=404, detail="المستخدم غير موجود")
         
         email = user.email
+        # Archive rejected registration into master archive before deleting from active users table
+        try:
+            existing_arc = await session.get(ArchivedSubscriber, user.id)
+            if existing_arc:
+                existing_arc.archive_type = "rejected_registration"
+                existing_arc.notes = f"تم رفض طلب التسجيل وحذف الحساب بواسطة المشرف ({admin_user.email}) وأرشفة بياناته احتياطياً."
+            else:
+                session.add(ArchivedSubscriber(
+                    id=user.id,
+                    email=user.email,
+                    full_name=user.full_name or user.email.split('@')[0],
+                    subscription_plan=user.subscription_plan or "trial",
+                    subscription_status="banned",
+                    archive_type="rejected_registration",
+                    phones=[],
+                    ip_addresses=[user.last_login_ip] if user.last_login_ip else [],
+                    user_agents=[user.last_login_ua] if user.last_login_ua else [],
+                    dedicated_proxy=f"{user.proxy_host}:{user.proxy_port}" if user.proxy_host else None,
+                    created_at=user.created_at,
+                    subscription_end=user.subscription_end,
+                    notes=f"تم رفض طلب التسجيل وحذف الحساب بواسطة المشرف ({admin_user.email}) وأرشفة بياناته احتياطياً."
+                ))
+        except Exception as arc_err:
+            logger.warning(f"Failed to create archive entry for rejected user {user.id}: {arc_err}")
+
         await session.delete(user)
         await session.commit()
         logger.info(f"==> [ADMIN] Admin {admin_user.email} rejected and deleted pending user {target_user_id} ({email})")
-        return {"status": "success", "message": f"تم رفض طلب المشترك ({email}) وحذف الحساب بنجاح."}
+        return {"status": "success", "message": f"تم رفض طلب المشترك ({email}) وحذف الحساب وأرشفة بياناته بنجاح."}
 
 @app.post("/admin/users/approve_all_pending")
 async def admin_approve_all_pending(admin_user: User = Depends(check_admin_user)):

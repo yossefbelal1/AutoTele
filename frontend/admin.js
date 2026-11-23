@@ -720,6 +720,9 @@ window.rejectCryptoPayment = async function(paymentId) {
 // 7. USER MANAGEMENT & SMART TRIAGE ENGINE
 // ==========================================
 let currentAdminUsers = [];
+let adminUsersData = [];
+window.currentAdminUsers = currentAdminUsers;
+window.adminUsersData = currentAdminUsers;
 let currentAdminUserFilter = 'all';
 
 function updateTriageChipCounts(users) {
@@ -812,6 +815,9 @@ async function loadAdminUsers() {
   try {
     const users = await adminApiRequest("/admin/users");
     currentAdminUsers = users || [];
+    adminUsersData = currentAdminUsers;
+    window.currentAdminUsers = currentAdminUsers;
+    window.adminUsersData = currentAdminUsers;
     if (countBadge) countBadge.textContent = `${currentAdminUsers.length} مشترك`;
 
     if (currentAdminUsers.length === 0) {
@@ -1298,7 +1304,8 @@ function renderFilteredAdminUsers() {
 function openAdminEditModal(userOrId) {
   let user = userOrId;
   if (typeof userOrId === "number" || typeof userOrId === "string") {
-    user = (adminUsersData || []).find(u => u.id === Number(userOrId));
+    const list = window.currentAdminUsers || currentAdminUsers || [];
+    user = list.find(u => u.id === Number(userOrId));
   }
   if (!user) return;
   document.getElementById("edit-user-id").value = user.id;
@@ -1540,7 +1547,8 @@ let currentChangePasswordUser = null;
 window.openAdminChangePasswordModal = function(userOrId) {
   let user = userOrId;
   if (typeof userOrId === "number" || typeof userOrId === "string") {
-    user = (adminUsersData || []).find(u => u.id === Number(userOrId));
+    const list = window.currentAdminUsers || currentAdminUsers || [];
+    user = list.find(u => u.id === Number(userOrId));
   }
   if (!user) return;
   currentChangePasswordUser = user;
@@ -1646,11 +1654,12 @@ let currentDiagUserEmail = null;
 window.impersonateUser = async function(userId, rawName, userEmail) {
   let displayName = rawName || userEmail;
   let targetEmail = userEmail;
-  if (!displayName) {
-    const u = (adminUsersData || []).find(x => x.id === userId);
+  if (!displayName || !targetEmail) {
+    const list = window.currentAdminUsers || currentAdminUsers || [];
+    const u = list.find(x => x.id === Number(userId));
     if (u) {
-      displayName = u.full_name || u.email;
-      targetEmail = u.email;
+      displayName = displayName || u.full_name || u.email;
+      targetEmail = targetEmail || u.email;
     }
   }
   if (!displayName) displayName = `User #${userId}`;
@@ -3703,7 +3712,8 @@ document.addEventListener("click", function(e) {
 window.approveUserTrial = async function(userId, userName) {
   let displayName = userName;
   if (!displayName) {
-    const u = (adminUsersData || []).find(x => x.id === userId);
+    const list = window.currentAdminUsers || currentAdminUsers || [];
+    const u = list.find(x => x.id === Number(userId));
     if (u) displayName = u.full_name || u.email;
   }
   if (!displayName) displayName = `#${userId}`;
@@ -3726,11 +3736,12 @@ window.approveUserTrial = async function(userId, userName) {
 window.rejectUserRegistration = async function(userId, userName) {
   let displayName = userName;
   if (!displayName) {
-    const u = (adminUsersData || []).find(x => x.id === userId);
+    const list = window.currentAdminUsers || currentAdminUsers || [];
+    const u = list.find(x => x.id === Number(userId));
     if (u) displayName = u.full_name || u.email;
   }
   if (!displayName) displayName = `#${userId}`;
-  const confirmed = confirm(`⚠️ هل أنت متأكد من رفض وحذف طلب التسجيل للمشترك "${displayName}"؟\nسيتم حذف الحساب بالكامل.`);
+  const confirmed = confirm(`⚠️ هل أنت متأكد من رفض وحذف طلب التسجيل للمشترك "${displayName}"؟\nسيتم حذف الحساب بالكامل وحفظه في الأرشيف.`);
   if (!confirmed) return;
 
   try {
@@ -3738,7 +3749,7 @@ window.rejectUserRegistration = async function(userId, userName) {
     const res = await adminApiRequest(`/admin/users/${userId}/reject_registration`, {
       method: "POST"
     });
-    showToast(res.message || "تم رفض طلب التسجيل وحذف الحساب", "success");
+    showToast(res.message || "تم رفض طلب التسجيل وحذف الحساب وأرشفة بياناته بنجاح", "success");
     await loadAdminUsers();
   } catch (err) {
     console.error("Failed to reject registration:", err);
