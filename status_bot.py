@@ -559,8 +559,17 @@ async def start_status_bot():
     status_bot_client.on_callback_query()(handle_callback_query)
     status_bot_client.on_message(filters.private & ~filters.command(["start", "menu"]))(handle_private_message)
     
-    await status_bot_client.start()
-    logger.info("Status Bot started successfully.")
+    for attempt in range(1, 6):
+        try:
+            await status_bot_client.start()
+            logger.info("Status Bot started successfully.")
+            break
+        except Exception as bot_err:
+            logger.warning(f"Status Bot startup attempt {attempt}/5 failed: {bot_err}. Retrying in 5s...")
+            if attempt == 5:
+                logger.error("Status Bot could not start after 5 attempts.")
+            else:
+                await asyncio.sleep(5)
 
 async def handle_start_command(client: Client, message: Message):
     chat_id = message.chat.id
