@@ -9457,6 +9457,10 @@ async def subscription_lifecycle_worker():
                 users = (await session.execute(stmt)).scalars().all()
 
                 for user in users:
+                    # STRICT SECURITY GUARD: Never touch pending_approval or banned accounts!
+                    if user.subscription_status in ("pending_approval", "banned") or not user.is_active:
+                        continue
+
                     sub_end = user.subscription_end
                     if sub_end.tzinfo is None:
                         sub_end = sub_end.replace(tzinfo=timezone.utc)

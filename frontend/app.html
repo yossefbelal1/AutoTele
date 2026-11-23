@@ -39,6 +39,30 @@
       }
     })();
   </script>
+
+  <!-- Anti-Reverse-Engineering & Inspection Security Shield -->
+  <script>
+    (function() {
+      // Disable Context Menu (Right Click)
+      document.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+        return false;
+      }, { capture: true });
+
+      // Disable DevTools & Source Inspection Shortcuts
+      document.addEventListener('keydown', function(e) {
+        if (
+          e.key === 'F12' || 
+          (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')) || 
+          (e.ctrlKey && (e.key === 'U' || e.key === 'u' || e.key === 'S' || e.key === 's'))
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          return false;
+        }
+      }, { capture: true });
+    })();
+  </script>
   <style>
     /* --- Notification Bell & Center Styles --- */
     .notif-bell-wrapper {

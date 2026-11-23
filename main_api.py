@@ -488,6 +488,12 @@ async def login(user_data: UserAuth, request: Request):
             
         if user.subscription_status == "banned":
             raise HTTPException(status_code=403, detail="⛔ تم حظر هذا الحساب من قبل الإدارة.")
+            
+        if user.subscription_status == "expired" and user.subscription_plan == "trial" and not user.is_admin:
+            raise HTTPException(
+                status_code=403,
+                detail="🔒 انتهت صلاحية حسابك التجريبي. يرجى التواصل مع الإدارة للاشتراك وتفعيل الحساب."
+            )
         
         access_token = jwt.encode({"sub": user.id, "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)}, JWT_SECRET, algorithm=JWT_ALGORITHM)
         logger.info(f"==> [LOGIN SUCCESS] User ID {user.id} ({user_data.email}) logged in successfully")
@@ -579,21 +585,22 @@ async def google_login(req: GoogleAuthReq, request: Request):
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
         
+        now = datetime.now(timezone.utc)
         if not user:
-            # Create a new user with Google login
+            # Create a new user with Google login - strictly locked in pending_approval
             random_password = secrets.token_hex(16)
             password_hash = bcrypt.hashpw(random_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
             
             assigned_host = await get_least_used_proxy(session)
-            
-            trial_end = datetime.now(timezone.utc) + timedelta(days=2)
             google_name = (user_info.get("name") or user_info.get("given_name") or email.split('@')[0]).strip()
             user = User(
                 email=email,
                 full_name=google_name,
                 password_hash=password_hash,
                 subscription_plan="trial",
-                subscription_end=trial_end,
+                subscription_status="pending_approval",
+                subscription_start=now,
+                subscription_end=now,
                 proxy_host=assigned_host,
                 proxy_port=PROXY_PORT if assigned_host else None,
                 proxy_username=PROXY_USERNAME if assigned_host else None,
@@ -601,9 +608,27 @@ async def google_login(req: GoogleAuthReq, request: Request):
             )
             session.add(user)
             await session.commit()
-            # Reload user to obtain ID
-            stmt = select(User).where(User.email == email)
-            user = (await session.execute(stmt)).scalar_one()
+            logger.info(f"==> [GOOGLE SIGNUP PENDING] Created user ID {user.id} ({email}) awaiting admin approval for 3-day trial")
+            raise HTTPException(
+                status_code=403,
+                detail="⏳ تم استلام طلب تسجيل حسابك عبر Google بنجاح. حسابك قيد مراجعة الإدارة لتفعيل فترة التجربة (3 أيام مجاناً)."
+            )
+
+        # Strict Guards for Existing Google Users
+        if user.subscription_status == "pending_approval" and not user.is_admin:
+            raise HTTPException(
+                status_code=403, 
+                detail="⏳ طلب تسجيل حسابك قيد المراجعة والموافقة من الإدارة. سيتم تفعيل الـ 3 أيام التجريبية لحسابك فور الاعتماد."
+            )
+            
+        if user.subscription_status == "banned":
+            raise HTTPException(status_code=403, detail="⛔ تم حظر هذا الحساب من قبل الإدارة.")
+            
+        if user.subscription_status == "expired" and user.subscription_plan == "trial" and not user.is_admin:
+            raise HTTPException(
+                status_code=403,
+                detail="🔒 انتهت صلاحية حسابك التجريبي. يرجى التواصل مع الإدارة للاشتراك وتفعيل الحساب."
+            )
             
         access_token = jwt.encode(
             {"sub": user.id, "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)},
