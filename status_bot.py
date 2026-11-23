@@ -736,6 +736,11 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
 
     elif data.startswith("ex_life_menu:"):
         req_id = int(data.split(":", 1)[1])
+        async with AsyncSessionLocal() as session:
+            req_item = (await session.execute(select(ExchangeRequest).where(ExchangeRequest.id == req_id))).scalar_one_or_none()
+            if not req_item or req_item.recipient_user_id != user.id:
+                await callback_query.answer("⛔ غير مصرح لك بإدارة هذا الطلب.", show_alert=True)
+                return
         await callback_query.message.edit_text(
             f"⏱ **اختر مدة النشر المطلوبة للموافقة على الطلب #{req_id}:**\n\n"
             "بمجرد اختيار المدة سيتم اعتماد الطلب وإطلاق النشر فوراً بتلك المدة:",
@@ -761,7 +766,10 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
         req_id = int(data.split(":", 1)[1])
         async with AsyncSessionLocal() as session:
             req_item = (await session.execute(select(ExchangeRequest).where(ExchangeRequest.id == req_id))).scalar_one_or_none()
-            if req_item and req_item.status == "pending":
+            if not req_item or req_item.recipient_user_id != user.id:
+                await callback_query.answer("⛔ غير مصرح لك بعرض هذا الطلب.", show_alert=True)
+                return
+            if req_item.status == "pending":
                 requester = (await session.execute(select(User).where(User.id == req_item.requester_user_id))).scalar_one_or_none()
                 sender_name = requester.full_name or requester.email.split("@")[0] if requester else "معلن"
                 req_type_lbl = "🔄 تبادل إعلاني" if req_item.request_type == "exchange" else "📢 نشر حملة ترويجية"
@@ -867,12 +875,12 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
                 await callback_query.answer("⚠️ الحسابات متصلة بالخادم ولكن المحرك الرئيسي يقوم بالتحميل حالياً، يرجى المحاولة بعد قليل.", show_alert=True)
 
     elif data == "btn_pause_campaigns":
-        # Save pause state in Redis for all accounts
+        # Save pause state in Redis for all accounts (persistent until explicitly resumed)
         async with AsyncSessionLocal() as session:
             stmt = select(TelegramAccount.id).where(TelegramAccount.user_id == user.id)
             acc_ids = (await session.execute(stmt)).scalars().all()
             for aid in acc_ids:
-                await redis_client.set(f"tenant:{aid}:campaign_global_pause", "1", ex=120)
+                await redis_client.set(f"tenant:{aid}:campaign_global_pause", "1")
                 
         await callback_query.answer("⏸️ تم إيقاف جميع حملات النشر مؤقتاً بنجاح.", show_alert=True)
 

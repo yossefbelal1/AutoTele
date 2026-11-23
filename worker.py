@@ -1646,6 +1646,7 @@ async def get_admin_channels_raw(client: Client, status_msg: Optional[Message] =
                                 links_count = cached_ch.get("links_count", 1) or 1
                             else:
                                 # Slow-path: only fetch from Telegram for new channels without cached invite link
+                                invites = []
                                 try:
                                     channel_access_hash = getattr(raw_chat, "access_hash", 0) or 0
                                     raw_peer = types.InputPeerChannel(channel_id=raw_chat.id, access_hash=channel_access_hash)
@@ -7091,7 +7092,7 @@ async def wave_publisher_worker(tenant_id: int):
             async with AsyncSessionLocal() as session:
                 db_life = await get_setting(session, tenant_id, "ad_lifespan")
                 ad_lifespan = int(db_life) if db_life else 900  # Default 15 minutes (900 seconds)
-                
+                db_folder_mode = await get_setting(session, tenant_id, "wave_folder_mode")
                 channels = await get_channels_cache(tenant_id)
                 blacklist = await get_blacklist_for_tenant(session, tenant_id)
             
@@ -7110,7 +7111,6 @@ async def wave_publisher_worker(tenant_id: int):
                 if not channels or len(channels) < 2:
                     await asyncio.sleep(60); continue
                 
-            db_folder_mode = await get_setting(session, tenant_id, "wave_folder_mode")
             if db_folder_mode == "campaign":
                 raw_campaign = await redis_client.get(f"tenant:{tenant_id}:campaign")
                 campaign_ids = set(json.loads(raw_campaign)) if raw_campaign else set()
@@ -8747,6 +8747,7 @@ async def poll_web_campaign_tasks():
         logger.error(f"Failed to reset processing tasks on startup: {startup_err}")
 
     while global_worker_running:
+        pending_results = []
         try:
             async with AsyncSessionLocal() as session:
                 # Find all pending tasks alongside their user subscription info
@@ -9860,7 +9861,7 @@ async def subscription_lifecycle_worker():
                             for acc in user_accounts:
                                 if acc.id in running_clients:
                                     logger.info(f"Stopping tenant client {acc.id} due to expired subscription.")
-                                    await stop_tenant_worker(acc.id, session, reason="Subscription Expired")
+                                    await stop_tenant_worker(acc.id, reason="Subscription Expired")
 
                                 await set_setting(session, acc.id, "bot_system_state", "stopped")
 

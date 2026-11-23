@@ -1,14 +1,23 @@
 import asyncio
-from db_manager import AsyncSessionLocal, User, select, func
+import json
+import os
 import random
+from db_manager import AsyncSessionLocal, User, select, func
 
-PROXY_POOL = [
-    "85.120.128.180",
-    "85.120.131.44",
-    "85.120.130.123",
-    "85.120.129.8"
-]
-PROXY_PORT = 50101
+env_pool = os.getenv("PROXY_POOL", "")
+if env_pool:
+    try:
+        PROXY_POOL = json.loads(env_pool)
+    except Exception:
+        PROXY_POOL = [p.strip() for p in env_pool.split(",") if p.strip()]
+else:
+    PROXY_POOL = [
+        "85.120.128.180",
+        "85.120.131.44",
+        "85.120.130.123",
+        "85.120.129.8"
+    ]
+PROXY_PORT = int(os.getenv("DEFAULT_PROXY_PORT", "50101"))
 PROXY_USERNAME = os.getenv("DEFAULT_PROXY_USERNAME", "")
 PROXY_PASSWORD = os.getenv("DEFAULT_PROXY_PASSWORD", "")
 

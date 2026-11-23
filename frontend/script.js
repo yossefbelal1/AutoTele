@@ -3193,7 +3193,7 @@ function renderFilteredTemplates() {
       .replace(/'/g, "&#039;");
 
     const badge = tmpl.channel_id 
-      ? `<span style="font-size: 11px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 3px 8px; border-radius: 6px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">🎯 مخصص لقناة: ${tmpl.channel_title || tmpl.channel_id}</span>`
+      ? `<span style="font-size: 11px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 3px 8px; border-radius: 6px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">🎯 مخصص لقناة: ${escapeHtml(tmpl.channel_title || String(tmpl.channel_id))}</span>`
       : `<span style="font-size: 11px; background: rgba(34, 197, 94, 0.12); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); padding: 3px 8px; border-radius: 6px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">🌐 عامة لكافة القنوات</span>`;
 
     html += `
@@ -6462,20 +6462,59 @@ document.addEventListener("DOMContentLoaded", () => {
     if (valEl) valEl.textContent = "...";
     const t0 = performance.now();
     try {
-      await fetch(`${API_BASE_URL}/health`);
+      const resp = await fetch(`${API_BASE_URL}/health`);
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
       const latency = Math.round(performance.now() - t0);
       if (valEl) valEl.textContent = `${latency}ms (ممتاز)`;
       showToast(`سرعة استجابة المحرك: ${latency}ms ⚡`, "success");
     } catch {
-      if (valEl) valEl.textContent = "24ms";
+      if (valEl) valEl.textContent = "غير متاح ❌";
+      showToast("تعذر الوصول إلى الخادم أو فحص الاستجابة", "error");
     }
   });
 
   // Wire Settings Password Form
-  document.getElementById("settings-password-form")?.addEventListener("submit", (e) => {
+  document.getElementById("settings-password-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    showToast("تم تحديث إعدادات الأمان وكلمة المرور بنجاح!", "success");
-    e.target.reset();
+    const oldInput = e.target.querySelector('input[name="old_password"], input[id*="old-password"], input[type="password"]:first-of-type');
+    const newInput = e.target.querySelector('input[name="new_password"], input[id*="new-password"], input[type="password"]:last-of-type');
+    const oldPwd = oldInput ? oldInput.value.trim() : "";
+    const newPwd = newInput ? newInput.value.trim() : "";
+
+    if (!oldPwd || !newPwd) {
+      showToast("يرجى إدخال كلمة المرور الحالية والجديدة", "warning");
+      return;
+    }
+    if (newPwd.length < 6) {
+      showToast("يجب أن تتكون كلمة المرور الجديدة من 6 أحرف على الأقل", "warning");
+      return;
+    }
+
+    const token = localStorage.getItem("access_token");
+    if (!token) {
+      showToast("جلسة غير صالحة، يرجى إعادة تسجيل الدخول", "error");
+      return;
+    }
+
+    try {
+      const resp = await fetch(`${API_BASE_URL}/user/change-password`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ old_password: oldPwd, new_password: newPwd })
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        showToast(data.detail || data.message || "فشل تغيير كلمة المرور", "error");
+        return;
+      }
+      showToast("تم تحديث إعدادات الأمان وكلمة المرور بنجاح! 🔒", "success");
+      e.target.reset();
+    } catch (err) {
+      showToast("تعذر الاتصال بالخادم لتحديث كلمة المرور", "error");
+    }
   });
 });
 

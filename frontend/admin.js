@@ -886,10 +886,10 @@ function renderFilteredAdminUsers() {
             </td>
             <td style="text-align: center;">
               <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
-                <button type="button" class="btn-approve-trial" onclick="approveUserTrial(${u.id}, '${escapeHtml(rawName)}')" title="تفعيل 3 أيام تجريبية مجانية">
+                <button type="button" class="btn-approve-trial" onclick="approveUserTrial(${u.id})" title="تفعيل 3 أيام تجريبية مجانية">
                   <span>⚡ تفعيل 3 أيام</span>
                 </button>
-                <button type="button" class="btn-reject-trial" onclick="rejectUserRegistration(${u.id}, '${escapeHtml(rawName)}')" title="رفض وحظر الحساب">
+                <button type="button" class="btn-reject-trial" onclick="rejectUserRegistration(${u.id})" title="رفض وحظر الحساب">
                   <span>🚫 رفض</span>
                 </button>
               </div>
@@ -1130,10 +1130,10 @@ function renderFilteredAdminUsers() {
     } else if (isPending) {
       desktopActionCell = `
         <div style="display: flex; align-items: center; justify-content: center; gap: 6px;">
-          <button type="button" class="btn-approve-trial" onclick="event.stopPropagation(); approveUserTrial(${user.id}, '${escapeHtml(rawName)}')" title="قبول وتفعيل 3 أيام تجريبية">
+          <button type="button" class="btn-approve-trial" onclick="event.stopPropagation(); approveUserTrial(${user.id})" title="قبول وتفعيل 3 أيام تجريبية">
             <span>⚡ تفعيل 3 أيام</span>
           </button>
-          <button type="button" class="btn-reject-trial" onclick="event.stopPropagation(); rejectUserRegistration(${user.id}, '${escapeHtml(rawName)}')" title="رفض وحظر طلب المشترك">
+          <button type="button" class="btn-reject-trial" onclick="event.stopPropagation(); rejectUserRegistration(${user.id})" title="رفض وحظر طلب المشترك">
             <span>🚫 رفض</span>
           </button>
         </div>
@@ -1141,7 +1141,7 @@ function renderFilteredAdminUsers() {
     } else {
       desktopActionCell = `
         <div class="user-action-cell">
-          <button type="button" class="btn-impersonate-sleek" title="دخول مباشر إلى لوحة المشترك" onclick="event.stopPropagation(); impersonateUser(${user.id}, '${escapeHtml(rawName)}', '${escapeHtml(user.email)}')">
+          <button type="button" class="btn-impersonate-sleek" title="دخول مباشر إلى لوحة المشترك" onclick="event.stopPropagation(); impersonateUser(${user.id})">
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             <span>دخول</span>
           </button>
@@ -1153,10 +1153,10 @@ function renderFilteredAdminUsers() {
               <button type="button" class="dropdown-item" onclick="event.stopPropagation(); openUserDiagnosticsModal(${user.id}); closeAllUserDropdowns();">
                 🔍 تشخيص وفحص الـ IP والبيانات
               </button>
-              <button type="button" class="dropdown-item" onclick="event.stopPropagation(); openAdminChangePasswordModal(${userJson}); closeAllUserDropdowns();">
+              <button type="button" class="dropdown-item" onclick="event.stopPropagation(); openAdminChangePasswordModal(${user.id}); closeAllUserDropdowns();">
                 🔑 تعيين كلمة المرور
               </button>
-              <button type="button" class="dropdown-item" onclick="event.stopPropagation(); openAdminEditModal(${userJson}); closeAllUserDropdowns();">
+              <button type="button" class="dropdown-item" onclick="event.stopPropagation(); openAdminEditModal(${user.id}); closeAllUserDropdowns();">
                 ✏️ تعديل الباقة والبيانات
               </button>
               <button type="button" class="dropdown-item" style="${rebootBtnStyle}" onclick="event.stopPropagation(); ${rebootAction}; closeAllUserDropdowns();">
@@ -1233,17 +1233,17 @@ function renderFilteredAdminUsers() {
         `;
       } else if (isPending) {
         mobileActionsHtml = `
-          <button type="button" class="btn-approve-trial" style="flex: 1;" onclick="event.stopPropagation(); approveUserTrial(${user.id}, '${escapeHtml(rawName)}')">⚡ قبول وتفعيل 3 أيام</button>
-          <button type="button" class="btn-reject-trial" onclick="event.stopPropagation(); rejectUserRegistration(${user.id}, '${escapeHtml(rawName)}')">🚫 رفض</button>
+          <button type="button" class="btn-approve-trial" style="flex: 1;" onclick="event.stopPropagation(); approveUserTrial(${user.id})">⚡ قبول وتفعيل 3 أيام</button>
+          <button type="button" class="btn-reject-trial" onclick="event.stopPropagation(); rejectUserRegistration(${user.id})">🚫 رفض</button>
         `;
       } else {
         mobileActionsHtml = `
-          <button type="button" class="btn-impersonate-sleek" style="flex: 1;" onclick="event.stopPropagation(); impersonateUser(${user.id}, '${escapeHtml(rawName)}', '${escapeHtml(user.email)}')">
+          <button type="button" class="btn-impersonate-sleek" style="flex: 1;" onclick="event.stopPropagation(); impersonateUser(${user.id})">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             <span>دخول الحساب</span>
           </button>
           <button type="button" class="btn-card-action" style="padding: 6px 10px; border-radius: 8px; background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);" onclick="event.stopPropagation(); openUserDiagnosticsModal(${user.id})">🔍 تشخيص</button>
-          <button type="button" class="btn-card-action" style="padding: 6px 10px; border-radius: 8px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);" onclick="event.stopPropagation(); openAdminEditModal(${userJson})">✏️ تعديل</button>
+          <button type="button" class="btn-card-action" style="padding: 6px 10px; border-radius: 8px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);" onclick="event.stopPropagation(); openAdminEditModal(${user.id})">✏️ تعديل</button>
           <button type="button" class="btn-card-action" style="padding: 6px 10px; border-radius: 8px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="event.stopPropagation(); deleteUserAccount(${user.id})">🗑️</button>
         `;
       }
@@ -1295,7 +1295,12 @@ function renderFilteredAdminUsers() {
   });
 }
 
-function openAdminEditModal(user) {
+function openAdminEditModal(userOrId) {
+  let user = userOrId;
+  if (typeof userOrId === "number" || typeof userOrId === "string") {
+    user = (adminUsersData || []).find(u => u.id === Number(userOrId));
+  }
+  if (!user) return;
   document.getElementById("edit-user-id").value = user.id;
   document.getElementById("edit-user-email").value = user.email;
   const nameInput = document.getElementById("edit-user-fullname");
@@ -1374,7 +1379,7 @@ window.testCurrentUserProxy = async function() {
         resEl.style.background = "rgba(239, 68, 68, 0.12)";
         resEl.style.color = "#f87171";
         resEl.style.border = "1px solid rgba(239, 68, 68, 0.3)";
-        resEl.innerHTML = `<b>❌ فشل فحص البروكسي:</b> ${escapeHtml(res.detail || "تعذر الاتصال بخادم البروكسي")}`;
+        resEl.innerHTML = `<b>❌ فشل فحص البروكسي:</b> ${escapeHtml(res.detail || res.message || "تعذر الاتصال بخادم البروكسي")}`;
       }
       showToast("فشل الاتصال بالبروكسي", "error");
     }
@@ -1532,7 +1537,12 @@ window.generateRandomPasswordForEdit = function() {
 
 let currentChangePasswordUser = null;
 
-window.openAdminChangePasswordModal = function(user) {
+window.openAdminChangePasswordModal = function(userOrId) {
+  let user = userOrId;
+  if (typeof userOrId === "number" || typeof userOrId === "string") {
+    user = (adminUsersData || []).find(u => u.id === Number(userOrId));
+  }
+  if (!user) return;
   currentChangePasswordUser = user;
   const userIdEl = document.getElementById("pwd-modal-user-id");
   if (userIdEl) userIdEl.value = user.id;
@@ -1634,18 +1644,28 @@ let currentDiagUserId = null;
 let currentDiagUserEmail = null;
 
 window.impersonateUser = async function(userId, rawName, userEmail) {
-  if (!confirm(`هل تريد الدخول إلى لوحة العميل (${rawName || userEmail}) كأنك هو؟\nستتمكن من ضبط إعلاناته وقنواته وتجربة النشر بيدك.`)) return;
+  let displayName = rawName || userEmail;
+  let targetEmail = userEmail;
+  if (!displayName) {
+    const u = (adminUsersData || []).find(x => x.id === userId);
+    if (u) {
+      displayName = u.full_name || u.email;
+      targetEmail = u.email;
+    }
+  }
+  if (!displayName) displayName = `User #${userId}`;
+  if (!confirm(`هل تريد الدخول إلى لوحة العميل (${displayName}) كأنك هو؟\nستتمكن من ضبط إعلاناته وقنواته وتجربة النشر بيدك.`)) return;
   try {
     const res = await adminApiRequest(`/admin/users/${userId}/impersonate`, { method: "POST" });
     if (res.access_token) {
       // Mark return mode for banner in /app
       localStorage.setItem("admin_return_mode", "true");
-      localStorage.setItem("impersonated_user_email", userEmail || `User #${userId}`);
+      localStorage.setItem("impersonated_user_email", targetEmail || displayName);
       localStorage.setItem("impersonated_user_id", userId);
       // Set client session for /app
       localStorage.setItem("access_token", res.access_token);
-      localStorage.setItem("user_email", userEmail || "");
-      showToast(`جاري تسجيل الدخول كـ ${userEmail || userId}...`, "success");
+      localStorage.setItem("user_email", targetEmail || "");
+      showToast(`جاري تسجيل الدخول كـ ${displayName}...`, "success");
       setTimeout(() => {
         window.location.href = "/app";
       }, 400);
@@ -3299,7 +3319,7 @@ async function loadSubscriptionsLifecycle() {
           
           return `
             <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.04);">
-              <td style="padding: 12px 10px; font-weight: 500;">${u.email}</td>
+              <td style="padding: 12px 10px; font-weight: 500;">${escapeHtml(u.email)}</td>
               <td style="padding: 12px 10px;">${planText}</td>
               <td style="padding: 12px 10px;">${statusBadge}</td>
               <td style="padding: 12px 10px; font-size: 13px; color: #a0aec0; direction: ltr; text-align: right;">${expDate}</td>
@@ -3329,15 +3349,16 @@ async function loadSubscriptionsLifecycle() {
           const statusBadge = log.success 
             ? `<span class="badge" style="background: rgba(39, 201, 63, 0.12); color: #27c93f;">ناجح</span>`
             : `<span class="badge" style="background: rgba(225, 29, 72, 0.12); color: #e11d48;">فاشل</span>`;
+          const safeDetails = escapeHtml(log.details || 'تم التسليم لقناة تيليجرام');
             
           return `
             <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.04);">
-              <td style="padding: 12px 10px; font-weight: 500;">${log.email}</td>
+              <td style="padding: 12px 10px; font-weight: 500;">${escapeHtml(log.email)}</td>
               <td style="padding: 12px 10px; font-size: 13px;">${typeText}</td>
-              <td style="padding: 12px 10px; font-size: 13px; color: #a0aec0;">${log.channel}</td>
+              <td style="padding: 12px 10px; font-size: 13px; color: #a0aec0;">${escapeHtml(log.channel || '')}</td>
               <td style="padding: 12px 10px; font-size: 13px; color: #a0aec0; direction: ltr; text-align: right;">${sentDate}</td>
               <td style="padding: 12px 10px; text-align: center;">${statusBadge}</td>
-              <td style="padding: 12px 10px; font-size: 12px; color: #718096;" title="${log.details || ''}">${log.details || 'تم التسليم لقناة تيليجرام'}</td>
+              <td style="padding: 12px 10px; font-size: 12px; color: #718096;" title="${safeDetails}">${safeDetails}</td>
             </tr>
           `;
         }).join("");
@@ -3680,7 +3701,13 @@ document.addEventListener("click", function(e) {
 
 // Admin Approval Actions (تفعيل التجربة المجانية 3 أيام للمشتركين الجدد)
 window.approveUserTrial = async function(userId, userName) {
-  const confirmed = confirm(`هل أنت متأكد من قبول المشترك "${userName}" وتفعيل باقة تجريبية مجانية لمدة 3 أيام؟`);
+  let displayName = userName;
+  if (!displayName) {
+    const u = (adminUsersData || []).find(x => x.id === userId);
+    if (u) displayName = u.full_name || u.email;
+  }
+  if (!displayName) displayName = `#${userId}`;
+  const confirmed = confirm(`هل أنت متأكد من قبول المشترك "${displayName}" وتفعيل باقة تجريبية مجانية لمدة 3 أيام؟`);
   if (!confirmed) return;
 
   try {
@@ -3697,7 +3724,13 @@ window.approveUserTrial = async function(userId, userName) {
 };
 
 window.rejectUserRegistration = async function(userId, userName) {
-  const confirmed = confirm(`⚠️ هل أنت متأكد من رفض وحذف طلب التسجيل للمشترك "${userName}"؟\nسيتم حذف الحساب بالكامل.`);
+  let displayName = userName;
+  if (!displayName) {
+    const u = (adminUsersData || []).find(x => x.id === userId);
+    if (u) displayName = u.full_name || u.email;
+  }
+  if (!displayName) displayName = `#${userId}`;
+  const confirmed = confirm(`⚠️ هل أنت متأكد من رفض وحذف طلب التسجيل للمشترك "${displayName}"؟\nسيتم حذف الحساب بالكامل.`);
   if (!confirmed) return;
 
   try {

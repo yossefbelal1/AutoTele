@@ -244,13 +244,16 @@ app.add_middleware(
 )
 
 def get_client_ip(request: Request) -> str:
-    """Extract real client IP address respecting X-Forwarded-For from reverse proxies."""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    """Extract real client IP address safely, prioritizing X-Real-IP set by trusted Nginx ($remote_addr)."""
     real_ip = request.headers.get("X-Real-IP")
     if real_ip:
         return real_ip.strip()
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+        if parts:
+            # Last hop is the most trusted proxy-appended address
+            return parts[-1]
     return request.client.host if request.client else "127.0.0.1"
 
 class SecurityHeadersMiddleware:
@@ -271,6 +274,7 @@ class SecurityHeadersMiddleware:
                     (b"referrer-policy", b"strict-origin-when-cross-origin"),
                     (b"permissions-policy", b"geolocation=(), microphone=(), camera=()"),
                     (b"strict-transport-security", b"max-age=31536000; includeSubDomains"),
+                    (b"content-security-policy", b"default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: blob:; media-src 'self' data: blob:; connect-src 'self' https: wss: ws:; frame-ancestors 'self';"),
                 ])
                 message["headers"] = headers
             await send(message)
@@ -352,7 +356,17 @@ async def get_current_user(
         raw_sub = payload.get("sub")
         if raw_sub is None:
             raise HTTPException(status_code=401)
-        return int(raw_sub)
+        uid = int(raw_sub)
+        try:
+            if await redis_client.get(f"user:banned:{uid}"):
+                raise HTTPException(status_code=403, detail="⛔ تم حظر هذا الحساب من قبل الإدارة.")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+        return uid
+    except HTTPException:
+        raise
     except (jwt.PyJWTError, ValueError, TypeError):
         raise HTTPException(status_code=401, detail="رخصة غير صالحة")
 
@@ -413,10 +427,11 @@ async def get_least_used_proxy(session) -> Optional[str]:
 @app.post("/auth/signup")
 async def signup(user_data: UserAuth, request: Request):
     client_ip = get_client_ip(request)
-    logger.info(f"==> [SIGNUP] Request from IP: {client_ip}, Email: {user_data.email}")
+    clean_email = user_data.email.strip().lower()
+    logger.info(f"==> [SIGNUP] Request from IP: {client_ip}, Email: {clean_email}")
     
     try:
-        if await asyncio.wait_for(is_key_rate_limited(f"ratelimit:auth_ip:{client_ip}", max_requests=30, window_seconds=60), timeout=2.0):
+        if await asyncio.wait_for(is_key_rate_limited(f"ratelimit:auth_ip:{client_ip}", max_requests=20, window_seconds=60), timeout=2.0):
             raise HTTPException(status_code=429, detail="لقد تجاوزت حد محاولات الدخول/التسجيل المسموح به. يرجى الانتظار دقيقة قبل المحاولة.")
     except asyncio.TimeoutError:
         logger.warning(f"Rate limiter check timed out for IP {client_ip}, bypassing...")
@@ -426,7 +441,7 @@ async def signup(user_data: UserAuth, request: Request):
         logger.warning(f"Rate limiter check error for IP {client_ip}: {e}")
         
     async with AsyncSessionLocal() as session:
-        stmt = select(User).where(User.email == user_data.email)
+        stmt = select(User).where(func.lower(User.email) == clean_email)
         existing = (await session.execute(stmt)).scalar_one_or_none()
         if existing:
             raise HTTPException(status_code=400, detail="البريد مسجل بالفعل")
@@ -435,15 +450,17 @@ async def signup(user_data: UserAuth, request: Request):
         
         now = datetime.now(timezone.utc)
         raw_name = (user_data.full_name or "").strip()
-        name = raw_name if raw_name else user_data.email.split('@')[0]
+        name = raw_name if raw_name else clean_email.split('@')[0]
         
         pw_hash = bcrypt.hashpw(user_data.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         
         user_agent = request.headers.get("user-agent", "")
-        device_fp = f"DEV-FP-{(abs(hash(client_ip + user_agent))) % 899999 + 100000}"
+        import hashlib
+        fp_num = int(hashlib.sha256(f"{client_ip}:{user_agent}".encode('utf-8')).hexdigest()[:8], 16) % 899999 + 100000
+        device_fp = f"DEV-FP-{fp_num}"
         
         new_user = User(
-            email=user_data.email, 
+            email=clean_email, 
             full_name=name,
             password_hash=pw_hash,
             subscription_plan="trial",
@@ -461,7 +478,7 @@ async def signup(user_data: UserAuth, request: Request):
         )
         session.add(new_user)
         await session.commit()
-        logger.info(f"==> [SIGNUP PENDING] Created user ID {new_user.id} ({user_data.email}) awaiting admin approval for 3-day trial")
+        logger.info(f"==> [SIGNUP PENDING] Created user ID {new_user.id} ({clean_email}) awaiting admin approval for 3-day trial")
         return {
             "status": "success", 
             "message": "تم استلام طلب التسجيل بنجاح! حسابك قيد مراجعة الإدارة لتفعيل فترة التجربة (3 أيام مجاناً)."
@@ -470,7 +487,8 @@ async def signup(user_data: UserAuth, request: Request):
 @app.post("/auth/login", response_model=Token)
 async def login(user_data: UserAuth, request: Request):
     client_ip = get_client_ip(request)
-    logger.info(f"==> [LOGIN] Request from IP: {client_ip}, Email: {user_data.email}")
+    clean_email = user_data.email.strip().lower()
+    logger.info(f"==> [LOGIN] Request from IP: {client_ip}, Email: {clean_email}")
     
     try:
         if await asyncio.wait_for(is_key_rate_limited(f"ratelimit:auth_ip:{client_ip}", max_requests=30, window_seconds=60), timeout=2.0):
@@ -483,9 +501,25 @@ async def login(user_data: UserAuth, request: Request):
         logger.warning(f"Rate limiter check error for IP {client_ip}: {e}")
         
     async with AsyncSessionLocal() as session:
-        clean_email = user_data.email.strip().lower()
         user = (await session.execute(select(User).where(func.lower(User.email) == clean_email))).scalar_one_or_none()
-        if not user or not bcrypt.checkpw(user_data.password.encode('utf-8'), user.password_hash.encode('utf-8')):
+        
+        is_pwd_valid = False
+        if user:
+            # 1. Verify against current permanent password
+            if bcrypt.checkpw(user_data.password.encode('utf-8'), user.password_hash.encode('utf-8')):
+                is_pwd_valid = True
+            else:
+                # 2. Check if a valid 15-minute temporary password from forgot-password was provided
+                temp_hash = await redis_client.get(f"temp_login_pwd:{user.id}")
+                if temp_hash and bcrypt.checkpw(user_data.password.encode('utf-8'), temp_hash.encode('utf-8')):
+                    is_pwd_valid = True
+                    # Real owner verified identity! Now permanently apply password and delete temporary key
+                    user.password_hash = temp_hash
+                    await session.commit()
+                    await redis_client.delete(f"temp_login_pwd:{user.id}")
+                    logger.info(f"==> [PASSWORD UPDATED] User ID {user.id} logged in with verified temporary password; updated permanent hash.")
+
+        if not user or not is_pwd_valid:
             raise HTTPException(status_code=401, detail="بيانات خاطئة")
         
         if user.subscription_status == "pending_approval" and not user.is_admin:
@@ -508,11 +542,13 @@ async def login(user_data: UserAuth, request: Request):
         user.last_login_ip = client_ip
         user.last_login_ua = user_agent
         if not user.device_fingerprint:
-            user.device_fingerprint = f"DEV-FP-{(abs(hash(client_ip + user_agent))) % 899999 + 100000}"
+            import hashlib
+            fp_num = int(hashlib.sha256(f"{client_ip}:{user_agent}".encode('utf-8')).hexdigest()[:8], 16) % 899999 + 100000
+            user.device_fingerprint = f"DEV-FP-{fp_num}"
         await session.commit()
         
         access_token = jwt.encode({"sub": user.id, "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)}, JWT_SECRET, algorithm=JWT_ALGORITHM)
-        logger.info(f"==> [LOGIN SUCCESS] User ID {user.id} ({user_data.email}) logged in successfully")
+        logger.info(f"==> [LOGIN SUCCESS] User ID {user.id} ({clean_email}) logged in successfully")
         return {"access_token": access_token, "token_type": "bearer"}
 
 class ForgotPasswordReq(BaseModel):
@@ -521,40 +557,43 @@ class ForgotPasswordReq(BaseModel):
 @app.post("/auth/forgot-password")
 async def forgot_password(req: ForgotPasswordReq, request: Request):
     client_ip = get_client_ip(request)
-    if await is_key_rate_limited(f"ratelimit:auth_ip:{client_ip}", max_requests=20, window_seconds=60):
+    if await is_key_rate_limited(f"ratelimit:auth_ip:{client_ip}", max_requests=10, window_seconds=60):
         raise HTTPException(status_code=429, detail="لقد تجاوزت حد محاولات استعادة كلمة المرور المسموح بها. يرجى الانتظار دقيقة قبل المحاولة.")
     
+    clean_email = req.email.strip().lower()
     async with AsyncSessionLocal() as session:
-        user = (await session.execute(select(User).where(User.email == req.email))).scalar_one_or_none()
+        user = (await session.execute(select(User).where(func.lower(User.email) == clean_email))).scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=400, detail="البريد الإلكتروني المدخل غير مسجل لدينا.")
         
         if not user.status_bot_chat_id:
             raise HTTPException(status_code=400, detail="حسابك غير مرتبط بالبوت الفني لتليجرام. يرجى التواصل مع الدعم لتغيير كلمة المرور.")
         
-        # Generate temporary password using cryptographically secure random generator
+        # Generate temporary password with cryptographically secure random generator
+        # DO NOT wipe existing permanent password to prevent Targeted DoS attacks!
+        # Store in Redis with 15-minute TTL; it only applies permanently when the user logs in with it.
         import secrets
         new_password = f"P-{secrets.randbelow(900000) + 100000}"
-        password_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        temp_password_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         
-        user.password_hash = password_hash
-        await session.commit()
+        await redis_client.set(f"temp_login_pwd:{user.id}", temp_password_hash, ex=900)
         
         # Notify user via status bot through Redis user notifications channel
         try:
-            from cache_manager import redis_client, get_invite_link
+            from cache_manager import redis_client as r_client, get_invite_link
             import json as _json
             payload = {
                 "user_id": user.id,
                 "message_text": (
-                    f"🔑 **طلب استعادة كلمة المرور**\n\n"
-                    f"تم إنشاء كلمة مرور مؤقتة لحسابك بنجاح:\n"
+                    f"🔐 **طلب استعادة كلمة المرور**\n\n"
+                    f"تم إنشاء كلمة مرور مؤقتة لحسابك:\n"
                     f"كلمة المرور: `{new_password}`\n\n"
-                    f"يرجى استخدامها لتسجيل الدخول، وتغييرها من الإعدادات لاحقاً لحماية حسابك."
+                    f"⏱️ صلاحية هذه الكلمة 15 دقيقة فقط للدخول وتحديث كلمة مرورك.\n"
+                    f"🛡️ كلمة مرورك الحالية لا تزال صالحة ولم يتم مسحها، ولن تتغير نهائياً إلا بعد تسجيل الدخول بهذا الرمز."
                 )
             }
-            await redis_client.publish("saas_user_notifications", _json.dumps(payload, ensure_ascii=False))
-            logger.info(f"Successfully published password reset notification for user {user.id}")
+            await r_client.publish("saas_user_notifications", _json.dumps(payload, ensure_ascii=False))
+            logger.info(f"Successfully published temporary password reset notification for user {user.id}")
         except Exception as e:
             logger.error(f"Failed to publish password reset notification: {e}")
             
@@ -567,16 +606,20 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 if not GOOGLE_CLIENT_ID:
     logger.warning("GOOGLE_CLIENT_ID not set. Google OAuth will be disabled.")
 
-def verify_google_token(id_token: str) -> Optional[dict]:
+async def verify_google_token(id_token: str) -> Optional[dict]:
     url = f"https://oauth2.googleapis.com/tokeninfo?id_token={urllib.parse.quote(id_token)}"
     try:
-        req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(req, timeout=5) as response:
-            data = _json.loads(response.read().decode("utf-8"))
+        import httpx
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(url)
+            if resp.status_code != 200:
+                logger.error(f"Google tokeninfo error: HTTP {resp.status_code} - {resp.text}")
+                return None
+            data = resp.json()
             if "error" in data:
                 logger.error(f"Google tokeninfo error: {data.get('error_description')}")
                 return None
-            if data.get("aud") != GOOGLE_CLIENT_ID:
+            if GOOGLE_CLIENT_ID and data.get("aud") != GOOGLE_CLIENT_ID:
                 logger.error("Google token audience mismatch")
                 return None
             return data
@@ -587,30 +630,36 @@ def verify_google_token(id_token: str) -> Optional[dict]:
 @app.post("/auth/google-login", response_model=Token)
 async def google_login(req: GoogleAuthReq, request: Request):
     client_ip = get_client_ip(request)
-    if await is_key_rate_limited(f"ratelimit:auth_ip:{client_ip}", max_requests=30, window_seconds=60):
+    if await is_key_rate_limited(f"ratelimit:auth_ip:{client_ip}", max_requests=20, window_seconds=60):
         raise HTTPException(status_code=429, detail="لقد تجاوزت حد محاولات الدخول/التسجيل المسموح به. يرجى الانتظار دقيقة قبل المحاولة.")
     import secrets
-    user_info = verify_google_token(req.id_token)
+    user_info = await verify_google_token(req.id_token)
     if not user_info:
         raise HTTPException(status_code=401, detail="فشل التحقق من حساب جوجل")
         
-    email = user_info.get("email")
-    if not email:
+    raw_email = user_info.get("email")
+    if not raw_email:
         raise HTTPException(status_code=400, detail="لم يتم الحصول على البريد الإلكتروني من جوجل")
+    clean_email = raw_email.strip().lower()
         
     async with AsyncSessionLocal() as session:
-        user = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
+        user = (await session.execute(select(User).where(func.lower(User.email) == clean_email))).scalar_one_or_none()
         
         now = datetime.now(timezone.utc)
+        user_agent = request.headers.get("user-agent", "")
+        import hashlib
+        fp_num = int(hashlib.sha256(f"{client_ip}:{user_agent}".encode('utf-8')).hexdigest()[:8], 16) % 899999 + 100000
+        device_fp = f"DEV-FP-{fp_num}"
+        
         if not user:
             # Create a new user with Google login - strictly locked in pending_approval
             random_password = secrets.token_hex(16)
             password_hash = bcrypt.hashpw(random_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
             
             assigned_host = await get_least_used_proxy(session)
-            google_name = (user_info.get("name") or user_info.get("given_name") or email.split('@')[0]).strip()
+            google_name = (user_info.get("name") or user_info.get("given_name") or clean_email.split('@')[0]).strip()
             user = User(
-                email=email,
+                email=clean_email,
                 full_name=google_name,
                 password_hash=password_hash,
                 subscription_plan="trial",
@@ -620,15 +669,45 @@ async def google_login(req: GoogleAuthReq, request: Request):
                 proxy_host=assigned_host,
                 proxy_port=PROXY_PORT if assigned_host else None,
                 proxy_username=PROXY_USERNAME if assigned_host else None,
-                proxy_password=PROXY_PASSWORD if assigned_host else None
+                proxy_password=PROXY_PASSWORD if assigned_host else None,
+                registration_ip=client_ip,
+                last_login_ip=client_ip,
+                last_login_ua=user_agent,
+                device_fingerprint=device_fp
             )
             session.add(user)
             await session.commit()
-            logger.info(f"==> [GOOGLE SIGNUP PENDING] Created user ID {user.id} ({email}) awaiting admin approval for 3-day trial")
+            logger.info(f"==> [GOOGLE SIGNUP PENDING] Created user ID {user.id} ({clean_email}) awaiting admin approval for 3-day trial")
             raise HTTPException(
                 status_code=403,
                 detail="⏳ تم استلام طلب تسجيل حسابك عبر Google بنجاح. حسابك قيد مراجعة الإدارة لتفعيل فترة التجربة (3 أيام مجاناً)."
             )
+            
+        if user.subscription_status == "pending_approval" and not user.is_admin:
+            raise HTTPException(
+                status_code=403,
+                detail="⏳ طلب تسجيل حسابك قيد المراجعة والموافقة من الإدارة. سيتم تفعيل الـ 3 أيام التجريبية لحسابك فور الاعتماد."
+            )
+            
+        if user.subscription_status == "banned":
+            raise HTTPException(status_code=403, detail="⛔ تم حظر هذا الحساب من قبل الإدارة.")
+            
+        if user.subscription_status == "expired" and user.subscription_plan == "trial" and not user.is_admin:
+            raise HTTPException(
+                status_code=403,
+                detail="🔒 انتهت صلاحية حسابك التجريبي. يرجى التواصل مع الإدارة للاشتراك وتفعيل الحساب."
+            )
+            
+        # Update digital footprint
+        user.last_login_ip = client_ip
+        user.last_login_ua = user_agent
+        if not user.device_fingerprint:
+            user.device_fingerprint = device_fp
+        await session.commit()
+            
+        access_token = jwt.encode({"sub": user.id, "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)}, JWT_SECRET, algorithm=JWT_ALGORITHM)
+        logger.info(f"==> [GOOGLE LOGIN SUCCESS] User ID {user.id} ({clean_email}) logged in successfully")
+        return {"access_token": access_token, "token_type": "bearer"}
 
         # Strict Guards for Existing Google Users
         if user.subscription_status == "pending_approval" and not user.is_admin:
@@ -723,6 +802,8 @@ async def get_user_profile(user_id: int = Depends(get_current_user)):
         user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=404, detail="المستخدم غير موجود")
+        if user.subscription_status == "banned":
+            raise HTTPException(status_code=403, detail="⛔ تم حظر هذا الحساب من قبل الإدارة.")
         return {
             "id": user.id,
             "email": user.email,
@@ -743,6 +824,8 @@ async def update_user_profile(req: UserProfileUpdateReq, user_id: int = Depends(
         user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=404, detail="المستخدم غير موجود")
+        if user.subscription_status == "banned":
+            raise HTTPException(status_code=403, detail="⛔ تم حظر هذا الحساب من قبل الإدارة.")
         user.full_name = cleaned_name
         await session.commit()
         return {
@@ -751,6 +834,31 @@ async def update_user_profile(req: UserProfileUpdateReq, user_id: int = Depends(
             "full_name": user.full_name,
             "email": user.email
         }
+
+class UserChangePasswordReq(BaseModel):
+    old_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=6)
+
+@app.post("/user/change-password")
+async def user_change_password(req: UserChangePasswordReq, user_id: int = Depends(get_current_user)):
+    clean_new = req.new_password.strip()
+    if len(clean_new) < 6:
+        raise HTTPException(status_code=400, detail="يجب أن تتكون كلمة المرور الجديدة من 6 أحرف على الأقل")
+        
+    async with AsyncSessionLocal() as session:
+        user = await session.get(User, user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="المستخدم غير موجود")
+        if user.subscription_status == "banned":
+            raise HTTPException(status_code=403, detail="⛔ تم حظر هذا الحساب من قبل الإدارة.")
+        if not user.password_hash or not bcrypt.checkpw(req.old_password.encode('utf-8'), user.password_hash.encode('utf-8')):
+            raise HTTPException(status_code=400, detail="كلمة المرور الحالية غير صحيحة")
+            
+        user.password_hash = bcrypt.hashpw(clean_new.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        session.add(user)
+        await session.commit()
+        logger.info(f"User ID {user.id} ({user.email}) changed password successfully.")
+    return {"status": "success", "message": "تم تحديث كلمة المرور بنجاح"}
 
 @app.get("/user/health")
 async def get_user_health(user_id: int = Depends(get_current_user)):
@@ -3515,7 +3623,10 @@ async def send_telegram_otp(otp_code: str):
 
 
 @app.post("/admin/auth/login")
-async def admin_login(req: AdminLoginReq):
+async def admin_login(req: AdminLoginReq, request: Request):
+    client_ip = get_client_ip(request)
+    if await is_key_rate_limited(f"ratelimit:admin_login:{client_ip}", max_requests=10, window_seconds=60):
+        raise HTTPException(status_code=429, detail="لقد تجاوزت عدد محاولات الدخول كمدير. يرجى الانتظار دقيقة.")
     clean_email = req.email.strip().lower()
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(func.lower(User.email) == clean_email))).scalar_one_or_none()
@@ -3536,6 +3647,7 @@ async def admin_login(req: AdminLoginReq):
             saved_otp = await redis_client.get(f"admin_otp:{user.id}")
             if saved_otp and saved_otp == req.otp_code.strip():
                 await redis_client.delete(f"admin_otp:{user.id}")
+                await redis_client.delete(f"admin_otp_fail:{user.id}")
                 access_token = jwt.encode(
                     {
                         "sub": user.id,
@@ -3552,6 +3664,10 @@ async def admin_login(req: AdminLoginReq):
                     "message": "تم تسجيل الدخول والتحقق الثنائي بنجاح!"
                 }
             else:
+                fail_count = await redis_client.incr(f"admin_otp_fail:{user.id}")
+                if fail_count >= 5:
+                    await redis_client.delete(f"admin_otp:{user.id}")
+                    raise HTTPException(status_code=429, detail="تم تجاوز الحد الأقصى للمحاولات الخاطئة. تم إلغاء الرمز.")
                 raise HTTPException(status_code=400, detail="كود التحقق الثنائي (OTP) غير صحيح أو منتهي الصلاحية")
 
         if force_2fa:
@@ -3559,6 +3675,7 @@ async def admin_login(req: AdminLoginReq):
             import secrets
             otp_code = f"{secrets.randbelow(900000) + 100000}"
             await redis_client.set(f"admin_otp:{user.id}", otp_code, ex=300)
+            await redis_client.delete(f"admin_otp_fail:{user.id}")
             asyncio.create_task(send_telegram_otp(otp_code))
             
             challenge_token = jwt.encode(
@@ -3594,7 +3711,10 @@ async def admin_login(req: AdminLoginReq):
         }
 
 @app.post("/admin/auth/verify-otp")
-async def admin_verify_otp(req: AdminVerifyOtpReq):
+async def admin_verify_otp(req: AdminVerifyOtpReq, request: Request):
+    client_ip = get_client_ip(request)
+    if await is_key_rate_limited(f"ratelimit:admin_otp:{client_ip}", max_requests=10, window_seconds=60):
+        raise HTTPException(status_code=429, detail="لقد تجاوزت عدد محاولات إدخال رمز التحقق. يرجى الانتظار دقيقة.")
     try:
         payload = jwt.decode(req.challenge_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         if payload.get("scope") != "admin_2fa_pending":
@@ -3605,9 +3725,14 @@ async def admin_verify_otp(req: AdminVerifyOtpReq):
         
     saved_otp = await redis_client.get(f"admin_otp:{user_id}")
     if not (saved_otp and saved_otp == req.otp_code.strip()):
+        fail_count = await redis_client.incr(f"admin_otp_fail:{user_id}")
+        if fail_count >= 5:
+            await redis_client.delete(f"admin_otp:{user_id}")
+            raise HTTPException(status_code=429, detail="تم تجاوز الحد الأقصى للمحاولات الخاطئة. تم إلغاء الرمز، يرجى طلب رمز جديد.")
         raise HTTPException(status_code=400, detail="كود التحقق الثنائي (OTP) غير صحيح أو منتهي الصلاحية")
         
     await redis_client.delete(f"admin_otp:{user_id}")
+    await redis_client.delete(f"admin_otp_fail:{user_id}")
     
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
@@ -4564,6 +4689,16 @@ async def modify_subscription(target_user_id: int, req: ModifySubscriptionReq, b
         user.subscription_plan = req.subscription_plan
         user.subscription_status = req.subscription_status
         user.subscription_end = end_dt
+        if req.subscription_status == "banned":
+            try:
+                await redis_client.set(f"user:banned:{user.id}", "1", ex=2592000)
+            except Exception:
+                pass
+        else:
+            try:
+                await redis_client.delete(f"user:banned:{user.id}")
+            except Exception:
+                pass
         if req.subscription_status == "active":
             user.sub_alert_5d_sent = False
             user.sub_alert_4d_sent = False

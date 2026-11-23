@@ -11,15 +11,15 @@ services:
     ports:
       - "127.0.0.1:8005:8000"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:local_secure_password_2026@postgres_db:5432/ad_exchange_staging
-      - REDIS_URL=redis://redis_cache:6379/1
-      - JWT_SECRET=SUPER_SECRET_SaaS_KEY_2026_PRODUCTION_SECURE_RANDOM_XYZ
-      - SESSION_ENCRYPTION_KEY=LsdLM10kc3tb-peVR8gNacGaBH9_6njN7FI9uMjneXA=
+      - DATABASE_URL=${STAGING_DATABASE_URL:-postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@postgres_db:5432/ad_exchange_staging}
+      - REDIS_URL=${REDIS_URL:-redis://redis_cache:6379/1}
+      - JWT_SECRET=${JWT_SECRET}
+      - SESSION_ENCRYPTION_KEY=${SESSION_ENCRYPTION_KEY}
       - CORS_ALLOWED_ORIGINS=https://staging.telegauto.com,http://167.233.246.102:3005,https://telegauto.com,http://localhost:3000
       - FRONTEND_URL=http://167.233.246.102:3005
       - PYTHONUNBUFFERED=1
-      - STATUS_BOT_TOKEN=8968164888:AAEplQ75k9J0gsxrghqlbD5z9-v84wrJ2L0
-      - STATUS_BOT_USERNAME=AutoTeleStatusBot
+      - STATUS_BOT_TOKEN=${STATUS_BOT_TOKEN}
+      - STATUS_BOT_USERNAME=${STATUS_BOT_USERNAME:-AutoTeleStatusBot}
       - PROXY_POOL=[]
       - DEFAULT_PROXY_PORT=50101
     networks:
@@ -35,12 +35,12 @@ services:
     container_name: staging_core_worker
     command: python worker.py
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:local_secure_password_2026@postgres_db:5432/ad_exchange_staging
-      - REDIS_URL=redis://redis_cache:6379/1
-      - SESSION_ENCRYPTION_KEY=LsdLM10kc3tb-peVR8gNacGaBH9_6njN7FI9uMjneXA=
+      - DATABASE_URL=${STAGING_DATABASE_URL:-postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@postgres_db:5432/ad_exchange_staging}
+      - REDIS_URL=${REDIS_URL:-redis://redis_cache:6379/1}
+      - SESSION_ENCRYPTION_KEY=${SESSION_ENCRYPTION_KEY}
       - PYTHONUNBUFFERED=1
-      - STATUS_BOT_TOKEN=8968164888:AAEplQ75k9J0gsxrghqlbD5z9-v84wrJ2L0
-      - STATUS_BOT_USERNAME=AutoTeleStatusBot
+      - STATUS_BOT_TOKEN=${STATUS_BOT_TOKEN}
+      - STATUS_BOT_USERNAME=${STATUS_BOT_USERNAME:-AutoTeleStatusBot}
     volumes:
       - ./worker.py:/app/worker.py:ro
       - ./db_manager.py:/app/db_manager.py:ro
