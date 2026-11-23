@@ -435,7 +435,15 @@ async def check_admin_rights_dynamic(client: Client, chat_id: int, tenant_id: in
     try:
         member = await asyncio.wait_for(client.get_chat_member(chat_id, "me"), timeout=10.0)
         from pyrogram.enums import ChatMemberStatus
-        if member.status in (ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR):
+        if member.status == ChatMemberStatus.OWNER:
+            return True
+        if member.status == ChatMemberStatus.ADMINISTRATOR:
+            if not require_posting_rights:
+                return True
+            privs = getattr(member, "privileges", None)
+            if privs is not None:
+                if hasattr(privs, "can_post_messages") and privs.can_post_messages is False:
+                    return False
             return True
         return False
     except Exception as e:
@@ -445,12 +453,18 @@ async def check_admin_rights_dynamic(client: Client, chat_id: int, tenant_id: in
 async def verify_is_truly_demoted(client: Client, chat_id: int) -> tuple:
     """
     Performs a live double-check on Telegram to verify if the user is truly demoted/kicked.
-    Never flags an active Administrator or Owner as demoted.
+    Never flags an active Administrator or Owner as demoted UNLESS posting rights were revoked.
     """
     try:
         member = await client.get_chat_member(chat_id, "me")
         from pyrogram.enums import ChatMemberStatus
-        if member.status in (ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR):
+        if member.status == ChatMemberStatus.OWNER:
+            return False, ""
+        if member.status == ChatMemberStatus.ADMINISTRATOR:
+            privs = getattr(member, "privileges", None)
+            if privs is not None:
+                if hasattr(privs, "can_post_messages") and privs.can_post_messages is False:
+                    return True, "سحب صلاحية نشر الرسائل في القناة"
             return False, ""
         if member.status == ChatMemberStatus.BANNED:
             return True, "طرد وحظر من القناة"
@@ -467,70 +481,225 @@ async def verify_is_truly_demoted(client: Client, chat_id: int) -> tuple:
         return False, ""
     return False, ""
 
-async def remove_channel_from_cache_on_demotion(telegram_account_id: int, chat_id: int, actor_name: Optional[str] = None, actor_username: Optional[str] = None, action_label: str = "سحب صلاحيات النشر / إزالة من الإشراف"):
-
+async def send_demotion_notifications(
+    tenant_id: int, 
+    chat_id: int, 
+    chat_title: str, 
+    chat_username: Optional[str] = None, 
+    actor_name: str = "مسؤول القناة", 
+    actor_username: Optional[str] = None, 
+    action_label: str = "سحب صلاحيات النشر / إزالة من الإشراف"
+):
+    """
+    3-Way Instant Demotion Notification Engine:
+    1. Telegram Userbot Saved Messages ("المحفوظات")
+    2. Telegram Status Bot Direct Chat ("البوت على التيليجرام")
+    3. Web App Dashboard (DB AccountNotification + Redis live_logs + Redis tenant_live_events popup)
+    """
     try:
-        channels = await get_channels_cache(telegram_account_id)
-        updated_channels = [ch for ch in channels if ch["id"] != chat_id]
-        ch_title = f"[{chat_id}]"
-        ch_username = None
-        for ch in channels:
-            if ch["id"] == chat_id:
-                ch_title = ch.get("title", ch_title)
-                ch_username = ch.get("username")
-                break
-        
-        if len(channels) != len(updated_channels):
-            await save_channels_cache(telegram_account_id, updated_channels)
-            logger.info(f"Successfully removed channel {chat_id} from cache for tenant {telegram_account_id} due to demotion.")
-            await log_tenant_event(telegram_account_id, f"🧹 تم حذف القناة {ch_title} تلقائياً من الكاش لعدم وجود صلاحيات نشر بها.")
-        
-        # Save to DB AccountNotification
+        from cache_manager import redis_client, publish_tenant_live_event
+        import json
+
+        # 0. Deduplicate: Avoid spamming the user multiple times within 60s for the same channel
+        dedup_key = f"demotion_alert_dedup:{tenant_id}:{chat_id}"
+        is_first = await redis_client.set(dedup_key, "1", nx=True, ex=60)
+        if not is_first:
+            logger.info(f"Tenant {tenant_id}: Demotion alert for chat {chat_id} already sent within 60s. Skipping duplicate.")
+            return
+
+        time_str = (datetime.now(timezone.utc) + timedelta(hours=3)).strftime("%I:%M %p")
+        actor_disp = f"@{actor_username}" if actor_username else actor_name
+        channel_disp = f"@{chat_username}" if chat_username else chat_title
+
+        lines = [
+            "🚨 **تنبيه أمان: تم سحب رتبتك/صلاحياتك في قناة!**",
+            "━━━━━━━━━━━━━━━━━━━━",
+            f"📌 **القناة:** `{channel_disp}`",
+            f"🆔 **المعرف:** `{chat_id}`",
+            f"👤 **المسؤول:** `{actor_disp}`",
+            f"⚠️ **نوع الإجراء:** {action_label}",
+            f"⏰ **التوقيت:** `{time_str}`",
+            "━━━━━━━━━━━━━━━━━━━━",
+            "ℹ️ *تم استبعاد القناة تلقائياً من جداول النشر والحملات لحماية حسابك.*"
+        ]
+        alert_msg = "\n".join(lines)
+
+        # 1. Update Channels Cache (Mark can_send=False and demoted_at)
+        try:
+            channels = await get_channels_cache(tenant_id)
+            if channels:
+                updated = False
+                for ch in channels:
+                    if ch.get("id") == chat_id:
+                        ch["can_send"] = False
+                        ch["demoted_at"] = datetime.now(timezone.utc).isoformat()
+                        ch["demotion_action"] = action_label
+                        updated = True
+                        break
+                if updated:
+                    await save_channels_cache(tenant_id, channels)
+                    logger.info(f"Tenant {tenant_id}: Marked chat {chat_id} can_send=False in cache.")
+        except Exception as ce:
+            logger.error(f"Error updating channel cache on demotion: {ce}")
+
+        # 2. Channel 1: Send Alert to Saved Messages (المحفوظات)
+        client = running_clients.get(tenant_id)
+        if client and client.is_connected:
+            try:
+                await client.send_message("me", alert_msg)
+                logger.info(f"Tenant {tenant_id}: Sent demotion alert to Saved Messages for chat {chat_id}.")
+            except Exception as se:
+                logger.error(f"Failed to send demotion alert to Saved Messages for tenant {tenant_id}: {se}")
+
+        # 3. Channel 2: Send Alert via Telegram Status Bot ("البوت على التيليجرام")
+        target_user_id = None
         try:
             async with AsyncSessionLocal() as db_session:
                 acc_obj = (await db_session.execute(
-                    select(TelegramAccount).where(TelegramAccount.id == telegram_account_id)
+                    select(TelegramAccount).where(TelegramAccount.id == tenant_id)
                 )).scalar_one_or_none()
-                if acc_obj:
+                if acc_obj and acc_obj.user_id:
+                    target_user_id = acc_obj.user_id
+        except Exception as dbe:
+            logger.error(f"Failed to fetch user_id for tenant {tenant_id}: {dbe}")
+
+        if target_user_id:
+            try:
+                from status_bot import notify_user_by_id
+                await notify_user_by_id(target_user_id, alert_msg)
+                logger.info(f"Tenant {tenant_id}: Sent demotion alert via Status Bot to user {target_user_id}.")
+            except Exception as be:
+                logger.error(f"Failed to send demotion alert via Status Bot: {be}")
+
+        # 4. Channel 3: Send Alert to Web App (البرنامج بتاعنا الويب)
+        # 4a. DB AccountNotification (for dashboard notification bell)
+        if target_user_id:
+            try:
+                async with AsyncSessionLocal() as db_session:
                     notif = AccountNotification(
-                        telegram_account_id=telegram_account_id,
-                        user_id=acc_obj.user_id,
+                        telegram_account_id=tenant_id,
+                        user_id=target_user_id,
                         notification_type="channel_demotion",
-                        title=f"🚨 تنبيه: {action_label}",
-                        message=f"تم رصد سحب رتبة أو إزالة في القناة: {ch_title}",
-                        actor_name=actor_name or "مسؤول القناة",
+                        title=f"🚨 تنبيه أمني: {action_label}",
+                        message=f"تم رصد {action_label} في القناة: {chat_title}",
+                        actor_name=actor_name,
                         actor_username=actor_username,
-                        chat_title=ch_title,
+                        chat_title=chat_title,
                         chat_id=chat_id,
                         is_read=False
                     )
                     db_session.add(notif)
                     await db_session.commit()
-        except Exception as db_err:
-            logger.error(f"Failed to record AccountNotification in DB: {db_err}")
+                    logger.info(f"Tenant {tenant_id}: Recorded AccountNotification in DB.")
+            except Exception as db_err:
+                logger.error(f"Failed to save AccountNotification to DB: {db_err}")
 
+        # 4b. Redis Pub/Sub Live Toast/Popup to Web App
+        try:
+            await publish_tenant_live_event(tenant_id, {
+                "type": "channel_demotion",
+                "chat_id": chat_id,
+                "chat_title": chat_title,
+                "action_label": action_label,
+                "actor_disp": actor_disp,
+                "time": time_str
+            })
+        except Exception as pe:
+            logger.error(f"Failed to publish tenant live event: {pe}")
+
+        # 4c. Redis Live Logs
+        try:
+            await log_tenant_event(tenant_id, f"🚨 تنبيه أمني: تم رصد {action_label} في القناة {chat_title} بواسطة {actor_disp}!")
+            # 4d. Superadmin stream
+            await redis_client.publish(
+                "saas_live_logs",
+                json.dumps({
+                    "tenant_id": tenant_id,
+                    "type": "channel_demotion",
+                    "message": f"🚨 [سحب صلاحيات] {chat_title} ({chat_id}) - {action_label}"
+                })
+            )
+        except Exception as le:
+            logger.error(f"Failed to log tenant event for demotion: {le}")
+
+    except Exception as e:
+        logger.error(f"Error in send_demotion_notifications for tenant {tenant_id}: {e}", exc_info=True)
+
+async def remove_channel_from_cache_on_demotion(telegram_account_id: int, chat_id: int, actor_name: Optional[str] = None, actor_username: Optional[str] = None, action_label: str = "سحب صلاحيات النشر / إزالة من الإشراف"):
+    try:
+        channels = await get_channels_cache(telegram_account_id)
+        ch_title = f"[{chat_id}]"
+        ch_username = None
+        for ch in (channels or []):
+            if ch.get("id") == chat_id:
+                ch_title = ch.get("title", ch_title)
+                ch_username = ch.get("username")
+                break
+        
+        await send_demotion_notifications(
+            tenant_id=telegram_account_id,
+            chat_id=chat_id,
+            chat_title=ch_title,
+            chat_username=ch_username,
+            actor_name=actor_name or "مسؤول القناة",
+            actor_username=actor_username,
+            action_label=action_label
+        )
     except Exception as ex:
         logger.error(f"Error removing channel {chat_id} from cache: {ex}")
 
 async def handle_posting_error_and_clean_cache(tenant_id: int, chat_id: int, e: Exception):
     """
-    Handles posting errors gracefully without sending false demotion alarms to the user.
-    Never poisons the cache by setting can_send=False permanently, allowing future campaigns
-    to retry posting after transient permissions or slowmodes resolve.
-    Only removes the channel if the account was truly kicked or the channel was deleted.
+    Handles posting errors gracefully with 3-way alerts (Saved Messages + Bot + Web App)
+    when permissions are revoked or channel becomes inaccessible.
     """
     err_str = str(e).upper()
-    if any(err in err_str for err in ["CHAT_ADMIN_REQUIRED", "CHAT_WRITE_FORBIDDEN"]):
-        logger.info(f"Tenant {tenant_id}: Chat {chat_id} returned transient restriction ({err_str}). Will retry in next campaigns.")
-    elif any(err in err_str for err in ["CHANNEL_PRIVATE", "USER_NOT_PARTICIPANT"]):
-        logger.info(f"Tenant {tenant_id}: Chat {chat_id} is inaccessible. Removing from cache silently.")
+    if any(err in err_str for err in ["CHAT_ADMIN_REQUIRED", "CHAT_WRITE_FORBIDDEN", "CHAT_RESTRICTED"]):
+        logger.info(f"Tenant {tenant_id}: Chat {chat_id} posting forbidden ({err_str}). Triggering 3-way demotion alerts.")
+        ch_title = f"[{chat_id}]"
+        ch_uname = None
         try:
             channels = await get_channels_cache(tenant_id)
-            if channels:
-                new_channels = [ch for ch in channels if ch.get("id") != chat_id]
-                await save_channels_cache(tenant_id, new_channels)
-        except Exception as ex:
-            logger.debug(f"Failed to clean inaccessible chat {chat_id} from cache: {ex}")
+            for ch in (channels or []):
+                if ch.get("id") == chat_id:
+                    ch_title = ch.get("title", ch_title)
+                    ch_uname = ch.get("username")
+                    break
+        except Exception:
+            pass
+
+        await send_demotion_notifications(
+            tenant_id=tenant_id,
+            chat_id=chat_id,
+            chat_title=ch_title,
+            chat_username=ch_uname,
+            actor_name="مسؤول القناة",
+            actor_username=None,
+            action_label="سحب صلاحيات النشر في القناة"
+        )
+    elif any(err in err_str for err in ["CHANNEL_PRIVATE", "USER_NOT_PARTICIPANT"]):
+        logger.info(f"Tenant {tenant_id}: Chat {chat_id} is inaccessible. Triggering 3-way removal alert.")
+        ch_title = f"[{chat_id}]"
+        ch_uname = None
+        try:
+            channels = await get_channels_cache(tenant_id)
+            for ch in (channels or []):
+                if ch.get("id") == chat_id:
+                    ch_title = ch.get("title", ch_title)
+                    ch_uname = ch.get("username")
+                    break
+        except Exception:
+            pass
+
+        await send_demotion_notifications(
+            tenant_id=tenant_id,
+            chat_id=chat_id,
+            chat_title=ch_title,
+            chat_username=ch_uname,
+            actor_name="مسؤول القناة",
+            actor_username=None,
+            action_label="طرد من القناة أو القناة أصبحت خاصة"
+        )
 
 async def handle_deletion_error_and_clean_cache(tenant_id: int, chat_id: int, e: Exception):
     """
@@ -1097,10 +1266,29 @@ async def get_formatted_ad_message(
             except Exception as ce:
                 logger.debug(f"Failed to check channel custom templates for tenant {tenant_id}, channel {target_chat_id}: {ce}")
         
-        # 2. Second priority (الحالة العامة): General templates from user's library, or DEFAULT_TEMPLATES
+        # 2. Second priority (الحالة العامة): General templates from user's library, or Modular Permutation Engine
         if not pool:
             db_templates = await get_active_templates_for_tenant(session, telegram_account_id=tenant_id)
-            pool = db_templates if (db_templates and len(db_templates) > 0) else DEFAULT_TEMPLATES
+            if db_templates and len(db_templates) > 0:
+                pool = db_templates
+            else:
+                # Use the Modular Permutation Engine for dynamic, non-repetitive ads (220,000+ permutations)
+                try:
+                    from permutation_ad_engine import permutation_engine
+                    idx_val = template_index if template_index is not None else random.randint(1, 999999)
+                    seed = (tenant_id * 10007) + (idx_val * 7919) + int(time.time() / 1800)
+                    chosen_template = permutation_engine.generate_raw_template(seed=seed)
+                except Exception as pe_err:
+                    logger.debug(f"Permutation engine fallback to DEFAULT_TEMPLATES: {pe_err}")
+                    chosen_template = random.choice(DEFAULT_TEMPLATES)
+                
+                return format_user_template(
+                    chosen_template, 
+                    target_title, 
+                    target_link, 
+                    extra_link=extra_link,
+                    members_count=members_count
+                )
 
         if template_index is not None and len(pool) > 0:
             chosen_template = pool[template_index % len(pool)]
@@ -2471,6 +2659,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
         no_post_ids = json.loads(raw_no_post) if raw_no_post else []
         campaign_ids = json.loads(raw_campaign) if raw_campaign else []
         
+        # Strict BANNED/No_Post enforcement:
         exclude_ids = set(blacklist) | set(banned_ids) | set(no_post_ids)
         
         target_links = [lnk.strip() for lnk in re.split(r'[\s,\n]+', target_link) if lnk.strip()]
@@ -2506,14 +2695,20 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
         if no_del_channels and ad_lifespan > 0:
             logger.info(f"Tenant {tenant_id}: {len(no_del_channels)} channels lack delete rights; will publish to all and attempt auto-cleanup at expiry.")
             await log_tenant_event(tenant_id, f"📢 النشر يشمل كافة القنوات المتاحة ({len(channels)} قناة). يوجد {len(no_del_channels)} قناة بصلاحيات نشر فقط وسيتم محاولة مسح الإعلان منها تلقائياً عند انتهاء المدة.")
-        eligible_channels = [ch for ch in channels if ch["id"] not in exclude_ids]
+        
+        no_send_channels = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True) is False]
+        if no_send_channels:
+            logger.info(f"Tenant {tenant_id}: {len(no_send_channels)} channels excluded because posting is restricted (can_send=False).")
+            await log_tenant_event(tenant_id, f"ℹ️ تم استبعاد {len(no_send_channels)} قناة لعدم توفر صلاحية نشر بها من قِبل مالك القناة.")
+
+        eligible_channels = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True) is not False]
         
         # Smart Sorting: Sort in memory using cached total_joins (0 or lowest joins come FIRST!)
         channel_map = {ch["id"]: ch for ch in channels}
         channel_scores = [(channel_map.get(ch["id"], {}).get("total_joins", 0), ch) for ch in eligible_channels]
         channel_scores.sort(key=lambda item: item[0])
         eligible_channels = [item[1] for item in channel_scores]
-        logger.info(f"Tenant {tenant_id}: Sorted {len(eligible_channels)} channels by total invite joins (ascending in-memory).")
+        logger.info(f"Tenant {tenant_id}: Sorted {len(eligible_channels)} confirmed writable channels by total invite joins (ascending in-memory).")
         total = len(eligible_channels)
         
         total_account_channels = len(channels)
@@ -2521,8 +2716,8 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
         
         if total == 0:
             if status_msg:
-                await safe_edit_message(status_msg, "⚠️ **فشل الحملة: لا توجد أي قنوات متاحة للنشر بعد تطبيق الاستثناءات.**")
-            await log_tenant_event(tenant_id, "فشل الحملة الفردية: لا توجد قنوات متاحة بعد التصفية.")
+                await safe_edit_message(status_msg, "⚠️ **فشل الحملة: لا توجد أي قنوات متاحة للنشر بعد تطبيق الاستثناءات وصلاحيات النشر.**")
+            await log_tenant_event(tenant_id, "فشل الحملة الفردية: لا توجد قنوات متاحة تملك صلاحيات نشر بعد التصفية.")
             return
         
         count = 0
@@ -2538,16 +2733,20 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
                 if (now - last_status_edit_time) < 8.0 and count < total:
                     return
                 last_status_edit_time = now
-            await safe_edit_message(
-                status_msg,
+            status_text = (
                 f"⏳ **جاري النشر الموازي للحملة الفردية:**\n"
                 f"• إجمالي قنوات الحساب: `{total_account_channels}` قناة.\n"
                 f"• قنوات مستبعدة (حظر/استثناء/أهداف): `{excluded_channels_count}` قناة.\n"
-                f"• قنوات النشر المتاحة: `{total}` قناة.\n"
+            )
+            if no_send_channels:
+                status_text += f"• قنوات بدون صلاحية نشر (مقيدة من المالك): `{len(no_send_channels)}` قناة.\n"
+            status_text += (
+                f"• قنوات النشر المؤكدة: `{total}` قناة.\n"
                 f"• تم النشر بنجاح في `{count}` من `{total}` قناة.\n"
                 f"• القنوات المستهدفة:\n{target_link}\n"
                 f"• مدة الاعلان: `{ad_lifespan}` دقيقة."
             )
+            await safe_edit_message(status_msg, status_text)
 
         # Single campaigns ALWAYS use parallel staggered publishing for fast, reliable delivery across all channels.
         # This prevents accidental 1-hour sleeps between channels from web form defaults.
@@ -3260,6 +3459,7 @@ async def run_bulk_campaign_logic(
                 raw_no_post = await redis_client.get(f"tenant:{tenant_id}:no_post")
                 banned_ids = json.loads(raw_banned) if raw_banned else []
                 no_post_ids = json.loads(raw_no_post) if raw_no_post else []
+                # Strict BANNED/No_Post enforcement:
                 exclude_ids = set(blacklist) | set(banned_ids) | set(no_post_ids) | {target_id}
                 
                 # Full channel coverage in bulk campaigns: publish across ALL account channels, excluding only explicit user exclusions and channels where user cannot post
@@ -3268,6 +3468,10 @@ async def run_bulk_campaign_logic(
                 import random
                 random.shuffle(eligible_ch)
                 total_ch = len(eligible_ch)
+                total_account_channels = len(channels)
+                banned_count = len([c for c in channels if c["id"] in set(banned_ids)])
+                nopost_count = len([c for c in channels if c["id"] in set(no_post_ids)])
+                restricted_count = len([c for c in channels if c.get("can_send", True) is False and c["id"] not in set(banned_ids) and c["id"] not in set(no_post_ids)])
                 
                 for ch_idx, ch in enumerate(eligible_ch, 1):
                     cid = ch["id"]
@@ -3330,9 +3534,11 @@ async def run_bulk_campaign_logic(
                         decrease_or_reset_tenant_backoff(tenant_id)
                         
                         current_post_info = (
-                            f"• إجمالي القنوات المتاحة: `{total_ch}` قناة\n"
-                            f"• تم النشر في: `{ch_idx}` من `{total_ch}` قناة مروجة\n"
-                            f"• القناة المستهدفة الحالية: **{target_title}**"
+                            f"• قنوات الحساب الإجمالية: `{total_account_channels}` قناة\n"
+                            f"• القنوات المتاحة للنشر: `{total_ch}` قناة مروجة ✅\n"
+                            f"• تم النشر في: `{ch_idx}` من `{total_ch}` قناة\n"
+                            f"• القناة المستهدفة: **{target_title}**\n"
+                            f"• مستبعدة لحمايتك: `{total_account_channels - total_ch}` (🚫 استثناءات: {nopost_count} | ⛔ حظر: {banned_count} | ⚠️ سحب صلاحيات: {restricted_count})"
                         )
                         # Real-time progress updates with time-based throttle (updates every 4 channels or whenever >= 8s elapsed)
                         now_ts = time.time()
@@ -3367,9 +3573,11 @@ async def run_bulk_campaign_logic(
                             await log_tenant_event(tenant_id, f"تم نشر إعلان المجلد المجمع في قناة: {ch.get('title')} (بعد فك وضع البطء)")
                             decrease_or_reset_tenant_backoff(tenant_id)
                             current_post_info = (
-                                f"• إجمالي القنوات المتاحة: `{total_ch}` قناة\n"
-                                f"• تم النشر في: `{ch_idx}` من `{total_ch}` قناة مروجة\n"
-                                f"• القناة المستهدفة الحالية: **{target_title}**"
+                                f"• قنوات الحساب الإجمالية: `{total_account_channels}` قناة\n"
+                                f"• القنوات المتاحة للنشر: `{total_ch}` قناة مروجة ✅\n"
+                                f"• تم النشر في: `{ch_idx}` من `{total_ch}` قناة\n"
+                                f"• القناة المستهدفة: **{target_title}**\n"
+                                f"• مستبعدة لحمايتك: `{total_account_channels - total_ch}` (🚫 استثناءات: {nopost_count} | ⛔ حظر: {banned_count} | ⚠️ سحب صلاحيات: {restricted_count})"
                             )
                             if ch_idx == 1 or ch_idx == total_ch or ch_idx % 4 == 0:
                                 asyncio.create_task(update_status_message(index, "posting", current_post_info=current_post_info))
@@ -3403,9 +3611,11 @@ async def run_bulk_campaign_logic(
                             await log_tenant_event(tenant_id, f"تم نشر إعلان المجلد المجمع في قناة: {ch.get('title')} (بعد فك وضع البطء)")
                             decrease_or_reset_tenant_backoff(tenant_id)
                             current_post_info = (
-                                f"• إجمالي القنوات المتاحة: `{total_ch}` قناة\n"
-                                f"• تم النشر في: `{ch_idx}` من `{total_ch}` قناة مروجة\n"
-                                f"• القناة المستهدفة الحالية: **{target_title}**"
+                                f"• قنوات الحساب الإجمالية: `{total_account_channels}` قناة\n"
+                                f"• القنوات المتاحة للنشر: `{total_ch}` قناة مروجة ✅\n"
+                                f"• تم النشر في: `{ch_idx}` من `{total_ch}` قناة\n"
+                                f"• القناة المستهدفة: **{target_title}**\n"
+                                f"• مستبعدة لحمايتك: `{total_account_channels - total_ch}` (🚫 استثناءات: {nopost_count} | ⛔ حظر: {banned_count} | ⚠️ سحب صلاحيات: {restricted_count})"
                             )
                             if ch_idx == 1 or ch_idx == total_ch or ch_idx % 4 == 0:
                                 asyncio.create_task(update_status_message(index, "posting", current_post_info=current_post_info))
@@ -3652,29 +3862,16 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
 
             logger.warning(f"Tenant {tenant_id}: Demotion confirmed in chat {chat_id} ('{chat_title}') by {actor_name}. Action: {action_label}")
 
-            # 1. Update Channels Cache and DB
-            await remove_channel_from_cache_on_demotion(tenant_id, chat_id, actor_name=actor_name, actor_username=actor_username, action_label=action_label)
-
-            # 2. Send Alert to Saved Messages
-            time_str = (datetime.now(timezone.utc) + timedelta(hours=3)).strftime("%I:%M %p")
-            actor_disp = f"@{actor_username}" if actor_username else actor_name
-            channel_disp = f"@{chat_username}" if chat_username else chat_title
-
-            lines = [
-                "🚨 **تنبيه أمان: تم سحب رتبتك في قناة!**",
-                "━━━━━━━━━━━━━━━━━━━━",
-                f"📌 **القناة:** `{channel_disp}`",
-                f"👤 **المسؤول:** `{actor_disp}`",
-                f"⚠️ **نوع الإجراء:** {action_label}",
-                f"⏰ **التوقيت:** `{time_str}`",
-                "━━━━━━━━━━━━━━━━━━━━",
-                "ℹ️ *تم استبعاد القناة تلقائياً من جداول النشر والحملات لحماية حسابك.*"
-            ]
-            alert_msg = "\n".join(lines)
-            try:
-                await cls.send_message("me", alert_msg)
-            except Exception as send_err:
-                logger.error(f"Failed to send demotion alert to Saved Messages: {send_err}")
+            # Fire 3-way notification (Saved Messages + Telegram Bot + Web App) + update cache
+            await send_demotion_notifications(
+                tenant_id=tenant_id,
+                chat_id=chat_id,
+                chat_title=chat_title,
+                chat_username=chat_username,
+                actor_name=actor_name,
+                actor_username=actor_username,
+                action_label=action_label
+            )
 
         except Exception as e:
             logger.error(f"Error in chat_member_updated_handler for tenant {tenant_id}: {e}", exc_info=True)
@@ -3866,6 +4063,8 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 await handle_المهام(message)
             elif cmd_clean in ["ادمن", "قنواتي", "القنوات", "قنوات", "المسؤوليات", "المسؤول", "الادمن", "admin", "mychannels", "channels", "قنواتى", "عرض_القنوات", "قائمتي", "قايمتي", "جروباتي", "جروباتى"]:
                 await handle_ادمن(message)
+            elif cmd_clean in ["فحص", "فحص_القنوات", "فحص-القنوات", "فحص_قنواتي", "المستبعدة", "المعطلة", "قنوات_معطلة", "audit", "check_channels", "قنوات_مستبعدة"]:
+                await handle_فحص_القنوات(message)
             elif cmd_clean in ["جدول_حملات", "جدول-حملات", "قنوات_الحملة", "قنوات_الحمله", "اهداف", "أهداف", "targets", "اهداف_الحملة", "أهداف_الحملة", "اهداف_الحمله", "اهداف_الفولدر"]:
                 await handle_جدول_حملات(message)
             elif cmd_clean in ["مسح_المهام", "مسح-المهام", "مسح_الجدول", "مسح-الجدول", "مسح_جدول", "مسح-جدول", "clear_jobs", "clear-jobs", "clear_tasks", "clear-tasks", "cancel_jobs", "cancel-jobs", "الغاء_المهام", "إلغاء_المهام", "تفريغ_الجدول"]:
@@ -5039,14 +5238,41 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
                 except Exception:
                     pass
                 
-            report = ["👑 **دليل القنوات والجروبات التي تديرها بحسابك:**\n"]
+            raw_banned = await redis_client.get(f"tenant:{tenant_id}:banned")
+            banned_ids = set(json.loads(raw_banned)) if raw_banned else set()
+            raw_no_post = await redis_client.get(f"tenant:{tenant_id}:no_post")
+            no_post_ids = set(json.loads(raw_no_post)) if raw_no_post else set()
+            raw_campaign = await redis_client.get(f"tenant:{tenant_id}:campaign")
+            campaign_ids = set(json.loads(raw_campaign)) if raw_campaign else set()
+            excluded_folder_ids = banned_ids | no_post_ids
+
+            writable_channels = [c for c in channels if c.get("can_send", True) is not False]
+            eligible_campaign_channels = [c for c in writable_channels if c["id"] not in excluded_folder_ids]
+            restricted_channels = [c for c in channels if c.get("can_send", True) is False]
+
+            report = [
+                f"👑 **دليل وتحليل قنوات وجروبات حسابك:**\n"
+                f"• إجمالي القنوات بالكاش: `{len(channels)}` قناة\n"
+                f"• القنوات الصالحة للنشر (المتاحة للحملات): `{len(eligible_campaign_channels)}` قناة ✅\n"
+                f"• مستبعدة بمجلد الاستثناءات (`No_Post`): `{len(no_post_ids)}` قناة 🚫\n"
+                f"• مستبعدة بمجلد الحظر (`BANNED`): `{len(banned_ids)}` قناة ⛔\n"
+                f"• مقيدة (سحب صلاحيات النشر من قِبل المالك): `{len(restricted_channels)}` قناة ⚠️\n"
+                f"• قنوات مجلد الحملات (`Campaign`): `{len(campaign_ids)}` قناة 🎯\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+            ]
             for idx, ch in enumerate(channels, 1):
                 link_text = f"[رابط الدخول]({ch['invite_link']})" if ch.get('invite_link') else f"لا يوجد رابط (معرف الحساب: `{ch['id']}`)"
                 status_role = "مالك 👑" if ch.get("is_creator", False) else ("مشرف 🛠️" if ch.get("is_admin", False) else "عضو 📝")
+                tags = []
+                if ch["id"] in banned_ids: tags.append("⛔ محظورة BANNED")
+                if ch["id"] in no_post_ids: tags.append("🚫 استثناء No_Post")
+                if ch["id"] in campaign_ids: tags.append("🎯 مجلد الحملات")
+                if ch.get("can_send", True) is False: tags.append("⚠️ مقيدة النشر")
+                tag_line = f"\n   • التصنيف: `{' | '.join(tags)}`" if tags else ""
                 report.append(
-                    f"{idx}. **{ch['title']}**\n"
+                    f"{idx}. **{ch['title']}**{tag_line}\n"
                     f"   • الحالة: `{status_role}`\n"
-                    f"   • صلاحية النشر: {'نعم ✅' if ch.get('can_send', True) else 'لا ❌ (معطلة)'}\n"
+                    f"   • صلاحية النشر: {'نعم ✅' if ch.get('can_send', True) else 'لا ❌ (معطلة من المالك)'}\n"
                     f"   • صلاحية الحذف: {'نعم ✅' if ch.get('can_delete', True) else 'لا ❌ (معطلة)'}\n"
                     f"   • الأعضاء: `{ch.get('members_count', 0):,}`\n"
                     f"   • الرابط: {link_text}\n"
@@ -5056,6 +5282,64 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
         except Exception as e:
             logger.error(f"Error in admin channels map: {e}")
             await message.reply_text(f"❌ **فشل عرض دليل القنوات: {e}**")
+
+    async def handle_فحص_القنوات(message: Message):
+        try:
+            channels = await get_channels_cache(tenant_id)
+            if not channels:
+                await crawl_and_cache_tenant_channels(tenant_id, client)
+                channels = await get_channels_cache(tenant_id)
+            if not channels:
+                await message.reply_text("❌ **تعذر جلب قنوات الحساب حالياً.**")
+                return
+
+            raw_banned = await redis_client.get(f"tenant:{tenant_id}:banned")
+            banned_ids = set(json.loads(raw_banned)) if raw_banned else set()
+            raw_no_post = await redis_client.get(f"tenant:{tenant_id}:no_post")
+            no_post_ids = set(json.loads(raw_no_post)) if raw_no_post else set()
+            raw_campaign = await redis_client.get(f"tenant:{tenant_id}:campaign")
+            campaign_ids = set(json.loads(raw_campaign)) if raw_campaign else set()
+            excluded_folder_ids = banned_ids | no_post_ids
+
+            writable_channels = [c for c in channels if c.get("can_send", True) is not False]
+            eligible = [c for c in writable_channels if c["id"] not in excluded_folder_ids]
+            restricted = [c for c in channels if c.get("can_send", True) is False]
+            banned_list = [c for c in channels if c["id"] in banned_ids]
+            nopost_list = [c for c in channels if c["id"] in no_post_ids]
+
+            lines = [
+                f"📊 **تقرير التدقيق الشامل لقنوات الحساب وحالة النشر:**\n",
+                f"• إجمالي قنوات الحساب: `{len(channels)}` قناة",
+                f"• القنوات المؤهلة للنشر بالحملات: `{len(eligible)}` قناة ✅",
+                f"• مستبعدة بمجلد الاستثناءات (`No_Post`): `{len(no_post_ids)}` قناة 🚫",
+                f"• مستبعدة بمجلد الحظر (`BANNED`): `{len(banned_ids)}` قناة ⛔",
+                f"• مقيدة (سحب صلاحيات النشر من قِبل المالك): `{len(restricted)}` قناة ⚠️",
+                f"• قنوات مجلد الحملات (`Campaign`): `{len(campaign_ids)}` قناة 🎯\n",
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+            ]
+
+            if restricted:
+                lines.append(f"⚠️ **القنوات المقيدة (تم سحب صلاحية نشر الرسائل بواسطة مالك القناة):**")
+                for i, c in enumerate(restricted, 1):
+                    lines.append(f"{i}. **{c.get('title', 'قناة')}** (`{c.get('id')}`)")
+                lines.append("\n💡 *لتفعيل النشر في هذه القنوات، اطلب من المالك إعادة منحك صلاحية 'نشر الرسائل' (Post Messages) ثم أرسل أمر `.تحديث`.* \n")
+
+            if nopost_list:
+                lines.append(f"🚫 **القنوات المستبعدة لوجودها في مجلد الاستثناءات (`No_Post`):**")
+                for i, c in enumerate(nopost_list, 1):
+                    lines.append(f"{i}. **{c.get('title', 'قناة')}** (`{c.get('id')}`)")
+                lines.append("")
+
+            if banned_list:
+                lines.append(f"⛔ **القنوات المستبعدة لوجودها في مجلد الحظر (`BANNED`):**")
+                for i, c in enumerate(banned_list, 1):
+                    lines.append(f"{i}. **{c.get('title', 'قناة')}** (`{c.get('id')}`)")
+                lines.append("")
+
+            await reply_long_message(message, lines)
+        except Exception as e:
+            logger.error(f"Error in handle_فحص_القنوات: {e}")
+            await message.reply_text(f"❌ **حدث خطأ أثناء فحص القنوات: {e}**")
 
     async def handle_الجدول(message: Message):
         try:
@@ -5336,6 +5620,7 @@ def register_tenant_command_handlers(tenant_id: int, client: Client):
             "• `.المهام` : لعرض قائمة المهام والحملات المجدولة بالانتظار.\n\n"
             "• `.جدول_حملات` : لعرض أهداف ومجلدات الحملات النشطة.\n\n"
             "• `.ادمن` : لعرض القنوات والجروبات التي تمتلك فيها صلاحية مشرف.\n\n"
+            "• `.فحص_القنوات` : لتدقيق قنوات الحساب وعرض القنوات المقيدة والمستبعدة مع الأسباب.\n\n"
             "• `.اولويات` : لعرض قائمة ترتيب وتفاعل القنوات.\n\n"
             "• `.لوجز` : لجلب ملف السجلات الحية لعمليات البوت.\n\n"
             "🧹 **أوامر التنظيف والحذف:**\n"
@@ -6533,7 +6818,7 @@ async def trigger_manual_wave(tenant_id: int, status_msg: Optional[Message] = No
             from cache_manager import redis_client
             async with AsyncSessionLocal() as session:
                 db_life = await get_setting(session, tenant_id, "ad_lifespan")
-                ad_lifespan = int(db_life) if db_life else 1500
+                ad_lifespan = int(db_life) if db_life else 900  # Default 15 minutes (900 seconds)
                 db_wave = await get_setting(session, tenant_id, "wave_interval")
                 wave_interval = int(db_wave) if db_wave else 420
                 channels = await get_channels_cache(tenant_id)
@@ -6565,7 +6850,7 @@ async def trigger_manual_wave(tenant_id: int, status_msg: Optional[Message] = No
             if folder_only == "campaign":
                 raw_campaign = await redis_client.get(f"tenant:{tenant_id}:campaign")
                 campaign_ids = set(json.loads(raw_campaign)) if raw_campaign else set()
-                available_channels = [ch for ch in channels if ch["id"] in campaign_ids and ch["id"] not in exclude_ids]
+                available_channels = [ch for ch in channels if ch["id"] in campaign_ids and ch["id"] not in exclude_ids and ch.get("can_send", True) is not False]
                 logger.info(f"Available channels inside folder 'حملات' after filtering: {len(available_channels)}")
                 if len(available_channels) < 2:
                     logger.warning("Folder 'حملات' has fewer than 2 channels for cross post.")
@@ -6573,7 +6858,7 @@ async def trigger_manual_wave(tenant_id: int, status_msg: Optional[Message] = No
                         await edit_or_reply(status_msg, "⚠️ **فشل التبادل العشوائي لمجلد حملات: يجب توفر قناتين على الأقل داخل مجلد 'حملات' صالحتين للنشر.**")
                     return
             else:
-                available_channels = [ch for ch in channels if ch["id"] not in exclude_ids]
+                available_channels = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True) is not False]
                 logger.info(f"Available channels after filtering exclusions: {len(available_channels)}")
 
             random.shuffle(available_channels)
@@ -6805,7 +7090,7 @@ async def wave_publisher_worker(tenant_id: int):
                     
             async with AsyncSessionLocal() as session:
                 db_life = await get_setting(session, tenant_id, "ad_lifespan")
-                ad_lifespan = int(db_life) if db_life else 1500
+                ad_lifespan = int(db_life) if db_life else 900  # Default 15 minutes (900 seconds)
                 
                 channels = await get_channels_cache(tenant_id)
                 blacklist = await get_blacklist_for_tenant(session, tenant_id)
@@ -6829,9 +7114,9 @@ async def wave_publisher_worker(tenant_id: int):
             if db_folder_mode == "campaign":
                 raw_campaign = await redis_client.get(f"tenant:{tenant_id}:campaign")
                 campaign_ids = set(json.loads(raw_campaign)) if raw_campaign else set()
-                available_channels = [ch for ch in channels if ch["id"] in campaign_ids and ch["id"] not in exclude_ids]
+                available_channels = [ch for ch in channels if ch["id"] in campaign_ids and ch["id"] not in exclude_ids and ch.get("can_send", True) is not False]
             else:
-                available_channels = [ch for ch in channels if ch["id"] not in exclude_ids]
+                available_channels = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True) is not False]
 
             random.shuffle(available_channels)
             batch_size = len(available_channels) if len(available_channels) % 2 == 0 else len(available_channels) - 1
@@ -6878,13 +7163,22 @@ async def wave_publisher_worker(tenant_id: int):
             await asyncio.sleep(60)
         await asyncio.sleep(15)
 
-async def sweep_single_channel(client: Client, ch: Union[dict, int], known_msg_ids: set, sticker_unique_id: Optional[str], me, ad_keywords: list) -> int:
+async def sweep_single_channel(
+    client: Client, 
+    ch: Union[dict, int], 
+    known_msg_ids: set, 
+    sticker_unique_id: Optional[str], 
+    me, 
+    ad_keywords: list,
+    target_ids: Optional[set] = None
+) -> int:
     cid = ch["id"] if isinstance(ch, dict) else ch
     is_creator = ch.get("is_creator", False) if isinstance(ch, dict) else False
     is_group = ch.get("is_group", False) if isinstance(ch, dict) else False
     is_broadcast = ch.get("is_broadcast", not is_group) if isinstance(ch, dict) else True
     ch_username = (ch.get("username") or "").lower().lstrip("@") if isinstance(ch, dict) else ""
     ch_invite_link = (ch.get("invite_link") or "").lower() if isinstance(ch, dict) else ""
+    is_target = bool(target_ids and cid in target_ids)
 
     my_names = []
     if me:
@@ -6967,13 +7261,42 @@ async def sweep_single_channel(client: Client, ch: Union[dict, int], known_msg_i
                     h_idx += 1
                     continue
 
-                # 4. Ad Detection Logic (Automated & Manual Cross-Promotions sent by user):
+                # 4. CREATOR & TARGET CHANNELS IMMUNITY (حل شكوى فاتن الجذري والأكيد):
+                # If channel belongs to our user (is_creator) OR is a TARGET channel being promoted:
+                # ONLY delete messages that were recorded in database by the bot as automated ads (known_msg_ids).
+                # NEVER use heuristic keyword matching to delete owner content, signals, or messages!
+                if is_creator or is_target:
+                    if (cid, msg.id) in known_msg_ids:
+                        to_delete.add(msg.id)
+                    h_idx += 1
+                    continue
+
+                # 5. DEAL & SIGNAL IMMUNITY IN HOST CHANNELS (حماية صفقات وتحليلات المستخدم):
+                # If message contains trading signals/deal terms (buy, sell, tp, sl, etc.) and NO external channel invite link,
+                # it is a genuine trading signal or market update and MUST NEVER be deleted!
+                text_content = (msg.text or msg.caption or "").lower()
+                deal_terms = [
+                    "شراء", "بيع", "buy", "sell", "هدف", "أهداف", "tp", "sl", "وقف خسارة", 
+                    "ستوب", "نقطة", "دخول", "xauusd", "eurusd", "gbpusd", "us30", "nasdaq", 
+                    "لوت", "lot", "شارت", "مقاومة", "دعم", "عقد"
+                ]
+                has_deal_terms = any(term in text_content for term in deal_terms)
+                has_external_invite = bool(
+                    "t.me/+" in text_content or 
+                    "t.me/joinchat" in text_content or 
+                    "telegram.me/+" in text_content
+                )
+                if has_deal_terms and not has_external_invite and (cid, msg.id) not in known_msg_ids:
+                    h_idx += 1
+                    continue
+
+                # 6. Ad Detection Logic (Automated & Manual Cross-Promotions sent by user in other host channels):
                 # Check A: Automated ad recorded in database (ActiveAd / PublishLog)
                 if (cid, msg.id) in known_msg_ids:
                     is_ad = True
                 
-                # Check B: Unique ad sticker sent by user
-                elif msg.sticker and sticker_unique_id and msg.sticker.file_unique_id == sticker_unique_id:
+                # Check B: Unique ad sticker sent by user (STRICT file_unique_id matching)
+                elif msg.sticker and sticker_unique_id and getattr(msg.sticker, "file_unique_id", None) == sticker_unique_id:
                     is_ad = True
                 
                 # Check C: Forwarded from another channel (Manual cross-promotion forward)
@@ -7013,7 +7336,6 @@ async def sweep_single_channel(client: Client, ch: Union[dict, int], known_msg_i
 
                 # Check E: External Telegram Channel Links / Invites in text or entities (Manual Ads)
                 if not is_ad:
-                    text_content = (msg.text or msg.caption or "").lower()
                     if text_content and not msg.sticker:
                         # Extract all URLs from plaintext and MessageEntities (hyperlinks)
                         all_urls = []
@@ -7028,11 +7350,11 @@ async def sweep_single_channel(client: Client, ch: Union[dict, int], known_msg_i
                                 all_urls.append(clean_p)
 
                         # 1. Check for private invite link to another channel (t.me/+ or t.me/joinchat)
-                        has_external_invite = False
+                        has_ext_invite = False
                         for u in all_urls:
                             if "t.me/+" in u or "t.me/joinchat" in u or "telegram.me/+" in u:
                                 if not (ch_invite_link and ch_invite_link in u):
-                                    has_external_invite = True
+                                    has_ext_invite = True
                                     break
                         
                         # 2. Check for public external Telegram channel link
@@ -7060,7 +7382,7 @@ async def sweep_single_channel(client: Client, ch: Union[dict, int], known_msg_i
                         
                         # Decision:
                         # Private invite to another channel -> 100% Exchange Ad!
-                        if has_external_invite:
+                        if has_ext_invite:
                             is_ad = True
                         # External public TG channel / mention + promotional context -> Exchange Ad!
                         elif (has_external_tg or has_external_mention) and (has_ad_kw or has_ad_emoji):
@@ -7073,6 +7395,7 @@ async def sweep_single_channel(client: Client, ch: Union[dict, int], known_msg_i
                 if is_ad:
                     to_delete.add(msg.id)
                     # Check paired sticker (pre-ad sticker at h_idx + 1, or post-ad sticker at h_idx - 1)
+                    # STRICT: only delete paired sticker if it matches user's specific exchange ad sticker!
                     if h_idx + 1 < len(history):
                         older_msg = history[h_idx + 1]
                         older_is_my = (
@@ -7083,8 +7406,8 @@ async def sweep_single_channel(client: Client, ch: Union[dict, int], known_msg_i
                         )
                         if pinned_msg_id and older_msg.id == pinned_msg_id:
                             pass
-                        elif older_msg.sticker and older_is_my:
-                            if not sticker_unique_id or getattr(older_msg.sticker, "file_unique_id", None) == sticker_unique_id:
+                        elif older_msg.sticker and older_is_my and sticker_unique_id:
+                            if getattr(older_msg.sticker, "file_unique_id", None) == sticker_unique_id:
                                 to_delete.add(older_msg.id)
                     if h_idx - 1 >= 0:
                         newer_msg = history[h_idx - 1]
@@ -7096,8 +7419,8 @@ async def sweep_single_channel(client: Client, ch: Union[dict, int], known_msg_i
                         )
                         if pinned_msg_id and newer_msg.id == pinned_msg_id:
                             pass
-                        elif newer_msg.sticker and newer_is_my:
-                            if not sticker_unique_id or getattr(newer_msg.sticker, "file_unique_id", None) == sticker_unique_id:
+                        elif newer_msg.sticker and newer_is_my and sticker_unique_id:
+                            if getattr(newer_msg.sticker, "file_unique_id", None) == sticker_unique_id:
                                 to_delete.add(newer_msg.id)
                                 
                 h_idx += 1
@@ -7324,7 +7647,8 @@ async def run_clear_logic(tenant_id: int, client: Client, reply_to_message: Opti
             stmt = select(ActiveAd).where(ActiveAd.telegram_account_id == tenant_id)
             ads = (await session.execute(stmt)).scalars().all()
             
-        all_excluded_ids = set(live_no_post) | set(redis_no_post_ids) | set(banned_ids) | set(blacklist_ids)
+        # Ensure all active ads are eligible for cleanup, only skipping DB blacklist if needed
+        all_excluded_ids = set(blacklist_ids)
         
         # Skip ads in channels that are in No_Post, Banned, or Blacklist
         ads = [ad for ad in ads if ad.chat_id not in all_excluded_ids]
@@ -7432,7 +7756,23 @@ async def run_clear_logic(tenant_id: int, client: Client, reply_to_message: Opti
         except Exception as db_e:
             logger.error(f"Error fetching known message IDs from DB in run_clear_logic: {db_e}")
 
+        # Fetch current user info for signature matching
         me = client.me or await client.get_me()
+
+        # Load active/campaign target IDs for creator & target channels immunity
+        target_ids = set()
+        try:
+            from cache_manager import redis_client
+            raw_campaign = await redis_client.get(f"tenant:{tenant_id}:campaign")
+            if raw_campaign:
+                target_ids.update(json.loads(raw_campaign))
+            raw_active_state = await redis_client.get(f"tenant:{tenant_id}:active_campaign_state")
+            if raw_active_state:
+                state_data = json.loads(raw_active_state)
+                if "campaign_ids" in state_data:
+                    target_ids.update(state_data["campaign_ids"])
+        except Exception as te:
+            logger.debug(f"Failed to load target_ids in clear logic: {te}")
 
         if total_ch > 0:
             sem = asyncio.Semaphore(10)
@@ -7441,7 +7781,7 @@ async def run_clear_logic(tenant_id: int, client: Client, reply_to_message: Opti
             async def sem_sweep(ch):
                 nonlocal completed_count, scanned_del
                 async with sem:
-                    deleted = await sweep_single_channel(client, ch, known_msg_ids, sticker_unique_id, me, ad_keywords)
+                    deleted = await sweep_single_channel(client, ch, known_msg_ids, sticker_unique_id, me, ad_keywords, target_ids=target_ids)
                     scanned_del += deleted
                     completed_count += 1
                     if completed_count % 5 == 0 or completed_count == total_ch:
@@ -7591,7 +7931,8 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
             ads = (await session.execute(stmt_ads)).scalars().all()
             await session.commit()
             
-        all_excluded_ids = set(live_no_post) | set(redis_no_post_ids) | set(banned_ids) | set(blacklist_ids)
+        # Ensure all active ads are eligible for cleanup, only skipping DB blacklist if needed
+        all_excluded_ids = set(blacklist_ids)
             
         # Skip ads in channels that are in No_Post, Banned, or Blacklist
         ads = [ad for ad in ads if ad.chat_id not in all_excluded_ids]
@@ -7693,6 +8034,21 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
         # Fetch current user info for signature matching
         me = client.me or await client.get_me()
 
+        # Load active/campaign target IDs for creator & target channels immunity
+        target_ids = set()
+        try:
+            from cache_manager import redis_client
+            raw_campaign = await redis_client.get(f"tenant:{tenant_id}:campaign")
+            if raw_campaign:
+                target_ids.update(json.loads(raw_campaign))
+            raw_active_state = await redis_client.get(f"tenant:{tenant_id}:active_campaign_state")
+            if raw_active_state:
+                state_data = json.loads(raw_active_state)
+                if "campaign_ids" in state_data:
+                    target_ids.update(state_data["campaign_ids"])
+        except Exception as te:
+            logger.debug(f"Failed to load target_ids in deep clear logic: {te}")
+
         if total_ch > 0:
             sem = asyncio.Semaphore(10)
             completed_count = 0
@@ -7700,7 +8056,7 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
             async def sem_sweep(ch):
                 nonlocal completed_count, wiped_count
                 async with sem:
-                    deleted = await sweep_single_channel(client, ch, known_msg_ids, sticker_unique_id, me, ad_keywords)
+                    deleted = await sweep_single_channel(client, ch, known_msg_ids, sticker_unique_id, me, ad_keywords, target_ids=target_ids)
                     wiped_count += deleted
                     completed_count += 1
                     if completed_count % 5 == 0 or completed_count == total_ch:
@@ -8525,91 +8881,101 @@ async def global_cleaner_worker():
                     for ad in expired_ads
                 ]
 
-            deleted_by_tenant = {}
+            from collections import defaultdict
+            ads_by_tenant = defaultdict(list)
             for ad_data in ads_snapshot:
-                tenant_id   = ad_data["telegram_account_id"]
-                chat_id     = ad_data["chat_id"]
-                msg_id      = ad_data["msg_id"]
-                sticker_id  = ad_data["sticker_msg_id"]
-                ad_id       = ad_data["id"]
+                ads_by_tenant[ad_data["telegram_account_id"]].append(ad_data)
 
+            deleted_by_tenant = {}
+            for tenant_id, tenant_ads in ads_by_tenant.items():
                 client = running_clients.get(tenant_id)
-                telegram_deleted = False
-
-                if client and client.is_connected:
-                    try:
-                        ids_to_delete = [msg_id]
-                        if sticker_id:
-                            ids_to_delete.append(sticker_id)
-                        await client.delete_messages(chat_id=chat_id, message_ids=ids_to_delete)
-                        telegram_deleted = True
-                        await log_tenant_event(tenant_id, f"🗑️ تم مسح إعلان منتهي (msg {msg_id}) من قناة {chat_id}")
-                    except FloodWait as fw:
-                        # Rate limit - keep in DB and retry next time
-                        telegram_deleted = False
-                        logger.warning(f"[Cleaner] FloodWait deleting msg {msg_id} from chat {chat_id} for tenant {tenant_id} (wait {fw.value}s). Will retry later.")
-                    except RPCError as rpc_err:
-                        err_code = getattr(rpc_err, "CODE", None) or getattr(rpc_err, "code", None) or 400
-                        err_str = str(rpc_err).upper()
-                        if "MESSAGE_ID_INVALID" in err_str:
-                            telegram_deleted = True
-                            logger.info(f"[Cleaner] Message {msg_id} already deleted on Telegram.")
-                        elif any(x in err_str for x in ["MESSAGE_DELETE_FORBIDDEN", "CHAT_ADMIN_REQUIRED"]):
-                            telegram_deleted = False
-                            logger.warning(f"[Cleaner] Permission forbidden deleting msg {msg_id} from chat {chat_id} (code {err_code}): {rpc_err}.")
-                            await handle_deletion_error_and_clean_cache(tenant_id, chat_id, rpc_err)
-                            try:
-                                async with AsyncSessionLocal() as del_session:
-                                    # update already imported globally
-                                    await del_session.execute(
-                                        update(PublishLog)
-                                        .where(
-                                            PublishLog.telegram_account_id == tenant_id,
-                                            PublishLog.chat_id == chat_id,
-                                            PublishLog.msg_id == msg_id,
-                                            PublishLog.status == "active"
-                                        )
-                                        .values(status="delete_forbidden")
-                                    )
-                                    stmt = select(ActiveAd).where(ActiveAd.id == ad_id, ActiveAd.telegram_account_id == tenant_id)
-                                    target_ad = (await del_session.execute(stmt)).scalar_one_or_none()
-                                    if target_ad:
-                                        await del_session.delete(target_ad)
-                                    await del_session.commit()
-                            except Exception as db_err:
-                                logger.error(f"[Cleaner] Failed to handle delete_forbidden record: {db_err}")
-                        elif any(x in err_str for x in [
-                            "CHANNEL_INVALID", 
-                            "CHANNEL_PRIVATE", 
-                            "CHAT_WRITE_FORBIDDEN", 
-                            "USER_BANNED_IN_CHANNEL",
-                            "CHAT_ID_INVALID"
-                        ]):
-                            telegram_deleted = True
-                            logger.info(f"[Cleaner] Channel inaccessible on Telegram (code {err_code}): {rpc_err}. Marked as deleted in DB.")
-                        else:
-                            telegram_deleted = False
-                            logger.warning(f"[Cleaner] Permission or temporary RPCError deleting msg {msg_id} from chat {chat_id} (code {err_code}): {rpc_err}. Will retry later.")
-                    except Exception as e:
-                        logger.warning(f"[Cleaner] Failed to delete msg {msg_id} from chat {chat_id} for tenant {tenant_id}: {e}")
-                        telegram_deleted = False
-                else:
-                    telegram_deleted = False
+                if not client or not client.is_connected:
                     try:
                         async with AsyncSessionLocal() as session:
                             from db_manager import purge_stale_abandoned_ads
                             await purge_stale_abandoned_ads(session)
                     except Exception:
                         pass
-                    logger.warning(f"[Cleaner] Client for tenant {tenant_id} is not running or connected. Skipping deletion of expired ad {ad_id} for now.")
+                    logger.warning(f"[Cleaner] Client for tenant {tenant_id} is not connected. Skipping {len(tenant_ads)} expired ads for now.")
+                    continue
 
-                if telegram_deleted:
-                    deleted_by_tenant[tenant_id] = deleted_by_tenant.get(tenant_id, 0) + 1
+                # Run deletions concurrently for this tenant with Semaphore(5)
+                sem = asyncio.Semaphore(5)
+                successful_ad_ids = []
+
+                async def process_ad_deletion(ad_data):
+                    chat_id = ad_data["chat_id"]
+                    msg_id = ad_data["msg_id"]
+                    sticker_id = ad_data["sticker_msg_id"]
+                    ad_id = ad_data["id"]
+                    async with sem:
+                        telegram_deleted = False
+                        try:
+                            ids_to_delete = [msg_id]
+                            if sticker_id:
+                                ids_to_delete.append(sticker_id)
+                            await client.delete_messages(chat_id=chat_id, message_ids=ids_to_delete)
+                            telegram_deleted = True
+                            await log_tenant_event(tenant_id, f"🗑️ تم مسح إعلان منتهي (msg {msg_id}) من قناة {chat_id}")
+                        except FloodWait as fw:
+                            logger.warning(f"[Cleaner] FloodWait deleting msg {msg_id} (wait {fw.value}s).")
+                        except RPCError as rpc_err:
+                            err_code = getattr(rpc_err, "CODE", None) or getattr(rpc_err, "code", None) or 400
+                            err_str = str(rpc_err).upper()
+                            if "MESSAGE_ID_INVALID" in err_str:
+                                telegram_deleted = True
+                                logger.info(f"[Cleaner] Message {msg_id} already deleted on Telegram.")
+                            elif any(x in err_str for x in ["MESSAGE_DELETE_FORBIDDEN", "CHAT_ADMIN_REQUIRED"]):
+                                telegram_deleted = False
+                                await handle_deletion_error_and_clean_cache(tenant_id, chat_id, rpc_err)
+                                try:
+                                    async with AsyncSessionLocal() as del_session:
+                                        await del_session.execute(
+                                            update(PublishLog)
+                                            .where(
+                                                PublishLog.telegram_account_id == tenant_id,
+                                                PublishLog.chat_id == chat_id,
+                                                PublishLog.msg_id == msg_id,
+                                                PublishLog.status == "active"
+                                            )
+                                            .values(status="delete_forbidden")
+                                        )
+                                        stmt = select(ActiveAd).where(ActiveAd.id == ad_id, ActiveAd.telegram_account_id == tenant_id)
+                                        target_ad = (await del_session.execute(stmt)).scalar_one_or_none()
+                                        if target_ad:
+                                            await del_session.delete(target_ad)
+                                        await del_session.commit()
+                                except Exception as db_err:
+                                    logger.error(f"[Cleaner] Failed to handle delete_forbidden record: {db_err}")
+                            elif any(x in err_str for x in [
+                                "CHANNEL_INVALID", 
+                                "CHANNEL_PRIVATE", 
+                                "CHAT_WRITE_FORBIDDEN", 
+                                "USER_BANNED_IN_CHANNEL",
+                                "CHAT_ID_INVALID"
+                            ]):
+                                telegram_deleted = True
+                                logger.info(f"[Cleaner] Channel inaccessible on Telegram (code {err_code}): {rpc_err}. Marked as deleted in DB.")
+                            else:
+                                logger.warning(f"[Cleaner] Temporary RPCError on msg {msg_id}: {rpc_err}")
+                        except Exception as e:
+                            logger.warning(f"[Cleaner] Failed to delete msg {msg_id} in {chat_id}: {e}")
+
+                        if telegram_deleted:
+                            successful_ad_ids.append(ad_id)
+
+                await asyncio.gather(*(process_ad_deletion(ad) for ad in tenant_ads))
+
+                if successful_ad_ids:
+                    deleted_by_tenant[tenant_id] = len(successful_ad_ids)
                     try:
                         async with AsyncSessionLocal() as del_session:
-                            await remove_ad_record(del_session, ad_id, tenant_id)
+                            await del_session.execute(
+                                delete(ActiveAd).where(ActiveAd.id.in_(successful_ad_ids))
+                            )
+                            await del_session.commit()
                     except Exception as e:
-                        logger.error(f"[Cleaner] Failed to remove DB record for ad {ad_id}: {e}")
+                        logger.error(f"[Cleaner] Failed to batch remove DB records for tenant {tenant_id}: {e}")
 
                     # Task completion check moved globally outside the loop
 
@@ -8731,7 +9097,8 @@ async def global_cleaner_worker():
         except Exception as e:
             logger.error(f"[Cleaner] Unexpected error in global_cleaner_worker: {e}")
 
-        await asyncio.sleep(15)
+        # High-frequency precision check every 5 seconds (eliminates ad lifespan lag)
+        await asyncio.sleep(5)
 
 
 async def dispatch_worker_broadcast(
@@ -9460,7 +9827,6 @@ async def subscription_lifecycle_worker():
                     # STRICT SECURITY GUARD: Never touch pending_approval or banned accounts!
                     if user.subscription_status in ("pending_approval", "banned") or not user.is_active:
                         continue
-
                     sub_end = user.subscription_end
                     if sub_end.tzinfo is None:
                         sub_end = sub_end.replace(tzinfo=timezone.utc)

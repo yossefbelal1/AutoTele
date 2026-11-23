@@ -86,6 +86,7 @@ services:
       - ./main_api.py:/app/main_api.py:ro
       - ./db_manager.py:/app/db_manager.py:ro
       - ./cache_manager.py:/app/cache_manager.py:ro
+      - ./permutation_ad_engine.py:/app/permutation_ad_engine.py:ro
       - ./uploads:/app/uploads:rw
     command: uvicorn main_api:app --host 0.0.0.0 --port 8000
     ports:
@@ -149,6 +150,7 @@ services:
       - ./db_manager.py:/app/db_manager.py:ro
       - ./cache_manager.py:/app/cache_manager.py:ro
       - ./status_bot.py:/app/status_bot.py:ro
+      - ./permutation_ad_engine.py:/app/permutation_ad_engine.py:ro
       - ./uploads:/app/uploads:rw
     networks:
       - teleauto_internal_network
