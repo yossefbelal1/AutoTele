@@ -7213,16 +7213,17 @@ async def sweep_single_channel(
                 
             pinned_msg_id = None
             nonlocal ch_username, ch_invite_link
-            try:
-                chat = await client.get_chat(cid)
-                if chat.pinned_message:
-                    pinned_msg_id = chat.pinned_message.id
-                if not ch_username and chat.username:
-                    ch_username = chat.username.lower().lstrip("@")
-                if not ch_invite_link and chat.invite_link:
-                    ch_invite_link = chat.invite_link.lower()
-            except Exception as e:
-                logger.debug(f"Failed to fetch chat details for channel {cid}: {e}")
+            if not is_creator and not is_target:
+                try:
+                    chat = await client.get_chat(cid)
+                    if chat.pinned_message:
+                        pinned_msg_id = chat.pinned_message.id
+                    if not ch_username and chat.username:
+                        ch_username = chat.username.lower().lstrip("@")
+                    if not ch_invite_link and chat.invite_link:
+                        ch_invite_link = chat.invite_link.lower()
+                except Exception as e:
+                    logger.debug(f"Failed to fetch chat details for channel {cid}: {e}")
 
             to_delete = set()
             h_idx = 0
@@ -7775,12 +7776,14 @@ async def run_clear_logic(tenant_id: int, client: Client, reply_to_message: Opti
             logger.debug(f"Failed to load target_ids in clear logic: {te}")
 
         if total_ch > 0:
-            sem = asyncio.Semaphore(10)
+            # Calm, human-like concurrency (3 channels at a time prevents FloodWait)
+            sem = asyncio.Semaphore(3)
             completed_count = 0
             
             async def sem_sweep(ch):
                 nonlocal completed_count, scanned_del
                 async with sem:
+                    await asyncio.sleep(0.3)
                     deleted = await sweep_single_channel(client, ch, known_msg_ids, sticker_unique_id, me, ad_keywords, target_ids=target_ids)
                     scanned_del += deleted
                     completed_count += 1
@@ -8050,12 +8053,14 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
             logger.debug(f"Failed to load target_ids in deep clear logic: {te}")
 
         if total_ch > 0:
-            sem = asyncio.Semaphore(10)
+            # Calm, human-like concurrency (3 channels at a time prevents FloodWait)
+            sem = asyncio.Semaphore(3)
             completed_count = 0
             
             async def sem_sweep(ch):
                 nonlocal completed_count, wiped_count
                 async with sem:
+                    await asyncio.sleep(0.3)
                     deleted = await sweep_single_channel(client, ch, known_msg_ids, sticker_unique_id, me, ad_keywords, target_ids=target_ids)
                     wiped_count += deleted
                     completed_count += 1
@@ -8899,8 +8904,8 @@ async def global_cleaner_worker():
                     logger.warning(f"[Cleaner] Client for tenant {tenant_id} is not connected. Skipping {len(tenant_ads)} expired ads for now.")
                     continue
 
-                # Run deletions concurrently for this tenant with Semaphore(5)
-                sem = asyncio.Semaphore(5)
+                # Run deletions concurrently with safe human-like pacing (Semaphore 4 + 0.4s buffer)
+                sem = asyncio.Semaphore(4)
                 successful_ad_ids = []
 
                 async def process_ad_deletion(ad_data):
@@ -8911,6 +8916,8 @@ async def global_cleaner_worker():
                     async with sem:
                         telegram_deleted = False
                         try:
+                            # Safe human pacing buffer (< 2.5 requests/sec prevents MTProto FloodWait)
+                            await asyncio.sleep(0.4)
                             ids_to_delete = [msg_id]
                             if sticker_id:
                                 ids_to_delete.append(sticker_id)
@@ -8918,7 +8925,8 @@ async def global_cleaner_worker():
                             telegram_deleted = True
                             await log_tenant_event(tenant_id, f"🗑️ تم مسح إعلان منتهي (msg {msg_id}) من قناة {chat_id}")
                         except FloodWait as fw:
-                            logger.warning(f"[Cleaner] FloodWait deleting msg {msg_id} (wait {fw.value}s).")
+                            logger.warning(f"[Cleaner] FloodWait deleting msg {msg_id} (wait {fw.value}s). Respecting backoff...")
+                            await asyncio.sleep(fw.value + 1)
                         except RPCError as rpc_err:
                             err_code = getattr(rpc_err, "CODE", None) or getattr(rpc_err, "code", None) or 400
                             err_str = str(rpc_err).upper()
