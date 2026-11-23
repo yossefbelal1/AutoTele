@@ -3,6 +3,8 @@ import logging
 import asyncio
 from datetime import datetime, timezone
 from typing import Optional, List
+import json
+import urllib.request
 
 from pyrogram import Client, filters
 from pyrogram.types import (
@@ -1425,15 +1427,32 @@ async def notify_user_by_tenant_id(tenant_id: int, text: str):
     logger.debug(f"Suppressed routine campaign status bot alert for tenant {tenant_id}: {text[:50]}")
     return
 
+def _send_telegram_http_message(chat_id: int, text: str) -> bool:
+    token = os.getenv("STATUS_BOT_TOKEN")
+    if not token:
+        return False
+    try:
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "Markdown"
+        }
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            res_data = json.loads(resp.read().decode("utf-8"))
+            return res_data.get("ok", False)
+    except Exception as e:
+        logger.error(f"HTTP fallback send failed to chat {chat_id}: {e}")
+        return False
+
 async def notify_user_by_id(
     user_id: int, 
     text: str, 
     media_type: Optional[str] = None, 
     media_path_or_url: Optional[str] = None
 ) -> bool:
-    if not status_bot_client or not status_bot_client.is_connected:
-        logger.warning(f"notify_user_by_id: status_bot_client is not connected. Cannot send alert to user {user_id}.")
-        return False
     try:
         async with AsyncSessionLocal() as session:
             user = (await session.execute(
@@ -1443,6 +1462,13 @@ async def notify_user_by_id(
                 logger.info(f"User {user_id} has no status_bot_chat_id configured. Skipping status bot notification.")
                 return False
 
+            chat_id = user.status_bot_chat_id
+
+            if not status_bot_client or not status_bot_client.is_connected:
+                # MTProto not ready; use direct reliable HTTP Bot API fallback
+                logger.info(f"Using HTTP Bot API fallback to deliver alert to user {user.id} (chat {chat_id})...")
+                return await asyncio.to_thread(_send_telegram_http_message, chat_id, text)
+
             caption = text or ""
             followup_text = None
             if media_type and media_path_or_url:
@@ -1451,14 +1477,14 @@ async def notify_user_by_id(
                     caption = caption[:1020] + "..."
                 try:
                     if media_type == "photo":
-                        await status_bot_client.send_photo(chat_id=user.status_bot_chat_id, photo=media_path_or_url, caption=caption)
+                        await status_bot_client.send_photo(chat_id=chat_id, photo=media_path_or_url, caption=caption)
                     elif media_type == "video":
-                        await status_bot_client.send_video(chat_id=user.status_bot_chat_id, video=media_path_or_url, caption=caption)
+                        await status_bot_client.send_video(chat_id=chat_id, video=media_path_or_url, caption=caption)
                     else:
-                        await status_bot_client.send_message(chat_id=user.status_bot_chat_id, text=caption)
+                        await status_bot_client.send_message(chat_id=chat_id, text=caption)
                     
                     if followup_text:
-                        await status_bot_client.send_message(chat_id=user.status_bot_chat_id, text=followup_text)
+                        await status_bot_client.send_message(chat_id=chat_id, text=followup_text)
                         
                     logger.info(f"Successfully sent Telegram status bot media alert ({media_type}) to user {user.id}")
                     return True
@@ -1466,21 +1492,21 @@ async def notify_user_by_id(
                     logger.error(f"Status bot failed to send media ({media_type}) to user {user.id}: {me}. Falling back to text message.")
                     if text:
                         try:
-                            await status_bot_client.send_message(chat_id=user.status_bot_chat_id, text=text)
+                            await status_bot_client.send_message(chat_id=chat_id, text=text)
                             return True
                         except Exception as te:
                             logger.error(f"Status bot text fallback also failed for user {user.id}: {te}")
-                            return False
+                            return await asyncio.to_thread(_send_telegram_http_message, chat_id, text)
                     return False
             else:
                 if text:
                     try:
-                        await status_bot_client.send_message(chat_id=user.status_bot_chat_id, text=text)
+                        await status_bot_client.send_message(chat_id=chat_id, text=text)
                         logger.info(f"Successfully sent Telegram status bot alert to user {user.id}")
                         return True
-                    except RPCError as se:
-                        logger.error(f"Status bot failed to send message to user {user.id}: {se}")
-                        return False
+                    except Exception as se:
+                        logger.error(f"Status bot MTProto failed for user {user.id}: {se}. Using HTTP fallback...")
+                        return await asyncio.to_thread(_send_telegram_http_message, chat_id, text)
                 return True
     except Exception as e:
         logger.error(f"Error in notify_user_by_id for user {user_id}: {e}")
