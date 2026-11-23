@@ -6362,7 +6362,15 @@ async def start_tenant_worker(account: TelegramAccount):
     finally:
         starting_tenants.discard(tenant_id)
 
-async def stop_tenant_worker(tenant_id: int, reason: str = 'Worker Stopped'):
+async def stop_tenant_worker(tenant_id: int, *args, reason: str = 'Worker Stopped', **kwargs):
+    # Polymorphic argument handling: support (tenant_id, reason), (tenant_id, session, reason), etc.
+    if args:
+        for a in args:
+            if isinstance(a, str):
+                reason = a
+                break
+    if "reason" in kwargs:
+        reason = kwargs["reason"]
     # Cancel all active publishing tasks (waves, campaigns) to prevent leakage
     running_tasks_list = list(active_running_tasks.get(tenant_id, []))
     for t in running_tasks_list:
