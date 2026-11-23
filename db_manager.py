@@ -131,9 +131,33 @@ class User(Base):
     proxy_username: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     proxy_password: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
+    # Security & Digital Footprint Tracking (IP, User-Agent, Device Fingerprint)
+    last_login_ip: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    registration_ip: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    last_login_ua: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    device_fingerprint: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
     telegram_accounts: Mapped[List["TelegramAccount"]] = relationship(
         "TelegramAccount", back_populates="user", cascade="all, delete-orphan"
     )
+
+class ArchivedSubscriber(Base):
+    __tablename__ = "archived_subscribers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    full_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    subscription_plan: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    subscription_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    archive_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # historical_deleted, security_blocked, trial_purged
+    phones: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    ip_addresses: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    user_agents: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    dedicated_proxy: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    subscription_end: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 class TelegramAccount(Base):
     __tablename__ = "telegram_accounts"

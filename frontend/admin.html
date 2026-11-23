@@ -16,7 +16,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
   
   <!-- CSS Stylesheet -->
-  <link rel="stylesheet" href="/style.css?v=6.1.0">
+  <link rel="stylesheet" href="/style.css?v=6.2.0">
 </head>
 <body class="admin-body">
 
@@ -504,31 +504,39 @@
               </div>
             </div>
 
-            <!-- Smart Triage Filter Chips -->
+            <!-- Smart Triage Filter Chips (مقسمة ومنظمة باحترافية تامة) -->
             <div class="admin-triage-chips" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;">
               <button type="button" class="triage-chip active" data-filter="all" onclick="setAdminUserFilter('all')">
-                <span>الكل</span>
+                <span>الكل (شامل الأرشيف)</span>
                 <span class="chip-count" id="triage-count-all">0</span>
+              </button>
+              <button type="button" class="triage-chip" data-filter="live" onclick="setAdminUserFilter('live')" style="border-color: rgba(56, 189, 248, 0.35); color: #38bdf8;">
+                <span>المشتركين الحاليين 👥</span>
+                <span class="chip-count" id="triage-count-live">0</span>
               </button>
               <button type="button" class="triage-chip chip-warning" data-filter="pending" onclick="setAdminUserFilter('pending')" style="border-color: rgba(245, 158, 11, 0.4); color: #fbbf24;">
                 <span>طلبات بانتظار الموافقة 🔔</span>
                 <span class="chip-count" id="triage-count-pending">0</span>
               </button>
+              <button type="button" class="triage-chip" data-filter="archive" onclick="setAdminUserFilter('archive')" style="border-color: rgba(148, 163, 184, 0.4); color: #94a3b8;">
+                <span>الأرشيف والمحذوفين 🗄️</span>
+                <span class="chip-count" id="triage-count-archive">0</span>
+              </button>
+              <button type="button" class="triage-chip chip-danger" data-filter="security" onclick="setAdminUserFilter('security')" style="border-color: rgba(239, 68, 68, 0.4); color: #f87171;">
+                <span>الرقابة الأمنية والمحاولات المشبوهة 🛡️</span>
+                <span class="chip-count" id="triage-count-security">0</span>
+              </button>
               <button type="button" class="triage-chip chip-danger" data-filter="problem" onclick="setAdminUserFilter('problem')">
-                <span>مشاكل وتحذيرات 🔴</span>
+                <span>مشاكل وتحذيرات ⚠️</span>
                 <span class="chip-count" id="triage-count-problem">0</span>
               </button>
               <button type="button" class="triage-chip chip-warning" data-filter="expiring" onclick="setAdminUserFilter('expiring')">
-                <span>تنتهي خلال 3 أيام 🟡</span>
+                <span>تنتهي خلال 3 أيام ⏳</span>
                 <span class="chip-count" id="triage-count-expiring">0</span>
               </button>
               <button type="button" class="triage-chip chip-success" data-filter="running" onclick="setAdminUserFilter('running')">
                 <span>ينشرون حالياً 🟢</span>
                 <span class="chip-count" id="triage-count-running">0</span>
-              </button>
-              <button type="button" class="triage-chip chip-neutral" data-filter="unlinked" onclick="setAdminUserFilter('unlinked')">
-                <span>غير مربوطين ⚪</span>
-                <span class="chip-count" id="triage-count-unlinked">0</span>
               </button>
             </div>
 
@@ -1322,6 +1330,51 @@
             </div>
           </div>
 
+          <!-- Digital Footprint & Device Dossier (البصمة الرقمية والأمنية وبيانات الشبكة والجهاز) -->
+          <div style="margin-bottom: 20px; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 12px; padding: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <div style="font-size: 13px; font-weight: 800; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
+                <span>🌐</span>
+                <span>البصمة الرقمية والأمنية وبيانات الشبكة والجهاز:</span>
+              </div>
+              <span id="diag-footprint-type-badge" style="font-size: 10.5px; padding: 2px 8px; border-radius: 4px; background: rgba(56, 189, 248, 0.1); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.25);">سجل رقمي موثق</span>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+              <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 8px 12px;">
+                <span style="font-size: 11px; color: #94a3b8; display: block;">عنوان IP المسجل (Client IP):</span>
+                <strong id="diag-val-ip" style="font-family: monospace; font-size: 13px; color: #38bdf8; word-break: break-all;">--</strong>
+              </div>
+              
+              <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 8px 12px;">
+                <span style="font-size: 11px; color: #94a3b8; display: block;">البروكسي والخادم المخصص (SOCKS5):</span>
+                <strong id="diag-val-proxy" style="font-family: monospace; font-size: 12.5px; color: #facc15; word-break: break-all;">--</strong>
+              </div>
+              
+              <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 8px 12px;">
+                <span style="font-size: 11px; color: #94a3b8; display: block;">بصمة الجهاز الرقمية (Device Fingerprint):</span>
+                <strong id="diag-val-device-fp" style="font-family: monospace; font-size: 12px; color: #a78bfa; word-break: break-all;">--</strong>
+              </div>
+              
+              <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 8px 12px;">
+                <span style="font-size: 11px; color: #94a3b8; display: block;">نظام التشغيل والمتصفح (OS & Browser):</span>
+                <span id="diag-val-ua" style="font-size: 11px; color: #cbd5e1; display: block; line-height: 1.4; word-break: break-word;">--</span>
+              </div>
+            </div>
+
+            <!-- Hardware / MAC Layer Note -->
+            <div style="margin-top: 10px; padding: 8px 10px; background: rgba(0, 0, 0, 0.25); border-radius: 6px; font-size: 11px; color: #64748b; line-height: 1.4;">
+              <span style="color: #94a3b8; font-weight: 700;">🔒 البصمة الفيزيائية والشبكية (Hardware Footprint):</span>
+              بروتوكولات الإنترنت (HTTP/TCP over WAN) تحجب الـ MAC Address الحقيقي لحماية الخصوصية، ويتم تأمين وتتبع العميل عبر بصمة الجهاز الرقمية المشفرة (Device Fingerprint)، وعنوان الـ IP الحقيقي وخادم البروكسي الحصري المعزول.
+            </div>
+
+            <!-- Audit Trail / Archive Notes (Visible if archived or security notes exist) -->
+            <div id="diag-audit-notes-box" class="hidden" style="margin-top: 10px; padding: 10px 12px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 8px;">
+              <div style="font-size: 11.5px; font-weight: 700; color: #f87171; margin-bottom: 4px;">🛡️ ملاحظات الرقابة الأمنية والتدقيق:</div>
+              <div id="diag-audit-notes-text" style="font-size: 12px; color: #fca5a5; line-height: 1.5;">--</div>
+            </div>
+          </div>
+
           <!-- 2. Overview Metrics Grid -->
           <div class="diag-metrics-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 20px;">
             <div class="diag-metric-box">
@@ -1355,7 +1408,7 @@
           </div>
 
           <!-- 4. One-Click Instant Healing Tools -->
-          <div style="margin-bottom: 20px;">
+          <div id="diag-live-actions-box" style="margin-bottom: 20px;">
             <div style="font-size: 12px; font-weight: 700; color: #64748b; margin-bottom: 8px;">🛠️ أدوات الإصلاح الفوري والتحكم بنقرة واحدة:</div>
             <div class="diag-actions-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px;">
               <button type="button" class="btn-diag-action" onclick="triggerHealingAction('purge-stuck-ads')">
@@ -1392,12 +1445,18 @@
           </div>
 
           <!-- 5. Direct In-App Notice to User -->
-          <div style="margin-bottom: 10px;">
+          <div id="diag-live-notice-box" style="margin-bottom: 10px;">
             <div style="font-size: 12px; font-weight: 700; color: #64748b; margin-bottom: 8px;">💬 إرسال تنبيه مباشر في لوحة هذا العميل:</div>
             <div style="display: flex; gap: 8px;">
               <input type="text" id="diag-notice-input" placeholder="اكتب رسالة تظهر كإشعار منبثق للعميل (مثال: تم حل المشكلة وتحديث قنواتك بنجاح)" style="flex: 1; padding: 9px 12px; font-size: 12.5px; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #fff; outline: none;">
               <button type="button" class="btn btn-primary" style="padding: 9px 16px; font-size: 12px; background: #3b82f6; white-space: nowrap;" onclick="sendClientDirectNotice()">إرسال التنبيه</button>
             </div>
+          </div>
+
+          <!-- Archived Account Notice (Only visible when user.is_archived) -->
+          <div id="diag-archived-notice-box" class="hidden" style="margin-bottom: 15px; padding: 14px; background: rgba(148, 163, 184, 0.08); border: 1px dashed rgba(148, 163, 184, 0.3); border-radius: 10px; text-align: center;">
+            <div style="font-size: 13px; font-weight: 700; color: #94a3b8; margin-bottom: 4px;">🗄️ سجل مؤرشف ومجمد تاريخياً</div>
+            <div style="font-size: 11.5px; color: #64748b; line-height: 1.5;">هذا الحساب غير نشط حالياً (تم حفظ بياناته وسجلاته الرقمية بالكامل للأمان والرجوع المستقبلي دون أي فقدان للبيانات). المحركات والأدوات الحية معطلة لهذا الحساب.</div>
           </div>
 
         </div>
@@ -1501,6 +1560,6 @@
     </div>
   </div>
 
-  <script src="/admin.js?v=6.1.0"></script>
+  <script src="/admin.js?v=6.2.0"></script>
 </body>
 </html>

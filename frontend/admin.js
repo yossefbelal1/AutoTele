@@ -724,7 +724,10 @@ let currentAdminUserFilter = 'all';
 
 function updateTriageChipCounts(users) {
   const cAll = users.length;
+  let cLive = 0;
   let cPending = 0;
+  let cArchive = 0;
+  let cSecurity = 0;
   let cProblem = 0;
   let cExpiring = 0;
   let cRunning = 0;
@@ -733,43 +736,53 @@ function updateTriageChipCounts(users) {
   const now = new Date();
 
   users.forEach(u => {
+    if (!u.is_archived) cLive++;
+    if (u.is_archived && u.archive_type !== 'security_blocked') cArchive++;
+    if (u.archive_type === 'security_blocked' || u.subscription_status === 'banned') cSecurity++;
+
     // Pending Approval check (جديد بانتظار تفعيل التجربة)
     const isPending = u.is_pending_approval || u.operational_status === 'pending_approval' || u.subscription_status === 'pending_approval';
     if (isPending) cPending++;
 
     // Problem check: banned/error userbot, or active bot with expired subscription
-    const isProblem = u.has_banned_bot || u.has_error || 
+    const isProblem = !u.is_archived && (u.has_banned_bot || u.has_error || 
       (u.banned_engines_count && u.banned_engines_count > 0) ||
       (u.bot_status && (u.bot_status.includes('error') || u.bot_status.includes('banned'))) ||
       (u.operational_status === 'banned' || u.operational_status === 'error') ||
-      (u.has_active_bot && u.subscription_status === 'expired');
+      (u.has_active_bot && u.subscription_status === 'expired'));
     if (isProblem) cProblem++;
 
     // Expiring check: valid within next 3 days
-    if (u.subscription_end && u.subscription_status !== 'expired' && !u.is_sub_expired && !isPending) {
+    if (!u.is_archived && u.subscription_end && u.subscription_status !== 'expired' && !u.is_sub_expired && !isPending) {
       const expDate = new Date(u.subscription_end.split(' ')[0]);
       const diffDays = (expDate - now) / (1000 * 3600 * 24);
       if (diffDays >= 0 && diffDays <= 3) cExpiring++;
     }
 
     // Running check
-    const isRunning = u.is_publishing || (u.active_campaigns && u.active_campaigns > 0) || u.operational_status === 'active';
+    const isRunning = !u.is_archived && (u.is_publishing || (u.active_campaigns && u.active_campaigns > 0) || u.operational_status === 'active');
     if (isRunning) cRunning++;
 
     // Unlinked check
-    const isUnlinked = (u.operational_status === 'unlinked' || u.telegram_accounts_count === 0) && !isPending;
+    const isUnlinked = !u.is_archived && (u.operational_status === 'unlinked' || u.telegram_accounts_count === 0) && !isPending;
     if (isUnlinked) cUnlinked++;
   });
 
   const elAll = document.getElementById("triage-count-all");
+  const elLive = document.getElementById("triage-count-live");
   const elPending = document.getElementById("triage-count-pending");
+  const elArchive = document.getElementById("triage-count-archive");
+  const elSecurity = document.getElementById("triage-count-security");
   const elProb = document.getElementById("triage-count-problem");
   const elExp = document.getElementById("triage-count-expiring");
   const elRun = document.getElementById("triage-count-running");
   const elUnlink = document.getElementById("triage-count-unlinked");
 
   if (elAll) elAll.textContent = cAll;
+  if (elLive) elLive.textContent = cLive;
   if (elPending) elPending.textContent = cPending;
+  if (elArchive) elArchive.textContent = cArchive;
+  if (elSecurity) elSecurity.textContent = cSecurity;
   if (elProb) elProb.textContent = cProblem;
   if (elExp) elExp.textContent = cExpiring;
   if (elRun) elRun.textContent = cRunning;
@@ -894,9 +907,16 @@ function renderFilteredAdminUsers() {
     const isPending = user.is_pending_approval || user.operational_status === 'pending_approval' || user.subscription_status === 'pending_approval';
 
     // 1. Triage Filter
-    if (currentAdminUserFilter === 'pending') {
+    if (currentAdminUserFilter === 'live') {
+      if (user.is_archived) return false;
+    } else if (currentAdminUserFilter === 'archive') {
+      if (!user.is_archived || user.archive_type === 'security_blocked') return false;
+    } else if (currentAdminUserFilter === 'security') {
+      if (user.archive_type !== 'security_blocked' && user.subscription_status !== 'banned') return false;
+    } else if (currentAdminUserFilter === 'pending') {
       if (!isPending) return false;
     } else if (currentAdminUserFilter === 'problem') {
+      if (user.is_archived) return false;
       const isProblem = user.has_banned_bot || user.has_error || 
         (user.banned_engines_count && user.banned_engines_count > 0) ||
         (user.bot_status && (user.bot_status.includes('error') || user.bot_status.includes('banned'))) ||
@@ -904,16 +924,17 @@ function renderFilteredAdminUsers() {
         (user.has_active_bot && user.subscription_status === 'expired');
       if (!isProblem) return false;
     } else if (currentAdminUserFilter === 'expiring') {
-      if (isPending) return false;
+      if (user.is_archived || isPending) return false;
       if (!user.subscription_end || user.subscription_status === 'expired' || user.is_sub_expired) return false;
       const expDate = new Date(user.subscription_end.split(' ')[0]);
       const diffDays = (expDate - now) / (1000 * 3600 * 24);
       if (diffDays < 0 || diffDays > 3) return false;
     } else if (currentAdminUserFilter === 'running') {
+      if (user.is_archived) return false;
       const isRunning = user.is_publishing || (user.active_campaigns && user.active_campaigns > 0) || user.operational_status === 'active';
       if (!isRunning) return false;
     } else if (currentAdminUserFilter === 'unlinked') {
-      if (isPending) return false;
+      if (user.is_archived || isPending) return false;
       const isUnlinked = user.operational_status === 'unlinked' || user.telegram_accounts_count === 0;
       if (!isUnlinked) return false;
     }
@@ -921,7 +942,7 @@ function renderFilteredAdminUsers() {
     // 2. Search Query Filter
     if (query) {
       const rawName = user.full_name || user.email.split('@')[0];
-      const searchKeywords = `${rawName} ${user.email} ${(user.phones || []).join(' ')} #${user.id} ${user.operational_label || ''}`.toLowerCase();
+      const searchKeywords = `${rawName} ${user.email} ${(user.phones || []).join(' ')} #${user.id} ${user.operational_label || ''} ${user.last_login_ip || ''} ${(user.ip_addresses || []).join(' ')} ${user.notes || ''}`.toLowerCase();
       if (!searchKeywords.includes(query)) return false;
     }
 
@@ -948,7 +969,13 @@ function renderFilteredAdminUsers() {
 
     // 2. Subscription Plan Badge
     let planBadge = '';
-    if (isPending) {
+    if (user.is_archived) {
+      if (user.archive_type === 'security_blocked') {
+        planBadge = `<span style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">🚫 مطرود ومحظور</span>`;
+      } else {
+        planBadge = `<span style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">🗄️ مؤرشف (${escapeHtml(user.subscription_plan || 'تجريبي')})</span>`;
+      }
+    } else if (isPending) {
       planBadge = `<span style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">⏳ بانتظار الموافقة</span>`;
     } else if (user.subscription_plan === "yearly") {
       planBadge = `<span style="background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">👑 سنوي</span>`;
@@ -964,7 +991,15 @@ function renderFilteredAdminUsers() {
 
     // 3. Real Live Operational Status Badge (حالة التشغيل الفعلية الحية)
     let operationalBadge = '';
-    if (isPending) {
+    if (user.is_archived) {
+      if (user.archive_type === 'security_blocked') {
+        operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">🛡️ محظور أمنياً / محاولة مشبوهة</span>`;
+      } else if (user.archive_type === 'historical_deleted') {
+        operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">⚪ محذوف سابقاً (أرشيف)</span>`;
+      } else {
+        operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">🗄️ حساب مؤرشف</span>`;
+      }
+    } else if (isPending) {
       operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">⏳ طلب جديد (معلق)</span>`;
     } else if (user.operational_status === "unlinked") {
       operationalBadge = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(148, 163, 184, 0.12); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.25); padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">⚪ غير مربوط (بانتظار الإعداد)</span>`;
@@ -1074,13 +1109,31 @@ function renderFilteredAdminUsers() {
 
     // Modern Luxury Actions: Sleek Primary Button + Elegant '•••' Dropdown
     let desktopActionCell = '';
-    if (isPending) {
+    if (user.is_archived) {
+      desktopActionCell = `
+        <div class="user-action-cell">
+          <button type="button" class="btn-impersonate-sleek" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);" title="فحص ملف المشترك، الـ IP والبيانات" onclick="event.stopPropagation(); openUserDiagnosticsModal(${user.id})">
+            <span>🔍 فحص الملف والـ IP</span>
+          </button>
+          <div class="user-dropdown-wrapper">
+            <button type="button" class="btn-more-options" id="btn-dropdown-${user.id}" onclick="event.stopPropagation(); toggleUserDropdown(event, ${user.id})" title="خيارات إضافية">
+              •••
+            </button>
+            <div class="user-dropdown-menu" id="user-dropdown-${user.id}">
+              <button type="button" class="dropdown-item" onclick="event.stopPropagation(); openUserDiagnosticsModal(${user.id}); closeAllUserDropdowns();">
+                🌐 فحص الـ IP والبصمة الرقمية
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    } else if (isPending) {
       desktopActionCell = `
         <div style="display: flex; align-items: center; justify-content: center; gap: 6px;">
-          <button type="button" class="btn-approve-trial" onclick="approveUserTrial(${user.id}, '${escapeHtml(rawName)}')" title="قبول وتفعيل 3 أيام تجريبية">
+          <button type="button" class="btn-approve-trial" onclick="event.stopPropagation(); approveUserTrial(${user.id}, '${escapeHtml(rawName)}')" title="قبول وتفعيل 3 أيام تجريبية">
             <span>⚡ تفعيل 3 أيام</span>
           </button>
-          <button type="button" class="btn-reject-trial" onclick="rejectUserRegistration(${user.id}, '${escapeHtml(rawName)}')" title="رفض وحظر طلب المشترك">
+          <button type="button" class="btn-reject-trial" onclick="event.stopPropagation(); rejectUserRegistration(${user.id}, '${escapeHtml(rawName)}')" title="رفض وحظر طلب المشترك">
             <span>🚫 رفض</span>
           </button>
         </div>
@@ -1088,29 +1141,29 @@ function renderFilteredAdminUsers() {
     } else {
       desktopActionCell = `
         <div class="user-action-cell">
-          <button type="button" class="btn-impersonate-sleek" title="دخول مباشر إلى لوحة المشترك" onclick="impersonateUser(${user.id}, '${escapeHtml(rawName)}', '${escapeHtml(user.email)}')">
+          <button type="button" class="btn-impersonate-sleek" title="دخول مباشر إلى لوحة المشترك" onclick="event.stopPropagation(); impersonateUser(${user.id}, '${escapeHtml(rawName)}', '${escapeHtml(user.email)}')">
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             <span>دخول</span>
           </button>
           <div class="user-dropdown-wrapper">
-            <button type="button" class="btn-more-options" id="btn-dropdown-${user.id}" onclick="toggleUserDropdown(event, ${user.id})" title="خيارات إضافية">
+            <button type="button" class="btn-more-options" id="btn-dropdown-${user.id}" onclick="event.stopPropagation(); toggleUserDropdown(event, ${user.id})" title="خيارات إضافية">
               •••
             </button>
             <div class="user-dropdown-menu" id="user-dropdown-${user.id}">
-              <button type="button" class="dropdown-item" onclick="openUserDiagnosticsModal(${user.id}); closeAllUserDropdowns();">
-                🔍 تشخيص وحل المشاكل
+              <button type="button" class="dropdown-item" onclick="event.stopPropagation(); openUserDiagnosticsModal(${user.id}); closeAllUserDropdowns();">
+                🔍 تشخيص وفحص الـ IP والبيانات
               </button>
-              <button type="button" class="dropdown-item" onclick="openAdminChangePasswordModal(${userJson}); closeAllUserDropdowns();">
+              <button type="button" class="dropdown-item" onclick="event.stopPropagation(); openAdminChangePasswordModal(${userJson}); closeAllUserDropdowns();">
                 🔑 تعيين كلمة المرور
               </button>
-              <button type="button" class="dropdown-item" onclick="openAdminEditModal(${userJson}); closeAllUserDropdowns();">
+              <button type="button" class="dropdown-item" onclick="event.stopPropagation(); openAdminEditModal(${userJson}); closeAllUserDropdowns();">
                 ✏️ تعديل الباقة والبيانات
               </button>
-              <button type="button" class="dropdown-item" style="${rebootBtnStyle}" onclick="${rebootAction}; closeAllUserDropdowns();">
+              <button type="button" class="dropdown-item" style="${rebootBtnStyle}" onclick="event.stopPropagation(); ${rebootAction}; closeAllUserDropdowns();">
                 🔄 إعادة تشغيل المحركات
               </button>
               <div class="dropdown-divider"></div>
-              <button type="button" class="dropdown-item item-danger" onclick="deleteUserAccount(${user.id}); closeAllUserDropdowns();">
+              <button type="button" class="dropdown-item item-danger" onclick="event.stopPropagation(); deleteUserAccount(${user.id}); closeAllUserDropdowns();">
                 🗑️ حذف المشترك
               </button>
             </div>
@@ -1122,6 +1175,12 @@ function renderFilteredAdminUsers() {
     // 8. Populate Desktop Table Row
     if (tbody) {
       const tr = document.createElement("tr");
+      tr.style.cursor = "pointer";
+      tr.title = "اضغط لعرض كافة بيانات المشترك، الـ IP، البصمة الرقمية والتشخيص 🔍";
+      tr.onclick = function(e) {
+        if (e.target.closest('.user-action-cell') || e.target.closest('.user-dropdown-wrapper') || e.target.closest('button')) return;
+        openUserDiagnosticsModal(user.id);
+      };
       const clientCell = `
         <div style="display: flex; align-items: center; gap: 10px;">
           <div style="width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, #1e293b, #0f172a); border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; color: #38bdf8; flex-shrink: 0; box-shadow: 0 2px 6px rgba(0,0,0,0.3);">
@@ -1158,24 +1217,34 @@ function renderFilteredAdminUsers() {
     if (mobileContainer) {
       const card = document.createElement("div");
       card.className = "admin-user-card";
+      card.style.cursor = "pointer";
+      card.title = "اضغط لعرض كافة بيانات المشترك، الـ IP، البصمة الرقمية والتشخيص 🔍";
+      card.onclick = function(e) {
+        if (e.target.closest('.auc-actions') || e.target.closest('button')) return;
+        openUserDiagnosticsModal(user.id);
+      };
       const searchKeywords = `${rawName} ${user.email} ${(user.phones || []).join(' ')} #${user.id} ${user.operational_label || ''}`.toLowerCase();
       card.setAttribute("data-user-search", searchKeywords);
 
       let mobileActionsHtml = '';
-      if (isPending) {
+      if (user.is_archived) {
         mobileActionsHtml = `
-          <button type="button" class="btn-approve-trial" style="flex: 1;" onclick="approveUserTrial(${user.id}, '${escapeHtml(rawName)}')">⚡ قبول وتفعيل 3 أيام</button>
-          <button type="button" class="btn-reject-trial" onclick="rejectUserRegistration(${user.id}, '${escapeHtml(rawName)}')">🚫 رفض</button>
+          <button type="button" class="btn-card-action" style="flex: 1; padding: 8px 12px; border-radius: 8px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);" onclick="event.stopPropagation(); openUserDiagnosticsModal(${user.id})">🔍 فحص الملف والـ IP</button>
+        `;
+      } else if (isPending) {
+        mobileActionsHtml = `
+          <button type="button" class="btn-approve-trial" style="flex: 1;" onclick="event.stopPropagation(); approveUserTrial(${user.id}, '${escapeHtml(rawName)}')">⚡ قبول وتفعيل 3 أيام</button>
+          <button type="button" class="btn-reject-trial" onclick="event.stopPropagation(); rejectUserRegistration(${user.id}, '${escapeHtml(rawName)}')">🚫 رفض</button>
         `;
       } else {
         mobileActionsHtml = `
-          <button type="button" class="btn-impersonate-sleek" style="flex: 1;" onclick="impersonateUser(${user.id}, '${escapeHtml(rawName)}', '${escapeHtml(user.email)}')">
+          <button type="button" class="btn-impersonate-sleek" style="flex: 1;" onclick="event.stopPropagation(); impersonateUser(${user.id}, '${escapeHtml(rawName)}', '${escapeHtml(user.email)}')">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             <span>دخول الحساب</span>
           </button>
-          <button type="button" class="btn-card-action" style="padding: 6px 10px; border-radius: 8px; background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);" onclick="openUserDiagnosticsModal(${user.id})">🔍 تشخيص</button>
-          <button type="button" class="btn-card-action" style="padding: 6px 10px; border-radius: 8px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);" onclick="openAdminEditModal(${userJson})">✏️ تعديل</button>
-          <button type="button" class="btn-card-action" style="padding: 6px 10px; border-radius: 8px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="deleteUserAccount(${user.id})">🗑️</button>
+          <button type="button" class="btn-card-action" style="padding: 6px 10px; border-radius: 8px; background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);" onclick="event.stopPropagation(); openUserDiagnosticsModal(${user.id})">🔍 تشخيص</button>
+          <button type="button" class="btn-card-action" style="padding: 6px 10px; border-radius: 8px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);" onclick="event.stopPropagation(); openAdminEditModal(${userJson})">✏️ تعديل</button>
+          <button type="button" class="btn-card-action" style="padding: 6px 10px; border-radius: 8px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="event.stopPropagation(); deleteUserAccount(${user.id})">🗑️</button>
         `;
       }
 
@@ -1613,6 +1682,73 @@ window.openUserDiagnosticsModal = async function(userId) {
     currentDiagUserEmail = data.user.email;
     if (subhead) {
       subhead.innerHTML = `المشترك: <strong style="color: #fff;">${escapeHtml(data.user.full_name)}</strong> (<span style="font-family: monospace;">${escapeHtml(data.user.email)}</span>) | المعرف: <span style="color: #38bdf8;">#${data.user.id}</span>`;
+    }
+
+    // 0. Digital Footprint & Security Section
+    const badgeFootprint = document.getElementById("diag-footprint-type-badge");
+    if (badgeFootprint) {
+      if (data.user.archive_type === "security_blocked") {
+        badgeFootprint.textContent = "محظور أمنياً ومطرود 🛡️";
+        badgeFootprint.style.background = "rgba(239, 68, 68, 0.15)";
+        badgeFootprint.style.color = "#f87171";
+        badgeFootprint.style.border = "1px solid rgba(239, 68, 68, 0.35)";
+      } else if (data.user.is_archived) {
+        badgeFootprint.textContent = "أرشيف تاريخي موثق 🗄️";
+        badgeFootprint.style.background = "rgba(148, 163, 184, 0.15)";
+        badgeFootprint.style.color = "#cbd5e1";
+        badgeFootprint.style.border = "1px solid rgba(148, 163, 184, 0.35)";
+      } else {
+        badgeFootprint.textContent = "مشترك حي نشط 🟢";
+        badgeFootprint.style.background = "rgba(34, 197, 94, 0.15)";
+        badgeFootprint.style.color = "#4ade80";
+        badgeFootprint.style.border = "1px solid rgba(34, 197, 94, 0.35)";
+      }
+    }
+
+    const ipVal = document.getElementById("diag-val-ip");
+    if (ipVal) {
+      const clientIp = data.user.last_login_ip || (data.user.ip_addresses && data.user.ip_addresses.length ? data.user.ip_addresses.join(", ") : "--");
+      ipVal.textContent = clientIp;
+    }
+
+    const proxyVal = document.getElementById("diag-val-proxy");
+    if (proxyVal) {
+      proxyVal.textContent = data.user.proxy || "الشبكة المباشرة (Direct Egress)";
+    }
+
+    const devFpVal = document.getElementById("diag-val-device-fp");
+    if (devFpVal) {
+      devFpVal.textContent = data.user.device_fingerprint || "--";
+    }
+
+    const uaVal = document.getElementById("diag-val-ua");
+    if (uaVal) {
+      uaVal.textContent = data.user.last_login_ua || "--";
+    }
+
+    const auditBox = document.getElementById("diag-audit-notes-box");
+    const auditText = document.getElementById("diag-audit-notes-text");
+    if (auditBox && auditText) {
+      if (data.user.notes) {
+        auditText.textContent = data.user.notes;
+        auditBox.classList.remove("hidden");
+      } else {
+        auditBox.classList.add("hidden");
+      }
+    }
+
+    // Toggle live action panels if archived
+    const liveActionsBox = document.getElementById("diag-live-actions-box");
+    const liveNoticeBox = document.getElementById("diag-live-notice-box");
+    const archivedNoticeBox = document.getElementById("diag-archived-notice-box");
+    if (data.user.is_archived) {
+      if (liveActionsBox) liveActionsBox.classList.add("hidden");
+      if (liveNoticeBox) liveNoticeBox.classList.add("hidden");
+      if (archivedNoticeBox) archivedNoticeBox.classList.remove("hidden");
+    } else {
+      if (liveActionsBox) liveActionsBox.classList.remove("hidden");
+      if (liveNoticeBox) liveNoticeBox.classList.remove("hidden");
+      if (archivedNoticeBox) archivedNoticeBox.classList.add("hidden");
     }
 
     // 1. Populate Metrics
