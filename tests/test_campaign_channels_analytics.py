@@ -1,7 +1,7 @@
 import pytest
 import json
 from unittest.mock import AsyncMock, patch, MagicMock
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 
 class TestCampaignChannelsAnalytics:
@@ -9,7 +9,7 @@ class TestCampaignChannelsAnalytics:
     @pytest.mark.asyncio
     async def test_channels_analytics_filtering_and_growth(self):
         """
-        Tests that /user/analytics/campaign-channels strictly isolates channels 
+        Tests that /user/analytics/campaign-channels strictly isolates channels
         in the 'حملات' folder and accurately calculates joined_today from daily baseline.
         """
         import main_api
@@ -59,7 +59,8 @@ class TestCampaignChannelsAnalytics:
             }
         ]
 
-        today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        local_tz = timezone(timedelta(hours=3))
+        today_str = datetime.now(local_tz).strftime('%Y-%m-%d')
         redis_data = {
             "tenant:10:campaign": campaign_folder_ids,
             f"tenant:10:chan_baseline:-100111:{today_str}": "4980",
@@ -154,7 +155,8 @@ class TestCampaignChannelsAnalytics:
             }
         ]
 
-        today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        local_tz = timezone(timedelta(hours=3))
+        today_str = datetime.now(local_tz).strftime('%Y-%m-%d')
         redis_data = {
             "tenant:10:campaign": campaign_folder_ids,
             f"tenant:10:chan_baseline:-100111:{today_str}": "4980",
@@ -346,7 +348,8 @@ class TestCampaignChannelsAnalytics:
         mock_db_sess.execute.return_value = mock_result
 
         campaign_folder_ids = json.dumps([-1003554147110, -1002058504282])
-        today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        local_tz = timezone(timedelta(hours=3))
+        today_str = datetime.now(local_tz).strftime('%Y-%m-%d')
 
         # ALPHA FX has 293 members (baseline 292 -> +1 today), with 268 all-time link joins.
         # BIELLA TRADE has 3506 members (baseline 3495 -> +11 today), with 115 all-time link joins.
@@ -425,7 +428,7 @@ class TestCampaignChannelsAnalytics:
         """
         import main_api
         from db_manager import User
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timezone, timedelta, timedelta
 
         base_time = datetime.now(timezone.utc)
         user1 = User(id=1, email="sub1@test.com", subscription_status="active", subscription_end=base_time + timedelta(days=5))
@@ -474,7 +477,8 @@ class TestCampaignChannelsAnalytics:
         mock_db_sess.execute.return_value = mock_result
 
         campaign_folder_ids = json.dumps([-1002125984562])
-        today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        local_tz = timezone(timedelta(hours=3))
+        today_str = datetime.now(local_tz).strftime('%Y-%m-%d')
 
         cached_channels = [
             {
@@ -552,7 +556,7 @@ class TestCampaignChannelsAnalytics:
         5. Total folder_joined_today == 12 (7 + 4 + 1).
         """
         import main_api
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timezone, timedelta, timedelta
         from db_manager import TelegramAccount, User
 
         mock_user = User(id=39, email="tamer@test.com")
@@ -564,8 +568,9 @@ class TestCampaignChannelsAnalytics:
         mock_db_sess.execute.return_value = mock_result
 
         campaign_folder_ids = json.dumps([-1002058504282, -1001222348201, -1003999757764])
-        today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-        yesterday_str = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y-%m-%d')
+        local_tz = timezone(timedelta(hours=3))
+        today_str = datetime.now(local_tz).strftime('%Y-%m-%d')
+        yesterday_str = (datetime.now(local_tz) - timedelta(days=1)).strftime('%Y-%m-%d')
 
         cached_channels = [
             {
@@ -659,7 +664,7 @@ class TestCampaignChannelsAnalytics:
         today's joined_today strictly resets to 0 (NOT 26!),
         while all-time total_link_joins remains 108.
         """
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timezone, timedelta, timedelta
         import main_api
         from db_manager import TelegramAccount, User
 
@@ -726,5 +731,204 @@ class TestCampaignChannelsAnalytics:
             assert sherlock["total_link_joins"] == 108
             assert sherlock["net_member_gain"] == 0
 
+    @pytest.mark.asyncio
+    async def test_analytics_timezone_divergence_cairo_vs_utc(self):
+        """
+        Tests midnight boundary timezone divergence:
+        At 22:30 UTC on 2026-11-24, Cairo time (UTC+3) is 01:30 on 2026-11-25.
+        Verifies that main_api strictly reads from the Cairo date baseline key (2026-11-25)
+        and NOT the UTC date key (2026-11-24).
+        """
+        import main_api
+        from db_manager import TelegramAccount, User
 
+        mock_user = User(id=55, email="tz_test@test.com")
+        mock_tg_acc = TelegramAccount(id=15, user_id=55, phone="+20100000000", status="active")
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = mock_tg_acc
+        mock_db_sess = AsyncMock()
+        mock_db_sess.execute.return_value = mock_result
 
+        campaign_folder_ids = json.dumps([-100777])
+        cached_channels = [
+            {
+                "id": -100777,
+                "title": "Cairo Midnight Channel",
+                "members_count": 1000,
+                "total_joins": 115,
+                "primary_link_joins": 115,
+                "custom_links_joins": 0,
+                "today_link_joins": 15
+            }
+        ]
+
+        # Simulate frozen time: 22:30 UTC Nov 24 == 01:30 Cairo Nov 25
+        frozen_cairo_dt = datetime(2026, 11, 25, 1, 30, 0, tzinfo=timezone(timedelta(hours=3)))
+
+        redis_data = {
+            "tenant:15:campaign": campaign_folder_ids,
+            "tenant:15:link_baseline:-100777:2026-11-25": "100",  # Cairo key
+            "tenant:15:link_baseline:-100777:2026-11-24": "50",   # UTC / Yesterday key
+        }
+        keys_requested = []
+
+        async def mock_redis_get(key):
+            keys_requested.append(key)
+            return redis_data.get(key)
+
+        async def mock_redis_set(key, val, **kwargs):
+            redis_data[key] = str(val)
+            return True
+
+        class MockDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return frozen_cairo_dt
+
+        with patch("main_api.AsyncSessionLocal") as MockSessionLocal, \
+             patch("main_api.verify_active_subscription", AsyncMock()), \
+             patch("main_api.redis_client.get", side_effect=mock_redis_get), \
+             patch("main_api.redis_client.set", side_effect=mock_redis_set), \
+             patch("main_api.get_channels_cache", AsyncMock(return_value=cached_channels)), \
+             patch("main_api.datetime", MockDateTime):
+
+            MockSessionLocal.return_value.__aenter__.return_value = mock_db_sess
+
+            result = await main_api.get_campaign_channels_analytics(user_id=55)
+
+            assert result["status"] == "success"
+            # Verify the key queried was 2026-11-25 (Cairo date), not 2026-11-24 (UTC date)
+            assert "tenant:15:link_baseline:-100777:2026-11-25" in keys_requested
+            assert "tenant:15:link_baseline:-100777:2026-11-24" not in keys_requested
+
+            ch = result["channels"][0]
+            # 115 total - 100 baseline = 15 joined_today
+            assert ch["joined_today"] == 15
+            assert result["summary"]["folder_joined_today"] == 15
+
+    @pytest.mark.asyncio
+    async def test_analytics_cold_start_absent_baseline(self):
+        """
+        Tests cold-start / missing baseline in Redis:
+        When Redis has no prior baseline record for today, main_api must:
+        1. Initialize baseline = total_joins - worker_today_joins with 7d TTL.
+        2. Set joined_today = worker_today_joins (not 0, and not total_joins).
+        """
+        import main_api
+        from db_manager import TelegramAccount, User
+
+        mock_user = User(id=56, email="cold_start@test.com")
+        mock_tg_acc = TelegramAccount(id=16, user_id=56, phone="+20101111111", status="active")
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = mock_tg_acc
+        mock_db_sess = AsyncMock()
+        mock_db_sess.execute.return_value = mock_result
+
+        campaign_folder_ids = json.dumps([-100888])
+        cached_channels = [
+            {
+                "id": -100888,
+                "title": "Cold Start Channel",
+                "members_count": 500,
+                "total_joins": 200,
+                "primary_link_joins": 200,
+                "custom_links_joins": 0,
+                "today_link_joins": 7
+            }
+        ]
+
+        local_tz = timezone(timedelta(hours=3))
+        today_str = datetime.now(local_tz).strftime('%Y-%m-%d')
+        redis_data = {
+            "tenant:16:campaign": campaign_folder_ids
+            # NO baseline key exists in Redis!
+        }
+        set_calls = []
+
+        async def mock_redis_get(key):
+            return redis_data.get(key)
+
+        async def mock_redis_set(key, val, **kwargs):
+            redis_data[key] = str(val)
+            set_calls.append((key, str(val), kwargs))
+            return True
+
+        with patch("main_api.AsyncSessionLocal") as MockSessionLocal, \
+             patch("main_api.verify_active_subscription", AsyncMock()), \
+             patch("main_api.redis_client.get", side_effect=mock_redis_get), \
+             patch("main_api.redis_client.set", side_effect=mock_redis_set), \
+             patch("main_api.get_channels_cache", AsyncMock(return_value=cached_channels)):
+
+            MockSessionLocal.return_value.__aenter__.return_value = mock_db_sess
+
+            result = await main_api.get_campaign_channels_analytics(user_id=56)
+
+            assert result["status"] == "success"
+            ch = result["channels"][0]
+            # Joined today must match worker_today_joins (7)
+            assert ch["joined_today"] == 7
+            assert ch["total_link_joins"] == 200
+
+            # Verify baseline was saved as 200 - 7 = 193 with TTL = 604800 (7 days)
+            baseline_key = f"tenant:16:link_baseline:-100888:{today_str}"
+            saved_call = next(c for c in set_calls if c[0] == baseline_key)
+            assert saved_call[1] == "193"
+            assert saved_call[2].get("ex") == 86400 * 7
+
+    @pytest.mark.asyncio
+    async def test_analytics_upper_bound_integrity_capping(self):
+        """
+        Tests that joined_today cannot exceed total_link_joins under any circumstance.
+        """
+        import main_api
+        from db_manager import TelegramAccount, User
+
+        mock_user = User(id=57, email="cap_test@test.com")
+        mock_tg_acc = TelegramAccount(id=17, user_id=57, phone="+20102222222", status="active")
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = mock_tg_acc
+        mock_db_sess = AsyncMock()
+        mock_db_sess.execute.return_value = mock_result
+
+        campaign_folder_ids = json.dumps([-100999])
+        cached_channels = [
+            {
+                "id": -100999,
+                "title": "Low Join Channel",
+                "members_count": 50,
+                "total_joins": 5,
+                "primary_link_joins": 5,
+                "custom_links_joins": 0,
+                "today_link_joins": 45  # Erroneous/drift worker join count greater than total
+            }
+        ]
+
+        local_tz = timezone(timedelta(hours=3))
+        today_str = datetime.now(local_tz).strftime('%Y-%m-%d')
+        redis_data = {
+            "tenant:17:campaign": campaign_folder_ids,
+            f"tenant:17:link_baseline:-100999:{today_str}": "0"
+        }
+
+        async def mock_redis_get(key):
+            return redis_data.get(key)
+
+        async def mock_redis_set(key, val, **kwargs):
+            redis_data[key] = str(val)
+            return True
+
+        with patch("main_api.AsyncSessionLocal") as MockSessionLocal, \
+             patch("main_api.verify_active_subscription", AsyncMock()), \
+             patch("main_api.redis_client.get", side_effect=mock_redis_get), \
+             patch("main_api.redis_client.set", side_effect=mock_redis_set), \
+             patch("main_api.get_channels_cache", AsyncMock(return_value=cached_channels)):
+
+            MockSessionLocal.return_value.__aenter__.return_value = mock_db_sess
+
+            result = await main_api.get_campaign_channels_analytics(user_id=57)
+
+            assert result["status"] == "success"
+            ch = result["channels"][0]
+            # Must be capped at total_joins (5), NOT 45!
+            assert ch["joined_today"] == 5
+            assert result["summary"]["folder_joined_today"] == 5

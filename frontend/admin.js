@@ -892,10 +892,10 @@ function renderFilteredAdminUsers() {
             </td>
             <td style="text-align: center;">
               <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
-                <button type="button" class="btn-approve-trial" onclick="approveUserTrial(${u.id})" title="تفعيل 3 أيام تجريبية مجانية">
+                <button type="button" class="btn-approve-trial" onclick="event.stopPropagation(); approveUserTrial(${u.id})" title="تفعيل 3 أيام تجريبية مجانية">
                   <span>⚡ تفعيل 3 أيام</span>
                 </button>
-                <button type="button" class="btn-reject-trial" onclick="rejectUserRegistration(${u.id})" title="رفض وحظر الحساب">
+                <button type="button" class="btn-reject-trial" onclick="event.stopPropagation(); rejectUserRegistration(${u.id})" title="رفض وحظر الحساب">
                   <span>🚫 رفض</span>
                 </button>
               </div>
@@ -2254,9 +2254,9 @@ window.removeBroadcastMedia = removeBroadcastMedia;
 function handleBroadcastFileSelect(file) {
   if (!file) return;
   
-  const MAX_SIZE = 200 * 1024 * 1024; // 200 MB
+  const MAX_SIZE = 250 * 1024 * 1024; // 250 MB
   if (file.size > MAX_SIZE) {
-    showToast("⚠️ حجم الملف كبير جداً! الحد الأقصى المسموح به هو 200 ميجابايت.", "error");
+    showToast("⚠️ حجم الملف كبير جداً! الحد الأقصى المسموح به هو 250 ميجابايت.", "error");
     removeBroadcastMedia();
     return;
   }
@@ -3743,9 +3743,15 @@ window.approveUserTrial = async function(userId, userName) {
 };
 
 window.rejectUserRegistration = async function(userId, userName) {
+  if (window.event) {
+    try {
+      window.event.stopPropagation();
+      window.event.preventDefault();
+    } catch(e) {}
+  }
   let displayName = userName;
   if (!displayName) {
-    const list = window.currentAdminUsers || currentAdminUsers || [];
+    const list = window.currentAdminUsers || (typeof currentAdminUsers !== "undefined" ? currentAdminUsers : []) || [];
     const u = list.find(x => x.id === Number(userId));
     if (u) displayName = u.full_name || u.email;
   }
@@ -3755,10 +3761,12 @@ window.rejectUserRegistration = async function(userId, userName) {
 
   try {
     showToast("جاري معالجة الرفض وحفظ الحساب في الأرشيف...", "info", 4000);
-    if (Array.isArray(currentAdminUsers)) {
+    if (typeof currentAdminUsers !== "undefined" && Array.isArray(currentAdminUsers)) {
       currentAdminUsers = currentAdminUsers.filter(x => x.id !== Number(userId));
       window.currentAdminUsers = currentAdminUsers;
-      renderFilteredAdminUsers();
+      if (typeof renderFilteredAdminUsers === "function") {
+        renderFilteredAdminUsers();
+      }
     }
     const res = await adminApiRequest(`/admin/users/${userId}/reject_registration`, {
       method: "POST"

@@ -9,7 +9,7 @@ import jwt
 import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, List
-from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, Request
+from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, Request, Query
 from fastapi.responses import RedirectResponse, StreamingResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -83,7 +83,7 @@ class RedisPublishHandler(logging.Handler):
             }
             if tenant_id is not None:
                 log_obj["tenant_id"] = tenant_id
-            
+
             # Submit to thread pool (drop if backlog exceeds 50 to prevent unbounded RAM growth)
             if hasattr(self.executor, '_work_queue'):
                 try:
@@ -157,7 +157,7 @@ async def on_startup():
 @app.get("/health")
 async def health_check():
     health_status = {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
-    
+
     # 1. Check Database connection
     try:
         async with AsyncSessionLocal() as session:
@@ -168,7 +168,7 @@ async def health_check():
         logger.error(f"Health check database failure: {e}")
         health_status["database"] = "unhealthy"
         health_status["status"] = "unhealthy"
-        
+
     # 2. Check Redis connection
     try:
         await redis_client.ping()
@@ -177,7 +177,7 @@ async def health_check():
         logger.error(f"Health check redis failure: {e}")
         health_status["redis"] = "unhealthy"
         health_status["status"] = "unhealthy"
-        
+
     if health_status["status"] == "unhealthy":
         raise HTTPException(status_code=500, detail={"status": "unhealthy"})
     return health_status
@@ -191,12 +191,12 @@ async def metrics_endpoint(request: Request):
     client_ip = get_client_ip(request)
     metrics_secret = os.getenv("METRICS_AUTH_SECRET", "")
     req_secret = request.headers.get("X-Metrics-Secret", "")
-    
-    # Allow internal network / localhost, or valid secret
-    is_internal = client_ip in ["127.0.0.1", "::1", "localhost"] or client_ip.startswith("172.") or client_ip.startswith("10.") or client_ip.startswith("192.168.")
+
+    # Allow only verified trusted reverse-proxies / localhost, or valid secret
+    is_internal = is_ip_trusted_proxy(client_ip)
     if not is_internal and (not metrics_secret or req_secret != metrics_secret):
         raise HTTPException(status_code=403, detail="Forbidden: Metrics endpoint is internal only")
-        
+
     lines = []
     try:
         async with AsyncSessionLocal() as session:
@@ -204,7 +204,7 @@ async def metrics_endpoint(request: Request):
             user_count = (await session.execute(text("SELECT count(*) FROM users"))).scalar() or 0
             tg_count = (await session.execute(text("SELECT count(*) FROM telegram_accounts WHERE status='active'"))).scalar() or 0
             pending_pm = (await session.execute(text("SELECT count(*) FROM crypto_payments WHERE status='pending'"))).scalar() or 0
-            
+
         lines.append(f"teleauto_users_total {user_count}")
         lines.append(f"teleauto_active_telegram_accounts {tg_count}")
         lines.append(f"teleauto_pending_payments {pending_pm}")
@@ -212,9 +212,13 @@ async def metrics_endpoint(request: Request):
     except Exception as e:
         lines.append("teleauto_metrics_error 1")
         logger.error(f"Error generating metrics: {e}")
-        
+
     from fastapi.responses import PlainTextResponse
     return PlainTextResponse("\n".join(lines))
+
+MAX_BROADCAST_MEDIA_SIZE = 250 * 1024 * 1024  # 250 MB
+UPLOAD_BROADCAST_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads", "broadcast")
+os.makedirs(UPLOAD_BROADCAST_DIR, exist_ok=True)
 
 
 cors_origins_env = os.getenv("CORS_ALLOWED_ORIGINS", "")
@@ -243,8 +247,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+import ipaddress
+
+TRUSTED_PROXIES = {"127.0.0.1", "::1", "localhost", "testclient"}
+_env_trusted = os.getenv("TRUSTED_PROXIES", "")
+if _env_trusted:
+    for _h in _env_trusted.split(","):
+        _h = _h.strip()
+        if _h:
+            TRUSTED_PROXIES.add(_h)
+
+def is_ip_trusted_proxy(host: str) -> bool:
+    if not host:
+        return False
+    if host in TRUSTED_PROXIES:
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        if ip.is_loopback:
+            return True
+        trusted_cidr = os.getenv("TRUSTED_PROXY_CIDR", "")
+        if trusted_cidr:
+            return ip in ipaddress.ip_network(trusted_cidr)
+        return False
+    except ValueError:
+        return False
+
 def get_client_ip(request: Request) -> str:
-    """Extract real client IP address safely, prioritizing X-Real-IP set by trusted Nginx ($remote_addr)."""
+    """Extract real client IP address safely, trusting reverse-proxy headers only from verified internal peers."""
+    direct_host = request.client.host if request.client else "127.0.0.1"
+    if not is_ip_trusted_proxy(direct_host):
+        # Direct external caller: ignore spoofable forwarded headers
+        return direct_host
+
     real_ip = request.headers.get("X-Real-IP")
     if real_ip:
         return real_ip.strip()
@@ -252,9 +287,9 @@ def get_client_ip(request: Request) -> str:
     if forwarded:
         parts = [p.strip() for p in forwarded.split(",") if p.strip()]
         if parts:
-            # Last hop is the most trusted proxy-appended address
-            return parts[-1]
-    return request.client.host if request.client else "127.0.0.1"
+            # First non-trusted IP from the left represents the original client
+            return parts[0]
+    return direct_host
 
 class SecurityHeadersMiddleware:
     def __init__(self, app):
@@ -285,6 +320,12 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 active_handshakes: Dict[str, Dict[str, Any]] = {}
+_handshake_locks: Dict[str, asyncio.Lock] = {}
+
+def get_handshake_lock(phone: str) -> asyncio.Lock:
+    if phone not in _handshake_locks:
+        _handshake_locks[phone] = asyncio.Lock()
+    return _handshake_locks[phone]
 
 class UserAuth(BaseModel):
     email: EmailStr
@@ -344,13 +385,13 @@ async def get_current_user(
         resolved_token = credentials.credentials
     elif token:
         resolved_token = token
-        
+
     if not resolved_token:
         raise HTTPException(
             status_code=401,
             detail="لم يتم إرسال توكن المصادقة (Bearer token required in Authorization header)"
         )
-        
+
     try:
         payload = jwt.decode(resolved_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         raw_sub = payload.get("sub")
@@ -376,12 +417,12 @@ async def verify_active_subscription(user_id: int, session: AsyncSession) -> Use
     user = (await session.execute(stmt)).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="المستخدم غير موجود.")
-        
+
     now = datetime.now(timezone.utc)
     sub_end = user.subscription_end
     if sub_end.tzinfo is None:
         sub_end = sub_end.replace(tzinfo=timezone.utc)
-        
+
     if user.subscription_status != "active" or sub_end <= now:
         raise HTTPException(status_code=403, detail="انتهت فترة اشتراكك، يرجى التجديد لتتمكن من استخدام هذه الميزة.")
     return user
@@ -429,7 +470,7 @@ async def signup(user_data: UserAuth, request: Request):
     client_ip = get_client_ip(request)
     clean_email = user_data.email.strip().lower()
     logger.info(f"==> [SIGNUP] Request from IP: {client_ip}, Email: {clean_email}")
-    
+
     try:
         if await asyncio.wait_for(is_key_rate_limited(f"ratelimit:auth_ip:{client_ip}", max_requests=20, window_seconds=60), timeout=2.0):
             raise HTTPException(status_code=429, detail="لقد تجاوزت حد محاولات الدخول/التسجيل المسموح به. يرجى الانتظار دقيقة قبل المحاولة.")
@@ -439,28 +480,28 @@ async def signup(user_data: UserAuth, request: Request):
         raise
     except Exception as e:
         logger.warning(f"Rate limiter check error for IP {client_ip}: {e}")
-        
+
     async with AsyncSessionLocal() as session:
         stmt = select(User).where(func.lower(User.email) == clean_email)
         existing = (await session.execute(stmt)).scalar_one_or_none()
         if existing:
             raise HTTPException(status_code=400, detail="البريد مسجل بالفعل")
-        
+
         assigned_host = await get_least_used_proxy(session)
-        
+
         now = datetime.now(timezone.utc)
         raw_name = (user_data.full_name or "").strip()
         name = raw_name if raw_name else clean_email.split('@')[0]
-        
+
         pw_hash = bcrypt.hashpw(user_data.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        
+
         user_agent = request.headers.get("user-agent", "")
         import hashlib
         fp_num = int(hashlib.sha256(f"{client_ip}:{user_agent}".encode('utf-8')).hexdigest()[:8], 16) % 899999 + 100000
         device_fp = f"DEV-FP-{fp_num}"
-        
+
         new_user = User(
-            email=clean_email, 
+            email=clean_email,
             full_name=name,
             password_hash=pw_hash,
             subscription_plan="trial",
@@ -480,7 +521,7 @@ async def signup(user_data: UserAuth, request: Request):
         await session.commit()
         logger.info(f"==> [SIGNUP PENDING] Created user ID {new_user.id} ({clean_email}) awaiting admin approval for 3-day trial")
         return {
-            "status": "success", 
+            "status": "success",
             "message": "تم استلام طلب التسجيل بنجاح! حسابك قيد مراجعة الإدارة لتفعيل فترة التجربة (3 أيام مجاناً)."
         }
 
@@ -489,7 +530,7 @@ async def login(user_data: UserAuth, request: Request):
     client_ip = get_client_ip(request)
     clean_email = user_data.email.strip().lower()
     logger.info(f"==> [LOGIN] Request from IP: {client_ip}, Email: {clean_email}")
-    
+
     try:
         if await asyncio.wait_for(is_key_rate_limited(f"ratelimit:auth_ip:{client_ip}", max_requests=30, window_seconds=60), timeout=2.0):
             raise HTTPException(status_code=429, detail="لقد تجاوزت حد محاولات الدخول/التسجيل المسموح به. يرجى الانتظار دقيقة قبل المحاولة.")
@@ -499,10 +540,10 @@ async def login(user_data: UserAuth, request: Request):
         raise
     except Exception as e:
         logger.warning(f"Rate limiter check error for IP {client_ip}: {e}")
-        
+
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(func.lower(User.email) == clean_email))).scalar_one_or_none()
-        
+
         is_pwd_valid = False
         if user:
             # 1. Verify against current permanent password
@@ -521,22 +562,22 @@ async def login(user_data: UserAuth, request: Request):
 
         if not user or not is_pwd_valid:
             raise HTTPException(status_code=401, detail="بيانات خاطئة")
-        
+
         if user.subscription_status == "pending_approval" and not user.is_admin:
             raise HTTPException(
-                status_code=403, 
+                status_code=403,
                 detail="⏳ طلب تسجيل حسابك قيد المراجعة والموافقة من الإدارة. سيتم تفعيل الـ 3 أيام التجريبية لحسابك فور الاعتماد."
             )
-            
+
         if user.subscription_status == "banned":
             raise HTTPException(status_code=403, detail="⛔ تم حظر هذا الحساب من قبل الإدارة.")
-            
+
         if user.subscription_status == "expired" and user.subscription_plan == "trial" and not user.is_admin:
             raise HTTPException(
                 status_code=403,
                 detail="🔒 انتهت صلاحية حسابك التجريبي. يرجى التواصل مع الإدارة للاشتراك وتفعيل الحساب."
             )
-        
+
         # Update digital footprint on login
         user_agent = request.headers.get("user-agent", "")
         user.last_login_ip = client_ip
@@ -546,7 +587,7 @@ async def login(user_data: UserAuth, request: Request):
             fp_num = int(hashlib.sha256(f"{client_ip}:{user_agent}".encode('utf-8')).hexdigest()[:8], 16) % 899999 + 100000
             user.device_fingerprint = f"DEV-FP-{fp_num}"
         await session.commit()
-        
+
         access_token = jwt.encode({"sub": user.id, "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)}, JWT_SECRET, algorithm=JWT_ALGORITHM)
         logger.info(f"==> [LOGIN SUCCESS] User ID {user.id} ({clean_email}) logged in successfully")
         return {"access_token": access_token, "token_type": "bearer"}
@@ -559,25 +600,25 @@ async def forgot_password(req: ForgotPasswordReq, request: Request):
     client_ip = get_client_ip(request)
     if await is_key_rate_limited(f"ratelimit:auth_ip:{client_ip}", max_requests=10, window_seconds=60):
         raise HTTPException(status_code=429, detail="لقد تجاوزت حد محاولات استعادة كلمة المرور المسموح بها. يرجى الانتظار دقيقة قبل المحاولة.")
-    
+
     clean_email = req.email.strip().lower()
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(func.lower(User.email) == clean_email))).scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=400, detail="البريد الإلكتروني المدخل غير مسجل لدينا.")
-        
+
         if not user.status_bot_chat_id:
             raise HTTPException(status_code=400, detail="حسابك غير مرتبط بالبوت الفني لتليجرام. يرجى التواصل مع الدعم لتغيير كلمة المرور.")
-        
+
         # Generate temporary password with cryptographically secure random generator
         # DO NOT wipe existing permanent password to prevent Targeted DoS attacks!
         # Store in Redis with 15-minute TTL; it only applies permanently when the user logs in with it.
         import secrets
         new_password = f"P-{secrets.randbelow(900000) + 100000}"
         temp_password_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        
+
         await redis_client.set(f"temp_login_pwd:{user.id}", temp_password_hash, ex=900)
-        
+
         # Notify user via status bot through Redis user notifications channel
         try:
             from cache_manager import redis_client as r_client, get_invite_link
@@ -596,7 +637,7 @@ async def forgot_password(req: ForgotPasswordReq, request: Request):
             logger.info(f"Successfully published temporary password reset notification for user {user.id}")
         except Exception as e:
             logger.error(f"Failed to publish password reset notification: {e}")
-            
+
         return {"status": "success", "message": "تم إرسال كلمة المرور المؤقتة إلى حساب تليجرام المرتبط بحسابك بنجاح."}
 
 class GoogleAuthReq(BaseModel):
@@ -636,26 +677,26 @@ async def google_login(req: GoogleAuthReq, request: Request):
     user_info = await verify_google_token(req.id_token)
     if not user_info:
         raise HTTPException(status_code=401, detail="فشل التحقق من حساب جوجل")
-        
+
     raw_email = user_info.get("email")
     if not raw_email:
         raise HTTPException(status_code=400, detail="لم يتم الحصول على البريد الإلكتروني من جوجل")
     clean_email = raw_email.strip().lower()
-        
+
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(func.lower(User.email) == clean_email))).scalar_one_or_none()
-        
+
         now = datetime.now(timezone.utc)
         user_agent = request.headers.get("user-agent", "")
         import hashlib
         fp_num = int(hashlib.sha256(f"{client_ip}:{user_agent}".encode('utf-8')).hexdigest()[:8], 16) % 899999 + 100000
         device_fp = f"DEV-FP-{fp_num}"
-        
+
         if not user:
             # Create a new user with Google login - strictly locked in pending_approval
             random_password = secrets.token_hex(16)
             password_hash = bcrypt.hashpw(random_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-            
+
             assigned_host = await get_least_used_proxy(session)
             google_name = (user_info.get("name") or user_info.get("given_name") or clean_email.split('@')[0]).strip()
             user = User(
@@ -682,29 +723,29 @@ async def google_login(req: GoogleAuthReq, request: Request):
                 status_code=403,
                 detail="⏳ تم استلام طلب تسجيل حسابك عبر Google بنجاح. حسابك قيد مراجعة الإدارة لتفعيل فترة التجربة (3 أيام مجاناً)."
             )
-            
+
         if user.subscription_status == "pending_approval" and not user.is_admin:
             raise HTTPException(
                 status_code=403,
                 detail="⏳ طلب تسجيل حسابك قيد المراجعة والموافقة من الإدارة. سيتم تفعيل الـ 3 أيام التجريبية لحسابك فور الاعتماد."
             )
-            
+
         if user.subscription_status == "banned":
             raise HTTPException(status_code=403, detail="⛔ تم حظر هذا الحساب من قبل الإدارة.")
-            
+
         if user.subscription_status == "expired" and user.subscription_plan == "trial" and not user.is_admin:
             raise HTTPException(
                 status_code=403,
                 detail="🔒 انتهت صلاحية حسابك التجريبي. يرجى التواصل مع الإدارة للاشتراك وتفعيل الحساب."
             )
-            
+
         # Update digital footprint
         user.last_login_ip = client_ip
         user.last_login_ua = user_agent
         if not user.device_fingerprint:
             user.device_fingerprint = device_fp
         await session.commit()
-            
+
         access_token = jwt.encode({"sub": user.id, "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)}, JWT_SECRET, algorithm=JWT_ALGORITHM)
         logger.info(f"==> [GOOGLE LOGIN SUCCESS] User ID {user.id} ({clean_email}) logged in successfully")
         return {"access_token": access_token, "token_type": "bearer"}
@@ -714,18 +755,18 @@ async def get_user_subscription(user_id: int = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
         if not user: raise HTTPException(status_code=404, detail="اليوزر غير موجود")
-        
+
         now = datetime.now(timezone.utc)
-        
+
         # Ensure timezone-aware comparison
         sub_end = user.subscription_end
         if sub_end.tzinfo is None:
             sub_end = sub_end.replace(tzinfo=timezone.utc)
-        
+
         # Live status computation (source of truth = subscription_end, not DB status field)
         is_active = sub_end > now
         sub_status = "Active" if is_active else "Expired"
-        
+
         # Sync DB status if it's stale (fix consistency on-the-fly)
         if is_active and user.subscription_status != "active":
             user.subscription_status = "active"
@@ -733,10 +774,10 @@ async def get_user_subscription(user_id: int = Depends(get_current_user)):
         elif not is_active and user.subscription_status == "active":
             user.subscription_status = "expired"
             await session.commit()
-        
+
         remaining_seconds = (sub_end - now).total_seconds()
         remaining_days = max(0, int(remaining_seconds / 86400))
-        
+
         # Select the active telegram account first, then fallback to first available
         tg_account = (await session.execute(
             select(TelegramAccount).where(
@@ -749,7 +790,7 @@ async def get_user_subscription(user_id: int = Depends(get_current_user)):
                 select(TelegramAccount).where(TelegramAccount.user_id == user_id)
             )).scalars().first()
         bot_status = tg_account.status if tg_account else "غير مربوط"
-        
+
         return {
             "email": user.email,
             "full_name": user.full_name or user.email.split('@')[0],
@@ -796,7 +837,7 @@ async def update_user_profile(req: UserProfileUpdateReq, user_id: int = Depends(
     cleaned_name = _re.sub(r'<[^>]*>', '', raw_name).strip()
     if len(cleaned_name) < 2 or len(cleaned_name) > 60:
         raise HTTPException(status_code=400, detail="الاسم يجب أن يكون بين حرفين و 60 حرفاً")
-    
+
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
         if not user:
@@ -821,7 +862,7 @@ async def user_change_password(req: UserChangePasswordReq, user_id: int = Depend
     clean_new = req.new_password.strip()
     if len(clean_new) < 6:
         raise HTTPException(status_code=400, detail="يجب أن تتكون كلمة المرور الجديدة من 6 أحرف على الأقل")
-        
+
     async with AsyncSessionLocal() as session:
         user = await session.get(User, user_id)
         if not user:
@@ -830,7 +871,7 @@ async def user_change_password(req: UserChangePasswordReq, user_id: int = Depend
             raise HTTPException(status_code=403, detail="⛔ تم حظر هذا الحساب من قبل الإدارة.")
         if not user.password_hash or not bcrypt.checkpw(req.old_password.encode('utf-8'), user.password_hash.encode('utf-8')):
             raise HTTPException(status_code=400, detail="كلمة المرور الحالية غير صحيحة")
-            
+
         user.password_hash = bcrypt.hashpw(clean_new.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         session.add(user)
         await session.commit()
@@ -848,7 +889,7 @@ async def get_user_health(user_id: int = Depends(get_current_user)):
         user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=404, detail="المستخدم غير موجود")
-        
+
         now = datetime.now(timezone.utc)
         sub_end = user.subscription_end
         if sub_end.tzinfo is None:
@@ -1177,7 +1218,7 @@ async def get_user_campaigns_history(
         if search:
             search_pattern = f"%{search.strip()}%"
             conditions.append(
-                (WebCampaignTask.custom_text.ilike(search_pattern)) | 
+                (WebCampaignTask.custom_text.ilike(search_pattern)) |
                 (WebCampaignTask.target_link.ilike(search_pattern))
             )
 
@@ -1639,14 +1680,14 @@ async def get_campaign_channels_analytics(
             is_in_custom = False
             try:
                 ch_id_int = int(ch_id)
-                if (ch_id_int in campaign_ids_set or 
-                    abs(ch_id_int) in campaign_ids_set or 
+                if (ch_id_int in campaign_ids_set or
+                    abs(ch_id_int) in campaign_ids_set or
                     (str(ch_id_int).startswith("-100") and int(str(ch_id_int)[4:]) in campaign_ids_set)):
                     is_in_campaign = True
 
                 if custom_folder_ids_set and (
-                    ch_id_int in custom_folder_ids_set or 
-                    abs(ch_id_int) in custom_folder_ids_set or 
+                    ch_id_int in custom_folder_ids_set or
+                    abs(ch_id_int) in custom_folder_ids_set or
                     (str(ch_id_int).startswith("-100") and int(str(ch_id_int)[4:]) in custom_folder_ids_set)):
                     is_in_custom = True
             except Exception:
@@ -1848,7 +1889,7 @@ async def crypto_submit(req: CryptoPaymentReq, user_id: int = Depends(get_curren
             status_code=400,
             detail=f"خطأ: الباقة '{req.plan_selected}' غير موجودة في قائمة الباقات الرسمية. يُرجى اختيار باقة صحيحة."
         )
-    
+
     from sqlalchemy.exc import IntegrityError
     async with AsyncSessionLocal() as session:
         try:
@@ -1883,7 +1924,7 @@ async def add_template(req: TemplateCreateReq, user_id: int = Depends(get_curren
                     TelegramAccount.user_id == user_id
                 ).order_by(TelegramAccount.status == "active", TelegramAccount.id.desc())
             )).scalars().first()
-            
+
         if not acc:
             raise HTTPException(status_code=400, detail="يرجى ربط حساب تليجرام أولاً لحفظ الصيغة باسم حسابك")
 
@@ -1898,7 +1939,7 @@ async def add_template(req: TemplateCreateReq, user_id: int = Depends(get_curren
                 channel_id=req.channel_id,
                 channel_title=req.channel_title
             ))
-            
+
         await session.commit()
 
         if req.channel_id:
@@ -1910,7 +1951,7 @@ async def add_template(req: TemplateCreateReq, user_id: int = Depends(get_curren
         ch_name_label = f" لقناة [{req.channel_title}]" if req.channel_title else ""
         if len(parsed_templates) > 1:
             return {
-                "status": "success", 
+                "status": "success",
                 "count": len(parsed_templates),
                 "message": f"تم بنجاح اكتشاف وتفكيك {len(parsed_templates)} صيغة إعلانية منفصلة وتثبيتها{ch_name_label}! 🚀"
             }
@@ -1954,7 +1995,7 @@ def smart_split_ad_templates(raw_text: str) -> List[str]:
                     chunk = chunk[sub_match.end():].strip()
             else:
                 chunk = re.sub(r'^(?:\s*[-=_*]{3,}|\s*\*\*\d+[\.\-\)]?\*\*|\s*\d+[\.\-\)]|\s*\[\d+\])+\s*', '', chunk).strip()
-            
+
             if len(chunk) >= 5:
                 templates.append(chunk)
         if len(templates) >= 2:
@@ -1988,7 +2029,7 @@ def smart_split_ad_templates(raw_text: str) -> List[str]:
 async def add_templates_bulk(req: TemplateBulkCreateReq, user_id: int = Depends(get_current_user)):
     if not req.templates or not isinstance(req.templates, list):
         raise HTTPException(status_code=400, detail="يرجى إرسال قائمة الصيغ المراد إضافتها")
-        
+
     async with AsyncSessionLocal() as session:
         await verify_active_subscription(user_id, session)
         if req.telegram_account_id:
@@ -2004,10 +2045,10 @@ async def add_templates_bulk(req: TemplateBulkCreateReq, user_id: int = Depends(
                     TelegramAccount.user_id == user_id
                 ).order_by(TelegramAccount.status == "active", TelegramAccount.id.desc())
             )).scalars().first()
-            
+
         if not acc:
             raise HTTPException(status_code=400, detail="يرجى ربط حساب تليجرام أولاً لحفظ الصيغ باسم حسابك")
-            
+
         added_count = 0
         for raw_t in req.templates:
             if not isinstance(raw_t, str):
@@ -2016,10 +2057,10 @@ async def add_templates_bulk(req: TemplateBulkCreateReq, user_id: int = Depends(
             for item in split_items:
                 session.add(AdTemplate(telegram_account_id=acc.id, template_text=item))
                 added_count += 1
-            
+
         if added_count == 0:
             raise HTTPException(status_code=400, detail="لم يتم العثور على أي نصوص إعلانية صالحة للحفظ")
-            
+
         await session.commit()
         return {
             "status": "success",
@@ -2036,10 +2077,10 @@ async def get_templates(telegram_account_id: Optional[int] = None, user_id: int 
         user_acc_ids = (await session.execute(
             select(TelegramAccount.id).where(TelegramAccount.user_id == user_id)
         )).scalars().all()
-        
+
         if not user_acc_ids:
             return []
-            
+
         if telegram_account_id and telegram_account_id in user_acc_ids:
             stmt = select(AdTemplate).where(
                 AdTemplate.telegram_account_id == telegram_account_id,
@@ -2051,7 +2092,7 @@ async def get_templates(telegram_account_id: Optional[int] = None, user_id: int 
                 AdTemplate.telegram_account_id.in_(user_acc_ids),
                 AdTemplate.is_active == True
             ).order_by(AdTemplate.created_at.desc())
-        
+
         results = (await session.execute(stmt)).scalars().all()
         return [
             {
@@ -2069,7 +2110,7 @@ async def get_templates(telegram_account_id: Optional[int] = None, user_id: int 
 async def delete_template(template_id: int, user_id: int = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
         await verify_active_subscription(user_id, session)
-        
+
         tmpl = (await session.execute(
             select(AdTemplate)
             .join(TelegramAccount, AdTemplate.telegram_account_id == TelegramAccount.id)
@@ -2078,10 +2119,10 @@ async def delete_template(template_id: int, user_id: int = Depends(get_current_u
                 TelegramAccount.user_id == user_id
             )
         )).scalar_one_or_none()
-        
+
         if not tmpl:
             raise HTTPException(status_code=404, detail="الصيغة غير موجودة أو غير مصرح لك بحذفها")
-            
+
         ch_id = tmpl.channel_id
         acc_id = tmpl.telegram_account_id
         await session.delete(tmpl)
@@ -2137,7 +2178,7 @@ async def campaign_submit(req: CampaignSubmitReq, user_id: int = Depends(get_cur
     async with AsyncSessionLocal() as session:
         # Verify active subscription
         user = await verify_active_subscription(user_id, session)
-        
+
         # Find active Telegram account for this tenant
         tg_account = (await session.execute(
             select(TelegramAccount).where(
@@ -2147,7 +2188,7 @@ async def campaign_submit(req: CampaignSubmitReq, user_id: int = Depends(get_cur
         )).scalars().first()
         if not tg_account:
             raise HTTPException(status_code=400, detail="يرجى ربط حسابك على تليجرام وتفعيل المحرك أولاً.")
-        
+
         # Create and queue WebCampaignTask
         new_task = WebCampaignTask(
             telegram_account_id=tg_account.id,
@@ -2196,7 +2237,7 @@ async def stop_everything(user_id: int = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
         # Verify active subscription
         user = await verify_active_subscription(user_id, session)
-        
+
         # Find active Telegram account for this tenant
         tg_account = (await session.execute(
             select(TelegramAccount).where(
@@ -2206,23 +2247,23 @@ async def stop_everything(user_id: int = Depends(get_current_user)):
         )).scalars().first()
         if not tg_account:
             raise HTTPException(status_code=400, detail="يرجى ربط حسابك على تليجرام وتفعيل المحرك أولاً.")
-            
+
         tenant_id = tg_account.id
-        
+
         # 1. Update bot_system_state to stopped in settings
         from db_manager import Setting
         from sqlalchemy import update
-        
+
         stmt_set = update(Setting).where(Setting.telegram_account_id == tenant_id, Setting.key == "bot_system_state").values(value="stopped")
         res = await session.execute(stmt_set)
         if res.rowcount == 0:
             session.add(Setting(telegram_account_id=tenant_id, key="bot_system_state", value="stopped"))
-            
+
         # 2. Cancel all due pending and processing WebCampaignTasks in PostgreSQL
         from db_manager import WebCampaignTask
         from datetime import datetime, timezone, timedelta
         now_utc = datetime.now(timezone.utc)
-        
+
         # Cancel ALL pending, processing, and active WebCampaignTasks in DB immediately
         stmt_tasks = update(WebCampaignTask).where(
             WebCampaignTask.telegram_account_id == tenant_id,
@@ -2233,7 +2274,7 @@ async def stop_everything(user_id: int = Depends(get_current_user)):
         )
         await session.execute(stmt_tasks)
         await session.commit()
-        
+
         # 3. Publish cancel_jobs to worker via Redis Pub/Sub
         from cache_manager import redis_client, get_invite_link
         import json
@@ -2241,7 +2282,7 @@ async def stop_everything(user_id: int = Depends(get_current_user)):
             "saas_tenant_commands",
             json.dumps({"tenant_id": tenant_id, "command": "cancel_jobs"})
         )
-        
+
         # 4. Clear active campaign state and set global pause in Redis
         await redis_client.set(f"tenant:{tenant_id}:campaign_global_pause", "1", ex=120)
         await redis_client.set(f"tenant:{tenant_id}:setting:bot_system_state", "stopped", ex=86400)
@@ -2257,7 +2298,7 @@ async def stop_everything(user_id: int = Depends(get_current_user)):
         await redis_client.delete(f"tenant:{tenant_id}:bulk_active_targets")
         await redis_client.delete(f"tenant:{tenant_id}:active_job_id")
         await redis_client.delete(f"tenant:{tenant_id}:live_progress")
-        
+
         # Log event
         await log_tenant_event_api(tenant_id, "🛑 تم تفعيل زر الطوارئ الشامل (Kill Switch): إيقاف وإلغاء فوري لكافة المهام والحملات والعمليات النشطة.")
         try:
@@ -2267,7 +2308,7 @@ async def stop_everything(user_id: int = Depends(get_current_user)):
             await publish_tenant_live_event(tenant_id, {"type": "progress_update", "status": "stopped", "percent": 0, "active": False})
         except Exception:
             pass
-            
+
         return {"status": "success", "message": "تم تفعيل الإيقاف الشامل للطوارئ (Kill Switch) بنجاح وإلغاء كافة العمليات!"}
 
 
@@ -2280,7 +2321,7 @@ async def get_user_logs(user_id: int = Depends(get_current_user)):
         )).scalars().first()
         if not tg_account:
             return {"status": "success", "logs": []}
-        
+
         from cache_manager import redis_client, get_invite_link
         import json
         raw_logs = await redis_client.lrange(f"tenant:{tg_account.id}:live_logs", 0, -1)
@@ -2313,17 +2354,17 @@ async def clear_user_logs(user_id: int = Depends(get_current_user)):
         )).scalars().first()
         if not tg_account:
             raise HTTPException(status_code=400, detail="يرجى ربط حسابك على تليجرام وتفعيل المحرك أولاً.")
-        
+
         # Clear live logs from Redis
         from cache_manager import redis_client, get_invite_link
         await redis_client.delete(f"tenant:{tg_account.id}:live_logs")
-        
+
         # Clear DB SavedMessageLog just in case
         from db_manager import SavedMessageLog
         from sqlalchemy import delete
         await session.execute(delete(SavedMessageLog).where(SavedMessageLog.telegram_account_id == tg_account.id))
         await session.commit()
-        
+
         return {"status": "success", "message": "تم تفريغ مسح سجل الأحداث بنجاح!"}
 
 @app.get("/user/scheduled-jobs")
@@ -2335,9 +2376,9 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
         )).scalars().first()
         if not tg_account:
             return {"status": "success", "jobs": []}
-        
+
         all_jobs = []
-        
+
         # 1. Web-scheduled jobs from PostgreSQL
         from db_manager import WebCampaignTask, ActiveAd
         from sqlalchemy import func
@@ -2367,7 +2408,7 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
         live_active_ads_count = (await session.execute(
             select(func.count(ActiveAd.id)).where(ActiveAd.telegram_account_id == tg_account.id)
         )).scalar() or 0
-        
+
         campaign_type_names = {
             "wave": "حملة التبادل عشوائي (ويب)",
             "single": "حملة فردية (ويب)",
@@ -2386,7 +2427,7 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
                 t_created = t_created.replace(tzinfo=timezone.utc)
             scheduled_time = t_created + timedelta(minutes=task.delay_start)
             scheduled_time_str = scheduled_time.isoformat()
-            
+
             # Query bot_system_state
             from db_manager import Setting
             state_stmt = select(Setting.value).where(Setting.telegram_account_id == tg_account.id, Setting.key == "bot_system_state")
@@ -2420,7 +2461,7 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
                             task.completed_at = now_utc
                             session.add(task)
                             await session.commit()
-                            
+
                             # Stop bot state
                             await redis_client.set(f"tenant:{tg_account.id}:setting:bot_system_state", "stopped")
                             from db_manager import Setting
@@ -2461,7 +2502,7 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
                 interval_stmt = select(Setting.value).where(Setting.telegram_account_id == tg_account.id, Setting.key == "wave_interval")
                 wave_interval_val = (await session.execute(interval_stmt)).scalar() or "420"
                 wave_interval = int(wave_interval_val)
-                
+
                 if last_wave_raw:
                     try:
                         last_wave_str = last_wave_raw.decode("utf-8") if isinstance(last_wave_raw, bytes) else last_wave_raw
@@ -2600,7 +2641,7 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
                             remaining_bulk_seconds = rem_bulk
                 except Exception:
                     pass
-                
+
             all_jobs.append({
                 "id": f"web_{task.id}",
                 "is_web": True,
@@ -2624,12 +2665,12 @@ async def get_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
                 "custom_text": task.custom_text or "",
                 "target_link": task.target_link or "",
             })
-            
+
         try:
             all_jobs.sort(key=lambda j: j.get("start_time", ""), reverse=True)
         except Exception:
             pass
-            
+
         return {
             "status": "success",
             "jobs": all_jobs
@@ -2644,11 +2685,11 @@ async def get_user_active_ads(user_id: int = Depends(get_current_user)):
         )).scalars().first()
         if not tg_account:
             return {"status": "success", "active_ads": []}
-        
+
         from db_manager import ActiveAd
         stmt = select(ActiveAd).where(ActiveAd.telegram_account_id == tg_account.id).order_by(ActiveAd.expires_at.asc())
         results = (await session.execute(stmt)).scalars().all()
-        
+
         ads = []
         for ad in results:
             expires_str = ad.expires_at.isoformat() if ad.expires_at else ""
@@ -2693,7 +2734,7 @@ async def user_live_stream(request: Request, user_id: int = Depends(get_current_
                 "message": "Live Stream Connected ⚡"
             }, ensure_ascii=False)
             yield f"data: {init_event}\n\n"
-            
+
             last_ping = time.time()
             while True:
                 if await request.is_disconnected():
@@ -2704,7 +2745,7 @@ async def user_live_stream(request: Request, user_id: int = Depends(get_current_
                     if message and message["type"] == "message":
                         raw_data = message["data"]
                         yield f"data: {raw_data}\n\n"
-                    
+
                     # Heartbeat ping every 15s to keep proxy connections alive
                     now = time.time()
                     if now - last_ping >= 15.0:
@@ -2745,7 +2786,7 @@ async def delete_single_scheduled_job(task_id: int, user_id: int = Depends(get_c
         )).scalars().first()
         if not tg_account:
             raise HTTPException(status_code=400, detail="لا يوجد حساب تيليجرام نشط مرتبط.")
-        
+
         from db_manager import WebCampaignTask
         task = (await session.execute(
             select(WebCampaignTask).where(
@@ -2753,15 +2794,15 @@ async def delete_single_scheduled_job(task_id: int, user_id: int = Depends(get_c
                 WebCampaignTask.telegram_account_id == tg_account.id
             )
         )).scalars().first()
-        
+
         if not task:
             raise HTTPException(status_code=404, detail="المهمة المجدولة غير موجودة.")
-        
+
         campaign_type = getattr(task, "campaign_type", None)
         task.status = "failed"
         task.result_summary = "🚨 تم إلغاء المهمة المجدولة بناءً على طلب من لوحة التحكم."
         await session.commit()
-        
+
         try:
             from cache_manager import publish_tenant_live_event
             await publish_tenant_live_event(tg_account.id, {"type": "jobs_updated", "task_id": task_id, "status": "failed"})
@@ -2782,7 +2823,7 @@ async def delete_single_scheduled_job(task_id: int, user_id: int = Depends(get_c
             )
         except Exception as pe:
             logger.error(f"Failed to publish cancel_single_job: {pe}")
-            
+
         return {
             "status": "success",
             "message": f"تم إلغاء المهمة المجدولة #{task_id} بنجاح."
@@ -2799,7 +2840,7 @@ async def update_single_scheduled_job(task_id: int, req: UpdateScheduledJobReq, 
         )).scalars().first()
         if not tg_account:
             raise HTTPException(status_code=400, detail="لا يوجد حساب تيليجرام نشط مرتبط.")
-        
+
         from db_manager import WebCampaignTask
         task = (await session.execute(
             select(WebCampaignTask).where(
@@ -2807,10 +2848,10 @@ async def update_single_scheduled_job(task_id: int, req: UpdateScheduledJobReq, 
                 WebCampaignTask.telegram_account_id == tg_account.id
             )
         )).scalars().first()
-        
+
         if not task:
             raise HTTPException(status_code=404, detail="المهمة المجدولة غير موجودة.")
-        
+
         from datetime import datetime, timezone
         if req.delay_start is not None:
             task.delay_start = req.delay_start
@@ -2823,9 +2864,9 @@ async def update_single_scheduled_job(task_id: int, req: UpdateScheduledJobReq, 
             task.custom_text = req.custom_text
         if req.target_link is not None:
             task.target_link = req.target_link
-            
+
         await session.commit()
-        
+
         try:
             from cache_manager import publish_tenant_live_event
             await publish_tenant_live_event(tg_account.id, {"type": "jobs_updated", "task_id": task_id, "action": "updated"})
@@ -2850,7 +2891,7 @@ async def update_single_scheduled_job(task_id: int, req: UpdateScheduledJobReq, 
             )
         except Exception as pe:
             logger.error(f"Failed to publish update_single_job: {pe}")
-            
+
         return {
             "status": "success",
             "message": f"تم حفظ تعديلات المهمة المجدولة #{task_id} بنجاح."
@@ -2866,11 +2907,11 @@ async def clear_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
         )).scalars().first()
         if not tg_account:
             return {"status": "success", "message": "لا يوجد حساب مرتبط."}
-        
+
         # 1. Clear Telegram-scheduled jobs from Redis
         from cache_manager import redis_client, get_invite_link
         await redis_client.delete(f"tenant:{tg_account.id}:scheduled_jobs")
-        
+
         # 2. Always publish cancel_jobs command to worker to stop all in-memory and scheduled tasks
         try:
             from cache_manager import redis_client, get_invite_link
@@ -2881,7 +2922,7 @@ async def clear_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
             )
         except Exception as pe:
             logger.error(f"Failed to publish cancel_jobs command: {pe}")
-        
+
         # 3. Delete all tasks from DB
         from db_manager import WebCampaignTask
         from sqlalchemy import delete
@@ -2889,7 +2930,7 @@ async def clear_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
             delete(WebCampaignTask).where(WebCampaignTask.telegram_account_id == tg_account.id)
         )
         await session.commit()
-        
+
         try:
             from cache_manager import publish_tenant_live_event
             await publish_tenant_live_event(tg_account.id, {"type": "jobs_updated", "action": "cleared"})
@@ -2897,7 +2938,7 @@ async def clear_user_scheduled_jobs(user_id: int = Depends(get_current_user)):
             pass
 
         return {
-            "status": "success", 
+            "status": "success",
             "message": "تم مسح وإفراغ سجل المهام بالكامل بنجاح!"
         }
 
@@ -2907,7 +2948,7 @@ def normalize_telegram_phone(phone_input: str) -> str:
     arabic_to_ascii = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
     s = str(phone_input).translate(arabic_to_ascii).strip()
     digits = "".join(c for c in s if c.isdigit())
-    
+
     # Egypt (+20): often 2001... -> 201...
     if digits.startswith("2001") and len(digits) == 13:
         digits = "20" + digits[3:]
@@ -2923,7 +2964,7 @@ def normalize_telegram_phone(phone_input: str) -> str:
         digits = "966" + digits[4:]
     elif digits.startswith("05") and len(digits) == 10:
         digits = "966" + digits[1:]
-        
+
     return digits
 
 def normalize_api_credentials(api_id_input: Any, api_hash_input: str) -> tuple[int, str]:
@@ -2938,7 +2979,7 @@ def normalize_api_credentials(api_id_input: Any, api_hash_input: str) -> tuple[i
         api_id = int(id_str)
     except Exception:
         raise HTTPException(status_code=400, detail="الـ API ID غير صالح، يجب أن يكون أرقام فقط.")
-    
+
     hash_str = str(api_hash_input or "").strip().strip("'\"`")
     hash_str = _re.sub(r"[\s\u200e\u200f\u202a-\u202e\xa0]+", "", hash_str)
     if not hash_str or len(hash_str) < 10:
@@ -2953,7 +2994,7 @@ async def telegram_send_code(req: TelegramSendCodeReq, user_id: int = Depends(ge
     clean_phone = normalize_telegram_phone(req.phone)
     if not clean_phone or len(clean_phone) < 7:
         raise HTTPException(status_code=400, detail="رقم الهاتف غير صالح، يرجى كتابة الرقم بالصيغة الدولية مع مفتاح الدولة (مثال: +20...)")
-    
+
     api_id, api_hash = normalize_api_credentials(req.api_id, req.api_hash)
     req.phone = clean_phone
     req.api_id = api_id
@@ -2962,7 +3003,7 @@ async def telegram_send_code(req: TelegramSendCodeReq, user_id: int = Depends(ge
 
     if await is_rate_limited(user_id, 5, 60):
         raise HTTPException(status_code=429, detail="طلبات كثيرة جداً، يرجى الانتظار دقيقة قبل المحاولة.")
-    
+
     # Purge expired handshakes older than 10 minutes to prevent memory leaks
     now = time.time()
     expired_phones = [phone for phone, hs in list(active_handshakes.items()) if now - hs.get("created_at", now) > 600]
@@ -2976,12 +3017,12 @@ async def telegram_send_code(req: TelegramSendCodeReq, user_id: int = Depends(ge
         try: await active_handshakes[clean_phone]["client"].disconnect()
         except: pass
         active_handshakes.pop(clean_phone, None)
-        
+
     proxy_config = None
     async with AsyncSessionLocal() as session:
         user = await verify_active_subscription(user_id, session)
         if user and user.proxy_host:
-            is_alive = await check_proxy_responsive(user.proxy_host, user.proxy_port)
+            is_alive = await check_proxy_responsive(user.proxy_host, user.proxy_port, user.proxy_username, user.proxy_password)
             if is_alive:
                 proxy_config = {
                     "scheme": "socks5",
@@ -2991,12 +3032,16 @@ async def telegram_send_code(req: TelegramSendCodeReq, user_id: int = Depends(ge
                     "password": user.proxy_password
                 }
             else:
-                logger.warning(f"SOCKS5 proxy {user.proxy_host}:{user.proxy_port} is DEAD/UNREACHABLE for user {user_id} login. Falling back to direct connection!")
-        
+                logger.error(f"SOCKS5 proxy {user.proxy_host}:{user.proxy_port} is DEAD/UNREACHABLE for user {user_id} login. STRICT FAIL-CLOSED: Aborting connection to protect server IP.")
+                raise HTTPException(
+                    status_code=503,
+                    detail="البروكسي المخصص لحسابك غير متصل حالياً. للحفاظ على أمان حسابك ومنع كشف اتصالك، تم إيقاف الربط مؤقتاً. يرجى التواصل مع الدعم الفني."
+                )
+
     client = Client(
-        name=f"temp_{clean_phone}", 
-        api_id=api_id, 
-        api_hash=api_hash, 
+        name=f"temp_{clean_phone}",
+        api_id=api_id,
+        api_hash=api_hash,
         in_memory=True,
         proxy=proxy_config
     )
@@ -3004,10 +3049,10 @@ async def telegram_send_code(req: TelegramSendCodeReq, user_id: int = Depends(ge
         await client.connect()
         code_hash = await client.send_code(clean_phone)
         active_handshakes[clean_phone] = {
-            "client": client, 
-            "phone_code_hash": code_hash.phone_code_hash, 
-            "api_id": api_id, 
-            "api_hash": api_hash, 
+            "client": client,
+            "phone_code_hash": code_hash.phone_code_hash,
+            "api_id": api_id,
+            "api_hash": api_hash,
             "user_id": user_id,
             "created_at": time.time(),
             "code_verified": False,
@@ -3041,33 +3086,33 @@ def generate_2fa_candidates(raw_pwd: str) -> list:
     if not raw_pwd:
         return []
     candidates = []
-    
+
     # 1. Stripped raw
     c1 = raw_pwd.strip()
     if c1 and c1 not in candidates:
         candidates.append(c1)
-        
+
     # 2. Stripped invisible unicode chars (LRM, RLM, zero-width, non-breaking spaces, BOM)
     invisible_pattern = r'[\u200e\u200f\u200b-\u200d\u202a-\u202e\u2066-\u2069\ufeff\u00a0]'
     c2 = _re.sub(invisible_pattern, '', c1).strip()
     if c2 and c2 not in candidates:
         candidates.append(c2)
-        
+
     # 3. Arabic & Persian digits converted to ASCII digits
     arabic_digits = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
     c3 = c2.translate(arabic_digits)
     if c3 and c3 not in candidates:
         candidates.append(c3)
-        
+
     # 4. Strip surrounding quotes (if copied with quotes like "password" or 'password')
     c4 = c3.strip('\'"')
     if c4 and c4 not in candidates:
         candidates.append(c4)
-        
+
     # 5. Raw input as-is (if different from stripped)
     if raw_pwd not in candidates:
         candidates.append(raw_pwd)
-        
+
     return candidates
 
 async def get_telegram_2fa_hint(client: Client, handshake: dict) -> Optional[str]:
@@ -3096,7 +3141,7 @@ async def check_2fa_password_robust(client: Client, password: str, handshake: di
             last_exc = pe
             if isinstance(pe, FloodWait):
                 raise HTTPException(
-                    status_code=420, 
+                    status_code=420,
                     detail=f"تم تقييد الحساب مؤقتاً لكثرة المحاولات الخاطئة ({pe.value} ثانية). يرجى الانتظار ثم المحاولة."
                 )
             if isinstance(pe, PasswordHashInvalid) or "PASSWORD_HASH_INVALID" in str(pe):
@@ -3108,12 +3153,12 @@ async def check_2fa_password_robust(client: Client, password: str, handshake: di
     hint_msg = f" (تلميح كلمة المرور المسجل في حسابك: '{hint}')" if hint else ""
     if isinstance(last_exc, PasswordHashInvalid) or "PASSWORD_HASH_INVALID" in str(last_exc):
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail=f"باسورد التحقق بخطوتين (2FA) غير صحيح!{hint_msg} يرجى التأكد من كلمة مرور تليجرام السحابية أو إيقافها مؤقتاً من تطبيق تليجرام في هاتفك."
         )
     logger.error(f"Failed to check 2FA password: {last_exc}")
     raise HTTPException(
-        status_code=400, 
+        status_code=400,
         detail=f"خطأ أثناء التحقق من كلمة مرور 2FA: {str(last_exc)}{hint_msg}"
     )
 
@@ -3124,24 +3169,24 @@ async def telegram_verify_code(req: TelegramVerifyCodeReq, user_id: int = Depend
     handshake = active_handshakes.get(clean_phone)
     if not handshake or handshake.get("user_id") != user_id:
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail="انتهت صلاحية جلسة التحقق أو لم يتم إرسال الكود بعد. يرجى الضغط على 'تعديل البيانات السابقة' وإعادة إرسال الكود."
         )
     client: Client = handshake["client"]
-    
+
     arabic_to_ascii = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
     clean_code = "".join(c for c in str(req.code).translate(arabic_to_ascii) if c.isdigit())
-    
+
     # 2FA priority: request password > cached early password from Step 1
     resolved_2fa = (req.password_2fa or "").strip() or handshake.get("password_2fa")
-    
+
     try:
         if handshake.get("code_verified"):
             # User already verified the 5-digit code in previous attempt, now validating 2FA password
             if not resolved_2fa:
                 hint = await get_telegram_2fa_hint(client, handshake)
                 return {
-                    "status": "password_needed", 
+                    "status": "password_needed",
                     "message": "حسابك محمي بكلمة مرور التحقق بخطوتين (2FA). يرجى إدخال باسورد تليجرام الخاص بك لتأكيد الربط.",
                     "hint": hint
                 }
@@ -3154,29 +3199,29 @@ async def telegram_verify_code(req: TelegramVerifyCodeReq, user_id: int = Depend
                 if not resolved_2fa:
                     hint = await get_telegram_2fa_hint(client, handshake)
                     return {
-                        "status": "password_needed", 
+                        "status": "password_needed",
                         "message": "حسابك محمي بكلمة مرور التحقق بخطوتين (2FA). يرجى إدخال باسورد تليجرام الخاص بك لتأكيد الربط.",
                         "hint": hint
                     }
                 await check_2fa_password_robust(client, resolved_2fa, handshake)
     except PhoneCodeInvalid:
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail="كود التحقق غير صحيح. يرجى كتابة كود الـ 5 أرقام كما وصلك في رسائل تطبيق تيليجرام."
         )
     except PhoneCodeExpired:
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail="انتهت صلاحية كود التحقق. يرجى الضغط على 'تعديل البيانات السابقة' لطلب كود جديد."
         )
     except PhoneCodeEmpty:
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail="يرجى إدخال كود التحقق المكون من 5 أرقام."
         )
     except FloodWait as e:
         raise HTTPException(
-            status_code=420, 
+            status_code=420,
             detail=f"رقمك مقيد للفلود لكثرة المحاولات، يرجى الانتظار {e.value} ثانية."
         )
     except HTTPException:
@@ -3187,25 +3232,25 @@ async def telegram_verify_code(req: TelegramVerifyCodeReq, user_id: int = Depend
     except Exception as e:
         logger.error(f"Unexpected error during sign_in: {e}")
         raise HTTPException(status_code=400, detail=f"حدث خطأ أثناء تأكيد الدخول: {str(e)}")
-    
+
     string_session = await client.export_session_string()
-    
+
     subscription_plan = "trial"
     async with AsyncSessionLocal() as db_session:
         user = await verify_active_subscription(user_id, db_session)
-        
+
         proxy_host = user.proxy_host if user else None
         proxy_port = user.proxy_port if user else None
         proxy_username = user.proxy_username if user else None
         proxy_password = user.proxy_password if user else None
-        
+
         existing_account = (await db_session.execute(
             select(TelegramAccount).where(
                 TelegramAccount.user_id == user_id,
                 TelegramAccount.phone == req.phone
             )
         )).scalars().first()
-        
+
         if existing_account:
             existing_account.api_id = handshake["api_id"]
             existing_account.api_hash = handshake["api_hash"]
@@ -3226,20 +3271,20 @@ async def telegram_verify_code(req: TelegramVerifyCodeReq, user_id: int = Depend
                 )
                 .values(status="inactive")
             )
-            
+
             # Check if there is any old account for this user to migrate templates and configurations from
             old_account = (await db_session.execute(
                 select(TelegramAccount)
                 .where(TelegramAccount.user_id == user_id)
                 .order_by(TelegramAccount.id.desc())
             )).scalars().first()
-            
+
             new_account = TelegramAccount(
-                user_id=user_id, 
-                phone=req.phone, 
-                api_id=handshake["api_id"], 
-                api_hash=handshake["api_hash"], 
-                string_session=string_session, 
+                user_id=user_id,
+                phone=req.phone,
+                api_id=handshake["api_id"],
+                api_hash=handshake["api_hash"],
+                string_session=string_session,
                 status="active",
                 proxy_host=proxy_host,
                 proxy_port=proxy_port,
@@ -3248,7 +3293,7 @@ async def telegram_verify_code(req: TelegramVerifyCodeReq, user_id: int = Depend
             )
             db_session.add(new_account)
             await db_session.flush() # Populate new_account.id
-            
+
             if old_account:
                 # Copy AdTemplates from old account to new account
                 from db_manager import Setting, Blacklist
@@ -3261,7 +3306,7 @@ async def telegram_verify_code(req: TelegramVerifyCodeReq, user_id: int = Depend
                         template_text=t.template_text,
                         is_active=t.is_active
                     ))
-                
+
                 # Copy Settings (like custom sticker, time intervals) from old account to new account
                 old_settings = (await db_session.execute(
                     select(Setting).where(Setting.telegram_account_id == old_account.id)
@@ -3272,7 +3317,7 @@ async def telegram_verify_code(req: TelegramVerifyCodeReq, user_id: int = Depend
                         key=s.key,
                         value=s.value
                     ))
-                
+
                 # Copy Blacklist from old account to new account
                 old_blacklist = (await db_session.execute(
                     select(Blacklist).where(Blacklist.telegram_account_id == old_account.id)
@@ -3282,15 +3327,15 @@ async def telegram_verify_code(req: TelegramVerifyCodeReq, user_id: int = Depend
                         telegram_account_id=new_account.id,
                         chat_id=b.chat_id
                     ))
-                
+
                 logger.info(f"Successfully migrated configurations from old account ID {old_account.id} to new account ID {new_account.id}")
-            
+
         await db_session.commit()
-        
+
         # Delete first crawl flag to trigger automatic onboarding crawl in core_worker
         from cache_manager import redis_client, get_invite_link
         account_id = existing_account.id if existing_account else new_account.id
-        
+
         # Auto-enqueue update (.تحديث) command so channels and folders are immediately scanned and ready
         try:
             from db_manager import WebCampaignTask
@@ -3317,7 +3362,7 @@ async def telegram_verify_code(req: TelegramVerifyCodeReq, user_id: int = Depend
             await redis_client.delete(f"tenant:{account_id}:first_crawl_done")
         except Exception as re:
             logger.error(f"Failed to delete first crawl flag from Redis: {re}")
-            
+
         if user:
             subscription_plan = user.subscription_plan
 
@@ -3357,7 +3402,7 @@ async def telegram_verify_code(req: TelegramVerifyCodeReq, user_id: int = Depend
             "• مجلد `حظر` 🛑: لمنع المحرك من الدخول إليها أو النشر بداخلها نهائياً (مثال: جروبات الدردشة الخاصة)."
         )
         await client.send_message("me", msg2_text)
-        
+
         # MESSAGE 3
         msg3_text = (
             "📌 **الدليل الشامل لأوامر التحكم السحابية (17 أمراً)**\n"
@@ -3424,7 +3469,7 @@ async def send_user_alert_telegram(user_id: int, message_text: str, session: Asy
         acc = (await session.execute(stmt)).scalars().first()
         if not acc:
             return False, "لا يوجد حساب تيليجرام نشط مربوط بالمستخدم لإرسال الإشعارات."
-            
+
         proxy_config = None
         if acc.proxy_host:
             is_alive = await check_proxy_responsive(acc.proxy_host, acc.proxy_port)
@@ -3523,12 +3568,12 @@ async def send_telegram_otp(otp_code: str):
     raw_targets = os.getenv("ADMIN_OTP_PHONES", "+201225721082,+201062576181")
     targets = [p.strip() for p in raw_targets.split(",") if p.strip()]
     text = f"ًں”‘ كود الدخول الثنائي المؤقت للوحة الإدارة هو: {otp_code}\nصالح لمدة 5 دقائق."
-    
+
     # Try publishing to the worker pubsub channel first
     try:
         import json as _json
         num_subs = await redis_client.publish(
-            "saas_otp_channel", 
+            "saas_otp_channel",
             _json.dumps({"otp_code": otp_code, "targets": targets})
         )
         if num_subs > 0:
@@ -3543,11 +3588,11 @@ async def send_telegram_otp(otp_code: str):
         accounts = (await session.execute(
             select(TelegramAccount).where(TelegramAccount.status == "active")
         )).scalars().all()
-        
+
         if not accounts:
             logger.error("No active Telegram accounts found in database to send OTP!")
             return False
-            
+
         for acc in accounts:
             try:
                 proxy_config = None
@@ -3572,12 +3617,12 @@ async def send_telegram_otp(otp_code: str):
                     proxy=proxy_config
                 )
                 await client.start()
-                
+
                 for phone in targets:
                     try:
                         clean_acc_phone = "".join(filter(str.isdigit, acc.phone))
                         clean_target = "".join(filter(str.isdigit, phone))
-                        
+
                         if clean_acc_phone == clean_target:
                             await client.send_message("me", text)
                             logger.info(f"OTP sent to self Saved Messages for {phone}")
@@ -3588,14 +3633,14 @@ async def send_telegram_otp(otp_code: str):
                             logger.info(f"OTP sent to {phone} via account {acc.phone}")
                     except Exception as e:
                         logger.error(f"Failed to send OTP to {phone} via account {acc.phone}: {e}")
-                
+
                 await client.stop()
                 return True
             except Exception as e:
                 logger.error(f"Failed to start Pyrogram client for account {acc.phone}: {e}")
                 try: await client.stop()
                 except: pass
-                
+
         return False
 
 
@@ -3609,16 +3654,16 @@ async def admin_login(req: AdminLoginReq, request: Request):
         user = (await session.execute(select(User).where(func.lower(User.email) == clean_email))).scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=401, detail="بيانات خاطئة أو صلاحيات غير كافية")
-        
+
         if not bcrypt.checkpw(req.password.encode('utf-8'), user.password_hash.encode('utf-8')):
             raise HTTPException(status_code=401, detail="بيانات خاطئة أو صلاحيات غير كافية")
-            
+
         if not user.is_admin:
             raise HTTPException(status_code=401, detail="بيانات خاطئة أو صلاحيات غير كافية")
-        
+
         # Check if 2FA is required
         force_2fa = os.getenv("ADMIN_REQUIRE_2FA", "true").lower() != "false" or user.totp_verified
-        
+
         # If otp_code was provided directly in login request
         if req.otp_code:
             saved_otp = await redis_client.get(f"admin_otp:{user.id}")
@@ -3654,7 +3699,7 @@ async def admin_login(req: AdminLoginReq, request: Request):
             await redis_client.set(f"admin_otp:{user.id}", otp_code, ex=300)
             await redis_client.delete(f"admin_otp_fail:{user.id}")
             asyncio.create_task(send_telegram_otp(otp_code))
-            
+
             challenge_token = jwt.encode(
                 {
                     "sub": user.id,
@@ -3669,7 +3714,7 @@ async def admin_login(req: AdminLoginReq, request: Request):
                 "challenge_token": challenge_token,
                 "message": "تم إرسال كود التحقق الثنائي عبر تليجرام."
             }
-        
+
         # Direct login without 2FA
         access_token = jwt.encode(
             {
@@ -3699,7 +3744,7 @@ async def admin_verify_otp(req: AdminVerifyOtpReq, request: Request):
         user_id = payload.get("sub")
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="انتهت صلاحية رمز التحدي، يرجى إعادة تسجيل الدخول")
-        
+
     saved_otp = await redis_client.get(f"admin_otp:{user_id}")
     if not (saved_otp and saved_otp == req.otp_code.strip()):
         fail_count = await redis_client.incr(f"admin_otp_fail:{user_id}")
@@ -3707,15 +3752,15 @@ async def admin_verify_otp(req: AdminVerifyOtpReq, request: Request):
             await redis_client.delete(f"admin_otp:{user_id}")
             raise HTTPException(status_code=429, detail="تم تجاوز الحد الأقصى للمحاولات الخاطئة. تم إلغاء الرمز، يرجى طلب رمز جديد.")
         raise HTTPException(status_code=400, detail="كود التحقق الثنائي (OTP) غير صحيح أو منتهي الصلاحية")
-        
+
     await redis_client.delete(f"admin_otp:{user_id}")
     await redis_client.delete(f"admin_otp_fail:{user_id}")
-    
+
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
         if not user or not user.is_admin:
             raise HTTPException(status_code=403, detail="المستخدم غير مصرح له بالدخول كمدير")
-            
+
         access_token = jwt.encode(
             {
                 "sub": user.id,
@@ -3741,13 +3786,13 @@ async def check_admin_user(
         resolved_token = credentials.credentials
     elif token:
         resolved_token = token
-        
+
     if not resolved_token:
         raise HTTPException(
             status_code=401,
             detail="لم يتم إرسال توكن المصادقة (Bearer token required in Authorization header)"
         )
-        
+
     try:
         payload = jwt.decode(resolved_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         if not payload.get("is_admin"):
@@ -3755,7 +3800,7 @@ async def check_admin_user(
         user_id = payload.get("sub")
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="رخصة غير صالحة")
-        
+
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
         if not user:
@@ -3768,50 +3813,50 @@ async def check_admin_user(
 async def get_admin_stats(admin_user: User = Depends(check_admin_user)):
     async with AsyncSessionLocal() as session:
         total_users = (await session.execute(select(func.count(User.id)))).scalar() or 0
-        
+
         now = datetime.now(timezone.utc)
         active_subs = (await session.execute(select(func.count(User.id)).where(User.subscription_end > now, User.subscription_status == "active"))).scalar() or 0
         expired_subs = total_users - active_subs
-        
+
         # Real user breakdown: how many users actually have running bots vs unlinked
         users_with_active_bot = (await session.execute(
             select(func.count(func.distinct(User.id)))
             .join(TelegramAccount, TelegramAccount.user_id == User.id)
             .where(TelegramAccount.status == "active", User.subscription_end > now, User.subscription_status == "active")
         )).scalar() or 0
-        
+
         users_unlinked = (await session.execute(
             select(func.count(User.id))
             .where(~User.id.in_(select(TelegramAccount.user_id)))
         )).scalar() or 0
-        
+
         total_payments = (await session.execute(select(func.count(CryptoPayment.id)))).scalar() or 0
         pending_payments = (await session.execute(select(func.count(CryptoPayment.id)).where(CryptoPayment.status == "pending"))).scalar() or 0
         approved_payments = (await session.execute(select(func.count(CryptoPayment.id)).where(CryptoPayment.status == "approved"))).scalar() or 0
-        
+
         total_tg_accounts = (await session.execute(select(func.count(TelegramAccount.id)))).scalar() or 0
         active_tg_accounts = (await session.execute(select(func.count(TelegramAccount.id)).where(TelegramAccount.status == "active"))).scalar() or 0
         banned_tg_accounts = (await session.execute(select(func.count(TelegramAccount.id)).where(TelegramAccount.status == "banned"))).scalar() or 0
         paused_tg_accounts = (await session.execute(select(func.count(TelegramAccount.id)).where(TelegramAccount.status.in_(["paused", "stopped"])))).scalar() or 0
-        
+
         today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        
+
         total_published_today = (await session.execute(
             select(func.count(PublishLog.id)).where(PublishLog.created_at >= today_midnight)
         )).scalar() or 0
-        
+
         total_published_month = (await session.execute(
             select(func.count(PublishLog.id)).where(PublishLog.created_at >= month_start)
         )).scalar() or 0
-        
+
         total_tasks_completed = (await session.execute(
             select(func.count(WebCampaignTask.id)).where(WebCampaignTask.status == "completed")
         )).scalar() or 0
         total_tasks_failed = (await session.execute(
             select(func.count(WebCampaignTask.id)).where(WebCampaignTask.status == "failed")
         )).scalar() or 0
-        
+
         success_rate = round((total_tasks_completed / max(1, (total_tasks_completed + total_tasks_failed))) * 100, 1)
         active_campaigns_now = (await session.execute(
             select(func.count(WebCampaignTask.id)).where(WebCampaignTask.status.in_(["pending", "processing", "active"]))
@@ -3859,7 +3904,7 @@ async def get_admin_active_campaigns(admin_user: User = Depends(check_admin_user
             .limit(100)
         )
         results = (await session.execute(stmt)).all()
-        
+
         campaign_type_labels = {
             "wave": "تبادل عشوائي",
             "wave_folder": "تبادل مجلد حملات",
@@ -3890,7 +3935,7 @@ async def get_admin_active_campaigns(admin_user: User = Depends(check_admin_user
                 "created_at": task.created_at.isoformat() if task.created_at else None,
                 "completed_at": task.completed_at.isoformat() if task.completed_at else None,
             })
-            
+
         return {
             "status": "success",
             "active_count": sum(1 for t in tasks_list if t["status"] in ["pending", "processing", "active"]),
@@ -3904,16 +3949,16 @@ async def stop_admin_campaign_task(task_id: int, admin_user: User = Depends(chec
         task = (await session.execute(
             select(WebCampaignTask).where(WebCampaignTask.id == task_id)
         )).scalar_one_or_none()
-        
+
         if not task:
             raise HTTPException(status_code=404, detail="المهمة غير موجودة")
-            
+
         task.status = "failed"
         task.result_summary = f"🛑 تم إيقاف وإلغاء المهمة فورياً بواسطة المشرف ({admin_user.email})."
         task.completed_at = datetime.now(timezone.utc)
         session.add(task)
         await session.commit()
-        
+
         try:
             await redis_client.publish(
                 "saas_tenant_commands",
@@ -3921,7 +3966,7 @@ async def stop_admin_campaign_task(task_id: int, admin_user: User = Depends(chec
             )
         except Exception as pe:
             logger.error(f"Failed to publish cancel_jobs command: {pe}")
-            
+
         return {"status": "success", "message": f"تم إيقاف المهمة #{task_id} فورياً بنجاح."}
 
 @app.post("/admin/users/{target_user_id}/test-proxy")
@@ -3931,19 +3976,19 @@ async def admin_test_user_proxy(target_user_id: int, admin_user: User = Depends(
         account = (await session.execute(
             select(TelegramAccount).where(TelegramAccount.user_id == target_user_id)
         )).scalars().first()
-        
+
         if not account or not account.proxy_host or not account.proxy_port:
             return {
                 "status": "warning",
                 "is_alive": False,
                 "message": "لا يوجد بروكسي معين لهذا المشترك بعد."
             }
-            
+
         host = account.proxy_host
         port = int(account.proxy_port)
         user = account.proxy_username
         pwd = account.proxy_password
-        
+
         t0 = time.time()
         try:
             reader, writer = await asyncio.wait_for(
@@ -3953,11 +3998,11 @@ async def admin_test_user_proxy(target_user_id: int, admin_user: User = Depends(
             writer.write(b'\x05\x02\x00\x02')
             await writer.drain()
             resp = await asyncio.wait_for(reader.readexactly(2), timeout=3.0)
-            
+
             if resp[0] != 5:
                 writer.close()
                 return {"status": "error", "is_alive": False, "message": "الخادم ليس بروكسي SOCKS5 صالح (رد غير متوقع)."}
-                
+
             if resp[1] == 0x02:
                 if not user or not pwd:
                     writer.close()
@@ -3974,7 +4019,7 @@ async def admin_test_user_proxy(target_user_id: int, admin_user: User = Depends(
             elif resp[1] != 0x00:
                 writer.close()
                 return {"status": "error", "is_alive": False, "message": "نوع المصادقة في البروكسي غير مدعوم."}
-                
+
             writer.close()
             await writer.wait_closed()
             latency_ms = int((time.time() - t0) * 1000)
@@ -3998,23 +4043,23 @@ async def admin_bulk_extend_subscriptions(req: BulkExtendReq, admin_user: User =
     """Extend subscriptions for all currently active/trial users in one click."""
     if req.days < 1 or req.days > 365:
         raise HTTPException(status_code=400, detail="عدد الأيام يجب أن يكون بين 1 و 365 يوماً.")
-        
+
     async with AsyncSessionLocal() as session:
         now = datetime.now(timezone.utc)
         stmt = select(User).where(User.subscription_status.in_(["active", "trial"]))
         users = (await session.execute(stmt)).scalars().all()
-        
+
         extended_count = 0
         for u in users:
             curr_end = u.subscription_end
             if curr_end and curr_end.tzinfo is None:
                 curr_end = curr_end.replace(tzinfo=timezone.utc)
-                
+
             base_date = max(now, curr_end) if curr_end else now
             u.subscription_end = base_date + timedelta(days=req.days)
             u.subscription_status = "active"
             session.add(u)
-            
+
             notif = SubscriptionNotificationLog(
                 user_id=u.id,
                 notification_type="bulk_extension",
@@ -4024,7 +4069,7 @@ async def admin_bulk_extend_subscriptions(req: BulkExtendReq, admin_user: User =
                 details=f"Extended by admin {admin_user.email}"
             )
             session.add(notif)
-            
+
             # Also add an AccountNotification so it shows in the user dashboard notification bell
             bell_notif = AccountNotification(
                 user_id=u.id,
@@ -4035,7 +4080,7 @@ async def admin_bulk_extend_subscriptions(req: BulkExtendReq, admin_user: User =
             )
             session.add(bell_notif)
             extended_count += 1
-            
+
         await session.commit()
         logger.info(f"Admin {admin_user.email} bulk-extended {extended_count} subscriptions by {req.days} days.")
         return {
@@ -4047,32 +4092,32 @@ async def admin_bulk_extend_subscriptions(req: BulkExtendReq, admin_user: User =
 
 @app.get("/admin/system-stats")
 async def get_admin_system_stats(admin_user: User = Depends(check_admin_user)):
-    
+
     import psutil
     import os
     from cache_manager import redis_client, get_invite_link
-    
+
     # CPU (sample over 100ms for stable and accurate metric)
     cpu_percent = psutil.cpu_percent(interval=0.1)
-    
+
     # RAM
     ram = psutil.virtual_memory()
     ram_total_mb = int(ram.total / (1024 * 1024))
     ram_used_mb = int(ram.used / (1024 * 1024))
     ram_percent = ram.percent
-    
+
     # Disk
     disk = psutil.disk_usage('/')
     disk_total_gb = int(disk.total / (1024 * 1024 * 1024))
     disk_used_gb = int(disk.used / (1024 * 1024 * 1024))
     disk_percent = disk.percent
-    
+
     # Load Average
     try:
         load1, load5, load15 = os.getloadavg()
     except Exception:
         load1, load5, load15 = 0.0, 0.0, 0.0
-        
+
     # Database and Redis Health check
     db_healthy = False
     try:
@@ -4082,20 +4127,20 @@ async def get_admin_system_stats(admin_user: User = Depends(check_admin_user)):
             db_healthy = True
     except Exception as e:
         logger.error(f"DB Health check failed: {e}")
-        
+
     redis_healthy = False
     try:
         await redis_client.ping()
         redis_healthy = True
     except Exception:
         pass
-        
+
     # Tenant account details
     active_count = 0
     paused_count = 0
     stopped_count = 0
     error_count = 0
-    
+
     async with AsyncSessionLocal() as session:
         stmt = select(TelegramAccount.status, func.count(TelegramAccount.id)).group_by(TelegramAccount.status)
         results = (await session.execute(stmt)).all()
@@ -4108,7 +4153,7 @@ async def get_admin_system_stats(admin_user: User = Depends(check_admin_user)):
                 stopped_count = count
             elif status in ["error", "banned", "unauthorized"]:
                 error_count += count
-                
+
     return {
         "cpu_percent": cpu_percent,
         "ram": {
@@ -4136,22 +4181,22 @@ async def get_admin_system_stats(admin_user: User = Depends(check_admin_user)):
 async def get_admin_subscriptions_expiring(admin_user: User = Depends(check_admin_user)):
     async with AsyncSessionLocal() as session:
         now = datetime.now(timezone.utc)
-        
+
         stmt = select(User).order_by(User.subscription_end.asc())
         users = (await session.execute(stmt)).scalars().all()
-        
+
         expiring_2d = []
         expiring_24h = []
         expired = []
-        
+
         for u in users:
             sub_end = u.subscription_end
             if sub_end.tzinfo is None:
                 sub_end = sub_end.replace(tzinfo=timezone.utc)
-            
+
             diff = sub_end - now
             diff_hours = diff.total_seconds() / 3600.0
-            
+
             user_data = {
                 "id": u.id,
                 "email": u.email,
@@ -4163,14 +4208,14 @@ async def get_admin_subscriptions_expiring(admin_user: User = Depends(check_admi
                 "alert_expired_sent": u.sub_alert_expired_sent,
                 "shutdown_executed": u.sub_shutdown_executed
             }
-            
+
             if u.subscription_status == "expired" or diff_hours <= 0:
                 expired.append(user_data)
             elif diff_hours <= 24:
                 expiring_24h.append(user_data)
             elif diff_hours <= 48:
                 expiring_2d.append(user_data)
-                
+
         return {
             "expiring_2d": expiring_2d,
             "expiring_24h": expiring_24h,
@@ -4188,7 +4233,7 @@ async def get_admin_subscriptions_notifications(admin_user: User = Depends(check
             .limit(100)
         )
         res = await session.execute(stmt)
-        
+
         logs = []
         for log, email in res:
             logs.append({
@@ -4209,7 +4254,7 @@ async def get_admin_pending_payments(admin_user: User = Depends(check_admin_user
         payments = (await session.execute(
             select(CryptoPayment).where(CryptoPayment.status == "pending").order_by(CryptoPayment.created_at.desc())
         )).scalars().all()
-        
+
         payments_list = []
         for p in payments:
             user = (await session.execute(select(User).where(User.id == p.user_id))).scalar_one_or_none()
@@ -4239,27 +4284,27 @@ async def verify_payment(req: VerifyPaymentReq, background_tasks: BackgroundTask
             raise HTTPException(status_code=404, detail="الإيصال غير موجود")
         if payment.status != "pending":
             raise HTTPException(status_code=400, detail="تم معالجة هذا الإيصال مسبقاً")
-        
+
         if req.action == "approve":
             user = (await session.execute(select(User).where(User.id == payment.user_id))).scalar_one_or_none()
             if not user:
                 raise HTTPException(status_code=404, detail="المستخدم صاحب الإيصال غير موجود")
-            
+
             if req.proxy_host is not None:
                 user.proxy_host = req.proxy_host.strip() if req.proxy_host.strip() else None
                 user.proxy_port = req.proxy_port if req.proxy_port is not None else None
                 user.proxy_username = req.proxy_username.strip() if req.proxy_username else None
                 user.proxy_password = req.proxy_password.strip() if req.proxy_password else None
-                
+
             if not user.proxy_host:
                 assigned_host = await get_least_used_proxy(session)
                 user.proxy_host = assigned_host
                 user.proxy_port = PROXY_PORT if assigned_host else None
                 user.proxy_username = PROXY_USERNAME if assigned_host else None
                 user.proxy_password = PROXY_PASSWORD if assigned_host else None
-                
+
             session.add(user)
-            
+
             from db_manager import TelegramAccount
             stmt_acc = select(TelegramAccount).where(TelegramAccount.user_id == user.id)
             accounts = (await session.execute(stmt_acc)).scalars().all()
@@ -4270,24 +4315,24 @@ async def verify_payment(req: VerifyPaymentReq, background_tasks: BackgroundTask
                 acc.proxy_password = user.proxy_password
                 acc.needs_reboot = True
                 session.add(acc)
-            
+
             payment.status = "approved"
-            
+
             now = datetime.now(timezone.utc)
             if payment.plan_selected in OFFICIAL_PLANS:
                 days_to_add = OFFICIAL_PLANS[payment.plan_selected]["duration_days"]
             else:
                 raise HTTPException(status_code=400, detail=f"الباقة '{payment.plan_selected}' غير معروفة في OFFICIAL_PLANS ولا يمكن تفعيلها")
-            
+
             current_end = user.subscription_end
             if current_end.tzinfo is None:
                 current_end = current_end.replace(tzinfo=timezone.utc)
-                
+
             if current_end > now:
                 new_end = current_end + timedelta(days=days_to_add)
             else:
                 new_end = now + timedelta(days=days_to_add)
-                
+
             user.subscription_plan = payment.plan_selected
             user.subscription_status = "active"
             user.subscription_end = new_end
@@ -4295,7 +4340,7 @@ async def verify_payment(req: VerifyPaymentReq, background_tasks: BackgroundTask
             user.sub_alert_24h_sent = False
             user.sub_alert_expired_sent = False
             user.sub_shutdown_executed = False
-            
+
             # Auto-enqueue update (.تحديث) command for any associated telegram accounts
             try:
                 from db_manager import WebCampaignTask
@@ -4319,11 +4364,11 @@ async def verify_payment(req: VerifyPaymentReq, background_tasks: BackgroundTask
                         logger.info(f"Auto-enqueued 'update' task for account {acc_item.id} upon verify_payment.")
             except Exception as vpe:
                 logger.error(f"Failed to auto-enqueue update task in verify_payment: {vpe}")
-            
+
             await session.commit()
-            
+
             background_tasks.add_task(send_renewal_alert_task, user.id, OFFICIAL_PLANS[payment.plan_selected]['label'], new_end.strftime("%Y-%m-%d %H:%M:%S"))
-            
+
             return {"status": "success", "message": f"تم تفعيل اشتراك {OFFICIAL_PLANS[payment.plan_selected]['label']} بنجاح حتى تاريخ {new_end.strftime('%Y-%m-%d')}"}
         elif req.action == "reject":
             payment.status = "rejected"
@@ -4337,7 +4382,7 @@ async def get_admin_payments(admin_user: User = Depends(check_admin_user)):
     async with AsyncSessionLocal() as session:
         stmt = select(CryptoPayment, User.email).join(User, CryptoPayment.user_id == User.id).order_by(CryptoPayment.created_at.desc())
         results = (await session.execute(stmt)).all()
-        
+
         payments_list = []
         for payment, email in results:
             payments_list.append({
@@ -4363,11 +4408,11 @@ async def approve_payment(payment_id: int, background_tasks: BackgroundTasks, ad
             raise HTTPException(status_code=404, detail="الإيصال غير موجود")
         if payment.status != "pending":
             raise HTTPException(status_code=400, detail="تم معالجة هذا الإيصال مسبقاً")
-        
+
         user = (await session.execute(select(User).where(User.id == payment.user_id))).scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=404, detail="المستخدم صاحب الإيصال غير موجود")
-        
+
         # [SECURITY] Use OFFICIAL_PLANS exclusively — reject any plan not in the official paid plans.
         # This prevents activating 'trial' (or any unknown plan) as a paid subscription.
         if payment.plan_selected not in OFFICIAL_PLANS:
@@ -4375,21 +4420,21 @@ async def approve_payment(payment_id: int, background_tasks: BackgroundTasks, ad
                 status_code=400,
                 detail=f"الباقة '{payment.plan_selected}' غير موجودة في قائمة الباقات الرسمية المدفوعة ولا يمكن تفعيلها. الباقات المتاحة: {', '.join(OFFICIAL_PLANS.keys())}"
             )
-        
+
         payment.status = "approved"
-        
+
         now = datetime.now(timezone.utc)
         days_to_add = OFFICIAL_PLANS[payment.plan_selected]["duration_days"]
-        
+
         current_end = user.subscription_end
         if current_end.tzinfo is None:
             current_end = current_end.replace(tzinfo=timezone.utc)
-            
+
         if current_end > now:
             new_end = current_end + timedelta(days=days_to_add)
         else:
             new_end = now + timedelta(days=days_to_add)
-            
+
         user.subscription_plan = payment.plan_selected
         user.subscription_status = "active"
         user.subscription_end = new_end
@@ -4397,16 +4442,16 @@ async def approve_payment(payment_id: int, background_tasks: BackgroundTasks, ad
         user.sub_alert_24h_sent = False
         user.sub_alert_expired_sent = False
         user.sub_shutdown_executed = False
-        
+
         if not user.proxy_host:
             assigned_host = await get_least_used_proxy(session)
             user.proxy_host = assigned_host
             user.proxy_port = PROXY_PORT
             user.proxy_username = PROXY_USERNAME
             user.proxy_password = PROXY_PASSWORD
-            
+
         session.add(user)
-        
+
         stmt_acc = select(TelegramAccount).where(TelegramAccount.user_id == user.id)
         accounts = (await session.execute(stmt_acc)).scalars().all()
         for acc in accounts:
@@ -4436,12 +4481,12 @@ async def approve_payment(payment_id: int, background_tasks: BackgroundTasks, ad
                     logger.info(f"Auto-enqueued 'update' task for account {acc.id} upon subscription approval.")
             except Exception as ape:
                 logger.error(f"Failed to auto-enqueue update task in approve_payment for account {acc.id}: {ape}")
-        
+
         await session.commit()
         plan_label = OFFICIAL_PLANS[payment.plan_selected]["label"]
-        
+
         background_tasks.add_task(send_renewal_alert_task, user.id, plan_label, new_end.strftime("%Y-%m-%d %H:%M:%S"))
-        
+
         return {"status": "success", "message": f"تم تفعيل {plan_label} بنجاح حتى تاريخ {new_end.strftime('%Y-%m-%d')}"}
 
 @app.post("/admin/payments/{payment_id}/reject")
@@ -4452,7 +4497,7 @@ async def reject_payment(payment_id: int, admin_user: User = Depends(check_admin
             raise HTTPException(status_code=404, detail="الإيصال غير موجود")
         if payment.status != "pending":
             raise HTTPException(status_code=400, detail="تم معالجة هذا الإيصال مسبقاً")
-        
+
         payment.status = "rejected"
         await session.commit()
         return {"status": "success", "message": "تم رفض الإيصال بنجاح"}
@@ -4462,16 +4507,16 @@ async def get_admin_users(admin_user: User = Depends(check_admin_user)):
     async with AsyncSessionLocal() as session:
         users = (await session.execute(select(User).order_by(User.created_at.desc()))).scalars().all()
         archived = (await session.execute(select(ArchivedSubscriber).order_by(ArchivedSubscriber.id.desc()))).scalars().all()
-        
+
         now = datetime.now(timezone.utc)
         users_list = []
         for user in users:
             stmt_tg = select(TelegramAccount).where(TelegramAccount.user_id == user.id)
             tg_accounts = (await session.execute(stmt_tg)).scalars().all()
-            
+
             phones = [acc.phone for acc in tg_accounts if acc.phone]
             primary_phone = phones[0] if phones else None
-            
+
             accounts_data = [
                 {
                     "id": acc.id,
@@ -4481,12 +4526,12 @@ async def get_admin_users(admin_user: User = Depends(check_admin_user)):
                 }
                 for acc in tg_accounts
             ]
-            
+
             active_engines_count = sum(1 for acc in tg_accounts if acc.status == "active")
             banned_engines_count = sum(1 for acc in tg_accounts if acc.status == "banned")
             paused_engines_count = sum(1 for acc in tg_accounts if acc.status in ["paused", "stopped"])
             error_engines_count = sum(1 for acc in tg_accounts if acc.status in ["error", "unauthorized"])
-            
+
             # Compute remaining days & subscription expiration
             sub_end = user.subscription_end
             if sub_end and sub_end.tzinfo is None:
@@ -4522,7 +4567,7 @@ async def get_admin_users(admin_user: User = Depends(check_admin_user)):
             else:
                 operational_status = "inactive"
                 operational_label = "غير نشط"
-            
+
             users_list.append({
                 "id": user.id,
                 "email": user.email,
@@ -4567,7 +4612,7 @@ async def get_admin_users(admin_user: User = Depends(check_admin_user)):
         for arc in archived:
             if any(u["id"] == arc.id for u in users_list):
                 continue
-            
+
             phones_list = []
             tg_data = []
             if isinstance(arc.phones, list):
@@ -4640,7 +4685,7 @@ async def modify_subscription(target_user_id: int, req: ModifySubscriptionReq, b
         user = (await session.execute(select(User).where(User.id == target_user_id))).scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=404, detail="المستخدم غير موجود")
-        
+
         try:
             if len(req.subscription_end) == 10:
                 end_dt = datetime.strptime(req.subscription_end, "%Y-%m-%d")
@@ -4654,12 +4699,12 @@ async def modify_subscription(target_user_id: int, req: ModifySubscriptionReq, b
                         end_dt = datetime.strptime(dt_part, "%Y-%m-%d")
                 else:
                     end_dt = datetime.fromisoformat(clean_end)
-            
+
             if end_dt.tzinfo is None:
                 end_dt = end_dt.replace(tzinfo=timezone.utc)
         except Exception:
             raise HTTPException(status_code=400, detail="تنسيق التاريخ غير صحيح. استخدم YYYY-MM-DD")
-        
+
         if req.full_name is not None:
             clean_name = req.full_name.strip()
             user.full_name = clean_name if clean_name else (user.email.split("@")[0] if user.email else "")
@@ -4693,13 +4738,13 @@ async def modify_subscription(target_user_id: int, req: ModifySubscriptionReq, b
                 raise HTTPException(status_code=400, detail="يجب أن تتكون كلمة المرور من 6 أحرف على الأقل")
             user.password_hash = bcrypt.hashpw(clean_pwd.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
             logger.info(f"Admin {admin_user.email} (ID: {admin_user.id}) changed password for user {user.email} (ID: {user.id}) via modify-subscription")
-            
+
         if req.proxy_host is not None:
             user.proxy_host = req.proxy_host.strip() if req.proxy_host.strip() else None
             user.proxy_port = req.proxy_port if req.proxy_port is not None else None
             user.proxy_username = req.proxy_username.strip() if req.proxy_username else None
             user.proxy_password = req.proxy_password.strip() if req.proxy_password else None
-            
+
         if user.subscription_status == "active" and not user.proxy_host:
             assigned_host = await get_least_used_proxy(session)
             user.proxy_host = assigned_host
@@ -4708,7 +4753,7 @@ async def modify_subscription(target_user_id: int, req: ModifySubscriptionReq, b
             user.proxy_password = PROXY_PASSWORD
 
         session.add(user)
-        
+
         stmt_acc = select(TelegramAccount).where(TelegramAccount.user_id == user.id)
         accounts = (await session.execute(stmt_acc)).scalars().all()
         for acc in accounts:
@@ -4738,13 +4783,13 @@ async def modify_subscription(target_user_id: int, req: ModifySubscriptionReq, b
                         logger.info(f"Auto-enqueued 'update' task for account {acc.id} upon subscription active modification.")
                 except Exception as mse:
                     logger.error(f"Failed to auto-enqueue update task in modify_subscription for account {acc.id}: {mse}")
-            
+
         await session.commit()
-        
+
         if user.subscription_status == "active":
             plan_label = OFFICIAL_PLANS.get(user.subscription_plan, {}).get("label", user.subscription_plan)
             background_tasks.add_task(send_renewal_alert_task, user.id, plan_label, end_dt.strftime("%Y-%m-%d %H:%M:%S"))
-            
+
         return {"status": "success", "message": "تم تعديل بيانات اشتراك المستخدم بنجاح"}
 
 class QuickExtendReq(BaseModel):
@@ -4814,16 +4859,16 @@ async def admin_change_user_password(target_user_id: int, req: AdminChangePasswo
     clean_pwd = req.new_password.strip()
     if len(clean_pwd) < 6:
         raise HTTPException(status_code=400, detail="يجب أن تتكون كلمة المرور من 6 أحرف على الأقل")
-        
+
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(User.id == target_user_id))).scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=404, detail="المستخدم غير موجود")
-            
+
         user.password_hash = bcrypt.hashpw(clean_pwd.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         session.add(user)
         await session.commit()
-        
+
         logger.info(f"Admin {admin_user.email} (ID: {admin_user.id}) changed password for user {user.email} (ID: {user.id})")
         return {
             "status": "success",
@@ -4838,11 +4883,11 @@ async def reboot_user_service(target_user_id: int, admin_user: User = Depends(ch
         user = (await session.execute(select(User).where(User.id == target_user_id))).scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=404, detail="المستخدم غير موجود")
-            
+
         accounts = (await session.execute(
             select(TelegramAccount).where(TelegramAccount.user_id == target_user_id)
         )).scalars().all()
-        
+
         if not accounts:
             return {"status": "warning", "message": "المستخدم غير مربوط بأي حساب تليجرام حالياً، لا توجد محركات لإعادة تشغيلها."}
 
@@ -4856,7 +4901,7 @@ async def reboot_user_service(target_user_id: int, admin_user: User = Depends(ch
             acc.status = "active"
             acc.needs_reboot = True
             session.add(acc)
-            
+
         await session.commit()
         return {"status": "success", "message": "تم إرسال أمر إعادة التشغيل وتنظيف الكاش لجميع محركات العميل بنجاح"}
 
@@ -4866,33 +4911,76 @@ async def delete_user_account(target_user_id: int, admin_user: User = Depends(ch
         user = (await session.execute(select(User).where(User.id == target_user_id))).scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=404, detail="المستخدم غير موجود")
-            
+
         accounts = (await session.execute(
             select(TelegramAccount).where(TelegramAccount.user_id == target_user_id)
         )).scalars().all()
-        
+
+        # 1. Stop worker clients and clear tenant caches
         for acc in accounts:
+            try:
+                await redis_client.publish(
+                    "saas_tenant_commands",
+                    json.dumps({"tenant_id": acc.id, "command": "stop_worker"})
+                )
+            except Exception as e:
+                logger.warning(f"Failed to publish stop_worker for tenant {acc.id}: {e}")
             await clear_tenant_cache(acc.id)
-            
-        # Archive user permanently before deleting from live table to guarantee zero data loss
-        archived_entry = ArchivedSubscriber(
-            id=user.id,
-            email=user.email,
-            full_name=user.full_name or user.email.split('@')[0],
-            subscription_plan=user.subscription_plan,
-            subscription_status=user.subscription_status,
-            archive_type="admin_deleted",
-            phones=[{"phone": acc.phone, "status": acc.status} for acc in accounts if acc.phone],
-            ip_addresses=[user.last_login_ip] if user.last_login_ip else [],
-            user_agents=[user.last_login_ua] if user.last_login_ua else [],
-            dedicated_proxy=f"{user.proxy_host}:{user.proxy_port}" if user.proxy_host else None,
-            created_at=user.created_at,
-            subscription_end=user.subscription_end,
-            notes=f"تم حذف الحساب يدوياً بواسطة المشرف ({admin_user.email}) وأرشفة بياناته بالكامل."
-        )
-        session.add(archived_entry)
+
+        # 2. Archive user permanently before deleting from live table
+        try:
+            existing_arc = await session.get(ArchivedSubscriber, user.id)
+            if existing_arc:
+                existing_arc.archive_type = "admin_deleted"
+                existing_arc.notes = f"تم حذف الحساب يدوياً بواسطة المشرف ({admin_user.email}) وتحديث سجل الأرشيف."
+            else:
+                archived_entry = ArchivedSubscriber(
+                    id=user.id,
+                    email=user.email,
+                    full_name=user.full_name or user.email.split('@')[0],
+                    subscription_plan=user.subscription_plan,
+                    subscription_status=user.subscription_status,
+                    archive_type="admin_deleted",
+                    phones=[{"phone": acc.phone, "status": acc.status} for acc in accounts if acc.phone],
+                    ip_addresses=[user.last_login_ip] if user.last_login_ip else [],
+                    user_agents=[user.last_login_ua] if user.last_login_ua else [],
+                    dedicated_proxy=f"{user.proxy_host}:{user.proxy_port}" if user.proxy_host else None,
+                    created_at=user.created_at,
+                    subscription_end=user.subscription_end,
+                    notes=f"تم حذف الحساب يدوياً بواسطة المشرف ({admin_user.email}) وأرشفة بياناته بالكامل."
+                )
+                session.add(archived_entry)
+        except Exception as arc_err:
+            logger.warning(f"Failed to create archive entry for deleted user {user.id}: {arc_err}")
+
+        # 3. Clean cascade delete of all child tables
+        for acc in accounts:
+            await session.execute(delete(WebCampaignTask).where(WebCampaignTask.telegram_account_id == acc.id))
+            await session.execute(delete(PublishLog).where(PublishLog.telegram_account_id == acc.id))
+            await session.execute(delete(SavedMessageLog).where(SavedMessageLog.telegram_account_id == acc.id))
+            await session.execute(delete(ActiveAd).where(ActiveAd.telegram_account_id == acc.id))
+            await session.execute(delete(Blacklist).where(Blacklist.telegram_account_id == acc.id))
+            await session.execute(delete(Setting).where(Setting.telegram_account_id == acc.id))
+            await session.execute(delete(AdTemplate).where(AdTemplate.telegram_account_id == acc.id))
+
+        await session.execute(delete(CryptoPayment).where(CryptoPayment.user_id == target_user_id))
+        await session.execute(delete(SubscriptionNotificationLog).where(SubscriptionNotificationLog.user_id == target_user_id))
+        await session.execute(delete(AccountNotification).where(AccountNotification.user_id == target_user_id))
+        await session.execute(delete(ExchangeExecution).where(ExchangeExecution.executor_user_id == target_user_id))
+        await session.execute(delete(ExchangeAgreement).where(or_(ExchangeAgreement.requester_user_id == target_user_id, ExchangeAgreement.recipient_user_id == target_user_id)))
+        await session.execute(delete(ExchangeRequest).where(or_(ExchangeRequest.requester_user_id == target_user_id, ExchangeRequest.recipient_user_id == target_user_id)))
+        await session.execute(delete(TelegramAccount).where(TelegramAccount.user_id == target_user_id))
+
         await session.delete(user)
         await session.commit()
+
+        # 4. Clean user Redis keys
+        try:
+            await redis_client.delete(f"temp_login_pwd:{target_user_id}")
+            await redis_client.delete(f"user_session:{target_user_id}")
+        except Exception:
+            pass
+
         return {"status": "success", "message": "تم حذف الحساب بنجاح وأرشفة كامل بياناته في السجل التاريخي."}
 
 # ==============================================================================
@@ -4905,26 +4993,26 @@ async def admin_approve_user_trial(target_user_id: int, admin_user: User = Depen
         user = (await session.execute(select(User).where(User.id == target_user_id))).scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=404, detail="المستخدم غير موجود")
-        
+
         now = datetime.now(timezone.utc)
         user.subscription_plan = "trial"
         user.subscription_status = "active"
         user.subscription_start = now
         user.subscription_end = now + timedelta(days=3)
         user.credits = max(user.credits, 500)
-        
+
         if not user.proxy_host:
             assigned_host = await get_least_used_proxy(session)
             user.proxy_host = assigned_host
             user.proxy_port = PROXY_PORT if assigned_host else None
             user.proxy_username = PROXY_USERNAME if assigned_host else None
             user.proxy_password = PROXY_PASSWORD if assigned_host else None
-            
+
         session.add(user)
         await session.commit()
         logger.info(f"==> [ADMIN] Admin {admin_user.email} approved user {user.id} ({user.email}) for 3 days trial")
         return {
-            "status": "success", 
+            "status": "success",
             "message": f"تمت الموافقة وتفعيل 3 أيام تجريبية بنجاح للمشترك ({user.email})!"
         }
 
@@ -4934,9 +5022,24 @@ async def admin_reject_user_registration(target_user_id: int, admin_user: User =
         user = (await session.execute(select(User).where(User.id == target_user_id))).scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=404, detail="المستخدم غير موجود")
-        
+
         email = user.email
-        # Archive rejected registration into master archive before deleting from active users table
+        accounts = (await session.execute(
+            select(TelegramAccount).where(TelegramAccount.user_id == target_user_id)
+        )).scalars().all()
+
+        # 1. Stop any workers and clear cache
+        for acc in accounts:
+            try:
+                await redis_client.publish(
+                    "saas_tenant_commands",
+                    json.dumps({"tenant_id": acc.id, "command": "stop_worker"})
+                )
+            except Exception:
+                pass
+            await clear_tenant_cache(acc.id)
+
+        # 2. Archive rejected registration into master archive before deleting from active users table
         try:
             existing_arc = await session.get(ArchivedSubscriber, user.id)
             if existing_arc:
@@ -4950,7 +5053,7 @@ async def admin_reject_user_registration(target_user_id: int, admin_user: User =
                     subscription_plan=user.subscription_plan or "trial",
                     subscription_status="banned",
                     archive_type="rejected_registration",
-                    phones=[],
+                    phones=[{"phone": acc.phone, "status": acc.status} for acc in accounts if acc.phone],
                     ip_addresses=[user.last_login_ip] if user.last_login_ip else [],
                     user_agents=[user.last_login_ua] if user.last_login_ua else [],
                     dedicated_proxy=f"{user.proxy_host}:{user.proxy_port}" if user.proxy_host else None,
@@ -4961,8 +5064,33 @@ async def admin_reject_user_registration(target_user_id: int, admin_user: User =
         except Exception as arc_err:
             logger.warning(f"Failed to create archive entry for rejected user {user.id}: {arc_err}")
 
+        # 3. Clean cascade delete of all child tables
+        for acc in accounts:
+            await session.execute(delete(WebCampaignTask).where(WebCampaignTask.telegram_account_id == acc.id))
+            await session.execute(delete(PublishLog).where(PublishLog.telegram_account_id == acc.id))
+            await session.execute(delete(SavedMessageLog).where(SavedMessageLog.telegram_account_id == acc.id))
+            await session.execute(delete(ActiveAd).where(ActiveAd.telegram_account_id == acc.id))
+            await session.execute(delete(Blacklist).where(Blacklist.telegram_account_id == acc.id))
+            await session.execute(delete(Setting).where(Setting.telegram_account_id == acc.id))
+            await session.execute(delete(AdTemplate).where(AdTemplate.telegram_account_id == acc.id))
+
+        await session.execute(delete(CryptoPayment).where(CryptoPayment.user_id == target_user_id))
+        await session.execute(delete(SubscriptionNotificationLog).where(SubscriptionNotificationLog.user_id == target_user_id))
+        await session.execute(delete(AccountNotification).where(AccountNotification.user_id == target_user_id))
+        await session.execute(delete(ExchangeExecution).where(ExchangeExecution.executor_user_id == target_user_id))
+        await session.execute(delete(ExchangeAgreement).where(or_(ExchangeAgreement.requester_user_id == target_user_id, ExchangeAgreement.recipient_user_id == target_user_id)))
+        await session.execute(delete(ExchangeRequest).where(or_(ExchangeRequest.requester_user_id == target_user_id, ExchangeRequest.recipient_user_id == target_user_id)))
+        await session.execute(delete(TelegramAccount).where(TelegramAccount.user_id == target_user_id))
+
         await session.delete(user)
         await session.commit()
+
+        try:
+            await redis_client.delete(f"temp_login_pwd:{target_user_id}")
+            await redis_client.delete(f"user_session:{target_user_id}")
+        except Exception:
+            pass
+
         logger.info(f"==> [ADMIN] Admin {admin_user.email} rejected and deleted pending user {target_user_id} ({email})")
         return {"status": "success", "message": f"تم رفض طلب المشترك ({email}) وحذف الحساب وأرشفة بياناته بنجاح."}
 
@@ -4999,7 +5127,7 @@ async def impersonate_user(target_user_id: int, admin_user: User = Depends(check
         user = (await session.execute(select(User).where(User.id == target_user_id))).scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=404, detail="المستخدم غير موجود")
-        
+
         access_token = jwt.encode(
             {
                 "sub": user.id,
@@ -5027,7 +5155,7 @@ async def get_user_diagnostics(target_user_id: int, admin_user: User = Depends(c
             arch = (await session.execute(select(ArchivedSubscriber).where(ArchivedSubscriber.id == target_user_id))).scalar_one_or_none()
             if not arch:
                 raise HTTPException(status_code=404, detail="المستخدم غير موجود")
-            
+
             phones = arch.phones or []
             engines_data = []
             if isinstance(phones, list):
@@ -5044,7 +5172,7 @@ async def get_user_diagnostics(target_user_id: int, admin_user: User = Depends(c
                         "id": 0, "phone": p_num, "status": st, "has_valid_session": False,
                         "cached_channels_count": 0, "rate_limit_hits": 0, "needs_reboot": False, "proxy": arch.dedicated_proxy
                     })
-            
+
             detected_issues = []
             if arch.archive_type == "security_blocked":
                 detected_issues.append({
@@ -5064,7 +5192,7 @@ async def get_user_diagnostics(target_user_id: int, admin_user: User = Depends(c
                     "fix_action": None,
                     "action_label": None
                 })
-            
+
             return {
                 "status": "success",
                 "user": {
@@ -5102,11 +5230,11 @@ async def get_user_diagnostics(target_user_id: int, admin_user: User = Depends(c
                 "engines": engines_data,
                 "detected_issues": detected_issues
             }
-        
+
         accounts = (await session.execute(
             select(TelegramAccount).where(TelegramAccount.user_id == target_user_id)
         )).scalars().all()
-        
+
         now = datetime.now(timezone.utc)
         sub_end = user.subscription_end
         if sub_end and sub_end.tzinfo is None:
@@ -5115,7 +5243,7 @@ async def get_user_diagnostics(target_user_id: int, admin_user: User = Depends(c
         rem_days = max(0, int((sub_end - now).total_seconds() / 86400)) if (sub_end and not is_sub_expired) else 0
 
         acc_ids = [acc.id for acc in accounts]
-        
+
         # 1. Check Active Ads & Stuck Ads
         stuck_ads_count = 0
         active_ads_count = 0
@@ -5166,7 +5294,7 @@ async def get_user_diagnostics(target_user_id: int, admin_user: User = Depends(c
 
         for acc in accounts:
             has_session_string = bool(acc.string_session and len(acc.string_session) > 20)
-            
+
             # Redis rate limit check
             key = f"tenant:{acc.id}:ratelimit"
             rl_hits = 0
@@ -5318,17 +5446,17 @@ async def admin_purge_stuck_ads(target_user_id: int, admin_user: User = Depends(
         )).scalars().all()
         if not accounts:
             return {"status": "warning", "message": "لا توجد محركات لهذا العميل لتنظيف إعلاناتها."}
-        
+
         acc_ids = [acc.id for acc in accounts]
         now = datetime.now(timezone.utc)
-        
+
         stmt = select(ActiveAd).where(
             ActiveAd.telegram_account_id.in_(acc_ids),
             ActiveAd.expires_at <= now
         )
         expired_ads = (await session.execute(stmt)).scalars().all()
         count = len(expired_ads)
-        
+
         for ad in expired_ads:
             await session.execute(
                 update(PublishLog)
@@ -5341,7 +5469,7 @@ async def admin_purge_stuck_ads(target_user_id: int, admin_user: User = Depends(
                 .values(status="deleted")
             )
             await session.delete(ad)
-        
+
         await session.commit()
         logger.info(f"Admin {admin_user.email} purged {count} stuck ads for user ID {target_user_id}")
         return {"status": "success", "purged_count": count, "message": f"تم تنظيف وحذف {count} إعلان عالق بنجاح."}
@@ -5354,7 +5482,7 @@ async def admin_resync_channels(target_user_id: int, admin_user: User = Depends(
         )).scalars().all()
         if not accounts:
             return {"status": "warning", "message": "المستخدم غير مربوط بأي حساب تليجرام لمزامنته."}
-        
+
         for acc in accounts:
             try:
                 from cache_manager import redis_client
@@ -5381,7 +5509,7 @@ async def admin_resync_channels(target_user_id: int, admin_user: User = Depends(
                     ))
             except Exception as e:
                 logger.error(f"Failed to enqueue update task on resync: {e}")
-            
+
         await session.commit()
         return {"status": "success", "message": "تم إطلاق مهمة مزامنة وسحب القنوات في الخلفية بنجاح دون التأثير على عمل المحرك أو تفريغ الكاش."}
 
@@ -5391,7 +5519,7 @@ async def admin_reset_limits(target_user_id: int, admin_user: User = Depends(che
         accounts = (await session.execute(
             select(TelegramAccount).where(TelegramAccount.user_id == target_user_id)
         )).scalars().all()
-        
+
         cleared = 0
         for acc in accounts:
             key = f"tenant:{acc.id}:ratelimit"
@@ -5400,7 +5528,7 @@ async def admin_reset_limits(target_user_id: int, admin_user: User = Depends(che
                 if res: cleared += 1
             except Exception:
                 pass
-                
+
         return {"status": "success", "message": f"تم تصفير قيود الـ Rate Limit والـ FloodWait لجميع المحركات ({cleared} مفتاح)."}
 
 @app.post("/admin/users/{target_user_id}/actions/emergency-stop")
@@ -5409,7 +5537,7 @@ async def admin_emergency_stop(target_user_id: int, admin_user: User = Depends(c
         accounts = (await session.execute(
             select(TelegramAccount).where(TelegramAccount.user_id == target_user_id)
         )).scalars().all()
-        
+
         cancelled = 0
         if accounts:
             acc_ids = [acc.id for acc in accounts]
@@ -5419,13 +5547,13 @@ async def admin_emergency_stop(target_user_id: int, admin_user: User = Depends(c
             ).values(status="cancelled", result_summary="تم الإلغاء فورياً بأمر طارئ من المشرف")
             res = await session.execute(stmt)
             cancelled = res.rowcount
-            
+
             for acc in accounts:
                 acc.status = "paused"
                 session.add(acc)
-                
+
             await session.commit()
-            
+
         return {"status": "success", "cancelled_tasks": cancelled, "message": f"تم الإيقاف الطارئ بنجاح وإلغاء {cancelled} مهمة معلقة."}
 
 class QuickGiftReq(BaseModel):
@@ -5437,7 +5565,7 @@ async def admin_quick_gift(target_user_id: int, req: QuickGiftReq, admin_user: U
         user = (await session.execute(select(User).where(User.id == target_user_id))).scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=404, detail="المستخدم غير موجود")
-        
+
         now = datetime.now(timezone.utc)
         sub_end = user.subscription_end
         if sub_end and sub_end.tzinfo is None:
@@ -5446,7 +5574,7 @@ async def admin_quick_gift(target_user_id: int, req: QuickGiftReq, admin_user: U
             base_date = now
         else:
             base_date = sub_end
-            
+
         gift_desc = ""
         if req.gift_type == "days_3":
             user.subscription_end = base_date + timedelta(days=3)
@@ -5485,16 +5613,16 @@ class SendNoticeReq(BaseModel):
 async def admin_send_notice(target_user_id: int, req: SendNoticeReq, background_tasks: BackgroundTasks, admin_user: User = Depends(check_admin_user)):
     if not req.title.strip() or not req.message.strip():
         raise HTTPException(status_code=400, detail="العنوان والرسالة مطلوبان")
-        
+
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(User.id == target_user_id))).scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=404, detail="المستخدم غير موجود")
-            
+
         accounts = (await session.execute(
             select(TelegramAccount).where(TelegramAccount.user_id == target_user_id)
         )).scalars().all()
-        
+
         if accounts:
             notif = AccountNotification(
                 telegram_account_id=accounts[0].id,
@@ -5506,10 +5634,10 @@ async def admin_send_notice(target_user_id: int, req: SendNoticeReq, background_
             )
             session.add(notif)
             await session.commit()
-            
+
         # Also dispatch via broadcast channel for live popup
         background_tasks.add_task(dispatch_admin_broadcast, req.message.strip(), user.id)
-        
+
         return {"status": "success", "message": "تم إرسال الإشعار والتنبيه للعميل بنجاح"}
 
 class BroadcastReq(BaseModel):
@@ -5523,7 +5651,7 @@ class BroadcastReq(BaseModel):
     media_filename: Optional[str] = None
 
 async def dispatch_admin_broadcast(
-    text: str, 
+    text: str,
     target_user_id: Optional[int] = None,
     target_user_ids: Optional[List[int]] = None,
     target_group: Optional[str] = None,
@@ -5589,10 +5717,106 @@ async def dispatch_admin_broadcast(
         logger.error(f"Failed to publish broadcast message to Redis: {e}")
         return False
 
+@app.post("/broadcast/media/{media_id}/ticket")
+@app.post("/api/broadcast/media/{media_id}/ticket")
+async def create_broadcast_media_ticket(media_id: str, user_id: int = Depends(get_current_user)):
+    """
+    Issues a short-lived (60s), single-use download ticket restricted to requesting user and media_id.
+    Completely eliminates passing long-lived JWTs in URLs or query strings.
+    """
+    import secrets
+    import json
+    import re
+    if not re.match(r"^[a-zA-Z0-9_-]{1,64}$", media_id):
+        raise HTTPException(status_code=400, detail="Invalid media ID format")
+
+    async with AsyncSessionLocal() as session:
+        user = await session.get(User, user_id)
+        if not user or not user.is_active:
+            raise HTTPException(status_code=403, detail="الحساب غير نشط أو غير مصرح له")
+        if not user.is_admin:
+            raw_targets = await redis_client.get(f"broadcast_targets:{media_id}")
+            targets_str = raw_targets.decode("utf-8") if isinstance(raw_targets, bytes) else str(raw_targets or "all")
+            if targets_str != "all":
+                allowed_ids = {int(x) for x in targets_str.split(",") if x.strip().isdigit()}
+                if user.id not in allowed_ids:
+                    raise HTTPException(status_code=403, detail="غير مصرح لك بالوصول إلى هذا المرفق")
+
+    ticket = secrets.token_urlsafe(32)
+    ticket_data = json.dumps({"media_id": media_id, "user_id": user_id})
+    await redis_client.set(f"media_ticket:{ticket}", ticket_data, ex=60)
+    return {"status": "success", "ticket": ticket, "expires_in": 60}
+
 @app.get("/broadcast/media/{media_id}")
 @app.get("/api/broadcast/media/{media_id}")
-async def get_broadcast_media(media_id: str):
+async def get_broadcast_media(
+    media_id: str,
+    request: Request,
+    ticket: Optional[str] = None,
+    token: Optional[str] = None
+):
+    import re
     from starlette.responses import FileResponse
+
+    if not re.match(r"^[a-zA-Z0-9_-]{1,64}$", media_id):
+        raise HTTPException(status_code=400, detail="Invalid media ID format")
+
+    user_id = None
+
+    # Option A: Single-use ephemeral download ticket (Primary secure method for <img>/<video>)
+    if ticket and isinstance(ticket, str):
+        ticket_raw = await redis_client.get(f"media_ticket:{ticket}")
+        if not ticket_raw:
+            raise HTTPException(status_code=401, detail="تذكرة التحميل غير صالحة أو منتهية الصلاحية")
+
+        # Enforce single-use: invalidate ticket immediately upon consumption
+        await redis_client.delete(f"media_ticket:{ticket}")
+
+        try:
+            import json as _json
+            t_str = ticket_raw.decode("utf-8") if isinstance(ticket_raw, bytes) else str(ticket_raw)
+            t_data = _json.loads(t_str)
+            if t_data.get("media_id") != media_id:
+                raise HTTPException(status_code=403, detail="تذكرة التحميل مخصصة لمرفق آخر")
+            user_id = t_data.get("user_id")
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=401, detail="بيانات تذكرة التحميل تالفة")
+
+    # Option B: Standard Authorization Header (for API / Fetch clients)
+    elif request.headers.get("Authorization", "").startswith("Bearer "):
+        auth_token = request.headers["Authorization"].split(" ", 1)[1].strip()
+        try:
+            payload = jwt.decode(auth_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+            user_id = payload.get("sub")
+            if not user_id:
+                raise HTTPException(status_code=401, detail="Invalid token")
+        except Exception:
+            raise HTTPException(status_code=401, detail="Invalid or expired authentication token")
+
+    # Option C: Long-lived JWT in query string is strictly prohibited
+    elif token and isinstance(token, str):
+        raise HTTPException(
+            status_code=400,
+            detail="Passing long-lived JWT in query string is prohibited for security. Use short-lived media tickets via POST /broadcast/media/{id}/ticket or Authorization header."
+        )
+    else:
+        raise HTTPException(status_code=401, detail="Authentication required to view broadcast media")
+
+    # Recipient Target Authorization Check
+    async with AsyncSessionLocal() as session:
+        user = await session.get(User, user_id)
+        if not user or not user.is_active:
+            raise HTTPException(status_code=403, detail="الحساب غير نشط أو غير مصرح له")
+        if not user.is_admin:
+            raw_targets = await redis_client.get(f"broadcast_targets:{media_id}")
+            targets_str = raw_targets.decode("utf-8") if isinstance(raw_targets, bytes) else str(raw_targets or "all")
+            if targets_str != "all":
+                allowed_ids = {int(x) for x in targets_str.split(",") if x.strip().isdigit()}
+                if user.id not in allowed_ids:
+                    raise HTTPException(status_code=403, detail="غير مصرح لك بالوصول إلى هذا المرفق")
+
     disk_path_raw = await redis_client.get(f"broadcast_media_path:{media_id}")
     disk_path = disk_path_raw.decode("utf-8") if isinstance(disk_path_raw, bytes) else str(disk_path_raw or "")
 
@@ -5622,9 +5846,23 @@ async def admin_broadcast(
     import base64
     import uuid
 
-    MAX_BROADCAST_MEDIA_SIZE = 200 * 1024 * 1024  # 200 MB
+    MAX_BROADCAST_MEDIA_SIZE = 250 * 1024 * 1024  # 250 MB
     UPLOAD_BROADCAST_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads", "broadcast")
     os.makedirs(UPLOAD_BROADCAST_DIR, exist_ok=True)
+
+    # Early Content-Length check: Reject oversized payloads BEFORE reading into RAM or disk
+    cl_header = request.headers.get("content-length")
+    if cl_header:
+        try:
+            cl_int = int(cl_header)
+            max_allowed_hdr = int(MAX_BROADCAST_MEDIA_SIZE * 1.35) if "application/json" in request.headers.get("content-type", "") else MAX_BROADCAST_MEDIA_SIZE
+            if cl_int > max_allowed_hdr:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"حجم الطلب يتجاوز الحد الأقصى المسموح (250 ميجابايت). الحجم المرسل: {cl_int / (1024 * 1024):.1f} MB"
+                )
+        except ValueError:
+            pass
 
     content_type = request.headers.get("content-type", "")
     message_text = ""
@@ -5665,8 +5903,8 @@ async def admin_broadcast(
                     media_b64 = media_b64.split(",", 1)[1]
                 media_bytes = base64.b64decode(media_b64)
                 if len(media_bytes) > MAX_BROADCAST_MEDIA_SIZE:
-                    raise HTTPException(status_code=400, detail="حجم الملف يتجاوز الحد الأقصى المسموح (200 ميجابايت)")
-                
+                    raise HTTPException(status_code=413, detail="حجم الملف يتجاوز الحد الأقصى المسموح (250 ميجابايت)")
+
                 media_id = uuid.uuid4().hex
                 ext = os.path.splitext(media_filename)[1] if media_filename and "." in media_filename else (".mp4" if media_type == "video" else ".jpg")
                 disk_media_path = os.path.join(UPLOAD_BROADCAST_DIR, f"broadcast_{media_id}{ext}")
@@ -5707,7 +5945,7 @@ async def admin_broadcast(
             media_id = uuid.uuid4().hex
             ext = os.path.splitext(media_filename)[1] if media_filename and "." in media_filename else (".mp4" if media_type == "video" else ".jpg")
             disk_media_path = os.path.join(UPLOAD_BROADCAST_DIR, f"broadcast_{media_id}{ext}")
-            
+
             total_size = 0
             try:
                 with open(disk_media_path, "wb") as f_out:
@@ -5720,7 +5958,7 @@ async def admin_broadcast(
                             f_out.close()
                             if os.path.exists(disk_media_path):
                                 os.remove(disk_media_path)
-                            raise HTTPException(status_code=400, detail="حجم الملف يتجاوز الحد الأقصى المسموح (200 ميجابايت)")
+                            raise HTTPException(status_code=413, detail="حجم الملف يتجاوز الحد الأقصى المسموح (250 ميجابايت)")
                         f_out.write(chunk)
             except HTTPException:
                 raise
@@ -5745,6 +5983,14 @@ async def admin_broadcast(
                 await redis_client.set(f"broadcast_media_filename:{media_id}", media_filename, ex=7200)
             if media_type:
                 await redis_client.set(f"broadcast_media_type:{media_id}", media_type, ex=7200)
+
+            # Store authorized targets for access control
+            t_str = "all"
+            if target_user_ids:
+                t_str = ",".join(str(x) for x in target_user_ids)
+            elif target_user_id:
+                t_str = str(target_user_id)
+            await redis_client.set(f"broadcast_targets:{media_id}", t_str, ex=7200)
 
             # If small (<= 5 MB), also cache in Redis for backward compatibility
             file_sz = os.path.getsize(disk_media_path)
@@ -5785,7 +6031,7 @@ async def admin_broadcast(
         target_group_val = target_group or ("custom" if (target_user_ids or target_user_id) else "all")
         target_uids_str = ",".join(str(x) for x in target_user_ids) if target_user_ids else (str(target_user_id) if target_user_id else None)
         media_link = media_url or (f"/api/broadcast/media/{media_id}" if media_id else None)
-        
+
         async with AsyncSessionLocal() as db_sess:
             campaign = BroadcastCampaign(
                 admin_id=admin_user.id,
@@ -5842,7 +6088,7 @@ async def get_broadcast_history(
         async with AsyncSessionLocal() as session:
             stmt = select(BroadcastCampaign).order_by(BroadcastCampaign.created_at.desc()).limit(50)
             campaigns = (await session.execute(stmt)).scalars().all()
-            
+
             result = []
             for c in campaigns:
                 result.append({
@@ -5982,7 +6228,7 @@ async def live_logs_stream(request: Request, tenant_id: Optional[int] = None, ad
 async def admin_troubleshoot_ping(admin_user: User = Depends(check_admin_user)):
     import time
     from cache_manager import redis_client, get_invite_link
-    
+
     db_ok = False
     db_ms = 0.0
     t0 = time.perf_counter()
@@ -6042,7 +6288,7 @@ async def admin_troubleshoot_clear_cache(admin_user: User = Depends(check_admin_
             if batch:
                 cleared_count += len(batch)
                 await redis_client.delete(*batch)
-        
+
         logger.info(f"Admin {admin_user.email} cleared {cleared_count} cache keys via Troubleshoot Hub.")
         return {
             "status": "success",
@@ -6059,7 +6305,7 @@ async def admin_troubleshoot_resync_bots(admin_user: User = Depends(check_admin_
         async with AsyncSessionLocal() as session:
             stmt = select(TelegramAccount)
             accounts = (await session.execute(stmt)).scalars().all()
-            
+
             resynced = 0
             for acc in accounts:
                 if acc.status not in ["active", "paused", "stopped", "error", "banned"]:
@@ -6068,7 +6314,7 @@ async def admin_troubleshoot_resync_bots(admin_user: User = Depends(check_admin_
                     session.add(acc)
             if resynced > 0:
                 await session.commit()
-                
+
             return {
                 "status": "success",
                 "total_accounts": len(accounts),
@@ -6105,10 +6351,10 @@ async def get_user_notifications(
 ):
     limit = min(max(1, limit), 100)
     offset = max(0, offset)
-    
+
     async with AsyncSessionLocal() as session:
         query = select(AccountNotification).where(AccountNotification.user_id == current_user_id)
-        
+
         cat = (category or "all").lower()
         if cat == "unread":
             query = query.where(AccountNotification.is_read == False)
@@ -6133,7 +6379,7 @@ async def get_user_notifications(
         # Page query
         query = query.order_by(desc(AccountNotification.created_at)).offset(offset).limit(limit)
         notifications = (await session.execute(query)).scalars().all()
-        
+
         items = []
         for n in notifications:
             items.append({
@@ -6149,7 +6395,7 @@ async def get_user_notifications(
                 "is_read": n.is_read,
                 "created_at": n.created_at.isoformat() if n.created_at else None
             })
-            
+
         return {
             "status": "success",
             "unread_count": unread_count,
@@ -6296,7 +6542,7 @@ async def get_eligible_advertisers(current_user_id: int = Depends(get_current_us
     now = datetime.now(timezone.utc)
     async with AsyncSessionLocal() as session:
         await verify_active_subscription(current_user_id, session)
-        
+
         stmt = (
             select(User)
             .where(
@@ -6308,7 +6554,7 @@ async def get_eligible_advertisers(current_user_id: int = Depends(get_current_us
             .order_by(User.created_at.desc())
         )
         users = (await session.execute(stmt)).scalars().all()
-        
+
         advertisers = []
         for u in users:
             tg_acc = (await session.execute(
@@ -6319,7 +6565,7 @@ async def get_eligible_advertisers(current_user_id: int = Depends(get_current_us
             )).scalars().first()
             if not tg_acc:
                 continue
-                
+
             advertisers.append({
                 "id": u.id,
                 "name": u.full_name or u.email.split("@")[0],
@@ -6327,7 +6573,7 @@ async def get_eligible_advertisers(current_user_id: int = Depends(get_current_us
                 "email_masked": u.email[:3] + "***@" + u.email.split("@")[-1],
                 "active_since": u.created_at.strftime("%Y-%m-%d") if u.created_at else "2026-01-01"
             })
-            
+
         return {"status": "success", "advertisers": advertisers}
 
 @app.get("/user/exchange/my-channels")
@@ -6343,18 +6589,18 @@ async def get_my_exchange_channels(current_user_id: int = Depends(get_current_us
         )).scalars().first()
         if not tg_acc:
             return {"status": "success", "channels": []}
-            
+
         channels = await get_channels_cache(tg_acc.id)
         if not channels:
             return {"status": "success", "channels": []}
-            
+
         from cache_manager import redis_client, get_invite_link
         raw_banned = await redis_client.get(f"tenant:{tg_acc.id}:banned")
         raw_no_post = await redis_client.get(f"tenant:{tg_acc.id}:no_post")
         banned_ids = set(json.loads(raw_banned)) if raw_banned else set()
         no_post_ids = set(json.loads(raw_no_post)) if raw_no_post else set()
         exclude = banned_ids | no_post_ids
-        
+
         valid_channels = []
         for ch in channels:
             if not isinstance(ch, dict):
@@ -6372,7 +6618,7 @@ async def get_my_exchange_channels(current_user_id: int = Depends(get_current_us
                 "tracking_link": tracking_link or best_link,
                 "members_count": ch.get("members_count", 0)
             })
-            
+
         return {"status": "success", "channels": valid_channels}
 
 @app.post("/user/exchange/requests")
@@ -6384,10 +6630,10 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
         raise HTTPException(status_code=400, detail="يجب تحديد المعلن المستهدف.")
     if target_id == current_user_id:
         raise HTTPException(status_code=400, detail="لا يمكنك إرسال طلب تبادل أو حملة إلى نفسك.")
-        
+
     async with AsyncSessionLocal() as session:
         sender = await verify_active_subscription(current_user_id, session)
-        
+
         # Verify sender telegram account
         sender_acc = (await session.execute(
             select(TelegramAccount).where(
@@ -6397,7 +6643,7 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
         )).scalars().first()
         if not sender_acc:
             raise HTTPException(status_code=400, detail="يجب ربط وتفعيل حسابك على تليجرام أولاً قبل إرسال الطلبات.")
-            
+
         # Verify recipient
         recipient = (await session.execute(
             select(User).where(
@@ -6409,7 +6655,7 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
         )).scalars().first()
         if not recipient:
             raise HTTPException(status_code=400, detail="المعلن المختار غير متاح حالياً أو اشتراكه غير سارٍ.")
-            
+
         recipient_acc = (await session.execute(
             select(TelegramAccount).where(
                 TelegramAccount.user_id == recipient.id,
@@ -6418,7 +6664,7 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
         )).scalars().first()
         if not recipient_acc:
             raise HTTPException(status_code=400, detail="المعلن المختار لم يقم بتفعيل محرك تليجرام بعد.")
-            
+
         # Check spam limit (max 10 active pending requests sent by caller)
         pending_count = (await session.execute(
             select(func.count(ExchangeRequest.id)).where(
@@ -6429,7 +6675,7 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
         )).scalar() or 0
         if pending_count >= 10:
             raise HTTPException(status_code=429, detail="وصلت للحد الأقصى من الطلبات المعلقة (10 طلبات). يرجى انتظار رد المعلنين أو إلغاء الطلبات السابقة.")
-            
+
         # Check duplicate pending request of same type
         dup = (await session.execute(
             select(ExchangeRequest).where(
@@ -6442,7 +6688,7 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
         )).scalars().first()
         if dup:
             raise HTTPException(status_code=400, detail="يوجد لديك طلب معلق بالفعل لنفس المعلن ونفس النوع. يرجى انتظار الرد أو إلغاء الطلب السابق.")
-            
+
         # Resolve channels for Requester
         selected_cids: List[int] = []
         if req.channel_ids:
@@ -6471,7 +6717,7 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
         requester_host_channels = None
         campaign_url = None
         saved_channel_id = selected_cids[0] if selected_cids else None
-        
+
         sender_channels = await get_channels_cache(sender_acc.id)
         url_pattern = _re.compile(r'^(https?:\/\/)?(t\.me|telegram\.me)\/[a-zA-Z0-9_\+\/\?=\-]+$|^@[a-zA-Z0-9_]{3,}$')
 
@@ -6490,7 +6736,7 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
                         break
                 if not matched_ch or not matched_ch.get("can_send", True):
                     raise HTTPException(status_code=400, detail=f"القناة ذات المعرف ({cid}) غير مسجلة بحسابك أو لا تملك صلاحية النشر بها.")
-                
+
                 ch_title = matched_ch.get("title") or f"قناة {cid}"
                 ch_user = matched_ch.get("username")
                 if not first_username and ch_user:
@@ -6499,7 +6745,7 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
                 ch_link = t_link or matched_ch.get("invite_link") or (f"https://t.me/{ch_user}" if ch_user else "")
                 if ch_link and "t.me/c/" in ch_link:
                     ch_link = f"https://t.me/{ch_user}" if ch_user else ""
-                
+
                 resolved_titles.append(ch_title)
                 resolved_promo_links.append(ch_link)
                 resolved_hosts.append(str(cid))
@@ -6513,7 +6759,7 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
                     clean_url = f"https://t.me/{clean_url[1:]}"
                 elif not clean_url.startswith("http"):
                     clean_url = f"https://{clean_url}"
-                
+
                 matched_owned = None
                 for ch in (sender_channels or []):
                     if isinstance(ch, dict):
@@ -6534,7 +6780,7 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
                     m_title = clean_url.split("/")[-1]
                     m_promo = clean_url
                     m_host = clean_url
-                
+
                 resolved_titles.append(m_title)
                 resolved_promo_links.append(m_promo)
                 resolved_hosts.append(m_host)
@@ -6546,7 +6792,7 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
             requester_channel_link = ", ".join(resolved_promo_links)
             requester_host_channels = ", ".join(resolved_hosts)
             requester_channel_username = first_username
-            
+
         elif req.request_type == "campaign":
             camp_urls: List[str] = []
             for cid in selected_cids:
@@ -6564,7 +6810,7 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
                         ch_link = f"https://t.me/{ch_user}" if ch_user else ""
                     resolved_titles.append(ch_title)
                     camp_urls.append(ch_link)
-            
+
             for m_entry in manual_entries:
                 if not url_pattern.match(m_entry):
                     raise HTTPException(status_code=400, detail=f"رابط الحملة غير صالح: {m_entry}.")
@@ -6575,7 +6821,7 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
                     clean_url = f"https://{clean_url}"
                 camp_urls.append(clean_url)
                 resolved_titles.append(clean_url.split("/")[-1])
-                
+
             camp_url_field = req.campaign_url or req.campaign_target_link
             if camp_url_field and camp_url_field.strip():
                 for c_item in _re.split(r'[\r\n,]+', camp_url_field):
@@ -6589,10 +6835,10 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
                             c_item = f"https://{c_item}"
                         camp_urls.append(c_item)
                         resolved_titles.append(c_item.split("/")[-1])
-                        
+
             if not camp_urls:
                 raise HTTPException(status_code=400, detail="يرجى اختيار إحدى قنواتك أو إدخال رابط الحملة يدوياً.")
-                
+
             requester_channel_title = "، ".join(resolved_titles)
             campaign_url = ", ".join(camp_urls)
             requester_channel_link = campaign_url
@@ -6621,7 +6867,7 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
         )
         session.add(new_req)
         await session.flush()
-        
+
         # Send Notification to Recipient
         sender_name = sender.full_name or sender.email.split("@")[0]
         notif_type = "exchange_request_received" if req.request_type == "exchange" else "campaign_request_received"
@@ -6629,7 +6875,7 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
         req_kind = "تبادل إعلاني" if req.request_type == "exchange" else "تنفيذ حملة"
         snippet = msg_body[:70].replace('"', "'")
         notif_msg = f"أرسل لك المعلن ({sender_name}) طلب {req_kind}: '{snippet}...'"
-        
+
         notif = AccountNotification(
             user_id=recipient.id,
             notification_type=notif_type,
@@ -6652,7 +6898,7 @@ async def create_exchange_request(req: CreateExchangeReq, current_user_id: int =
             await redis_client.publish("saas_user_notifications", _json.dumps(payload, ensure_ascii=False))
         except Exception as pe:
             logger.debug(f"Failed to publish exchange notification to redis: {pe}")
-        
+
         return {
             "status": "success",
             "message": "تم إرسال الطلب إلى المعلن بنجاح، ومدة الصلاحية 48 ساعة.",
@@ -6675,7 +6921,7 @@ async def get_incoming_exchange_requests(status: Optional[str] = None, current_u
             .values(status="expired")
         )
         await session.commit()
-        
+
         stmt = (
             select(ExchangeRequest, User)
             .join(User, ExchangeRequest.requester_user_id == User.id)
@@ -6684,7 +6930,7 @@ async def get_incoming_exchange_requests(status: Optional[str] = None, current_u
         if status and status != "all":
             stmt = stmt.where(ExchangeRequest.status == status)
         stmt = stmt.order_by(ExchangeRequest.created_at.desc())
-        
+
         results = (await session.execute(stmt)).all()
         requests_data = []
         for req_obj, sender in results:
@@ -6710,7 +6956,7 @@ async def get_incoming_exchange_requests(status: Optional[str] = None, current_u
                 "created_at": req_obj.created_at.strftime("%Y-%m-%d %H:%M") if req_obj.created_at else None,
                 "responded_at": req_obj.responded_at.strftime("%Y-%m-%d %H:%M") if req_obj.responded_at else None
             })
-            
+
         return {"status": "success", "requests": requests_data}
 
 @app.get("/user/exchange/requests/sent")
@@ -6729,7 +6975,7 @@ async def get_sent_exchange_requests(status: Optional[str] = None, current_user_
             .values(status="expired")
         )
         await session.commit()
-        
+
         stmt = (
             select(ExchangeRequest, User)
             .join(User, ExchangeRequest.recipient_user_id == User.id)
@@ -6738,7 +6984,7 @@ async def get_sent_exchange_requests(status: Optional[str] = None, current_user_
         if status and status != "all":
             stmt = stmt.where(ExchangeRequest.status == status)
         stmt = stmt.order_by(ExchangeRequest.created_at.desc())
-        
+
         results = (await session.execute(stmt)).all()
         requests_data = []
         for req_obj, recipient in results:
@@ -6763,7 +7009,7 @@ async def get_sent_exchange_requests(status: Optional[str] = None, current_user_
                 "created_at": req_obj.created_at.strftime("%Y-%m-%d %H:%M") if req_obj.created_at else None,
                 "responded_at": req_obj.responded_at.strftime("%Y-%m-%d %H:%M") if req_obj.responded_at else None
             })
-            
+
         return {"status": "success", "requests": requests_data}
 
 @app.post("/user/exchange/requests/{request_id}/accept")
@@ -6780,7 +7026,7 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
         )).scalars().first()
         if not recipient_acc:
             raise HTTPException(status_code=400, detail="يرجى ربط حساب تليجرام نشط في حسابك أولاً.")
-            
+
         # Atomic lock on the request
         stmt = (
             select(ExchangeRequest)
@@ -6793,15 +7039,15 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
         req_obj = (await session.execute(stmt)).scalars().first()
         if not req_obj:
             raise HTTPException(status_code=404, detail="الطلب غير موجود أو لا تملك صلاحية قبوله.")
-            
+
         if req_obj.status != "pending":
             raise HTTPException(status_code=400, detail=f"لا يمكن قبول هذا الطلب لأنه بحالة ({req_obj.status}) مسبقاً.")
-            
+
         if req_obj.expires_at <= now:
             req_obj.status = "expired"
             await session.commit()
             raise HTTPException(status_code=400, detail="عذراً، انتهت صلاحية هذا الطلب ولا يمكن قبوله.")
-            
+
         requester_user = (await session.execute(select(User).where(User.id == req_obj.requester_user_id))).scalar_one_or_none()
         requester_acc = (await session.execute(
             select(TelegramAccount).where(
@@ -6811,7 +7057,7 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
         )).scalars().first()
         if not requester_acc:
             raise HTTPException(status_code=400, detail="تعذر المتابعة: حساب تليجرام الخاص بالمرسل غير متصل حالياً.")
-            
+
         if req_obj.request_type == "exchange":
             b_selected_cids: List[int] = []
             if req.channel_ids:
@@ -6851,14 +7097,14 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
                         break
                 if not matched_b or not matched_b.get("can_send", True):
                     raise HTTPException(status_code=400, detail=f"القناة ذات المعرف ({cid}) غير صالحة أو لا تملك صلاحية النشر بها.")
-                
+
                 ch_title = matched_b.get("title") or f"قناة {cid}"
                 ch_user = matched_b.get("username")
                 t_link = await get_invite_link(recipient_acc.id, cid)
                 ch_link = t_link or matched_b.get("invite_link") or (f"https://t.me/{ch_user}" if ch_user else "")
                 if ch_link and "t.me/c/" in ch_link:
                     ch_link = f"https://t.me/{ch_user}" if ch_user else ""
-                
+
                 if ch_title not in b_resolved_titles:
                     b_resolved_titles.append(ch_title)
                 if ch_link not in b_resolved_promo_links:
@@ -6875,7 +7121,7 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
                     clean_url = f"https://t.me/{clean_url[1:]}"
                 elif not clean_url.startswith("http"):
                     clean_url = f"https://{clean_url}"
-                
+
                 matched_owned = None
                 for ch in (recipient_channels or []):
                     if isinstance(ch, dict):
@@ -6896,7 +7142,7 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
                     m_title = clean_url.split("/")[-1]
                     m_promo = clean_url
                     m_host = clean_url
-                
+
                 if m_title not in b_resolved_titles:
                     b_resolved_titles.append(m_title)
                 if m_promo not in b_resolved_promo_links:
@@ -6915,12 +7161,12 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
             req_obj.status = "accepted"
             req_obj.responded_at = now
             agreed_lifespan = getattr(req_obj, "ad_lifespan", 30) or 30
-            
+
             req_hosts = getattr(req_obj, "requester_host_channels", None)
             if not isinstance(req_hosts, str) or not req_hosts.strip():
                 req_hosts = str(req_obj.requester_channel_id) if req_obj.requester_channel_id else str(req_obj.requester_channel_link)
             a_hosts = req_hosts
-            
+
             # Create Agreement
             agreement = ExchangeAgreement(
                 request_id=req_obj.id,
@@ -6939,7 +7185,7 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
             )
             session.add(agreement)
             await session.flush()
-            
+
             # Create Execution Tasks strictly on target host channels
             # 1. A's account posts ad for B's channel(s) strictly into A's host channels
             task_a = WebCampaignTask(
@@ -6954,7 +7200,7 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
             )
             session.add(task_a)
             await session.flush()
-            
+
             exec_a = ExchangeExecution(
                 request_id=req_obj.id,
                 agreement_id=agreement.id,
@@ -6966,7 +7212,7 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
                 status="pending"
             )
             session.add(exec_a)
-            
+
             # 2. B's account posts ad for A's channel(s) strictly into B's host channels
             task_b = WebCampaignTask(
                 telegram_account_id=recipient_acc.id,
@@ -6980,7 +7226,7 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
             )
             session.add(task_b)
             await session.flush()
-            
+
             exec_b = ExchangeExecution(
                 request_id=req_obj.id,
                 agreement_id=agreement.id,
@@ -6992,7 +7238,7 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
                 status="pending"
             )
             session.add(exec_b)
-            
+
             # Notifications
             recipient_name = recipient_user.full_name or recipient_user.email.split("@")[0]
             life_lbl = format_ad_lifespan_arabic(agreed_lifespan)
@@ -7004,7 +7250,7 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
                 target_url="/app/exchange/active"
             )
             session.add(notif_a)
-            
+
             notif_b = AccountNotification(
                 user_id=current_user_id,
                 notification_type="exchange_started",
@@ -7026,13 +7272,13 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
                 await redis_client.publish("saas_user_notifications", _json.dumps(payload, ensure_ascii=False))
             except Exception as pe:
                 logger.debug(f"Failed to publish exchange accept alert to redis: {pe}")
-            
+
             return {
                 "status": "success",
                 "message": f"تم قبول طلب التبادل واعتماد الاتفاقية بنجاح لمدة {life_lbl}، وبدأ التنفيذ الحصري في القناتين.",
                 "agreement_id": agreement.id
             }
-            
+
         elif req_obj.request_type == "campaign":
             # Campaign Request: B accepts → system runs A's URLs as a SINGLE campaign
             # across ALL of B's channels (NOT bulk which uses B's own campaign folder).
@@ -7043,7 +7289,7 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
 
             # MUST be "single" — "bulk" would use B's own campaign folder links instead of A's
             camp_task_type = "single"
-            
+
             task_camp = WebCampaignTask(
                 telegram_account_id=recipient_acc.id,
                 campaign_type=camp_task_type,
@@ -7055,7 +7301,7 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
             )
             session.add(task_camp)
             await session.flush()
-            
+
             exec_camp = ExchangeExecution(
                 request_id=req_obj.id,
                 agreement_id=None,
@@ -7067,7 +7313,7 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
                 status="pending"
             )
             session.add(exec_camp)
-            
+
             recipient_name = recipient_user.full_name or recipient_user.email.split("@")[0]
             notif_a = AccountNotification(
                 user_id=req_obj.requester_user_id,
@@ -7077,7 +7323,7 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
                 target_url="/app/exchange/sent"
             )
             session.add(notif_a)
-            
+
             notif_b = AccountNotification(
                 user_id=current_user_id,
                 notification_type="campaign_request_started",
@@ -7099,7 +7345,7 @@ async def accept_exchange_request(request_id: int, req: AcceptExchangeReq, curre
                 await redis_client.publish("saas_user_notifications", _json.dumps(payload, ensure_ascii=False))
             except Exception as pe:
                 logger.debug(f"Failed to publish campaign accept alert to redis: {pe}")
-            
+
             return {
                 "status": "success",
                 "message": "تم قبول طلب الحملة، وجاري إطلاقها على قنواتك وفق نظام .حملة المعتمد.",
@@ -7112,7 +7358,7 @@ async def reject_exchange_request(request_id: int, req: Optional[RejectExchangeR
     now = datetime.now(timezone.utc)
     async with AsyncSessionLocal() as session:
         recipient_user = await verify_active_subscription(current_user_id, session)
-        
+
         stmt = (
             update(ExchangeRequest)
             .where(
@@ -7125,7 +7371,7 @@ async def reject_exchange_request(request_id: int, req: Optional[RejectExchangeR
         res = await session.execute(stmt)
         if res.rowcount == 0:
             raise HTTPException(status_code=400, detail="تعذر رفض الطلب: قد يكون الطلب غير موجود أو تم البت فيه مسبقاً.")
-            
+
         req_obj = (await session.execute(select(ExchangeRequest).where(ExchangeRequest.id == request_id))).scalar_one_or_none()
         if req_obj:
             recipient_name = recipient_user.full_name or recipient_user.email.split("@")[0]
@@ -7152,7 +7398,7 @@ async def reject_exchange_request(request_id: int, req: Optional[RejectExchangeR
                 await redis_client.publish("saas_user_notifications", _json.dumps(payload, ensure_ascii=False))
             except Exception as pe:
                 logger.debug(f"Failed to publish reject alert to redis: {pe}")
-            
+
         return {"status": "success", "message": "تم رفض الطلب بنجاح."}
 
 @app.post("/user/exchange/requests/{request_id}/cancel")
@@ -7161,7 +7407,7 @@ async def cancel_exchange_request(request_id: int, current_user_id: int = Depend
     now = datetime.now(timezone.utc)
     async with AsyncSessionLocal() as session:
         await verify_active_subscription(current_user_id, session)
-        
+
         stmt = (
             update(ExchangeRequest)
             .where(
@@ -7182,7 +7428,7 @@ async def get_exchange_agreements(current_user_id: int = Depends(get_current_use
     """Fetch all exchange agreements for the caller."""
     async with AsyncSessionLocal() as session:
         await verify_active_subscription(current_user_id, session)
-        
+
         stmt = (
             select(ExchangeAgreement)
             .where(
@@ -7192,19 +7438,19 @@ async def get_exchange_agreements(current_user_id: int = Depends(get_current_use
             .order_by(ExchangeAgreement.created_at.desc())
         )
         agreements = (await session.execute(stmt)).scalars().all()
-        
+
         out = []
         for ag in agreements:
             peer_id = ag.recipient_user_id if ag.requester_user_id == current_user_id else ag.requester_user_id
             peer = (await session.execute(select(User).where(User.id == peer_id))).scalar_one_or_none()
             peer_name = (peer.full_name or peer.email.split("@")[0]) if peer else "معلن"
-            
+
             is_requester = (ag.requester_user_id == current_user_id)
             my_channel = ag.requester_channel_title if is_requester else ag.recipient_channel_title
             peer_channel = ag.recipient_channel_title if is_requester else ag.requester_channel_title
             peer_link = ag.recipient_channel_link if is_requester else ag.requester_channel_link
             life_val = getattr(ag, "ad_lifespan", 30) or 30
-            
+
             out.append({
                 "id": ag.id,
                 "request_id": ag.request_id,
@@ -7226,7 +7472,7 @@ async def get_exchange_overview(current_user_id: int = Depends(get_current_user)
     now = datetime.now(timezone.utc)
     async with AsyncSessionLocal() as session:
         await verify_active_subscription(current_user_id, session)
-        
+
         # 1. Incoming pending
         incoming_pending = (await session.execute(
             select(func.count(ExchangeRequest.id)).where(
@@ -7235,7 +7481,7 @@ async def get_exchange_overview(current_user_id: int = Depends(get_current_user)
                 ExchangeRequest.expires_at > now
             )
         )).scalar() or 0
-        
+
         # 2. Sent pending
         sent_pending = (await session.execute(
             select(func.count(ExchangeRequest.id)).where(
@@ -7244,7 +7490,7 @@ async def get_exchange_overview(current_user_id: int = Depends(get_current_user)
                 ExchangeRequest.expires_at > now
             )
         )).scalar() or 0
-        
+
         # 3. Active agreements
         active_agreements = (await session.execute(
             select(func.count(ExchangeAgreement.id)).where(
@@ -7252,7 +7498,7 @@ async def get_exchange_overview(current_user_id: int = Depends(get_current_user)
                 ExchangeAgreement.status.in_(["accepted", "scheduled", "executing"])
             )
         )).scalar() or 0
-        
+
         # 4. Completed total
         completed_total = (await session.execute(
             select(func.count(ExchangeAgreement.id)).where(
@@ -7260,7 +7506,7 @@ async def get_exchange_overview(current_user_id: int = Depends(get_current_user)
                 ExchangeAgreement.status == "completed"
             )
         )).scalar() or 0
-        
+
         return {
             "status": "success",
             "incoming_pending": incoming_pending,

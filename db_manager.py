@@ -73,6 +73,15 @@ try:
 except Exception as fe:
     raise RuntimeError(f"SESSION_ENCRYPTION_KEY is not a valid Fernet key: {fe}")
 
+def get_cipher():
+    current_key = os.getenv("SESSION_ENCRYPTION_KEY")
+    if current_key:
+        try:
+            return Fernet(current_key.encode())
+        except Exception:
+            pass
+    return cipher
+
 class EncryptedText(TypeDecorator):
     impl = Text
     cache_ok = True
@@ -80,20 +89,33 @@ class EncryptedText(TypeDecorator):
     def process_bind_param(self, value, dialect):
         if value is None:
             return None
+        c = get_cipher()
+        # Idempotent: Do not double-encrypt if already encrypted with current key
+        if isinstance(value, str) and value.startswith("gAAAAA"):
+            try:
+                c.decrypt(value.encode('utf-8'))
+                return value
+            except Exception:
+                pass
         # Encrypt the string
-        encrypted_bytes = cipher.encrypt(value.encode('utf-8'))
+        encrypted_bytes = c.encrypt(value.encode('utf-8'))
         return encrypted_bytes.decode('utf-8')
 
     def process_result_value(self, value, dialect):
         if value is None:
             return None
-        # Decrypt the string
-        try:
-            decrypted_bytes = cipher.decrypt(value.encode('utf-8'))
-            return decrypted_bytes.decode('utf-8')
-        except Exception:
-            # Fallback to plain text if decryption fails (backward compatibility)
-            return value
+        c = get_cipher()
+        # If value starts with Fernet signature, decryption failure MUST raise a hard error
+        if isinstance(value, str) and value.startswith("gAAAAA"):
+            try:
+                decrypted_bytes = c.decrypt(value.encode('utf-8'))
+                return decrypted_bytes.decode('utf-8')
+            except Exception as e:
+                logger.critical(f"FATAL: Decryption failed for EncryptedText token. Possible key mismatch or data corruption: {e}")
+                raise ValueError(f"Decryption failed: corrupted ciphertext or invalid SESSION_ENCRYPTION_KEY ({e})") from e
+
+        # Legacy unmigrated plaintext (does not start with gAAAAA)
+        return value
 
 class Base(AsyncAttrs, DeclarativeBase):
     pass
@@ -129,7 +151,7 @@ class User(Base):
     proxy_host: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     proxy_port: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     proxy_username: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    proxy_password: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    proxy_password: Mapped[Optional[str]] = mapped_column(EncryptedText, nullable=True)
 
     # Security & Digital Footprint Tracking (IP, User-Agent, Device Fingerprint)
     last_login_ip: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
@@ -166,7 +188,7 @@ class TelegramAccount(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     phone: Mapped[str] = mapped_column(String(50), nullable=False)
     api_id: Mapped[int] = mapped_column(Integer, nullable=False)
-    api_hash: Mapped[str] = mapped_column(String(100), nullable=False)
+    api_hash: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     string_session: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     status: Mapped[str] = mapped_column(String(50), default="active", nullable=False)  # active, inactive, banned, error
     needs_reboot: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
@@ -176,7 +198,7 @@ class TelegramAccount(Base):
     proxy_host: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     proxy_port: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     proxy_username: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    proxy_password: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    proxy_password: Mapped[Optional[str]] = mapped_column(EncryptedText, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     user: Mapped["User"] = relationship("User", back_populates="telegram_accounts")
@@ -440,6 +462,7 @@ async def init_db() -> None:
                 await conn.execute(text("ALTER TABLE exchange_agreements ADD COLUMN IF NOT EXISTS recipient_host_channels TEXT;"))
                 await conn.execute(text("ALTER TABLE ad_templates ADD COLUMN IF NOT EXISTS channel_id BIGINT;"))
                 await conn.execute(text("ALTER TABLE ad_templates ADD COLUMN IF NOT EXISTS channel_title VARCHAR(255);"))
+                await conn.execute(text("ALTER TABLE telegram_accounts ALTER COLUMN api_hash TYPE TEXT;"))
             except Exception as me:
                 logger.warning(f"Schema migration check notice: {me}")
         logger.info("Database initialized successfully.")
