@@ -609,6 +609,7 @@ window.navigate = function(route, pushState = true, selectedPlan = null) {
   document.getElementById("mobile-drawer")?.classList.add("hidden");
   document.getElementById("drawer-backdrop")?.classList.add("hidden");
 };
+window.navigateToRoute = window.navigate;
 
 function switchTab(tabId, selectedPlan = null) {
   const targetRoute = TAB_TO_ROUTE_MAP[tabId] || "/app";
@@ -1349,7 +1350,7 @@ async function handleTelegramSendCode(e) {
       // Update phone display label
       const phoneLabel = document.getElementById("phone-display-label");
       if (phoneLabel) {
-        phoneLabel.innerHTML = `تم إرسال الكود إلى الرقم: <span dir="ltr" style="unicode-bidi: embed; font-weight: 700; color: var(--brand-accent);">${phone}</span>`;
+        phoneLabel.innerHTML = `تم إرسال الكود إلى الرقم: <span dir="ltr" style="unicode-bidi: embed; font-weight: 700; color: var(--brand-accent);">${escapeHtml(phone)}</span>`;
       }
 
       // Advance to Step 3 (Verification Code)
@@ -1644,10 +1645,13 @@ function openGuideModal() {
   updateCarouselSlides();
   document.getElementById("guide-modal").classList.remove("hidden");
 }
+window.openGuideModal = openGuideModal;
+window.openApiGuideModal = openGuideModal;
 
 function closeGuideModal() {
   document.getElementById("guide-modal").classList.add("hidden");
 }
+window.closeGuideModal = closeGuideModal;
 
 function updateCarouselSlides() {
   const slides = document.querySelectorAll(".guide-slide");
@@ -2293,7 +2297,7 @@ function renderChannelPicker() {
     const typeIcon = ch.is_broadcast ? "📢" : "👥";
     const membersText = formatMembersCount(ch.members_count || 0);
     const qualityBadge = ch.quality_score > 0 ? `<span style="color: #f59e0b; font-size: 10px; margin-right: 6px;">⭐ ${ch.quality_score}</span>` : "";
-    const usernameText = ch.username ? `@${ch.username}` : "رابط خاص";
+    const usernameText = ch.username ? `@${escapeHtml(ch.username)}` : "رابط خاص";
 
     const item = document.createElement("div");
     item.className = "channel-picker-item";

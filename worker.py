@@ -481,6 +481,60 @@ async def verify_is_truly_demoted(client: Client, chat_id: int) -> tuple:
         return False, ""
     return False, ""
 
+def get_channel_link(chat_id: int, username: Optional[str] = None, invite_link: Optional[str] = None) -> str:
+    """
+    Returns the most direct and clickable Telegram link for a channel:
+    - Public channels: https://t.me/{username}
+    - Private with invite link: invite_link
+    - Private supergroup fallback: https://t.me/c/{clean_id}/1
+    """
+    if username:
+        clean = username.lstrip("@").strip()
+        if clean:
+            return f"https://t.me/{clean}"
+    if invite_link and isinstance(invite_link, str) and invite_link.startswith("http"):
+        return invite_link
+    s_id = str(chat_id)
+    if s_id.startswith("-100"):
+        cid = s_id[4:]
+        return f"https://t.me/c/{cid}/1"
+    elif s_id.startswith("-"):
+        cid = s_id[1:]
+        return f"https://t.me/c/{cid}/1"
+    return f"https://t.me/c/{chat_id}/1"
+
+async def resolve_channel_owner(client: Optional[Client], chat_id: int) -> dict:
+    """
+    Safely resolves the Owner of a channel using Pyrogram.
+    Caches resolved owner in Redis for 24 hours to prevent API rate limits.
+    """
+    if not client or not client.is_connected:
+        return {}
+    try:
+        from cache_manager import redis_client
+        import json
+        cache_key = f"channel_owner:{chat_id}"
+        cached = await redis_client.get(cache_key)
+        if cached:
+            return json.loads(cached)
+
+        from pyrogram import enums
+        async for m in client.get_chat_members(chat_id, filter=enums.ChatMembersFilter.ADMINISTRATORS):
+            if m.status == enums.ChatMemberStatus.OWNER and m.user:
+                u = m.user
+                info = {
+                    "id": u.id,
+                    "first_name": u.first_name or "",
+                    "last_name": u.last_name or "",
+                    "username": u.username or "",
+                    "link": f"https://t.me/{u.username}" if u.username else f"tg://user?id={u.id}"
+                }
+                await redis_client.set(cache_key, json.dumps(info), ex=86400)
+                return info
+    except Exception as e:
+        logger.debug(f"Could not resolve owner for chat {chat_id}: {e}")
+    return {}
+
 async def send_demotion_notifications(
     tenant_id: int, 
     chat_id: int, 
@@ -488,7 +542,9 @@ async def send_demotion_notifications(
     chat_username: Optional[str] = None, 
     actor_name: str = "مسؤول القناة", 
     actor_username: Optional[str] = None, 
-    action_label: str = "سحب صلاحيات النشر / إزالة من الإشراف"
+    action_label: str = "سحب صلاحيات النشر / إزالة من الإشراف",
+    is_admin: Optional[bool] = None,
+    channel_url: Optional[str] = None
 ):
     """
     3-Way Instant Demotion Notification Engine:
@@ -497,7 +553,9 @@ async def send_demotion_notifications(
     3. Web App Dashboard (DB AccountNotification + Redis live_logs + Redis tenant_live_events popup)
     """
     try:
-        from cache_manager import redis_client, publish_tenant_live_event
+        import html as _html
+        from cache_manager import redis_client, publish_tenant_live_event, get_channels_cache, save_channels_cache
+        from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         import json
 
         # 0. Deduplicate: Avoid spamming the user multiple times within 60s for the same channel
@@ -507,24 +565,8 @@ async def send_demotion_notifications(
             logger.info(f"Tenant {tenant_id}: Demotion alert for chat {chat_id} already sent within 60s. Skipping duplicate.")
             return
 
-        time_str = (datetime.now(timezone.utc) + timedelta(hours=3)).strftime("%I:%M %p")
-        actor_disp = f"@{actor_username}" if actor_username else actor_name
-        channel_disp = f"@{chat_username}" if chat_username else chat_title
-
-        lines = [
-            "🚨 **تنبيه أمان: تم سحب رتبتك/صلاحياتك في قناة!**",
-            "━━━━━━━━━━━━━━━━━━━━",
-            f"📌 **القناة:** `{channel_disp}`",
-            f"🆔 **المعرف:** `{chat_id}`",
-            f"👤 **المسؤول:** `{actor_disp}`",
-            f"⚠️ **نوع الإجراء:** {action_label}",
-            f"⏰ **التوقيت:** `{time_str}`",
-            "━━━━━━━━━━━━━━━━━━━━",
-            "ℹ️ *تم استبعاد القناة تلقائياً من جداول النشر والحملات لحماية حسابك.*"
-        ]
-        alert_msg = "\n".join(lines)
-
-        # 1. Update Channels Cache (Mark can_send=False and demoted_at)
+        # 1. Update Channels Cache (Mark can_send=False and demoted_at) and look up cached channel meta
+        cached_ch = None
         try:
             channels = await get_channels_cache(tenant_id)
             if channels:
@@ -534,6 +576,7 @@ async def send_demotion_notifications(
                         ch["can_send"] = False
                         ch["demoted_at"] = datetime.now(timezone.utc).isoformat()
                         ch["demotion_action"] = action_label
+                        cached_ch = ch
                         updated = True
                         break
                 if updated:
@@ -542,16 +585,99 @@ async def send_demotion_notifications(
         except Exception as ce:
             logger.error(f"Error updating channel cache on demotion: {ce}")
 
-        # 2. Channel 1: Send Alert to Saved Messages (المحفوظات)
+        # 2. Determine admin status and direct channel link
         client = running_clients.get(tenant_id)
+        if is_admin is None:
+            if cached_ch and "is_admin" in cached_ch:
+                is_admin = cached_ch.get("is_admin", True)
+            else:
+                is_admin = True
+
+        if not channel_url:
+            c_uname = chat_username or (cached_ch.get("username") if cached_ch else None)
+            c_inv = cached_ch.get("invite_link") if cached_ch else None
+            channel_url = get_channel_link(chat_id, c_uname, c_inv)
+
+        # 3. Resolve Channel Owner / Administrator Link
+        owner_url = None
+        owner_disp = None
+        if actor_username:
+            clean_actor = actor_username.lstrip("@").strip()
+            owner_url = f"https://t.me/{clean_actor}"
+            owner_disp = f"@{clean_actor}"
+        else:
+            owner_info = await resolve_channel_owner(client, chat_id)
+            if owner_info and owner_info.get("username"):
+                clean_owner = owner_info["username"].lstrip("@").strip()
+                owner_url = f"https://t.me/{clean_owner}"
+                owner_disp = f"@{clean_owner}"
+            elif owner_info and owner_info.get("id"):
+                owner_url = f"tg://user?id={owner_info['id']}"
+                owner_disp = owner_info.get("first_name") or "مالك القناة"
+            elif chat_username:
+                clean_ch = chat_username.lstrip("@").strip()
+                owner_url = f"https://t.me/{clean_ch}"
+                owner_disp = f"إدارة @{clean_ch}"
+            else:
+                owner_url = "https://t.me/yossefkamel111"
+                owner_disp = actor_name or "مسؤول القناة"
+
+        # 4. Formulate explicit, user-friendly diagnosis answering user questions
+        if is_admin:
+            admin_status_badge = "ما زلت مشرفاً في القناة ✅ (لم تفقد رتبتك)"
+            privilege_status = "تعطيل صلاحية (نشر الرسائل - Post Messages) فقط من قِبل المالك"
+            explanation = "أنت ما زلت مسجلاً كمشرف في القناة، ولكن تم إيقاف إذن النشر لحسابك."
+        else:
+            admin_status_badge = "تم سحب رتبة الإشراف بالكامل ❌ (لست مشرفاً الآن)"
+            privilege_status = "سحب كافة الصلاحيات / طرد أو مغادرة القناة"
+            explanation = "تم إنهاء رتبتك الإشرافية بالكامل في القناة من قِبل الإدارة."
+
+        time_str = (datetime.now(timezone.utc) + timedelta(hours=3)).strftime("%I:%M %p")
+        safe_title = _html.escape(chat_title or f"قناة {chat_id}")
+        safe_owner_disp = _html.escape(owner_disp)
+        owner_link_html = f'<a href="{owner_url}">{safe_owner_disp}</a>' if owner_url else safe_owner_disp
+
+        alert_html = (
+            "🚨 <b>تنبيه أمان القنوات | تعديل الصلاحيات</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"📢 <b>القناة:</b> <a href=\"{channel_url}\">{safe_title}</a>\n"
+            f"🆔 <b>المعرف:</b> <code>{chat_id}</code>\n\n"
+            "📋 <b>التشخيص الإداري لحسابك:</b>\n"
+            f"• <b>الرتبة في القناة:</b> {admin_status_badge}\n"
+            f"• <b>الإجراء المسحوب:</b> {privilege_status}\n\n"
+            f"ℹ️ <i>{explanation}</i>\n\n"
+            f"👤 <b>المالك / المسؤول:</b> {owner_link_html}\n"
+            f"⏰ <b>التوقيت:</b> <code>{time_str}</code> (توقيت القاهرة)\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "🛡️ <i>تم استبعاد القناة تلقائياً لحماية حسابك من التوقف أو أخطاء النشر.</i>"
+        )
+
+        # 5. Interactive inline buttons
+        btn_rows = []
+        row1 = []
+        if channel_url:
+            row1.append(InlineKeyboardButton("📢 فتح القناة", url=channel_url))
+        if owner_url:
+            row1.append(InlineKeyboardButton("👤 مراسلة المالك / الإدارة", url=owner_url))
+        if row1:
+            btn_rows.append(row1)
+
+        row2 = [
+            InlineKeyboardButton("🔄 فحص وتحديث القنوات فوراً", callback_data="btn_sync_channels"),
+            InlineKeyboardButton("💬 الدعم الفني", url="https://t.me/yossefkamel111")
+        ]
+        btn_rows.append(row2)
+        markup = InlineKeyboardMarkup(btn_rows)
+
+        # 6. Channel 1: Send Alert to Saved Messages (المحفوظات)
         if client and client.is_connected:
             try:
-                await client.send_message("me", alert_msg)
+                await client.send_message("me", alert_html)
                 logger.info(f"Tenant {tenant_id}: Sent demotion alert to Saved Messages for chat {chat_id}.")
             except Exception as se:
                 logger.error(f"Failed to send demotion alert to Saved Messages for tenant {tenant_id}: {se}")
 
-        # 3. Channel 2: Send Alert via Telegram Status Bot ("البوت على التيليجرام")
+        # 7. Channel 2: Send Alert via Telegram Status Bot ("البوت على التيليجرام")
         target_user_id = None
         try:
             async with AsyncSessionLocal() as db_session:
@@ -566,13 +692,12 @@ async def send_demotion_notifications(
         if target_user_id:
             try:
                 from status_bot import notify_user_by_id
-                await notify_user_by_id(target_user_id, alert_msg)
+                await notify_user_by_id(target_user_id, alert_html, reply_markup=markup)
                 logger.info(f"Tenant {tenant_id}: Sent demotion alert via Status Bot to user {target_user_id}.")
             except Exception as be:
                 logger.error(f"Failed to send demotion alert via Status Bot: {be}")
 
-        # 4. Channel 3: Send Alert to Web App (البرنامج بتاعنا الويب)
-        # 4a. DB AccountNotification (for dashboard notification bell)
+        # 8. Channel 3: Send Alert to Web App
         if target_user_id:
             try:
                 async with AsyncSessionLocal() as db_session:
@@ -580,8 +705,8 @@ async def send_demotion_notifications(
                         telegram_account_id=tenant_id,
                         user_id=target_user_id,
                         notification_type="channel_demotion",
-                        title=f"🚨 تنبيه أمني: {action_label}",
-                        message=f"تم رصد {action_label} في القناة: {chat_title}",
+                        title=f"🚨 تنبيه أمان: {action_label}",
+                        message=f"تم رصد {action_label} في القناة: {chat_title} ({privilege_status})",
                         actor_name=actor_name,
                         actor_username=actor_username,
                         chat_title=chat_title,
@@ -594,23 +719,22 @@ async def send_demotion_notifications(
             except Exception as db_err:
                 logger.error(f"Failed to save AccountNotification to DB: {db_err}")
 
-        # 4b. Redis Pub/Sub Live Toast/Popup to Web App
+        # 9. Redis Pub/Sub Live Toast/Popup to Web App
         try:
             await publish_tenant_live_event(tenant_id, {
                 "type": "channel_demotion",
                 "chat_id": chat_id,
                 "chat_title": chat_title,
                 "action_label": action_label,
-                "actor_disp": actor_disp,
+                "actor_disp": owner_disp,
                 "time": time_str
             })
         except Exception as pe:
             logger.error(f"Failed to publish tenant live event: {pe}")
 
-        # 4c. Redis Live Logs
+        # 10. Redis Live Logs
         try:
-            await log_tenant_event(tenant_id, f"🚨 تنبيه أمني: تم رصد {action_label} في القناة {chat_title} بواسطة {actor_disp}!")
-            # 4d. Superadmin stream
+            await log_tenant_event(tenant_id, f"🚨 تنبيه أمان: تم رصد {action_label} في القناة {chat_title} بواسطة {owner_disp}!")
             await redis_client.publish(
                 "saas_live_logs",
                 json.dumps({
@@ -627,12 +751,16 @@ async def send_demotion_notifications(
 
 async def send_consolidated_demotions_alert(tenant_id: int, force: bool = False):
     """
-    Sends a consolidated administrative audit of all channels where posting rights have been revoked
-    or restricted to the user on the Status Bot (@AutoTele_UpdatesBot) and Saved Messages.
+    Sends a consolidated, professional, user-friendly administrative audit of all channels
+    where posting rights have been revoked or restricted to the user on Status Bot (@AutoTele_UpdatesBot)
+    and Userbot Saved Messages.
     """
     try:
+        import html as _html
         from cache_manager import get_channels_cache, redis_client
+        from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         import json
+
         channels = await get_channels_cache(tenant_id)
         if not channels:
             return
@@ -654,39 +782,94 @@ async def send_consolidated_demotions_alert(tenant_id: int, force: bool = False)
                 logger.debug(f"Tenant {tenant_id}: Consolidated demotions alert suppressed by cooldown.")
                 return
 
-        lines = [
-            f"🚨 <b>تنبيه إداري لقنواتك: تم رصد {len(demoted)} قناة مسحوبة الصلاحيات!</b>",
-            "━━━━━━━━━━━━━━━━━━━━",
-            "⚠️ تم استبعاد هذه القنوات تلقائياً لحماية حسابك من التوقف أو أخطاء الصلاحيات أثناء النشر:\n"
-        ]
-        
+        client = running_clients.get(tenant_id)
+        time_str = (datetime.now(timezone.utc) + timedelta(hours=3)).strftime("%I:%M %p")
+
+        channel_items = []
+        all_are_still_admins = True
         for i, ch in enumerate(demoted, 1):
-            uname = f"@{ch['username']}" if ch.get("username") else "بدون معرف عام"
             cid = ch.get("id")
             title = ch.get("title", f"قناة {cid}")
-            lines.append(f"<b>{i}. {title}</b>\n   • المعرف: <code>{cid}</code> | اليوزر: {uname}")
+            safe_title = _html.escape(title)
+            uname = ch.get("username")
+            inv = ch.get("invite_link")
+            ch_url = get_channel_link(cid, uname, inv)
+            is_adm = ch.get("is_admin", True)
+            if not is_adm:
+                all_are_still_admins = False
+            status_badge = "مشرف ✅ (سحب نشر فقط)" if is_adm else "لست مشرفاً ❌ (إزالة كاملة)"
             
-        lines.append("")
-        lines.append("━━━━━━━━━━━━━━━━━━━━")
-        lines.append("ℹ️ <i>ملاحظة: إذا أعاد مالك القناة صلاحيات النشر لحسابك، أرسل أمر <code>.تحديث</code> أو اضغط 'تحديث القنوات' في لوحة التحكم لإعادة تفعيلها فوراً.</i>")
-        
-        alert_text = "\n".join(lines)
-        
+            # Resolve owner
+            owner_info = await resolve_channel_owner(client, cid)
+            if owner_info and owner_info.get("username"):
+                clean_owner = owner_info["username"].lstrip("@").strip()
+                owner_str = f'<a href="https://t.me/{clean_owner}">@{clean_owner}</a>'
+            elif uname:
+                clean_uname = uname.lstrip("@").strip()
+                owner_str = f'<a href="https://t.me/{clean_uname}">إدارة @{clean_uname}</a>'
+            elif owner_info and owner_info.get("id"):
+                owner_str = f'<a href="tg://user?id={owner_info["id"]}">{_html.escape(owner_info.get("first_name") or "المالك")}</a>'
+            else:
+                owner_str = f'<a href="{ch_url}">فتح القناة</a>'
+
+            item = (
+                f"<b>{i}. <a href=\"{ch_url}\">{safe_title}</a></b>\n"
+                f"   • <b>الرتبة:</b> {status_badge}\n"
+                f"   • <b>المعرف:</b> <code>{cid}</code> | <b>المالك:</b> {owner_str}"
+            )
+            channel_items.append(item)
+
+        if all_are_still_admins:
+            diag_text = (
+                "• <b>هل تم عزل حسابك من الإشراف؟</b>\n"
+                "  ⬅️ <b>لا، أنت ما زلت مشرفاً في كافة القنوات أعلاه ✅</b>\n"
+                "  ⬅️ <b>ماذا حدث إذاً؟</b> قام مالك القناة بتعطيل صلاحية <b>(نشر الرسائل - Post Messages)</b> فقط لحسابك."
+            )
+        else:
+            diag_text = (
+                "• <b>التشخيص الإداري:</b> بعض القنوات ما زلت مشرفاً فيها (مع سحب النشر فقط)، وبعضها تمت إزالتك من إشرافها بالكامل."
+            )
+
+        items_str = "\n\n".join(channel_items)
+        alert_lines = [
+            f"🚨 <b>تقرير فحص صلاحيات القنوات ({len(demoted)} قناة مستبعدة)</b>",
+            "━━━━━━━━━━━━━━━━━━━━",
+            "⚠️ <b>تنبيه أمان:</b> تم استبعاد القنوات التالية تلقائياً من النشر لوجود قيود في الصلاحيات لحماية حسابك من أخطاء النشر أو التوقف:\n",
+            items_str,
+            "\n━━━━━━━━━━━━━━━━━━━━",
+            "📋 <b>التشخيص الإداري الموحد:</b>",
+            diag_text,
+            "\n💡 <b>ماذا تفعل الآن؟</b>",
+            "1. اضغط على اسم القناة أو المالك وتواصل معه لتفعيل صلاحية <b>نشر الرسائل (Post Messages)</b>.",
+            "2. بعد تفعيل الصلاحية، اضغط زر <b>تحديث القنوات الآن</b> بالأسفل لإعادتها فوراً للنشر.",
+            f"\n⏰ <b>توقيت الفحص:</b> <code>{time_str}</code> (توقيت القاهرة)"
+        ]
+        alert_text = "\n".join(alert_lines)
+
+        markup = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("🔄 فحص وتحديث القنوات الآن", callback_data="btn_sync_channels")
+            ],
+            [
+                InlineKeyboardButton("👤 حالة حساباتي", callback_data="btn_accounts_status"),
+                InlineKeyboardButton("💬 الدعم الفني والمساعدة", url="https://t.me/yossefkamel111")
+            ]
+        ])
+
         # 1. Send to Status Bot
         from status_bot import notify_user_by_tenant_id
-        await notify_user_by_tenant_id(tenant_id, alert_text)
-        
+        await notify_user_by_tenant_id(tenant_id, alert_text, reply_markup=markup)
+
         # 2. Send to Userbot Saved Messages
-        client = running_clients.get(tenant_id)
         if client and client.is_connected:
             try:
                 await client.send_message("me", alert_text)
             except Exception as se:
                 logger.debug(f"Failed to send demotions alert to userbot Saved Messages: {se}")
-                
+
         logger.info(f"Tenant {tenant_id}: Dispatched consolidated demotions alert for {len(demoted)} channels.")
     except Exception as e:
-        logger.error(f"Error in send_consolidated_demotions_alert for tenant {tenant_id}: {e}")
+        logger.error(f"Error in send_consolidated_demotions_alert for tenant {tenant_id}: {e}", exc_info=True)
 
 async def remove_channel_from_cache_on_demotion(telegram_account_id: int, chat_id: int, actor_name: Optional[str] = None, actor_username: Optional[str] = None, action_label: str = "سحب صلاحيات النشر / إزالة من الإشراف"):
     try:

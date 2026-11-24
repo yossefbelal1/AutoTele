@@ -21,7 +21,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
   
   <!-- CSS Stylesheet -->
-  <link rel="stylesheet" href="/style.css?v=6.1.0">
+  <link rel="stylesheet" href="/style.css?v=6.4.0">
 
   <!-- Google Sign-In API -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -449,7 +449,7 @@
             <span>📁</span>
             <span>دليل تهيئة مجلدات تليجرام</span>
           </button>
-          <button type="button" class="drawer-nav-item helper-link" onclick="openApiGuideModal(); closeMobileDrawer();">
+          <button type="button" class="drawer-nav-item helper-link" onclick="openGuideModal(); closeMobileDrawer();">
             <span>💡</span>
             <span>دليل استخراج بيانات API ID</span>
           </button>
@@ -633,7 +633,7 @@
               <div class="account-status-bar engine-card subscription-summary-card compact-dashboard-summary-bar">
                 
                 <!-- 1. Engine Status -->
-                <div class="summary-pill engine-pill" onclick="navigateToRoute('/app/health')" title="فحص صحة المحرك السحابي">
+                <div class="summary-pill engine-pill" onclick="navigate('/app/health')" title="فحص صحة المحرك السحابي">
                   <span id="account-status-dot" class="status-dot-indicator"></span>
                   <span class="pill-icon">⚡</span>
                   <span id="campaign-account-name" class="pill-txt">جاري الفحص...</span>
@@ -3331,7 +3331,7 @@
   </div>
 
   <!-- Application Script -->
-  <script src="/script.js?v=6.1.0"></script>
+  <script src="/script.js?v=6.4.0"></script>
 
   <!-- Edit Scheduled Job Modal -->
   <div id="edit-job-modal" class="modal-overlay hidden" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 99999; padding: 16px; opacity: 0; pointer-events: none; transition: all 0.3s ease;">

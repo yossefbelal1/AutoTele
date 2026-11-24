@@ -4605,6 +4605,16 @@ body.drawer-open {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  position: relative;
+  overflow: visible !important;
+}
+
+.user-dropdown-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible !important;
 }
 
 .btn-impersonate-sleek {
@@ -4654,15 +4664,15 @@ body.drawer-open {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
-  z-index: 1000;
-  min-width: 210px;
-  background: rgba(15, 23, 42, 0.96);
+  z-index: 99999 !important;
+  min-width: 220px;
+  background: rgba(15, 23, 42, 0.98);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 12px;
   padding: 6px;
-  box-shadow: 0 12px 30px -5px rgba(0, 0, 0, 0.7), 0 0 1px 1px rgba(255, 255, 255, 0.1);
+  box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.85), 0 0 1px 1px rgba(255, 255, 255, 0.1);
   display: none;
   flex-direction: column;
   gap: 2px;

@@ -709,29 +709,6 @@ async def google_login(req: GoogleAuthReq, request: Request):
         logger.info(f"==> [GOOGLE LOGIN SUCCESS] User ID {user.id} ({clean_email}) logged in successfully")
         return {"access_token": access_token, "token_type": "bearer"}
 
-        # Strict Guards for Existing Google Users
-        if user.subscription_status == "pending_approval" and not user.is_admin:
-            raise HTTPException(
-                status_code=403, 
-                detail="⏳ طلب تسجيل حسابك قيد المراجعة والموافقة من الإدارة. سيتم تفعيل الـ 3 أيام التجريبية لحسابك فور الاعتماد."
-            )
-            
-        if user.subscription_status == "banned":
-            raise HTTPException(status_code=403, detail="⛔ تم حظر هذا الحساب من قبل الإدارة.")
-            
-        if user.subscription_status == "expired" and user.subscription_plan == "trial" and not user.is_admin:
-            raise HTTPException(
-                status_code=403,
-                detail="🔒 انتهت صلاحية حسابك التجريبي. يرجى التواصل مع الإدارة للاشتراك وتفعيل الحساب."
-            )
-            
-        access_token = jwt.encode(
-            {"sub": user.id, "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)},
-            JWT_SECRET,
-            algorithm=JWT_ALGORITHM
-        )
-        return {"access_token": access_token, "token_type": "bearer"}
-
 @app.get("/user/subscription")
 async def get_user_subscription(user_id: int = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
@@ -3640,7 +3617,7 @@ async def admin_login(req: AdminLoginReq, request: Request):
             raise HTTPException(status_code=401, detail="بيانات خاطئة أو صلاحيات غير كافية")
         
         # Check if 2FA is required
-        force_2fa = os.getenv("ADMIN_REQUIRE_2FA", "false").lower() == "true" or user.totp_verified
+        force_2fa = os.getenv("ADMIN_REQUIRE_2FA", "true").lower() != "false" or user.totp_verified
         
         # If otp_code was provided directly in login request
         if req.otp_code:
@@ -5624,6 +5601,10 @@ async def get_broadcast_media(media_id: str):
     content_type = "video/mp4" if media_type_str == "video" else "image/jpeg"
 
     if disk_path and os.path.exists(disk_path):
+        real_disk = os.path.realpath(disk_path)
+        real_base = os.path.realpath(UPLOAD_BROADCAST_DIR)
+        if not real_disk.startswith(real_base + os.sep) and real_disk != real_base:
+            raise HTTPException(status_code=403, detail="غير مصرح بالوصول إلى هذا المسار")
         return FileResponse(disk_path, media_type=content_type)
 
     media_bytes = await redis_client.get(f"broadcast_media:{media_id}")
@@ -6051,10 +6032,16 @@ async def admin_troubleshoot_clear_cache(admin_user: User = Depends(check_admin_
     try:
         patterns = ["tenant:*:admin_chats", "tenant:*:dialogs*", "cache:temp:*"]
         for pat in patterns:
-            keys = await redis_client.keys(pat)
-            if keys:
-                cleared_count += len(keys)
-                await redis_client.delete(*keys)
+            batch = []
+            async for k in redis_client.scan_iter(match=pat, count=200):
+                batch.append(k)
+                if len(batch) >= 500:
+                    cleared_count += len(batch)
+                    await redis_client.delete(*batch)
+                    batch = []
+            if batch:
+                cleared_count += len(batch)
+                await redis_client.delete(*batch)
         
         logger.info(f"Admin {admin_user.email} cleared {cleared_count} cache keys via Troubleshoot Hub.")
         return {

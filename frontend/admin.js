@@ -2330,7 +2330,7 @@ function populateBroadcastTargets(users) {
 
   users.forEach(u => {
     const uName = u.full_name || u.email.split('@')[0];
-    const uPhone = u.phone ? ` • 📞 ${u.phone}` : '';
+    const uPhone = u.phone ? ` • 📞 ${escapeHtml(u.phone)}` : '';
     const isActive = u.subscription_status === 'active' && !u.is_sub_expired;
     const statusBadge = isActive 
       ? '<span style="background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600;">نشط 🟢</span>' 
@@ -2893,7 +2893,7 @@ async function viewBroadcastDeliveries(campaignId) {
     if (campaign.media_url) {
       mediaSnippet = `
         <div style="margin-top: 8px;">
-          <a href="${campaign.media_url}" target="_blank" style="display: inline-flex; align-items: center; gap: 5px; color: #38bdf8; text-decoration: none; font-size: 12px; background: rgba(56, 189, 248, 0.1); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.25);">
+          <a href="${escapeHtml(campaign.media_url)}" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 5px; color: #38bdf8; text-decoration: none; font-size: 12px; background: rgba(56, 189, 248, 0.1); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.25);">
             <span>${campaign.media_type === 'video' ? '🎥' : '📷'}</span>
             <span>عرض المرفق بالكامل</span>
             <span>↗</span>
@@ -3693,6 +3693,15 @@ window.toggleUserDropdown = function(event, userId) {
   
   if (targetMenu && !isAlreadyOpen) {
     targetMenu.classList.add("show");
+    // Smart flip if near bottom of viewport
+    const rect = targetMenu.getBoundingClientRect();
+    if (rect.bottom > window.innerHeight - 20) {
+      targetMenu.style.top = "auto";
+      targetMenu.style.bottom = "calc(100% + 4px)";
+    } else {
+      targetMenu.style.top = "calc(100% + 4px)";
+      targetMenu.style.bottom = "auto";
+    }
   }
 };
 
@@ -3721,15 +3730,15 @@ window.approveUserTrial = async function(userId, userName) {
   if (!confirmed) return;
 
   try {
-    showToast("جاري تفعيل الحساب وتخصيص البروكسي...", "info");
+    showToast("جاري تفعيل الحساب وتخصيص البروكسي...", "info", 4000);
     const res = await adminApiRequest(`/admin/users/${userId}/approve_trial`, {
       method: "POST"
     });
-    showToast(res.message || "تم تفعيل الاشتراك التجريبي لمدة 3 أيام بنجاح!", "success");
+    showToast(res.message || "تم تفعيل الاشتراك التجريبي لمدة 3 أيام بنجاح!", "success", 5000);
     await loadAdminUsers();
   } catch (err) {
     console.error("Failed to approve trial:", err);
-    showToast(err.message || "فشل تفعيل الاشتراك التجريبي", "error");
+    showToast(err.message || "فشل تفعيل الاشتراك التجريبي", "error", 6000);
   }
 };
 
@@ -3741,19 +3750,25 @@ window.rejectUserRegistration = async function(userId, userName) {
     if (u) displayName = u.full_name || u.email;
   }
   if (!displayName) displayName = `#${userId}`;
-  const confirmed = confirm(`⚠️ هل أنت متأكد من رفض وحذف طلب التسجيل للمشترك "${displayName}"؟\nسيتم حذف الحساب بالكامل وحفظه في الأرشيف.`);
+  const confirmed = confirm(`⚠️ هل أنت متأكد من رفض وحظر طلب التسجيل للمشترك "${displayName}"؟\nسيتم حذف الحساب بالكامل وحفظه في الأرشيف.`);
   if (!confirmed) return;
 
   try {
-    showToast("جاري رفض الطلب وحذف الحساب...", "info");
+    showToast("جاري معالجة الرفض وحفظ الحساب في الأرشيف...", "info", 4000);
+    if (Array.isArray(currentAdminUsers)) {
+      currentAdminUsers = currentAdminUsers.filter(x => x.id !== Number(userId));
+      window.currentAdminUsers = currentAdminUsers;
+      renderFilteredAdminUsers();
+    }
     const res = await adminApiRequest(`/admin/users/${userId}/reject_registration`, {
       method: "POST"
     });
-    showToast(res.message || "تم رفض طلب التسجيل وحذف الحساب وأرشفة بياناته بنجاح", "success");
+    showToast(res.message || "تم رفض طلب التسجيل وحذف الحساب وأرشفة بياناته بنجاح", "success", 5000);
     await loadAdminUsers();
   } catch (err) {
     console.error("Failed to reject registration:", err);
-    showToast(err.message || "فشل رفض طلب التسجيل", "error");
+    showToast(err.message || "فشل رفض طلب التسجيل", "error", 6000);
+    await loadAdminUsers();
   }
 };
 
