@@ -787,6 +787,12 @@ async def send_consolidated_demotions_alert(tenant_id: int, force: bool = False)
 
         channel_items = []
         all_are_still_admins = True
+        digits_emoji = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+        def get_num_emoji(idx: int) -> str:
+            if 1 <= idx <= 10:
+                return digits_emoji[idx - 1]
+            return f"<b>{idx}.</b>"
+
         for i, ch in enumerate(demoted, 1):
             cid = ch.get("id")
             title = ch.get("title", f"قناة {cid}")
@@ -806,16 +812,16 @@ async def send_consolidated_demotions_alert(tenant_id: int, force: bool = False)
                 owner_str = f'<a href="https://t.me/{clean_owner}">@{clean_owner}</a>'
             elif uname:
                 clean_uname = uname.lstrip("@").strip()
-                owner_str = f'<a href="https://t.me/{clean_uname}">إدارة @{clean_uname}</a>'
+                owner_str = f'<a href="https://t.me/{clean_uname}">إدارة القناة</a>'
             elif owner_info and owner_info.get("id"):
                 owner_str = f'<a href="tg://user?id={owner_info["id"]}">{_html.escape(owner_info.get("first_name") or "المالك")}</a>'
             else:
                 owner_str = f'<a href="{ch_url}">فتح القناة</a>'
 
+            num_tag = get_num_emoji(i)
             item = (
-                f"<b>{i}. <a href=\"{ch_url}\">{safe_title}</a></b>\n"
-                f"   • <b>الرتبة:</b> {status_badge}\n"
-                f"   • <b>المعرف:</b> <code>{cid}</code> | <b>المالك:</b> {owner_str}"
+                f"{num_tag} <b><a href=\"{ch_url}\">{safe_title}</a></b>\n"
+                f"   • <b>الرتبة:</b> {status_badge} | <b>المالك:</b> {owner_str}"
             )
             channel_items.append(item)
 
@@ -6433,17 +6439,25 @@ async def start_tenant_worker(account: TelegramAccount):
         proxy_config = None
         if account.proxy_host:
             is_alive = await check_proxy_responsive(account.proxy_host, account.proxy_port, account.proxy_username, account.proxy_password)
-            if is_alive:
-                proxy_config = {
-                    "scheme": "socks5",
-                    "hostname": account.proxy_host,
-                    "port": int(account.proxy_port),
-                    "username": account.proxy_username,
-                    "password": account.proxy_password
-                }
-                logger.info(f"Using SOCKS5 proxy for tenant {tenant_id}: {account.proxy_host}:{account.proxy_port}")
-            else:
-                logger.warning(f"SOCKS5 proxy {account.proxy_host}:{account.proxy_port} is DEAD/UNREACHABLE for tenant {tenant_id}. Falling back to direct connection!")
+            if not is_alive:
+                logger.error(f"SOCKS5 proxy {account.proxy_host}:{account.proxy_port} is DEAD/UNREACHABLE for tenant {tenant_id}. STRICT FAIL-CLOSED: Aborting start to prevent server IP leak.")
+                try:
+                    async with AsyncSessionLocal() as db_sess:
+                        db_acc = (await db_sess.execute(select(TelegramAccount).where(TelegramAccount.id == tenant_id))).scalar_one_or_none()
+                        if db_acc:
+                            db_acc.status = "proxy_error"
+                            await db_sess.commit()
+                except Exception:
+                    pass
+                return
+            proxy_config = {
+                "scheme": "socks5",
+                "hostname": account.proxy_host,
+                "port": int(account.proxy_port),
+                "username": account.proxy_username,
+                "password": account.proxy_password
+            }
+            logger.info(f"Using SOCKS5 proxy for tenant {tenant_id}: {account.proxy_host}:{account.proxy_port}")
             
         client = Client(
             name=f"tenant_session_{tenant_id}",
@@ -6466,28 +6480,20 @@ async def start_tenant_worker(account: TelegramAccount):
                 raise
         except Exception as start_err:
             if proxy_config:
-                logger.warning(f"Tenant {tenant_id}: Failed to start with proxy ({start_err}). Falling back to direct connection...")
+                logger.error(f"Tenant {tenant_id}: Failed to start with SOCKS5 proxy ({start_err}). STRICT FAIL-CLOSED: Aborting to protect server IP.")
                 try:
                     await client.stop()
                 except Exception:
                     pass
-                client = Client(
-                    name=f"tenant_session_{tenant_id}",
-                    api_id=account.api_id,
-                    api_hash=account.api_hash,
-                    session_string=account.string_session,
-                    in_memory=True,
-                    workers=2
-                )
                 try:
-                    await asyncio.wait_for(client.start(), timeout=15.0)
-                except FloodWait as pfw:
-                    if pfw.value <= 30:
-                        logger.warning(f"Tenant {tenant_id}: Telegram FloodWait {pfw.value}s on direct client.start(). Waiting {pfw.value}s...")
-                        await asyncio.sleep(pfw.value + 1)
-                        await asyncio.wait_for(client.start(), timeout=15.0)
-                    else:
-                        raise
+                    async with AsyncSessionLocal() as db_sess:
+                        db_acc = (await db_sess.execute(select(TelegramAccount).where(TelegramAccount.id == tenant_id))).scalar_one_or_none()
+                        if db_acc:
+                            db_acc.status = "proxy_error"
+                            await db_sess.commit()
+                except Exception:
+                    pass
+                return
             else:
                 raise
 
@@ -7753,6 +7759,9 @@ async def sweep_single_channel(
                 try:
                     await client.delete_messages(chat_id=cid, message_ids=list(to_delete))
                     deleted = len(to_delete)
+                except FloodWait as fw:
+                    logger.warning(f"Telegram FloodWait {fw.value}s deleting sweep messages in {cid}. Backing off...")
+                    await asyncio.sleep(min(fw.value + 1, 30))
                 except Exception as e:
                     logger.debug(f"Failed to delete messages in channel {cid}: {e}")
             return deleted
@@ -7760,6 +7769,10 @@ async def sweep_single_channel(
         return await asyncio.wait_for(_scan(), timeout=18.0)
     except asyncio.TimeoutError:
         logger.warning(f"Timeout (18s) sweeping channel {cid}")
+        return 0
+    except FloodWait as fw:
+        logger.warning(f"Telegram FloodWait {fw.value}s while sweeping channel {cid}. Backing off...")
+        await asyncio.sleep(min(fw.value + 1, 30))
         return 0
     except Exception as e:
         logger.debug(f"Error sweeping channel {cid}: {e}")
@@ -9251,7 +9264,8 @@ async def global_cleaner_worker():
                 ads_by_tenant[ad_data["telegram_account_id"]].append(ad_data)
 
             deleted_by_tenant = {}
-            for tenant_id, tenant_ads in ads_by_tenant.items():
+
+            async def clean_single_tenant(tenant_id, tenant_ads):
                 client = running_clients.get(tenant_id)
                 if not client or not client.is_connected:
                     try:
@@ -9261,9 +9275,8 @@ async def global_cleaner_worker():
                     except Exception:
                         pass
                     logger.warning(f"[Cleaner] Client for tenant {tenant_id} is not connected. Skipping {len(tenant_ads)} expired ads for now.")
-                    continue
+                    return 0
 
-                # Run deletions concurrently with safe human-like pacing (Semaphore 4 + 0.4s buffer)
                 sem = asyncio.Semaphore(4)
                 successful_ad_ids = []
 
@@ -9343,8 +9356,10 @@ async def global_cleaner_worker():
                             await del_session.commit()
                     except Exception as e:
                         logger.error(f"[Cleaner] Failed to batch remove DB records for tenant {tenant_id}: {e}")
+                    return len(successful_ad_ids)
+                return 0
 
-                    # Task completion check moved globally outside the loop
+            await asyncio.gather(*(clean_single_tenant(tid, t_ads) for tid, t_ads in ads_by_tenant.items()), return_exceptions=True)
 
             for tenant_id, count in deleted_by_tenant.items():
                 if count > 0:
@@ -10011,17 +10026,17 @@ async def send_telegram_alert(
         if not client:
             proxy_config = None
             if acc.proxy_host:
-                is_alive = await check_proxy_responsive(acc.proxy_host, acc.proxy_port)
-                if is_alive:
-                    proxy_config = {
-                        "scheme": "socks5",
-                        "hostname": acc.proxy_host,
-                        "port": int(acc.proxy_port),
-                        "username": acc.proxy_username,
-                        "password": acc.proxy_password
-                    }
-                else:
-                    logger.warning(f"SOCKS5 proxy {acc.proxy_host}:{acc.proxy_port} is DEAD for user {user_id} alert. Falling back to direct connection!")
+                is_alive = await check_proxy_responsive(acc.proxy_host, acc.proxy_port, acc.proxy_username, acc.proxy_password)
+                if not is_alive:
+                    logger.error(f"SOCKS5 proxy {acc.proxy_host}:{acc.proxy_port} is DEAD for user {user_id} alert. STRICT FAIL-CLOSED: Aborting alert to protect server IP.")
+                    return False, "بروكسي الحساب غير متصل حالياً"
+                proxy_config = {
+                    "scheme": "socks5",
+                    "hostname": acc.proxy_host,
+                    "port": int(acc.proxy_port),
+                    "username": acc.proxy_username,
+                    "password": acc.proxy_password
+                }
             client = Client(
                 name=f"temp_alert_{acc.id}",
                 api_id=acc.api_id,
@@ -10108,7 +10123,7 @@ async def ensure_all_active_tenants_unmuted():
                 # 1. Verify me.id
                 try:
                     me = await client.get_me()
-                    if me and me.id and db_user.status_bot_chat_id != me.id:
+                    if me and me.id and not db_user.status_bot_chat_id:
                         db_user.status_bot_chat_id = me.id
                         await session.commit()
                         logger.info(f"[AutoUnmute] Updated status_bot_chat_id={me.id} for user {db_user.id}")

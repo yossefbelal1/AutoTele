@@ -99,6 +99,7 @@ services:
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-https://telegauto.com,https://www.telegauto.com,https://teleauto.com,https://www.teleauto.com}
       - FRONTEND_URL=${FRONTEND_URL:-https://telegauto.com}
       - PYTHONUNBUFFERED=1
+      - ADMIN_REQUIRE_2FA=true
       - STATUS_BOT_TOKEN=${STATUS_BOT_TOKEN:-}
       - STATUS_BOT_USERNAME=${STATUS_BOT_USERNAME:-AutoTele_UpdatesBot}
       - PROXY_POOL=${PROXY_POOL:-[]}
@@ -138,6 +139,7 @@ services:
       - REDIS_URL=${REDIS_URL:-redis://redis_cache:6379/0}
       - SESSION_ENCRYPTION_KEY=${SESSION_ENCRYPTION_KEY:?SESSION_ENCRYPTION_KEY is required. Set it in .env file.}
       - PYTHONUNBUFFERED=1
+      - ADMIN_REQUIRE_2FA=true
       - STATUS_BOT_TOKEN=${STATUS_BOT_TOKEN:-}
       - STATUS_BOT_USERNAME=${STATUS_BOT_USERNAME:-AutoTele_UpdatesBot}
     depends_on:

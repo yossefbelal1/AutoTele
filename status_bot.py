@@ -400,7 +400,7 @@ async def execute_bot_exchange_accept(user_id: int, request_id: int, lifespan_ov
     try:
         async with AsyncSessionLocal() as session:
             req_obj = (await session.execute(
-                select(ExchangeRequest).where(ExchangeRequest.id == request_id)
+                select(ExchangeRequest).where(ExchangeRequest.id == request_id).with_for_update()
             )).scalar_one_or_none()
             
             if not req_obj:
@@ -679,7 +679,7 @@ async def execute_bot_exchange_reject(user_id: int, request_id: int) -> tuple[bo
     try:
         async with AsyncSessionLocal() as session:
             req_obj = (await session.execute(
-                select(ExchangeRequest).where(ExchangeRequest.id == request_id)
+                select(ExchangeRequest).where(ExchangeRequest.id == request_id).with_for_update()
             )).scalar_one_or_none()
             
             if not req_obj:
@@ -1716,7 +1716,7 @@ async def notify_exchange_request_to_recipient(request_id: int) -> bool:
     try:
         async with AsyncSessionLocal() as session:
             req_obj = (await session.execute(
-                select(ExchangeRequest).where(ExchangeRequest.id == request_id)
+                select(ExchangeRequest).where(ExchangeRequest.id == request_id).with_for_update()
             )).scalar_one_or_none()
             if not req_obj or req_obj.status != "pending":
                 return False
