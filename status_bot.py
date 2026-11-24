@@ -956,12 +956,20 @@ async def handle_sync_command(client: Optional[Client], message: Message):
         )
         return
 
-    from worker import running_clients, crawl_and_cache_tenant_channels
+    from worker import running_clients, crawl_and_cache_tenant_channels, send_consolidated_demotions_alert
+
+    async def _sync_and_report_tenant(tenant_id: int, client_inst):
+        try:
+            await crawl_and_cache_tenant_channels(tenant_id, client_inst)
+            await send_consolidated_demotions_alert(tenant_id, force=True)
+        except Exception as e:
+            logger.error(f"Error in manual sync for tenant {tenant_id}: {e}")
+
     triggered_count = 0
     for acc in accounts:
         client_instance = running_clients.get(acc.id)
         if client_instance:
-            asyncio.create_task(crawl_and_cache_tenant_channels(acc.id, client_instance))
+            asyncio.create_task(_sync_and_report_tenant(acc.id, client_instance))
             triggered_count += 1
 
     if triggered_count > 0:
@@ -1297,13 +1305,20 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
                 await callback_query.answer("⚠️ ليس لديك حسابات نشطة لتحديث قنواتها.", show_alert=True)
                 return
                 
-            from worker import running_clients, crawl_and_cache_tenant_channels
+            from worker import running_clients, crawl_and_cache_tenant_channels, send_consolidated_demotions_alert
             
+            async def _sync_and_report_tenant(tenant_id: int, client_inst):
+                try:
+                    await crawl_and_cache_tenant_channels(tenant_id, client_inst)
+                    await send_consolidated_demotions_alert(tenant_id, force=True)
+                except Exception as e:
+                    logger.error(f"Error in callback sync for tenant {tenant_id}: {e}")
+
             triggered_count = 0
             for acc in accounts:
                 client_instance = running_clients.get(acc.id)
                 if client_instance:
-                    asyncio.create_task(crawl_and_cache_tenant_channels(acc.id, client_instance))
+                    asyncio.create_task(_sync_and_report_tenant(acc.id, client_instance))
                     triggered_count += 1
             
             if triggered_count > 0:

@@ -140,3 +140,43 @@ async def test_send_consolidated_demotions_alert_card_format():
         button_texts = [btn.text for row in sent_markup.inline_keyboard for btn in row]
         assert "🔄 فحص وتحديث القنوات الآن" in button_texts
         assert "💬 الدعم الفني والمساعدة" in button_texts
+
+@pytest.mark.asyncio
+async def test_send_demotion_notifications_deduplication():
+    """Verify that if an alert was already sent for this channel, it does not re-notify."""
+    with patch("cache_manager.redis_client") as mock_redis, \
+         patch("status_bot.notify_user_by_id", new_callable=AsyncMock) as mock_notify:
+        # Simulate that key already exists in redis (set returns False/None)
+        mock_redis.set.return_value = False
+
+        await send_demotion_notifications(
+            tenant_id=11,
+            chat_id=-100111,
+            chat_title="Gold VIP"
+        )
+
+        # Must NOT notify because it was already notified previously
+        assert not mock_notify.called
+        # Check dedup key format and 14 days expiration
+        mock_redis.set.assert_called_once_with("tenant:11:demoted_notified:-100111", "1", nx=True, ex=14 * 86400)
+
+@pytest.mark.asyncio
+async def test_send_consolidated_demotions_alert_all_ok_on_force():
+    """Verify that when manually forced and there are no demotions, it sends a positive confirmation."""
+    mock_channels = [
+        {"id": -100101, "title": "Good Channel", "username": "good_ch", "is_admin": True, "can_send": True}
+    ]
+
+    with patch("cache_manager.get_channels_cache", new_callable=AsyncMock) as mock_get_ch, \
+         patch("cache_manager.redis_client") as mock_redis, \
+         patch("status_bot.notify_user_by_tenant_id", new_callable=AsyncMock) as mock_notify:
+        
+        mock_get_ch.return_value = mock_channels
+        mock_redis.get.return_value = None
+
+        await send_consolidated_demotions_alert(11, force=True)
+
+        assert mock_notify.called
+        sent_text = mock_notify.call_args[0][1]
+        assert "جميع القنوات سليمة بنسبة 100%" in sent_text
+
