@@ -625,6 +625,69 @@ async def send_demotion_notifications(
     except Exception as e:
         logger.error(f"Error in send_demotion_notifications for tenant {tenant_id}: {e}", exc_info=True)
 
+async def send_consolidated_demotions_alert(tenant_id: int, force: bool = False):
+    """
+    Sends a consolidated administrative audit of all channels where posting rights have been revoked
+    or restricted to the user on the Status Bot (@AutoTele_UpdatesBot) and Saved Messages.
+    """
+    try:
+        from cache_manager import get_channels_cache, redis_client
+        import json
+        channels = await get_channels_cache(tenant_id)
+        if not channels:
+            return
+            
+        raw_banned = await redis_client.get(f"tenant:{tenant_id}:banned")
+        raw_nopost = await redis_client.get(f"tenant:{tenant_id}:no_post")
+        banned_ids = set(json.loads(raw_banned) if raw_banned else [])
+        nopost_ids = set(json.loads(raw_nopost) if raw_nopost else [])
+        
+        # Demoted = can_send is False and not explicitly in banned and not in no_post
+        demoted = [c for c in channels if c.get("can_send") is False and c.get("id") not in banned_ids and c.get("id") not in nopost_ids]
+        if not demoted:
+            return
+            
+        dedup_key = f"tenant:{tenant_id}:consolidated_demotions_sent"
+        if not force:
+            is_new = await redis_client.set(dedup_key, "1", nx=True, ex=3600)
+            if not is_new:
+                logger.debug(f"Tenant {tenant_id}: Consolidated demotions alert suppressed by cooldown.")
+                return
+
+        lines = [
+            f"🚨 <b>تنبيه إداري لقنواتك: تم رصد {len(demoted)} قناة مسحوبة الصلاحيات!</b>",
+            "━━━━━━━━━━━━━━━━━━━━",
+            "⚠️ تم استبعاد هذه القنوات تلقائياً لحماية حسابك من التوقف أو أخطاء الصلاحيات أثناء النشر:\n"
+        ]
+        
+        for i, ch in enumerate(demoted, 1):
+            uname = f"@{ch['username']}" if ch.get("username") else "بدون معرف عام"
+            cid = ch.get("id")
+            title = ch.get("title", f"قناة {cid}")
+            lines.append(f"<b>{i}. {title}</b>\n   • المعرف: <code>{cid}</code> | اليوزر: {uname}")
+            
+        lines.append("")
+        lines.append("━━━━━━━━━━━━━━━━━━━━")
+        lines.append("ℹ️ <i>ملاحظة: إذا أعاد مالك القناة صلاحيات النشر لحسابك، أرسل أمر <code>.تحديث</code> أو اضغط 'تحديث القنوات' في لوحة التحكم لإعادة تفعيلها فوراً.</i>")
+        
+        alert_text = "\n".join(lines)
+        
+        # 1. Send to Status Bot
+        from status_bot import notify_user_by_tenant_id
+        await notify_user_by_tenant_id(tenant_id, alert_text)
+        
+        # 2. Send to Userbot Saved Messages
+        client = running_clients.get(tenant_id)
+        if client and client.is_connected:
+            try:
+                await client.send_message("me", alert_text)
+            except Exception as se:
+                logger.debug(f"Failed to send demotions alert to userbot Saved Messages: {se}")
+                
+        logger.info(f"Tenant {tenant_id}: Dispatched consolidated demotions alert for {len(demoted)} channels.")
+    except Exception as e:
+        logger.error(f"Error in send_consolidated_demotions_alert for tenant {tenant_id}: {e}")
+
 async def remove_channel_from_cache_on_demotion(telegram_account_id: int, chat_id: int, actor_name: Optional[str] = None, actor_username: Optional[str] = None, action_label: str = "سحب صلاحيات النشر / إزالة من الإشراف"):
     try:
         channels = await get_channels_cache(telegram_account_id)
@@ -1898,6 +1961,9 @@ async def _crawl_and_cache_tenant_channels_inner(tenant_id: int, client: Client,
     broadcast_scores = [ch["quality_score"] for ch in scraped_channels if ch.get("is_broadcast", False)]
     avg_quality = int(sum(broadcast_scores) / len(broadcast_scores)) if broadcast_scores else 0
 
+    # Dispatch consolidated demotions audit if any channels are restricted
+    asyncio.create_task(send_consolidated_demotions_alert(tenant_id))
+
     return {
         "total_channels": len(scraped_channels),
         "no_post_count": len(no_post_ids),
@@ -2701,6 +2767,7 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
         if no_send_channels:
             logger.info(f"Tenant {tenant_id}: {len(no_send_channels)} channels excluded because posting is restricted (can_send=False).")
             await log_tenant_event(tenant_id, f"ℹ️ تم استبعاد {len(no_send_channels)} قناة لعدم توفر صلاحية نشر بها من قِبل مالك القناة.")
+            asyncio.create_task(send_consolidated_demotions_alert(tenant_id))
 
         eligible_channels = [ch for ch in channels if ch["id"] not in exclude_ids and ch.get("can_send", True) is not False]
         
@@ -2714,6 +2781,21 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
         
         total_account_channels = len(channels)
         excluded_channels_count = len(exclude_ids & {ch["id"] for ch in channels})
+
+        try:
+            from status_bot import notify_user_by_tenant_id
+            start_summary = (
+                f"🚀 <b>بدء إطلاق الحملة الفردية:</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"🎯 <b>الهدف:</b> {target_title}\n"
+                f"📊 <b>القنوات المتاحة للنشر:</b> <code>{total}</code> قناة مروجة ✅\n"
+                f"🛡️ <b>المستبعدة لحمايتك:</b> <code>{excluded_channels_count}</code> (سحب صلاحيات: {len(no_send_channels)})\n"
+                f"⏱ <b>مدة بقاء الإعلان:</b> {ad_lifespan} دقيقة\n"
+                f"━━━━━━━━━━━━━━━━━━━━"
+            )
+            asyncio.create_task(notify_user_by_tenant_id(tenant_id, start_summary))
+        except Exception:
+            pass
         
         if total == 0:
             if status_msg:
@@ -2984,7 +3066,19 @@ async def run_single_campaign_logic(tenant_id: int, client: Client, target_link:
             create_safe_task(auto_delete_single_campaign_ads())
         await log_tenant_event(tenant_id, f"تم نشر الحملة الفردية! تم النشر في {count} من {total} قناة.")
         await clear_active_campaign_state(tenant_id)
-        # Routine campaign publishing notification suppressed for status bot per user preference
+        try:
+            from status_bot import notify_user_by_tenant_id
+            finish_msg = (
+                f"✅ <b>اكتمل نشر الحملة الفردية!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"🎯 <b>الهدف:</b> {target_title}\n"
+                f"📢 <b>تم النشر في:</b> <code>{count}</code> من <code>{total}</code> قناة بنجاح.\n"
+                f"⏱ <b>مدة البقاء:</b> {ad_lifespan} دقيقة (سيتم المسح التلقائي وتطهير القنوات فور انتهائها).\n"
+                f"━━━━━━━━━━━━━━━━━━━━"
+            )
+            asyncio.create_task(notify_user_by_tenant_id(tenant_id, finish_msg))
+        except Exception:
+            pass
     except Exception as e:
         await clear_active_campaign_state(tenant_id)
         logger.error(f"Error in campaign execution: {e}")
@@ -3474,6 +3568,23 @@ async def run_bulk_campaign_logic(
                 nopost_count = len([c for c in channels if c["id"] in set(no_post_ids)])
                 restricted_count = len([c for c in channels if c.get("can_send", True) is False and c["id"] not in set(banned_ids) and c["id"] not in set(no_post_ids)])
                 
+                if restricted_count > 0:
+                    asyncio.create_task(send_consolidated_demotions_alert(tenant_id))
+
+                try:
+                    from status_bot import notify_user_by_tenant_id
+                    target_start_msg = (
+                        f"🚀 <b>بدء نشر الهدف [{index+1}/{total_targets}]: {target_title}</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━\n"
+                        f"📊 <b>القنوات المتاحة للنشر:</b> <code>{total_ch}</code> قناة مروجة ✅\n"
+                        f"🛡️ <b>المستبعدة لحمايتك:</b> <code>{total_account_channels - total_ch}</code> (سحب صلاحيات: {restricted_count} | استثناءات: {nopost_count} | حظر: {banned_count})\n"
+                        f"⏱ <b>مدة الإعلان:</b> {ad_lifespan} دقيقة\n"
+                        f"━━━━━━━━━━━━━━━━━━━━"
+                    )
+                    asyncio.create_task(notify_user_by_tenant_id(tenant_id, target_start_msg))
+                except Exception:
+                    pass
+                
                 for ch_idx, ch in enumerate(eligible_ch, 1):
                     cid = ch["id"]
                     try:
@@ -3804,7 +3915,18 @@ async def run_bulk_campaign_logic(
                 logger.error(f"Failed to mark web task as completed in db: {e}")
         
         await log_tenant_event(tenant_id, f"تم نشر حملة المجلد المجمعة! تم نشر {count} إعلان في القنوات المروجة.")
-        # Routine bulk campaign publishing notification suppressed for status bot per user preference
+        try:
+            from status_bot import notify_user_by_tenant_id
+            bulk_finish_msg = (
+                f"🏁 <b>اكتملت حملة المجلد المجمعة بالكامل بنجاح!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"✅ تم نشر وتطهير جميع الأهداف (<code>{total_targets}</code> هدف).\n"
+                f"🧹 تم المسح التلقائي لكافة الإعلانات وتطهير القنوات بنجاح.\n"
+                f"━━━━━━━━━━━━━━━━━━━━"
+            )
+            asyncio.create_task(notify_user_by_tenant_id(tenant_id, bulk_finish_msg))
+        except Exception:
+            pass
         await clear_active_campaign_state(tenant_id)
     except Exception as e:
         await clear_active_campaign_state(tenant_id)
@@ -6447,6 +6569,11 @@ async def trigger_auto_pause_and_resume(tenant_id: int, client: Client, wait_sec
             f"• سيقوم النظام بالاستئناف تلقائياً بعد انتهاء المدة بأمان لضمان سلامة حسابك."
         )
         await client.send_message("me", report)
+        try:
+            from status_bot import notify_user_by_tenant_id
+            asyncio.create_task(notify_user_by_tenant_id(tenant_id, report))
+        except Exception:
+            pass
     except Exception as e:
         logger.error(f"Failed to send auto-pause message: {e}")
         
@@ -6462,6 +6589,11 @@ async def trigger_auto_pause_and_resume(tenant_id: int, client: Client, wait_sec
                 await log_tenant_event(tenant_id, "✅ تم استئناف النشر التلقائي بنجاح بعد انتهاء مدة الانتظار.")
                 try:
                     await client.send_message("me", "✅ **تم استئناف النشر التلقائي بنجاح الآن.**")
+                except Exception:
+                    pass
+                try:
+                    from status_bot import notify_user_by_tenant_id
+                    asyncio.create_task(notify_user_by_tenant_id(tenant_id, "✅ <b>تم استئناف النشر التلقائي بنجاح الآن بعد زوال قيود الانتظار.</b>"))
                 except Exception:
                     pass
                     
@@ -7819,6 +7951,11 @@ async def run_clear_logic(tenant_id: int, client: Client, reply_to_message: Opti
         if web_task_id:
             await update_task_progress_in_db(web_task_id, report)
         await log_tenant_event(tenant_id, f"اكتمل المسح السريع بنجاح! تم مسح {deleted_count} إعلان مجدول وتطهير {scanned_del} إعلان من القنوات.")
+        try:
+            from status_bot import notify_user_by_tenant_id
+            asyncio.create_task(notify_user_by_tenant_id(tenant_id, report))
+        except Exception:
+            pass
         logger.info(f"run_clear_logic: Completed successfully for tenant {tenant_id}")
     except Exception as e:
         logger.error(f"Error in sweep handler: {e}")
@@ -8173,6 +8310,11 @@ async def run_deep_clear_logic(tenant_id: int, client: Client, reply_to_message:
         if web_task_id:
             await update_task_progress_in_db(web_task_id, report)
         await log_tenant_event(tenant_id, f"اكتمل المسح الأمني النووي بنجاح! تم مسح {deleted_count} إعلان نشط وتطهير {wiped_count} إعلان وتصفير كافة إعدادات الحساب.")
+        try:
+            from status_bot import notify_user_by_tenant_id
+            asyncio.create_task(notify_user_by_tenant_id(tenant_id, report))
+        except Exception:
+            pass
         logger.info(f"run_deep_clear_logic: Completed successfully for tenant {tenant_id}")
     except Exception as e:
         logger.error(f"Error in deep clean handler: {e}")
@@ -8285,6 +8427,11 @@ async def run_stop_everything_logic(tenant_id: int, client: Client, reply_to_mes
             except Exception:
                 pass
         await log_tenant_event(tenant_id, "تم تنفيذ جدولة إيقاف كل شيء بنجاح وتعطيل العمليات.")
+        try:
+            from status_bot import notify_user_by_tenant_id
+            asyncio.create_task(notify_user_by_tenant_id(tenant_id, report))
+        except Exception:
+            pass
         logger.info(f"run_stop_everything_logic: Completed successfully for tenant {tenant_id}")
     except Exception as e:
         logger.error(f"Error in run_stop_everything_logic: {e}")
@@ -8461,6 +8608,18 @@ async def run_web_campaign_task(task_id: int):
             except Exception as se:
                 logger.debug(f"Could not send start status message to Saved Messages: {se}")
 
+        # Send start alert to Status Bot
+        try:
+            from status_bot import notify_user_by_tenant_id
+            asyncio.create_task(notify_user_by_tenant_id(
+                tenant_id, 
+                f"🌐 <b>تم استلام وبدء تنفيذ المهمة:</b> {type_ar}\n"
+                f"• رقم المهمة: <code>#{task_id}</code>\n"
+                f"• الحالة: قيد التنفيذ سحابياً..."
+            ))
+        except Exception:
+            pass
+
         if campaign_type in ["wave", "wave_folder", "activate_exchange"]:
             is_folder_wave = (campaign_type == "wave_folder")
             try:
@@ -8587,6 +8746,14 @@ async def run_web_campaign_task(task_id: int):
             await write_session.commit()
         logger.info(f"Web Campaign Task {task_id} marked as {final_status}.")
         await log_tenant_event(tenant_id, f"اكتملت المهمة: {type_ar} (ويب) بنجاح.")
+        try:
+            from status_bot import notify_user_by_tenant_id
+            asyncio.create_task(notify_user_by_tenant_id(
+                tenant_id,
+                f"✅ <b>اكتملت المهمة بنجاح:</b> {type_ar}\n• رقم المهمة: <code>#{task_id}</code>\n• الحالة: <code>{final_status}</code>"
+            ))
+        except Exception:
+            pass
         await handle_exchange_execution_callback(task_id, success=True)
     except asyncio.CancelledError:
         logger.info(f"Web Campaign Task {task_id} was cancelled.")

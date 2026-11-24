@@ -2,9 +2,11 @@ import os
 import logging
 import asyncio
 from datetime import datetime, timezone
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import json
 import urllib.request
+import html
+import re
 
 from pyrogram import Client, filters
 from pyrogram.types import (
@@ -35,6 +37,225 @@ logger = logging.getLogger(__name__)
 # Global bot client instance
 status_bot_client: Optional[Client] = None
 status_bot_username: str = "AutoTele_UpdatesBot"
+
+# =====================================================================
+# Resilient Direct Telegram Bot HTTP Engine (Zero MTProto Dependency)
+# =====================================================================
+
+def _serialize_reply_markup(reply_markup):
+    if not reply_markup:
+        return None
+    if isinstance(reply_markup, dict):
+        return reply_markup
+    if hasattr(reply_markup, "inline_keyboard"):
+        rows = []
+        for row in reply_markup.inline_keyboard:
+            btn_row = []
+            for btn in row:
+                btn_dict = {"text": btn.text}
+                if getattr(btn, "callback_data", None):
+                    btn_dict["callback_data"] = btn.callback_data
+                elif getattr(btn, "url", None):
+                    btn_dict["url"] = btn.url
+                btn_row.append(btn_dict)
+            rows.append(btn_row)
+        return {"inline_keyboard": rows}
+    return None
+
+def _format_telegram_html(text: str) -> str:
+    if not text:
+        return ""
+    if re.search(r'<\/?(?:b|i|code|a|pre|u|s|strong|em)>', text, re.IGNORECASE):
+        text = re.sub(r'\*\*([^\*\n]+)\*\*', r'<b>\1</b>', text)
+        text = re.sub(r'`([^`\n]+)`', r'<code>\1</code>', text)
+        return text
+    escaped = html.escape(text)
+    escaped = re.sub(r'\*\*([^\*\n]+)\*\*', r'<b>\1</b>', escaped)
+    escaped = re.sub(r'`([^`\n]+)`', r'<code>\1</code>', escaped)
+    escaped = re.sub(r'(?<=\s)_([^_]+)_(?=\s|$)', r'<i>\1</i>', escaped)
+    return escaped
+
+def _call_telegram_api(method: str, payload: dict) -> dict:
+    token = os.getenv("STATUS_BOT_TOKEN")
+    if not token:
+        return {"ok": False, "error": "No STATUS_BOT_TOKEN"}
+    url = f"https://api.telegram.org/bot{token}/{method}"
+    try:
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json", "User-Agent": "AutoTeleStatusBot/1.0"})
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as he:
+        body = he.read().decode("utf-8", errors="ignore") if hasattr(he, "read") else ""
+        logger.warning(f"Telegram API {method} HTTPError {he.code}: {body}")
+        try:
+            return json.loads(body)
+        except Exception:
+            return {"ok": False, "error": str(he), "code": he.code}
+    except Exception as e:
+        logger.error(f"Telegram API {method} error: {e}")
+        return {"ok": False, "error": str(e)}
+
+def _send_telegram_http_message(chat_id: int, text: str, reply_markup=None) -> bool:
+    if not text:
+        return False
+    html_text = _format_telegram_html(text)
+    markup_dict = _serialize_reply_markup(reply_markup)
+    payload = {
+        "chat_id": chat_id,
+        "text": html_text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
+    }
+    if markup_dict:
+        payload["reply_markup"] = markup_dict
+    res = _call_telegram_api("sendMessage", payload)
+    if res.get("ok"):
+        return True
+    payload["text"] = text
+    payload.pop("parse_mode", None)
+    res2 = _call_telegram_api("sendMessage", payload)
+    return res2.get("ok", False)
+
+def _send_telegram_http_photo(chat_id: int, photo_url_or_path: str, caption: str = "") -> bool:
+    html_cap = _format_telegram_html(caption[:1024] if caption else "")
+    payload = {
+        "chat_id": chat_id,
+        "photo": photo_url_or_path,
+        "caption": html_cap,
+        "parse_mode": "HTML"
+    }
+    res = _call_telegram_api("sendPhoto", payload)
+    if res.get("ok"):
+        return True
+    if caption:
+        return _send_telegram_http_message(chat_id, caption)
+    return False
+
+def _send_telegram_http_video(chat_id: int, video_url_or_path: str, caption: str = "") -> bool:
+    html_cap = _format_telegram_html(caption[:1024] if caption else "")
+    payload = {
+        "chat_id": chat_id,
+        "video": video_url_or_path,
+        "caption": html_cap,
+        "parse_mode": "HTML"
+    }
+    res = _call_telegram_api("sendVideo", payload)
+    if res.get("ok"):
+        return True
+    if caption:
+        return _send_telegram_http_message(chat_id, caption)
+    return False
+
+def _edit_telegram_http_message(chat_id: int, message_id: int, text: str, reply_markup=None) -> bool:
+    if not text:
+        return False
+    html_text = _format_telegram_html(text)
+    markup_dict = _serialize_reply_markup(reply_markup)
+    payload = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "text": html_text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
+    }
+    if markup_dict:
+        payload["reply_markup"] = markup_dict
+    res = _call_telegram_api("editMessageText", payload)
+    if res.get("ok"):
+        return True
+    payload["text"] = text
+    payload.pop("parse_mode", None)
+    res2 = _call_telegram_api("editMessageText", payload)
+    return res2.get("ok", False)
+
+class HttpTelegramUser:
+    def __init__(self, raw: dict):
+        self.id = raw.get("id")
+        self.first_name = raw.get("first_name", "")
+        self.username = raw.get("username")
+
+class HttpTelegramChat:
+    def __init__(self, raw: dict):
+        self.id = raw.get("id")
+        self.type = raw.get("type", "private")
+
+class HttpTelegramMessage:
+    def __init__(self, raw: dict):
+        self.raw = raw
+        self.message_id = raw.get("message_id")
+        self.id = self.message_id
+        self.chat = HttpTelegramChat(raw.get("chat", {}))
+        self.from_user = HttpTelegramUser(raw.get("from", {}))
+        self.text = raw.get("text", "")
+        self.caption = raw.get("caption", "")
+
+    async def reply_text(self, text: str, reply_markup=None):
+        return await asyncio.to_thread(_send_telegram_http_message, self.chat.id, text, reply_markup)
+
+    async def edit_text(self, text: str, reply_markup=None):
+        return await asyncio.to_thread(_edit_telegram_http_message, self.chat.id, self.message_id, text, reply_markup)
+
+class HttpTelegramCallbackQuery:
+    def __init__(self, raw: dict):
+        self.raw = raw
+        self.id = raw.get("id")
+        self.data = raw.get("data", "")
+        self.message = HttpTelegramMessage(raw.get("message", {})) if raw.get("message") else None
+        self.from_user = HttpTelegramUser(raw.get("from", {}))
+
+    async def answer(self, text: str = "", show_alert: bool = False):
+        payload = {"callback_query_id": self.id, "show_alert": show_alert}
+        if text:
+            payload["text"] = text
+        return await asyncio.to_thread(_call_telegram_api, "answerCallbackQuery", payload)
+
+async def run_http_bot_updates_loop():
+    token = os.getenv("STATUS_BOT_TOKEN")
+    if not token:
+        logger.warning("No STATUS_BOT_TOKEN set; skipping HTTP bot poller.")
+        return
+    logger.info("Starting resilient HTTP Bot getUpdates polling loop...")
+    offset = 0
+    while True:
+        try:
+            url = f"https://api.telegram.org/bot{token}/getUpdates?offset={offset}&timeout=20&limit=50"
+            def _fetch_updates():
+                req = urllib.request.Request(url, headers={"User-Agent": "AutoTeleStatusBot/1.0"})
+                with urllib.request.urlopen(req, timeout=25) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            data = await asyncio.to_thread(_fetch_updates)
+            if data and data.get("ok"):
+                for upd in data.get("result", []):
+                    offset = max(offset, upd["update_id"] + 1)
+                    try:
+                        await process_http_update(upd)
+                    except Exception as pe:
+                        logger.error(f"Error processing HTTP bot update {upd.get('update_id')}: {pe}")
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            logger.debug(f"HTTP bot updates poll error: {e}")
+            await asyncio.sleep(3)
+
+async def process_http_update(update: dict):
+    if "message" in update:
+        msg_raw = update["message"]
+        chat = msg_raw.get("chat", {})
+        if chat.get("type") != "private":
+            return
+        http_msg = HttpTelegramMessage(msg_raw)
+        text = (http_msg.text or "").strip()
+        if text.startswith("/start"):
+            await handle_start_command(None, http_msg)
+        elif text.startswith("/menu"):
+            await handle_menu_command(None, http_msg)
+        else:
+            await handle_private_message(None, http_msg)
+            
+    elif "callback_query" in update:
+        cb_raw = update["callback_query"]
+        http_cb = HttpTelegramCallbackQuery(cb_raw)
+        await handle_callback_query(None, http_cb)
 
 def format_ad_lifespan_arabic(minutes: int) -> str:
     if minutes < 60:
@@ -283,11 +504,11 @@ async def execute_bot_exchange_accept(user_id: int, request_id: int, lifespan_ov
                 requester_user = (await session.execute(
                     select(User).where(User.id == req_obj.requester_user_id)
                 )).scalar_one_or_none()
-                if requester_user and requester_user.status_bot_chat_id and status_bot_client and status_bot_client.is_connected:
+                if requester_user:
                     try:
-                        await status_bot_client.send_message(
-                            chat_id=requester_user.status_bot_chat_id,
-                            text=f"🎉 **قام المعلن ({recipient_name}) بقبول طلب نشر حملتك #{req_obj.id}!**\n⏱ **مدة النشر**: {life_lbl}\n🚀 جاري النشر في جميع قنواته الآن."
+                        await notify_user_by_id(
+                            requester_user.id,
+                            f"🎉 **قام المعلن ({recipient_name}) بقبول طلب نشر حملتك #{req_obj.id}!**\n⏱ **مدة النشر**: {life_lbl}\n🚀 جاري النشر في جميع قنواته الآن."
                         )
                     except Exception as ne:
                         logger.error(f"Failed to notify requester {requester_user.id}: {ne}")
@@ -437,11 +658,11 @@ async def execute_bot_exchange_accept(user_id: int, request_id: int, lifespan_ov
                 requester_user = (await session.execute(
                     select(User).where(User.id == req_obj.requester_user_id)
                 )).scalar_one_or_none()
-                if requester_user and requester_user.status_bot_chat_id and status_bot_client and status_bot_client.is_connected:
+                if requester_user:
                     try:
-                        await status_bot_client.send_message(
-                            chat_id=requester_user.status_bot_chat_id,
-                            text=f"🎉 **قام المعلن ({recipient_name}) بقبول طلب التبادل الإعلاني #{req_obj.id}!**\n⏱ **مدة النشر**: {life_lbl}\n🚀 بدأ النشر المتبادل في القناتين بنجاح."
+                        await notify_user_by_id(
+                            requester_user.id,
+                            f"🎉 **قام المعلن ({recipient_name}) بقبول طلب التبادل الإعلاني #{req_obj.id}!**\n⏱ **مدة النشر**: {life_lbl}\n🚀 بدأ النشر المتبادل في القناتين بنجاح."
                         )
                     except Exception as ne:
                         logger.error(f"Failed to notify requester {requester_user.id}: {ne}")
@@ -501,11 +722,11 @@ async def execute_bot_exchange_reject(user_id: int, request_id: int) -> tuple[bo
             requester_user = (await session.execute(
                 select(User).where(User.id == req_obj.requester_user_id)
             )).scalar_one_or_none()
-            if requester_user and requester_user.status_bot_chat_id and status_bot_client and status_bot_client.is_connected:
+            if requester_user:
                 try:
-                    await status_bot_client.send_message(
-                        chat_id=requester_user.status_bot_chat_id,
-                        text=f"❌ **اعتذر المعلن ({recipient_name}) عن قبول طلبك #{req_obj.id}.**"
+                    await notify_user_by_id(
+                        requester_user.id,
+                        f"❌ **اعتذر المعلن ({recipient_name}) عن قبول طلبك #{req_obj.id}.**"
                     )
                 except Exception as ne:
                     logger.error(f"Failed to notify requester {requester_user.id}: {ne}")
@@ -561,17 +782,22 @@ async def start_status_bot():
     status_bot_client.on_callback_query()(handle_callback_query)
     status_bot_client.on_message(filters.private & ~filters.command(["start", "menu"]))(handle_private_message)
     
-    for attempt in range(1, 6):
+    pyrogram_started = False
+    for attempt in range(1, 4):
         try:
             await status_bot_client.start()
-            logger.info("Status Bot started successfully.")
+            logger.info("Status Bot started successfully via Pyrogram MTProto.")
+            pyrogram_started = True
             break
         except Exception as bot_err:
-            logger.warning(f"Status Bot startup attempt {attempt}/5 failed: {bot_err}. Retrying in 5s...")
-            if attempt == 5:
-                logger.error("Status Bot could not start after 5 attempts.")
+            logger.warning(f"Status Bot MTProto startup attempt {attempt}/3 failed: {bot_err}.")
+            if attempt == 3:
+                logger.warning("Status Bot MTProto unavailable. Engaging resilient HTTP Bot Updates Polling Engine.")
             else:
-                await asyncio.sleep(5)
+                await asyncio.sleep(2)
+
+    if not pyrogram_started:
+        asyncio.create_task(run_http_bot_updates_loop())
 
 async def handle_start_command(client: Client, message: Message):
     chat_id = message.chat.id
@@ -1417,41 +1643,33 @@ async def handle_private_message(client: Client, message: Message):
                     )
                 return
 
-async def notify_user_by_tenant_id(tenant_id: int, text: str):
-    """
-    Routine campaign execution alerts (e.g. 'تم نشر حملتك الفردية')
-    are suppressed for the status bot per user preference.
-    The bot is reserved exclusively for interactive and critical events
-    (such as Ad Exchange requests between advertisers, broadcasts, and security alerts).
-    """
-    logger.debug(f"Suppressed routine campaign status bot alert for tenant {tenant_id}: {text[:50]}")
-    return
-
-def _send_telegram_http_message(chat_id: int, text: str) -> bool:
-    token = os.getenv("STATUS_BOT_TOKEN")
-    if not token:
-        return False
+async def notify_user_by_tenant_id(
+    tenant_id: int, 
+    text: str, 
+    media_type: Optional[str] = None, 
+    media_path_or_url: Optional[str] = None,
+    reply_markup: Optional[InlineKeyboardMarkup] = None
+) -> bool:
     try:
-        url = f"https://api.telegram.org/bot{token}/sendMessage"
-        payload = {
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "Markdown"
-        }
-        data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            res_data = json.loads(resp.read().decode("utf-8"))
-            return res_data.get("ok", False)
+        async with AsyncSessionLocal() as session:
+            acc = (await session.execute(
+                select(TelegramAccount).where(TelegramAccount.id == tenant_id)
+            )).scalar_one_or_none()
+            if not acc or not acc.user_id:
+                logger.warning(f"notify_user_by_tenant_id: No active user found for tenant {tenant_id}")
+                return False
+            user_id = acc.user_id
+        return await notify_user_by_id(user_id, text, media_type, media_path_or_url, reply_markup)
     except Exception as e:
-        logger.error(f"HTTP fallback send failed to chat {chat_id}: {e}")
+        logger.error(f"Error in notify_user_by_tenant_id for tenant {tenant_id}: {e}")
         return False
 
 async def notify_user_by_id(
     user_id: int, 
     text: str, 
     media_type: Optional[str] = None, 
-    media_path_or_url: Optional[str] = None
+    media_path_or_url: Optional[str] = None,
+    reply_markup: Optional[InlineKeyboardMarkup] = None
 ) -> bool:
     try:
         async with AsyncSessionLocal() as session:
@@ -1464,57 +1682,37 @@ async def notify_user_by_id(
 
             chat_id = user.status_bot_chat_id
 
-            if not status_bot_client or not status_bot_client.is_connected:
-                # MTProto not ready; use direct reliable HTTP Bot API fallback
-                logger.info(f"Using HTTP Bot API fallback to deliver alert to user {user.id} (chat {chat_id})...")
-                return await asyncio.to_thread(_send_telegram_http_message, chat_id, text)
-
-            caption = text or ""
-            followup_text = None
-            if media_type and media_path_or_url:
-                if len(caption) > 1024:
-                    followup_text = caption
-                    caption = caption[:1020] + "..."
+            # Try Pyrogram MTProto first if connected
+            if status_bot_client and status_bot_client.is_connected:
                 try:
-                    if media_type == "photo":
-                        await status_bot_client.send_photo(chat_id=chat_id, photo=media_path_or_url, caption=caption)
-                    elif media_type == "video":
-                        await status_bot_client.send_video(chat_id=chat_id, video=media_path_or_url, caption=caption)
-                    else:
-                        await status_bot_client.send_message(chat_id=chat_id, text=caption)
-                    
-                    if followup_text:
-                        await status_bot_client.send_message(chat_id=chat_id, text=followup_text)
-                        
-                    logger.info(f"Successfully sent Telegram status bot media alert ({media_type}) to user {user.id}")
-                    return True
-                except Exception as me:
-                    logger.error(f"Status bot failed to send media ({media_type}) to user {user.id}: {me}. Falling back to text message.")
-                    if text:
-                        try:
-                            await status_bot_client.send_message(chat_id=chat_id, text=text)
-                            return True
-                        except Exception as te:
-                            logger.error(f"Status bot text fallback also failed for user {user.id}: {te}")
-                            return await asyncio.to_thread(_send_telegram_http_message, chat_id, text)
-                    return False
-            else:
-                if text:
-                    try:
-                        await status_bot_client.send_message(chat_id=chat_id, text=text)
-                        logger.info(f"Successfully sent Telegram status bot alert to user {user.id}")
+                    if media_type == "photo" and media_path_or_url:
+                        await status_bot_client.send_photo(chat_id=chat_id, photo=media_path_or_url, caption=text[:1020])
                         return True
-                    except Exception as se:
-                        logger.error(f"Status bot MTProto failed for user {user.id}: {se}. Using HTTP fallback...")
-                        return await asyncio.to_thread(_send_telegram_http_message, chat_id, text)
-                return True
+                    elif media_type == "video" and media_path_or_url:
+                        await status_bot_client.send_video(chat_id=chat_id, video=media_path_or_url, caption=text[:1020])
+                        return True
+                    else:
+                        await status_bot_client.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup)
+                        return True
+                except Exception as pyrogram_err:
+                    logger.warning(f"Pyrogram MTProto send failed for user {user.id}: {pyrogram_err}. Falling back to HTTP Bot API.")
+
+            # Direct, reliable HTTP Telegram Bot API
+            if media_type == "photo" and media_path_or_url:
+                res = await asyncio.to_thread(_send_telegram_http_photo, chat_id, media_path_or_url, text)
+                if res:
+                    return True
+            elif media_type == "video" and media_path_or_url:
+                res = await asyncio.to_thread(_send_telegram_http_video, chat_id, media_path_or_url, text)
+                if res:
+                    return True
+
+            return await asyncio.to_thread(_send_telegram_http_message, chat_id, text, reply_markup)
     except Exception as e:
         logger.error(f"Error in notify_user_by_id for user {user_id}: {e}")
         return False
 
 async def notify_exchange_request_to_recipient(request_id: int) -> bool:
-    if not status_bot_client or not status_bot_client.is_connected:
-        return False
     try:
         async with AsyncSessionLocal() as session:
             req_obj = (await session.execute(
@@ -1541,22 +1739,16 @@ async def notify_exchange_request_to_recipient(request_id: int) -> bool:
             msg_snippet = req_obj.message or "لا توجد رسالة مرفقة"
             
             text = (
-                f"🔔 **وصلك طلب {req_type_lbl} جديد!**\n\n"
-                f"👤 **المرسل**: {sender_name}\n"
-                f"⏱ **المدة المقترحة**: {duration_lbl}\n"
-                f"🔗 **الروابط والقنوات المستهدفة**:\n`{channels_text}`\n\n"
-                f"💬 **الرسالة**: _{msg_snippet}_\n"
-                "━━━━━━━━━━━━━━━━━━━\n"
-                "👇 **اختر الإجراء المناسب بضغطة زر**:"
+                f"🔔 <b>وصلك طلب {req_type_lbl} جديد!</b>\n\n"
+                f"👤 <b>المرسل</b>: {sender_name}\n"
+                f"⏱ <b>المدة المقترحة</b>: {duration_lbl}\n"
+                f"🔗 <b>الروابط والقنوات المستهدفة</b>:\n<code>{channels_text}</code>\n\n"
+                f"💬 <b>الرسالة</b>: <i>{msg_snippet}</i>\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "👇 <b>اختر الإجراء المناسب بضغطة زر</b>:"
             )
-            
-            await status_bot_client.send_message(
-                chat_id=recipient.status_bot_chat_id,
-                text=text,
-                reply_markup=get_exchange_request_keyboard(request_id)
-            )
-            logger.info(f"Successfully dispatched Telegram interactive exchange request #{request_id} to user {recipient.id}")
-            return True
+            markup = get_exchange_request_keyboard(request_id)
+            return await notify_user_by_id(recipient.id, text, reply_markup=markup)
     except Exception as e:
         logger.error(f"Error in notify_exchange_request_to_recipient for request {request_id}: {e}")
         return False
