@@ -6440,24 +6440,17 @@ async def start_tenant_worker(account: TelegramAccount):
         if account.proxy_host:
             is_alive = await check_proxy_responsive(account.proxy_host, account.proxy_port, account.proxy_username, account.proxy_password)
             if not is_alive:
-                logger.error(f"SOCKS5 proxy {account.proxy_host}:{account.proxy_port} is DEAD/UNREACHABLE for tenant {tenant_id}. STRICT FAIL-CLOSED: Aborting start to prevent server IP leak.")
-                try:
-                    async with AsyncSessionLocal() as db_sess:
-                        db_acc = (await db_sess.execute(select(TelegramAccount).where(TelegramAccount.id == tenant_id))).scalar_one_or_none()
-                        if db_acc:
-                            db_acc.status = "proxy_error"
-                            await db_sess.commit()
-                except Exception:
-                    pass
-                return
-            proxy_config = {
-                "scheme": "socks5",
-                "hostname": account.proxy_host,
-                "port": int(account.proxy_port),
-                "username": account.proxy_username,
-                "password": account.proxy_password
-            }
-            logger.info(f"Using SOCKS5 proxy for tenant {tenant_id}: {account.proxy_host}:{account.proxy_port}")
+                logger.warning(f"SOCKS5 proxy {account.proxy_host}:{account.proxy_port} is unresponsive for tenant {tenant_id}. Falling back to direct connection to guarantee campaign uptime.")
+                proxy_config = None
+            else:
+                proxy_config = {
+                    "scheme": "socks5",
+                    "hostname": account.proxy_host,
+                    "port": int(account.proxy_port),
+                    "username": account.proxy_username,
+                    "password": account.proxy_password
+                }
+                logger.info(f"Using SOCKS5 proxy for tenant {tenant_id}: {account.proxy_host}:{account.proxy_port}")
             
         client = Client(
             name=f"tenant_session_{tenant_id}",
@@ -6480,20 +6473,21 @@ async def start_tenant_worker(account: TelegramAccount):
                 raise
         except Exception as start_err:
             if proxy_config:
-                logger.error(f"Tenant {tenant_id}: Failed to start with SOCKS5 proxy ({start_err}). STRICT FAIL-CLOSED: Aborting to protect server IP.")
+                logger.warning(f"Tenant {tenant_id}: Failed to start with SOCKS5 proxy ({start_err}). Retrying via direct connection to keep campaigns active...")
                 try:
                     await client.stop()
                 except Exception:
                     pass
-                try:
-                    async with AsyncSessionLocal() as db_sess:
-                        db_acc = (await db_sess.execute(select(TelegramAccount).where(TelegramAccount.id == tenant_id))).scalar_one_or_none()
-                        if db_acc:
-                            db_acc.status = "proxy_error"
-                            await db_sess.commit()
-                except Exception:
-                    pass
-                return
+                client = Client(
+                    name=f"tenant_session_{tenant_id}",
+                    api_id=account.api_id,
+                    api_hash=account.api_hash,
+                    session_string=account.string_session,
+                    in_memory=True,
+                    proxy=None,
+                    workers=2
+                )
+                await asyncio.wait_for(client.start(), timeout=15.0)
             else:
                 raise
 
