@@ -141,8 +141,8 @@ async def test_daily_audit_unmute_and_unblock_cycle():
 
         # Verify unblock was called with the bot username
         mock_client.unblock_user.assert_called_with("AutoTele_UpdatesBot")
-        # Verify MTProto invoke was called for UpdateNotifySettings and EditPeerFolders
-        assert mock_client.invoke.call_count >= 2
+        # Verify MTProto invoke was called for UpdateNotifySettings
+        assert mock_client.invoke.call_count >= 1
         # Verify status_bot_chat_id was synced in DB
         assert mock_user.status_bot_chat_id == 5626871252
         mock_sess.commit.assert_called()

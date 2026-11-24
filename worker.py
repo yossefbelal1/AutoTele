@@ -10742,15 +10742,7 @@ async def run_daily_status_bot_subscribers_audit():
             except Exception as unmute_err:
                 logger.debug(f"[STATUS_BOT_AUDIT] Tenant {tid} unmute error: {unmute_err}")
 
-            # 4. Unarchive bot (EditPeerFolders to folder_id=0, main chat list)
-            try:
-                await client.invoke(functions.folders.EditPeerFolders(
-                    folder_peers=[types.InputFolderPeer(peer=peer, folder_id=0)]
-                ))
-            except Exception as folder_err:
-                logger.debug(f"[STATUS_BOT_AUDIT] Tenant {tid} unarchive error: {folder_err}")
-
-            # 5. Check if chat dialog exists, restore if deleted
+            # 4. Check if chat dialog exists, restore if deleted
             has_dialog = False
             try:
                 async for _ in client.get_chat_history(bot_username, limit=1):
