@@ -105,7 +105,7 @@ async def run_migration(dry_run: bool = False, session_factory=None) -> Dict[str
                     new_val, changed = transform_value(row["proxy_password"], source_cipher, target_cipher)
                     if changed:
                         updates["proxy_password"] = new_val
-                if row["string_session"] and is_rotation:
+                if row["string_session"]:
                     new_val, changed = transform_value(row["string_session"], source_cipher, target_cipher)
                     if changed:
                         updates["string_session"] = new_val

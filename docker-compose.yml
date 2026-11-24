@@ -40,9 +40,9 @@ services:
         max-file: "3"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      interval: 60s
+      timeout: 10s
+      retries: 3
 
   # 2. Redis Cache & Messaging Service
   redis_cache:
@@ -74,9 +74,9 @@ services:
         max-file: "3"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
+      interval: 60s
+      timeout: 5s
+      retries: 3
 
   # 3. FastAPI Application Backend
   fastapi_api:
@@ -120,8 +120,8 @@ services:
       - /tmp
     healthcheck:
       test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8000/health\")'"]
-      interval: 10s
-      timeout: 5s
+      interval: 60s
+      timeout: 10s
       retries: 3
     logging:
       driver: "json-file"
