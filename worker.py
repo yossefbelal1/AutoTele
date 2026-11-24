@@ -10684,6 +10684,146 @@ async def dialog_filters_sync_worker():
         await asyncio.sleep(300)
 
 
+async def run_daily_status_bot_subscribers_audit():
+    """
+    Automated daily audit engine for status bot subscribers:
+    1. Unblocks the bot if subscriber blocked it.
+    2. Unmutes the bot (UpdateNotifySettings) so notifications always arrive with sound/alerts.
+    3. Unarchives the bot (EditPeerFolders folder_id=0) moving it into the primary chat list.
+    4. Ensures dialog exists, or sends /start if chat dialog was deleted.
+    5. Syncs status_bot_chat_id in PostgreSQL User record.
+    6. Configures setChatMenuButton for the subscriber.
+    """
+    bot_username = os.getenv("STATUS_BOT_USERNAME", "AutoTele_UpdatesBot").lstrip("@")
+    token = os.getenv("STATUS_BOT_TOKEN")
+    from pyrogram.raw import functions, types
+    from sqlalchemy import select
+    import urllib.request
+    import json
+
+    active_tenants = list(running_clients.keys())
+    logger.info(f"[STATUS_BOT_AUDIT] Starting daily audit for {len(active_tenants)} connected subscriber clients (Bot: @{bot_username})...")
+
+    audited_count = 0
+    restored_count = 0
+
+    for tid in active_tenants:
+        client = running_clients.get(tid)
+        if not client or not getattr(client, "is_connected", False):
+            continue
+
+        try:
+            me = client.me or await client.get_me()
+            if not me:
+                continue
+
+            audited_count += 1
+            chat_id = me.id
+
+            # 1. Unblock bot if blocked
+            try:
+                await client.unblock_user(bot_username)
+            except Exception as ub_err:
+                logger.debug(f"[STATUS_BOT_AUDIT] Tenant {tid} unblock: {ub_err}")
+
+            # 2. Resolve bot peer
+            peer = await client.resolve_peer(bot_username)
+
+            # 3. Unmute bot (UpdateNotifySettings to mute_until=0, silent=False, show_previews=True)
+            try:
+                await client.invoke(functions.account.UpdateNotifySettings(
+                    peer=types.InputNotifyPeer(peer=peer),
+                    settings=types.InputPeerNotifySettings(
+                        mute_until=0,
+                        silent=False,
+                        show_previews=True
+                    )
+                ))
+            except Exception as unmute_err:
+                logger.debug(f"[STATUS_BOT_AUDIT] Tenant {tid} unmute error: {unmute_err}")
+
+            # 4. Unarchive bot (EditPeerFolders to folder_id=0, main chat list)
+            try:
+                await client.invoke(functions.folders.EditPeerFolders(
+                    folder_peers=[types.InputFolderPeer(peer=peer, folder_id=0)]
+                ))
+            except Exception as folder_err:
+                logger.debug(f"[STATUS_BOT_AUDIT] Tenant {tid} unarchive error: {folder_err}")
+
+            # 5. Check if chat dialog exists, restore if deleted
+            has_dialog = False
+            try:
+                async for _ in client.get_chat_history(bot_username, limit=1):
+                    has_dialog = True
+                    break
+            except Exception:
+                has_dialog = False
+
+            if not has_dialog:
+                try:
+                    await client.send_message(bot_username, "/start")
+                    logger.info(f"[STATUS_BOT_AUDIT] Re-initiated /start for tenant {tid} to recreate missing chat dialog.")
+                    restored_count += 1
+                except Exception as se:
+                    logger.debug(f"[STATUS_BOT_AUDIT] Could not send /start for tenant {tid}: {se}")
+
+            # 6. Database status_bot_chat_id synchronization
+            async with AsyncSessionLocal() as session:
+                acc = (await session.execute(
+                    select(TelegramAccount).where(TelegramAccount.id == tid)
+                )).scalar_one_or_none()
+                if acc and acc.user_id:
+                    user = (await session.execute(
+                        select(User).where(User.id == acc.user_id)
+                    )).scalar_one_or_none()
+                    if user and user.status_bot_chat_id != chat_id:
+                        user.status_bot_chat_id = chat_id
+                        await session.commit()
+                        logger.info(f"[STATUS_BOT_AUDIT] Synchronized User {user.id} status_bot_chat_id -> {chat_id}")
+
+            # 7. Configure Chat Menu Button for subscriber
+            if token:
+                try:
+                    def _set_menu_btn():
+                        u_url = f"https://api.telegram.org/bot{token}/setChatMenuButton"
+                        pl = {"chat_id": chat_id, "menu_button": {"type": "commands"}}
+                        req = urllib.request.Request(
+                            u_url,
+                            data=json.dumps(pl).encode("utf-8"),
+                            headers={"Content-Type": "application/json", "User-Agent": "AutoTeleStatusBot/1.0"}
+                        )
+                        with urllib.request.urlopen(req, timeout=5) as r:
+                            return json.loads(r.read().decode())
+                    await asyncio.to_thread(_set_menu_btn)
+                except Exception as mb_err:
+                    logger.debug(f"[STATUS_BOT_AUDIT] Set menu button for {chat_id}: {mb_err}")
+
+        except Exception as e:
+            logger.error(f"[STATUS_BOT_AUDIT] Error auditing tenant {tid}: {e}")
+
+        await asyncio.sleep(2)  # Polite pacing across subscriber accounts
+
+    logger.info(f"[STATUS_BOT_AUDIT] Completed daily audit: {audited_count} subscribers audited, {restored_count} dialogs re-initiated.")
+
+
+async def daily_status_bot_health_worker():
+    """
+    Background worker that runs the daily subscriber status bot health audit:
+    - Runs once 60 seconds after startup.
+    - Loops every 24 hours (86400 seconds).
+    """
+    logger.info("[STATUS_BOT_AUDIT] Daily status bot health worker task started.")
+    await asyncio.sleep(60)
+    while global_worker_running:
+        try:
+            logger.info("[STATUS_BOT_AUDIT] Starting daily status bot audit run...")
+            await run_daily_status_bot_subscribers_audit()
+        except Exception as e:
+            logger.error(f"[STATUS_BOT_AUDIT] Unexpected exception in daily health worker: {e}")
+
+        await asyncio.sleep(86400)
+
+
 async def start_global_engine():
     global global_worker_running
     global_worker_running = True
@@ -10704,6 +10844,7 @@ async def start_global_engine():
         asyncio.create_task(redis_pubsub_listener()),
         asyncio.create_task(subscription_lifecycle_worker()),
         asyncio.create_task(dialog_filters_sync_worker()),
+        asyncio.create_task(daily_status_bot_health_worker()),
         return_exceptions=True
     )
 

@@ -13,7 +13,10 @@ from pyrogram.types import (
     Message, 
     InlineKeyboardMarkup, 
     InlineKeyboardButton, 
-    CallbackQuery
+    CallbackQuery,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardRemove
 )
 from pyrogram.errors import RPCError
 
@@ -60,6 +63,30 @@ def _serialize_reply_markup(reply_markup):
                 btn_row.append(btn_dict)
             rows.append(btn_row)
         return {"inline_keyboard": rows}
+    if hasattr(reply_markup, "keyboard"):
+        rows = []
+        for row in reply_markup.keyboard:
+            btn_row = []
+            for btn in row:
+                if isinstance(btn, str):
+                    btn_row.append({"text": btn})
+                elif hasattr(btn, "text"):
+                    btn_row.append({"text": btn.text})
+                elif isinstance(btn, dict):
+                    btn_row.append({"text": btn.get("text", "")})
+            rows.append(btn_row)
+        res = {
+            "keyboard": rows,
+            "resize_keyboard": bool(getattr(reply_markup, "resize_keyboard", True)),
+            "one_time_keyboard": bool(getattr(reply_markup, "one_time_keyboard", False) or False),
+            "is_persistent": bool(getattr(reply_markup, "is_persistent", True))
+        }
+        placeholder = getattr(reply_markup, "placeholder", None)
+        if placeholder:
+            res["input_field_placeholder"] = placeholder
+        return res
+    if isinstance(reply_markup, ReplyKeyboardRemove) or type(reply_markup).__name__ == "ReplyKeyboardRemove" or hasattr(reply_markup, "remove_keyboard"):
+        return {"remove_keyboard": True}
     return None
 
 def _format_telegram_html(text: str) -> str:
@@ -249,6 +276,14 @@ async def process_http_update(update: dict):
             await handle_start_command(None, http_msg)
         elif text.startswith("/menu"):
             await handle_menu_command(None, http_msg)
+        elif text.startswith("/sync"):
+            await handle_sync_command(None, http_msg)
+        elif text.startswith("/accounts"):
+            await handle_accounts_command(None, http_msg)
+        elif text.startswith("/stats"):
+            await handle_stats_command(None, http_msg)
+        elif text.startswith("/support"):
+            await handle_support_command(None, http_msg)
         else:
             await handle_private_message(None, http_msg)
             
@@ -276,6 +311,27 @@ def format_ad_lifespan_arabic(minutes: int) -> str:
         rem_h = (minutes % 1440) // 60
         h_str = f" و{rem_h} ساعة" if rem_h else ""
         return f"{days} أيام{h_str}"
+
+def get_persistent_menu_keyboard() -> ReplyKeyboardMarkup:
+    buttons = [
+        [
+            KeyboardButton("📱 القائمة الرئيسية"),
+            KeyboardButton("🔄 فحص وتحديث القنوات الآن")
+        ],
+        [
+            KeyboardButton("👤 حالة حساباتي"),
+            KeyboardButton("📊 إحصائيات الحملات")
+        ],
+        [
+            KeyboardButton("💬 الدعم الفني والمساعدة")
+        ]
+    ]
+    return ReplyKeyboardMarkup(
+        buttons,
+        resize_keyboard=True,
+        is_persistent=True,
+        placeholder="اختر إجراءً من القائمة أو اكتب رسالتك..."
+    )
 
 def get_main_menu_keyboard(is_admin: bool = False) -> InlineKeyboardMarkup:
     buttons = [
@@ -779,9 +835,32 @@ async def start_status_bot():
     # Register handlers
     status_bot_client.on_message(filters.command("start"))(handle_start_command)
     status_bot_client.on_message(filters.command("menu"))(handle_menu_command)
+    status_bot_client.on_message(filters.command("sync"))(handle_sync_command)
+    status_bot_client.on_message(filters.command("accounts"))(handle_accounts_command)
+    status_bot_client.on_message(filters.command("stats"))(handle_stats_command)
+    status_bot_client.on_message(filters.command("support"))(handle_support_command)
     status_bot_client.on_callback_query()(handle_callback_query)
-    status_bot_client.on_message(filters.private & ~filters.command(["start", "menu"]))(handle_private_message)
+    status_bot_client.on_message(filters.private & ~filters.command(["start", "menu", "sync", "accounts", "stats", "support"]))(handle_private_message)
     
+    # Configure global bot commands and chat menu button
+    try:
+        def _configure_bot_menu():
+            commands_payload = {
+                "commands": [
+                    {"command": "menu", "description": "📱 القائمة الرئيسية لمساعد أوتو-تيلي"},
+                    {"command": "sync", "description": "🔄 فحص وتحديث القنوات فوراً"},
+                    {"command": "accounts", "description": "👤 حالة حسابات التليجرام"},
+                    {"command": "stats", "description": "📊 إحصائيات ونشاط الحملات"},
+                    {"command": "support", "description": "💬 الدعم الفني والمساعدة"},
+                    {"command": "start", "description": "🚀 بدء تشغيل المساعد المباشر"}
+                ]
+            }
+            _call_telegram_api("setMyCommands", commands_payload)
+            _call_telegram_api("setChatMenuButton", {"menu_button": {"type": "commands"}})
+        asyncio.create_task(asyncio.to_thread(_configure_bot_menu))
+    except Exception as ce:
+        logger.debug(f"Failed to configure Telegram bot commands: {ce}")
+
     pyrogram_started = False
     for attempt in range(1, 4):
         try:
@@ -818,10 +897,11 @@ async def handle_start_command(client: Client, message: Message):
                     
                     welcome_text = (
                         "🎉 **تم ربط حسابك بنجاح بمساعد أوتو-تيلي المباشر!**\n\n"
-                        "من الآن فصاعداً، ستتلقى هنا تنبيهات بانتهاء حملات النشر أو أي تعديلات إدارية.\n"
-                        "استخدم الأزرار أدناه للتحكم السريع بحسابك."
+                        "من الآن فصاعداً، ستتلقى هنا تنبيهات بانتهاء حملات النشر، طلبات التبادل، وسحب صلاحيات الإشراف فوراً.\n\n"
+                        "⚡ يمكنك استخدام القائمة الدائمة بالأسفل للتحكم السريع في حسابك."
                     )
-                    await message.reply_text(welcome_text, reply_markup=get_main_menu_keyboard(user.is_admin))
+                    await message.reply_text(welcome_text, reply_markup=get_persistent_menu_keyboard())
+                    await message.reply_text("📱 **لوحة التحكم التفاعلية:**", reply_markup=get_main_menu_keyboard(user.is_admin))
                     return
                 else:
                     await message.reply_text("❌ حدث خطأ، لم نتمكن من العثور على حساب المشترك في النظام.")
@@ -834,7 +914,11 @@ async def handle_start_command(client: Client, message: Message):
     user = await get_user_by_chat_id(chat_id)
     if user:
         await message.reply_text(
-            "🌟 **مرحباً بك مجدداً في مساعد أوتو-تيلي!**",
+            "🌟 **مرحباً بك مجدداً في مساعد أوتو-تيلي!**\n\nالقائمة الدائمة مثبتة بالأسفل لخدمتك دائماً.",
+            reply_markup=get_persistent_menu_keyboard()
+        )
+        await message.reply_text(
+            "📱 **لوحة التحكم التفاعلية:**",
             reply_markup=get_main_menu_keyboard(user.is_admin)
         )
     else:
@@ -844,12 +928,128 @@ async def handle_start_command(client: Client, message: Message):
             "🔗 لربط حسابك وتفعيل الأزرار، يرجى تسجيل الدخول إلى لوحة التحكم بموقع الويب والضغط على زر **ربط الإشعارات**."
         )
 
-async def handle_menu_command(client: Client, message: Message):
+async def handle_menu_command(client: Optional[Client], message: Message):
     user = await get_user_by_chat_id(message.chat.id)
     if not user:
         await message.reply_text("⚠️ حسابك غير مربوط بعد. يرجى ربطه من لوحة التحكم في الموقع.")
         return
     await message.reply_text("📱 **القائمة الرئيسية لمساعد أوتو-تيلي:**", reply_markup=get_main_menu_keyboard(user.is_admin))
+
+async def handle_sync_command(client: Optional[Client], message: Message):
+    chat_id = message.chat.id
+    user = await get_user_by_chat_id(chat_id)
+    if not user:
+        await message.reply_text("⚠️ حسابك غير مربوط بعد. يرجى ربطه من لوحة التحكم في الموقع.")
+        return
+
+    async with AsyncSessionLocal() as session:
+        stmt = select(TelegramAccount).where(
+            TelegramAccount.user_id == user.id,
+            TelegramAccount.status == "active"
+        )
+        accounts = (await session.execute(stmt)).scalars().all()
+
+    if not accounts:
+        await message.reply_text(
+            "⚠️ **لا توجد حسابات تليجرام نشطة ومربوطة بحسابك حالياً.**\n\nيرجى ربط حساب تليجرام من لوحة التحكم بالويب.",
+            reply_markup=get_persistent_menu_keyboard()
+        )
+        return
+
+    from worker import running_clients, crawl_and_cache_tenant_channels
+    triggered_count = 0
+    for acc in accounts:
+        client_instance = running_clients.get(acc.id)
+        if client_instance:
+            asyncio.create_task(crawl_and_cache_tenant_channels(acc.id, client_instance))
+            triggered_count += 1
+
+    if triggered_count > 0:
+        await message.reply_text(
+            f"🔄 **بدء فحص وتحديث القنوات فوراً!**\n\n"
+            f"⚡ جاري فحص ومزامنة القنوات والمجلدات لـ `{triggered_count}` حساب نشط في الخلفية.\n"
+            f"✨ سيصلك تقرير فوري هنا في حال وجود أي سحب لصلاحيات الإشراف أو النشر.",
+            reply_markup=get_persistent_menu_keyboard()
+        )
+    else:
+        await message.reply_text(
+            "⚠️ الحسابات مسجلة ولكن المحرك السحابي يقوم بإعادة الاتصال بها حالياً. يرجى إعادة المحاولة بعد لحظات.",
+            reply_markup=get_persistent_menu_keyboard()
+        )
+
+async def handle_accounts_command(client: Optional[Client], message: Message):
+    chat_id = message.chat.id
+    user = await get_user_by_chat_id(chat_id)
+    if not user:
+        await message.reply_text("⚠️ حسابك غير مربوط بعد. يرجى ربطه من لوحة التحكم في الموقع.")
+        return
+
+    async with AsyncSessionLocal() as session:
+        stmt = select(TelegramAccount).where(TelegramAccount.user_id == user.id)
+        accounts = (await session.execute(stmt)).scalars().all()
+
+    if not accounts:
+        text = "📭 **ليس لديك أي حسابات تليجرام مربوطة حالياً.**"
+    else:
+        text = "👤 **حالة حسابات التليجرام الخاصة بك:**\n\n"
+        for acc in accounts:
+            status_emoji = "🟢" if acc.status == "active" else "🔴"
+            status_text = "نشط ويعمل بالمحرك" if acc.status == "active" else "غير متصل / يحتاج إعادة ربط"
+            text += f"{status_emoji} **الرقم**: `{acc.phone}`\n"
+            text += f"┗ **الحالة**: {status_text}\n\n"
+
+    await message.reply_text(text, reply_markup=get_persistent_menu_keyboard())
+
+async def handle_stats_command(client: Optional[Client], message: Message):
+    chat_id = message.chat.id
+    user = await get_user_by_chat_id(chat_id)
+    if not user:
+        await message.reply_text("⚠️ حسابك غير مربوط بعد. يرجى ربطه من لوحة التحكم في الموقع.")
+        return
+
+    async with AsyncSessionLocal() as session:
+        stmt = select(TelegramAccount).where(TelegramAccount.user_id == user.id)
+        accounts = (await session.execute(stmt)).scalars().all()
+        acc_ids = [acc.id for acc in accounts]
+
+    if not acc_ids:
+        text = "📊 **لا توجد إحصائيات، يرجى ربط حساب أولاً.**"
+    else:
+        active_count = 0
+        total_channels = 0
+        for aid in acc_ids:
+            state = await redis_client.get(f"tenant:{aid}:active_campaign_state")
+            if state:
+                active_count += 1
+            raw_channels = await redis_client.get(f"tenant:{aid}:campaign")
+            if raw_channels:
+                try:
+                    ch_list = json.loads(raw_channels)
+                    total_channels += len(ch_list)
+                except Exception:
+                    pass
+
+        text = (
+            "📊 **ملخص إحصائيات ونشاط حسابك:**\n\n"
+            f"🚀 **الحملات الجارية حالياً**: `{active_count}` حملة نشطة\n"
+            f"📱 **عدد الحسابات المربوطة**: `{len(acc_ids)}` حساب تليجرام\n"
+            f"📢 **إجمالي القنوات المتاحة في المجلد**: `{total_channels}` قناة\n\n"
+            "💡 لمتابعة الرسوم البيانية والتحكم المتقدم، يرجى زيارة لوحة تحكم الويب."
+        )
+
+    await message.reply_text(text, reply_markup=get_persistent_menu_keyboard())
+
+async def handle_support_command(client: Optional[Client], message: Message):
+    text = (
+        "🛠️ **قسم الدعم الفني والمساعدة:**\n\n"
+        "فريق الدعم الفني متواجد لمساعدتك وحل أي استفسارات أو مشاكل تواجهك على مدار الساعة.\n\n"
+        "💬 يمكنك مراسلة الدعم الفني مباشرة عبر الرابط التالي:\n"
+        "👉 https://t.me/yossefkamel111"
+    )
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💬 مراسلة الدعم الفني مباشرة", url="https://t.me/yossefkamel111")]
+    ])
+    await message.reply_text(text, reply_markup=markup)
 
 async def handle_callback_query(client: Client, callback_query: CallbackQuery):
     chat_id = callback_query.message.chat.id
@@ -1273,6 +1473,30 @@ async def handle_private_message(client: Client, message: Message):
     if not user:
         return
 
+    text_strip = message.text.strip() if message.text else ""
+
+    # Check if text matches persistent keyboard buttons or quick commands
+    if text_strip in ["📱 القائمة الرئيسية", "القائمة الرئيسية", "menu", "/menu"]:
+        await redis_client.delete(f"status_bot:wizard:{chat_id}")
+        await handle_menu_command(client, message)
+        return
+    elif text_strip in ["🔄 فحص وتحديث القنوات الآن", "🔄 فحص وتحديث القنوات فوراً", "تحديث القنوات", "فحص القنوات", "sync", "/sync"]:
+        await redis_client.delete(f"status_bot:wizard:{chat_id}")
+        await handle_sync_command(client, message)
+        return
+    elif text_strip in ["👤 حالة حساباتي", "حساباتي", "الحسابات", "accounts", "/accounts"]:
+        await redis_client.delete(f"status_bot:wizard:{chat_id}")
+        await handle_accounts_command(client, message)
+        return
+    elif text_strip in ["📊 إحصائيات الحملات", "إحصائيات", "الاحصائيات", "stats", "/stats"]:
+        await redis_client.delete(f"status_bot:wizard:{chat_id}")
+        await handle_stats_command(client, message)
+        return
+    elif text_strip in ["💬 الدعم الفني والمساعدة", "🛠️ الدعم الفني والمساعدة", "الدعم", "دعم", "support", "/support"]:
+        await redis_client.delete(f"status_bot:wizard:{chat_id}")
+        await handle_support_command(client, message)
+        return
+
     # Check if user is in wizard mode
     wizard_state_raw = await redis_client.get(f"status_bot:wizard:{chat_id}")
     if wizard_state_raw:
@@ -1642,6 +1866,13 @@ async def handle_private_message(client: Client, message: Message):
                         reply_markup=get_main_menu_keyboard(user.is_admin)
                     )
                 return
+
+    # Default fallback when not in wizard mode and unrecognized input
+    await message.reply_text(
+        "🌟 **مساعد أوتو-تيلي المباشر في خدمتك!**\n\n"
+        "يرجى الضغط على أحد أزرار القائمة الدائمة بالأسفل، أو زر **[ ≡ Menu ]** لتنفيذ أي إجراء مباشر في حسابك وحملاتك.",
+        reply_markup=get_persistent_menu_keyboard()
+    )
 
 async def notify_user_by_tenant_id(
     tenant_id: int, 
